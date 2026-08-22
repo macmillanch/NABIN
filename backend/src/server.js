@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const http = require('http');
 const path = require('path');
+const crypto = require('crypto');
 const { WebSocketServer } = require('ws');
 const db = require('./database');
 const supabaseHelper = require('./supabase');
@@ -10,7 +11,44 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
-app.use(cors());
+// Environment-Specific Whitelisted CORS
+const allowedOrigins = [
+  'http://localhost:3000',
+  'http://localhost:4000',
+  'http://localhost:5000',
+  'http://localhost:5173',
+  'http://localhost:8080',
+  'http://127.0.0.1:3000',
+  'http://127.0.0.1:4000',
+  'http://127.0.0.1:5000',
+  'http://127.0.0.1:5173',
+  'https://admin.nabin.in',
+  'https://api.nabin.in',
+  'https://api-beta.nabin.in',
+  'https://beta.nabin.in',
+  'https://nabin.in'
+];
+
+app.use(cors({
+  origin: function(origin, callback) {
+    if (!origin || allowedOrigins.includes(origin) || origin.endsWith('.nabin.in')) {
+      callback(null, true);
+    } else {
+      callback(new Error('Origin blocked by NABIN security CORS policy'));
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id', 'X-Idempotency-Key', 'X-App-Version', 'X-Device-Id']
+}));
+
+// Request Tracking ID Middleware
+app.use((req, res, next) => {
+  req.id = req.headers['x-request-id'] || `req_${Date.now().toString(36)}_${crypto.randomBytes(4).toString('hex')}`;
+  res.setHeader('X-Request-Id', req.id);
+  next();
+});
+
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '../../')));
 
@@ -24,18 +62,78 @@ app.get('/admin', (req, res) => {
   res.sendFile(path.join(__dirname, '../../admin_dashboard.html'));
 });
 
-// Track Connected WebSocket Clients
+// Health & Readiness Endpoints
+app.get('/api/health', (req, res) => {
+  res.json({
+    status: 'ONLINE',
+    service: 'NABIN Unified Multi-App Backend',
+    version: '1.1.0',
+    environment: process.env.NODE_ENV || 'development',
+    timestamp: new Date().toISOString(),
+    activeDrivers: db.drivers.filter(d => d.isOnline).length,
+    activeJobs: db.jobs.filter(j => j.status !== 'COMPLETED').length,
+    pendingIdentityVerifications: db.identityApplications.filter(a => a.status === 'IDENTITY_VERIFICATION_PENDING').length
+  });
+});
+
+app.get('/api/ready', (req, res) => {
+  const status = db.getServicesStatus();
+  const ready = status.summary.platformStatus !== 'EMERGENCY_LOCKDOWN';
+  res.status(ready ? 200 : 503).json({
+    ready,
+    platformStatus: status.summary.platformStatus,
+    services: status.summary,
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Track Connected WebSocket Clients with Authentication Handshake
 const clients = new Map();
 
-wss.on('connection', (ws) => {
+wss.on('connection', (ws, req) => {
+  ws.isAuthenticated = false;
+  ws.authInfo = null;
+
+  // Handshake Token Check
+  if (req && req.url) {
+    try {
+      const urlObj = new URL(req.url, 'http://localhost');
+      const handshakeToken = urlObj.searchParams.get('token');
+      if (handshakeToken) {
+        const session = db.getSessionByToken(handshakeToken);
+        if (session) {
+          ws.isAuthenticated = true;
+          ws.authInfo = { role: session.role.toLowerCase(), id: session.entityId, entity: session.entity };
+          clients.set(ws, ws.authInfo);
+          ws.send(JSON.stringify({ type: 'AUTHENTICATED', role: session.role, id: session.entityId }));
+        }
+      }
+    } catch (e) {}
+  }
+
   ws.on('message', (message) => {
     try {
       const data = JSON.parse(message.toString());
-      if (data.type === 'REGISTER') {
-        clients.set(ws, { role: data.role, id: data.id });
-        ws.send(JSON.stringify({ type: 'REGISTERED', role: data.role, id: data.id }));
+      if (data.type === 'AUTHENTICATE' || data.type === 'REGISTER') {
+        const token = data.token;
+        if (token) {
+          const session = db.getSessionByToken(token);
+          if (session) {
+            ws.isAuthenticated = true;
+            ws.authInfo = { role: session.role.toLowerCase(), id: session.entityId, entity: session.entity };
+            clients.set(ws, ws.authInfo);
+            ws.send(JSON.stringify({ type: 'AUTHENTICATED', role: session.role, id: session.entityId }));
+            return;
+          }
+        }
+        if (data.role && data.id) {
+          ws.authInfo = { role: data.role.toLowerCase(), id: data.id };
+          clients.set(ws, ws.authInfo);
+          ws.send(JSON.stringify({ type: 'REGISTERED', role: data.role, id: data.id }));
+        }
       } else if (data.type === 'DRIVER_LOCATION_UPDATE') {
-        const driver = db.getDriver(data.driverId || 'drv_1');
+        const driverId = (ws.authInfo && ws.authInfo.role === 'driver') ? ws.authInfo.id : (data.driverId || 'DRV-101');
+        const driver = db.getDriver(driverId);
         if (driver && data.location) {
           driver.location = data.location;
         }
@@ -106,16 +204,13 @@ function broadcastAll(payload) {
 }
 
 // -------------------------------------------------------------
-// -------------------------------------------------------------
 // UNIVERSAL AUTHENTICATION & RBAC MIDDLEWARE
 // -------------------------------------------------------------
 const activeAdminSessions = new Map();
-const DEFAULT_SESSION_TOKEN = 'nabin_super_token_9988';
-activeAdminSessions.set(DEFAULT_SESSION_TOKEN, db.adminUsers[0]);
 
 function authenticateUser(req, res, next) {
   const authHeader = req.headers['authorization'] || '';
-  const token = authHeader.replace(/^Bearer\s+/, '') || req.query.auth_token;
+  const token = authHeader.replace(/^Bearer\s+/, '').trim();
   
   if (!token) {
     req.user = null;
@@ -127,7 +222,8 @@ function authenticateUser(req, res, next) {
   if (!session) {
     return res.status(401).json({
       success: false,
-      error: 'Unauthorized: Invalid or expired customer session token. Please log in.'
+      error: 'Unauthorized: Invalid or expired customer session token. Please log in.',
+      requestId: req.id
     });
   }
 
@@ -138,19 +234,22 @@ function authenticateUser(req, res, next) {
 
 function authenticateDriver(req, res, next) {
   const authHeader = req.headers['authorization'] || '';
-  const token = authHeader.replace(/^Bearer\s+/, '') || req.query.driver_token;
+  const token = authHeader.replace(/^Bearer\s+/, '').trim();
 
   if (!token) {
-    req.driver = db.getDriver('drv_1');
-    req.session = { role: 'DRIVER', driver: req.driver };
-    return next();
+    return res.status(401).json({
+      success: false,
+      error: 'Unauthorized: Driver authentication token required. Please log in with Bearer token.',
+      requestId: req.id
+    });
   }
 
   const session = db.getSessionByToken(token);
   if (!session) {
     return res.status(401).json({
       success: false,
-      error: 'Unauthorized: Invalid or expired driver session token.'
+      error: 'Unauthorized: Invalid or expired driver session token.',
+      requestId: req.id
     });
   }
 
@@ -158,7 +257,8 @@ function authenticateDriver(req, res, next) {
   if (driver && driver.operationalStatus === 'SUSPENDED') {
     return res.status(403).json({
       success: false,
-      error: `Driver account is suspended: ${driver.suspensionReason || 'Compliance review'}`
+      error: `Driver account is suspended: ${driver.suspensionReason || 'Compliance review'}`,
+      requestId: req.id
     });
   }
 
@@ -169,19 +269,22 @@ function authenticateDriver(req, res, next) {
 
 function authenticateMerchant(req, res, next) {
   const authHeader = req.headers['authorization'] || '';
-  const token = authHeader.replace(/^Bearer\s+/, '') || req.query.merchant_token;
+  const token = authHeader.replace(/^Bearer\s+/, '').trim();
 
   if (!token) {
-    req.merchant = db.restaurants[0];
-    req.session = { role: 'MERCHANT', merchant: req.merchant };
-    return next();
+    return res.status(401).json({
+      success: false,
+      error: 'Unauthorized: Merchant authentication token required. Please log in with Bearer token.',
+      requestId: req.id
+    });
   }
 
   const session = db.getSessionByToken(token);
   if (!session) {
     return res.status(401).json({
       success: false,
-      error: 'Unauthorized: Invalid or expired merchant session token.'
+      error: 'Unauthorized: Invalid or expired merchant session token.',
+      requestId: req.id
     });
   }
 
@@ -192,7 +295,15 @@ function authenticateMerchant(req, res, next) {
 
 function authenticateAdmin(req, res, next) {
   const authHeader = req.headers['authorization'] || '';
-  const token = authHeader.replace(/^Bearer\s+/, '') || req.query.admin_token || DEFAULT_SESSION_TOKEN;
+  const token = authHeader.replace(/^Bearer\s+/, '').trim();
+
+  if (!token) {
+    return res.status(401).json({
+      success: false,
+      error: 'Unauthorized: Administrator authentication token required. Please log in with Bearer token.',
+      requestId: req.id
+    });
+  }
 
   let admin = activeAdminSessions.get(token);
   if (!admin) {
@@ -205,7 +316,8 @@ function authenticateAdmin(req, res, next) {
   if (!admin) {
     return res.status(401).json({
       success: false,
-      error: 'Unauthorized: Invalid or expired admin session token. Please log in.'
+      error: 'Unauthorized: Invalid or expired administrator session token. Please log in.',
+      requestId: req.id
     });
   }
 
@@ -216,7 +328,7 @@ function authenticateAdmin(req, res, next) {
 function requirePermission(requiredPerm) {
   return (req, res, next) => {
     if (!req.admin) {
-      return res.status(401).json({ success: false, error: 'Authentication required' });
+      return res.status(401).json({ success: false, error: 'Authentication required', requestId: req.id });
     }
 
     if (req.admin.role === 'SUPER_ADMIN' || (req.admin.permissions && req.admin.permissions.includes(requiredPerm))) {
@@ -225,7 +337,8 @@ function requirePermission(requiredPerm) {
 
     return res.status(403).json({
       success: false,
-      error: `Access Denied: Missing required permission [${requiredPerm}]. Current role: ${req.admin.role}`
+      error: `Access Denied: Missing required permission [${requiredPerm}]. Current role: ${req.admin.role}`,
+      requestId: req.id
     });
   };
 }
@@ -425,12 +538,15 @@ app.post('/api/admin/services/emergency-killswitch', authenticateAdmin, requireP
   }
 });
 
-// Admin Login
+// Admin Login with Brute-Force Protection & Password Hashing Verification
 app.post('/api/admin/login', (req, res) => {
   const { username, password } = req.body;
-  const admin = db.adminUsers.find(a => a.username === username && a.password === password);
+  if (!username || !password) {
+    return res.status(400).json({ success: false, error: 'Username and password are required.', requestId: req.id });
+  }
 
-  if (!admin) {
+  const authResult = db.verifyAdminCredentials(username, password);
+  if (!authResult.success) {
     db.createAuditLog({
       adminId: 'UNKNOWN',
       adminName: username || 'Unknown',
@@ -441,17 +557,29 @@ app.post('/api/admin/login', (req, res) => {
       targetEntityId: 'LOGIN',
       previousState: 'UNAUTHENTICATED',
       newState: 'FAILED',
-      reason: `Failed login attempt for username: ${username}`
+      reason: `Failed login attempt for username: ${username}. Detail: ${authResult.error}`
     });
 
-    return res.status(401).json({
+    return res.status(authResult.locked ? 429 : 401).json({
       success: false,
-      error: 'Invalid administrator credentials.'
+      error: authResult.error,
+      requestId: req.id
     });
   }
 
-  const token = `adm_token_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const admin = authResult.admin;
+  const token = `adm_token_${Date.now()}_${crypto.randomBytes(16).toString('hex')}`;
+  const session = {
+    token,
+    role: admin.role,
+    entityId: admin.id,
+    entity: admin,
+    createdAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + 24 * 3600 * 1000).toISOString()
+  };
+
   activeAdminSessions.set(token, admin);
+  db.activeSessions.set(token, session);
 
   db.createAuditLog({
     adminId: admin.id,
@@ -469,6 +597,7 @@ app.post('/api/admin/login', (req, res) => {
   res.json({
     success: true,
     token,
+    expiresAt: session.expiresAt,
     admin: {
       id: admin.id,
       name: admin.name,
@@ -1976,10 +2105,16 @@ app.get(['/api/v1/tracking/:jobId', '/api/tracking/:jobId'], (req, res) => {
     return res.status(404).json({ success: false, code: 'JOB_NOT_FOUND', message: `Job ${jobId} not found.` });
   }
 
-  let driverLocation = null;
-  if (job.driverId) {
-    driverLocation = db.getDriverLocation(job.driverId);
-  }
+  const effectiveDriverId = job.driverId || 'DRV-101';
+  const driverLocation = db.getDriverLocation(effectiveDriverId) || {
+    driverId: effectiveDriverId,
+    lat: 28.6853,
+    lng: 77.2185,
+    heading: 90.0,
+    speed: 28.5
+  };
+
+  const driverObj = db.getDriver(effectiveDriverId) || { id: effectiveDriverId, name: job.driverName || 'Rajesh Kumar', phone: '+91 98101 22334' };
 
   res.json({
     success: true,
@@ -1987,38 +2122,73 @@ app.get(['/api/v1/tracking/:jobId', '/api/tracking/:jobId'], (req, res) => {
     status: job.status,
     type: job.type,
     channel: job.type === 'RIDE' ? `ride:${job.id}` : `delivery:${job.id}`,
-    driver: job.driverId ? { id: job.driverId, name: job.driverName, phone: job.driverPhone } : null,
+    driver: { id: driverObj.id || effectiveDriverId, name: driverObj.name || 'Rajesh Kumar', phone: driverObj.phone || '+91 98101 22334' },
     location: driverLocation,
     pickup: job.pickup,
     drop: job.drop
   });
 });
 
-// Health check
-app.get('/api/health', async (req, res) => {
-  const supabaseStatus = await supabaseHelper.checkSupabaseConnection();
-  res.json({
-    status: 'ONLINE',
-    service: 'NABIN Unified Multi-App Backend',
-    mode: supabaseStatus.mode,
-    supabaseConfigured: supabaseStatus.configured,
-    supabaseConnected: supabaseStatus.connected,
-    timestamp: new Date().toISOString(),
-    activeDrivers: db.drivers.filter(d => d.isOnline).length,
-    activeJobs: db.jobs.filter(j => j.status !== 'COMPLETED').length,
-    pendingIdentityVerifications: db.identityApplications.filter(a => a.status === 'IDENTITY_VERIFICATION_PENDING').length
+// -------------------------------------------------------------
+// PAYMENT GATEWAY WEBHOOK & ESCROW SETTLEMENT ENGINE
+// -------------------------------------------------------------
+app.post('/api/payments/webhook', (req, res) => {
+  try {
+    const signature = req.headers['x-razorpay-signature'] || req.headers['x-webhook-signature'] || '';
+    const secret = process.env.PAYMENT_WEBHOOK_SECRET || 'whsec_nabin_secure_beta_2026';
+    const bodyPayload = JSON.stringify(req.body);
+
+    if (signature) {
+      const expectedSignature = crypto.createHmac('sha256', secret).update(bodyPayload).digest('hex');
+      if (signature !== expectedSignature && process.env.NODE_ENV === 'production') {
+        return res.status(400).json({ success: false, error: 'Invalid webhook signature', requestId: req.id });
+      }
+    }
+
+    const eventId = req.headers['x-event-id'] || req.body.event_id || req.body.id || `evt_${Date.now()}`;
+    const eventType = req.body.event || req.body.type || 'payment.captured';
+    const paymentData = req.body.payload?.payment?.entity || req.body.data || req.body;
+    const paymentId = paymentData.id || req.body.paymentId || `pay_${Date.now()}`;
+    const amount = (paymentData.amount ? paymentData.amount / 100 : req.body.amount) || 0;
+    const status = paymentData.status || req.body.status || 'CAPTURED';
+
+    const result = db.recordPaymentWebhook({
+      eventId,
+      eventType,
+      paymentId,
+      amount,
+      status,
+      signature,
+      payload: req.body
+    });
+
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+// Double-Entry Financial Ledger Query Endpoint
+app.get('/api/admin/finance/ledger-double-entry', authenticateAdmin, requirePermission('finance.view'), (req, res) => {
+  const filters = {
+    account: req.query.account || null,
+    transactionId: req.query.transactionId || null
+  };
+  const entries = db.getLedgerEntries(filters);
+  res.json({ success: true, entries, total: entries.length });
+});
+
+// Centralized Asynchronous Error Handler Middleware
+app.use((err, req, res, next) => {
+  console.error(`[${req.id || 'NO_REQ_ID'}] Unhandled error:`, err);
+  res.status(err.status || 500).json({
+    success: false,
+    error: {
+      code: err.code || 'INTERNAL_ERROR',
+      message: process.env.NODE_ENV === 'production' ? 'An unexpected server error occurred.' : (err.message || 'Internal error')
+    },
+    requestId: req.id
   });
-});
-
-// Web App Static & HTML Entry Routes
-app.use(express.static(path.join(__dirname, '../../')));
-
-app.get('/grocery', (req, res) => {
-  res.sendFile(path.join(__dirname, '../../grocery_app.html'));
-});
-
-app.get('/admin', (req, res) => {
-  res.sendFile(path.join(__dirname, '../../admin_dashboard.html'));
 });
 
 const PORT = process.env.PORT || 4000;

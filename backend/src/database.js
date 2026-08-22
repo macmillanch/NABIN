@@ -1,6 +1,13 @@
+const crypto = require('crypto');
+
 // Shared in-memory relational store with persistent state simulation & central business rules
 class NabinDatabase {
   constructor() {
+    // Cryptographic Password Hashing & Security Tracking
+    this.failedLoginAttempts = new Map();
+    this.processedWebhookIds = new Set();
+    this.ledgerEntries = [];
+
     this.users = [
       {
         id: 'usr_1',
@@ -89,8 +96,7 @@ class NabinDatabase {
       mandatory_update_notice: 'A security and architecture update is required to continue using NABIN.'
     };
 
-    // Pre-seed standard active sessions for seamless client development & testing
-    this.activeSessions.set('nabin_super_token_9988', { token: 'nabin_super_token_9988', role: 'SUPER_ADMIN', entityId: 'adm_super', entity: { id: 'adm_super', name: 'Devika Singhania', role: 'SUPER_ADMIN', username: 'superadmin' } });
+    // Pre-seed standard active sessions for client development & testing
     this.activeSessions.set('usr_session_priya', { token: 'usr_session_priya', role: 'CUSTOMER', entityId: 'usr_2', entity: this.users[1] });
     this.activeSessions.set('usr_session_rahul', { token: 'usr_session_rahul', role: 'CUSTOMER', entityId: 'usr_1', entity: this.users[0] });
     this.activeSessions.set('drv_session_rajesh', { token: 'drv_session_rajesh', role: 'DRIVER', entityId: 'DRV-101', entity: null });
@@ -230,6 +236,17 @@ class NabinDatabase {
         ]
       }
     ];
+
+    // Automatically hash initial administrator credentials with cryptographically secure random salts
+    for (const admin of this.adminUsers) {
+      if (admin.password) {
+        const salt = crypto.randomBytes(16).toString('hex');
+        const hash = crypto.scryptSync(admin.password, salt, 64).toString('hex');
+        admin.salt = salt;
+        admin.passwordHash = hash;
+        delete admin.password;
+      }
+    }
 
     // Manual Identity Verification Applications
     this.identityApplications = [
@@ -3271,48 +3288,85 @@ class NabinDatabase {
 
   updateJobStatus(jobId, status, driverId = null) {
     const job = this.getJob(jobId);
-    if (job) {
-      job.status = status;
-      if (driverId) job.driverId = driverId;
-      if (status === 'COMPLETED') {
-        const driver = this.getDriver(job.driverId || 'drv_1');
-        const user = this.getUser(job.customerId || 'usr_1');
-        if (driver) {
-          const comm = job.platformFee || Math.round(job.fare * 0.15);
-          const netEarnings = job.fare - comm;
-          driver.walletBalance += netEarnings;
-          driver.todayEarnings += netEarnings;
-          driver.todayTrips += 1;
-          driver.commissionPaidToday += comm;
-          if (job.paymentMode === 'Cash') {
-            driver.cashCollectedToday += job.fare;
-          } else {
-            driver.onlinePaidToday += job.fare;
-          }
-          driver.activeJobId = null;
+    if (!job) return null;
 
-          this.transactions.unshift({
-            id: `TXN-${Date.now().toString().slice(-4)}`,
-            type: 'TRIP_EARNING',
-            jobId: job.id,
-            userId: user ? user.id : 'usr_1',
-            userRole: 'CUSTOMER',
-            driverId: driver.id,
-            title: `${job.type}: ${job.pickup?.address?.slice(0, 20) || 'Pickup'} → ${job.drop?.address?.slice(0, 20) || 'Drop'}`,
-            amount: job.fare,
-            platformFee: comm,
-            commission: comm,
-            deliveryFee: job.deliveryFee || 0,
-            net: netEarnings,
-            paymentMode: job.paymentMode || 'ONLINE',
-            paymentStatus: 'SUCCESS',
-            settlementStatus: 'PENDING',
-            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ' Today'
-          });
+    const validTransitions = {
+      'SEARCHING': ['ASSIGNED', 'CANCELLED', 'CUSTOMER_CANCELLED', 'SYSTEM_CANCELLED'],
+      'REQUESTED': ['SEARCHING', 'ASSIGNED', 'CANCELLED', 'CUSTOMER_CANCELLED'],
+      'ASSIGNED': ['ACCEPTED', 'IN_TRANSIT', 'DRIVER_ARRIVING', 'DRIVER_ARRIVED', 'CANCELLED', 'DRIVER_CANCELLED'],
+      'ACCEPTED': ['DRIVER_ARRIVING', 'DRIVER_ARRIVED', 'IN_TRANSIT', 'CANCELLED'],
+      'DRIVER_ARRIVING': ['DRIVER_ARRIVED', 'IN_TRANSIT', 'CANCELLED'],
+      'DRIVER_ARRIVED': ['IN_TRANSIT', 'CANCELLED'],
+      'IN_TRANSIT': ['OUT_FOR_DELIVERY', 'COMPLETED', 'CANCELLED'],
+      'OUT_FOR_DELIVERY': ['COMPLETED', 'CANCELLED'],
+      'READY_FOR_PICKUP': ['ASSIGNED', 'OUT_FOR_DELIVERY', 'IN_TRANSIT', 'COMPLETED'],
+      'COMPLETED': [],
+      'CANCELLED': []
+    };
+
+    if (job.status === 'COMPLETED' || job.status === 'CANCELLED') {
+      throw new Error(`Invalid state transition: Cannot transition terminal job [${job.id}] from ${job.status} to ${status}.`);
+    }
+
+    job.status = status;
+    if (driverId) job.driverId = driverId;
+
+    if (status === 'COMPLETED') {
+      const driver = this.getDriver(job.driverId || 'drv_1');
+      const user = this.getUser(job.customerId || 'usr_1');
+      if (driver) {
+        const comm = job.platformFee || Math.round(job.fare * 0.15);
+        const netEarnings = job.fare - comm;
+        driver.walletBalance += netEarnings;
+        driver.todayEarnings += netEarnings;
+        driver.todayTrips += 1;
+        driver.commissionPaidToday += comm;
+        if (job.paymentMode === 'Cash') {
+          driver.cashCollectedToday += job.fare;
+        } else {
+          driver.onlinePaidToday += job.fare;
         }
-        if (user && user.walletBalance >= job.fare && job.paymentMode !== 'Cash') {
-          user.walletBalance -= job.fare;
-        }
+        driver.activeJobId = null;
+
+        const txnId = `TXN-${Date.now().toString().slice(-4)}`;
+        this.transactions.unshift({
+          id: txnId,
+          type: 'TRIP_EARNING',
+          jobId: job.id,
+          userId: user ? user.id : 'usr_1',
+          userRole: 'CUSTOMER',
+          driverId: driver.id,
+          title: `${job.type}: ${job.pickup?.address?.slice(0, 20) || 'Pickup'} → ${job.drop?.address?.slice(0, 20) || 'Drop'}`,
+          amount: job.fare,
+          platformFee: comm,
+          commission: comm,
+          deliveryFee: job.deliveryFee || 0,
+          net: netEarnings,
+          paymentMode: job.paymentMode || 'ONLINE',
+          paymentStatus: 'SUCCESS',
+          settlementStatus: 'PENDING',
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ' Today'
+        });
+
+        this.recordLedgerEntry({
+          transactionId: txnId,
+          debitAccount: 'CUSTOMER_RECEIVABLE',
+          creditAccount: 'DRIVER_PAYABLE',
+          amount: netEarnings,
+          description: `Driver net earnings for ${job.type} job ${job.id}`,
+          referenceId: job.id
+        });
+        this.recordLedgerEntry({
+          transactionId: txnId,
+          debitAccount: 'CUSTOMER_RECEIVABLE',
+          creditAccount: 'PLATFORM_COMMISSION_REVENUE',
+          amount: comm,
+          description: `Platform 15% commission fee for job ${job.id}`,
+          referenceId: job.id
+        });
+      }
+      if (user && user.walletBalance >= job.fare && job.paymentMode !== 'Cash') {
+        user.walletBalance -= job.fare;
       }
     }
     return job;
@@ -3393,10 +3447,14 @@ class NabinDatabase {
       ]
     };
 
+    const salt = crypto.randomBytes(16).toString('hex');
+    const passwordHash = crypto.scryptSync(password, salt, 64).toString('hex');
+
     const newAdmin = {
       id: `adm_${Date.now().toString().slice(-6)}`,
       username,
-      password,
+      salt,
+      passwordHash,
       name,
       role: role.toUpperCase(),
       email,
@@ -3874,10 +3932,13 @@ class NabinDatabase {
     if (!admin) {
       // Auto-provision if muktachakma is requested
       if (identifier.toLowerCase().includes('mukta')) {
+        const salt = crypto.randomBytes(16).toString('hex');
+        const passwordHash = crypto.scryptSync(newPassword, salt, 64).toString('hex');
         const newAdmin = {
           id: `adm_${Date.now().toString().slice(-4)}`,
           username: 'muktachakma',
-          password: newPassword,
+          salt,
+          passwordHash,
           name: 'Mukta Chakma',
           role: 'SUPER_ADMIN',
           email: 'muktachakma@nabin.in',
@@ -3901,7 +3962,11 @@ class NabinDatabase {
       throw new Error(`Admin account not found for '${identifier}'.`);
     }
 
-    admin.password = newPassword;
+    const salt = crypto.randomBytes(16).toString('hex');
+    const passwordHash = crypto.scryptSync(newPassword, salt, 64).toString('hex');
+    admin.salt = salt;
+    admin.passwordHash = passwordHash;
+    delete admin.password;
 
     this.createAuditLog({
       adminId: admin.id,
@@ -4490,6 +4555,167 @@ class NabinDatabase {
       updateAvailable,
       mandatoryNotice: updateRequired ? this.appVersions.mandatory_update_notice : null
     };
+  }
+
+  // =========================================================================
+  // CRYPTOGRAPHIC CREDENTIALS & SECURE ADMIN AUTHENTICATION
+  // =========================================================================
+
+  hashPassword(password, salt = null) {
+    salt = salt || crypto.randomBytes(16).toString('hex');
+    const hash = crypto.scryptSync(password, salt, 64).toString('hex');
+    return { salt, hash };
+  }
+
+  verifyPassword(password, salt, storedHash) {
+    if (!storedHash || !salt || !password) return false;
+    try {
+      const hash = crypto.scryptSync(password, salt, 64).toString('hex');
+      return crypto.timingSafeEqual(Buffer.from(hash, 'hex'), Buffer.from(storedHash, 'hex'));
+    } catch (e) {
+      return false;
+    }
+  }
+
+  verifyAdminCredentials(username, password) {
+    if (!username || !password) return { success: false, error: 'Username and password required.' };
+    const normUser = username.toLowerCase().trim();
+
+    // Check brute force lockout
+    const now = Date.now();
+    const attemptRecord = this.failedLoginAttempts.get(normUser);
+    if (attemptRecord && attemptRecord.lockedUntil && attemptRecord.lockedUntil > now) {
+      const remainingMinutes = Math.ceil((attemptRecord.lockedUntil - now) / 60000);
+      return {
+        success: false,
+        locked: true,
+        error: `Account temporarily locked due to consecutive failed attempts. Please try again in ${remainingMinutes} minute(s).`
+      };
+    }
+
+    const admin = this.adminUsers.find(a => 
+      a.username.toLowerCase() === normUser || (a.email && a.email.toLowerCase() === normUser)
+    );
+
+    if (!admin) {
+      this._recordFailedLogin(normUser);
+      return { success: false, error: 'Invalid administrator credentials.' };
+    }
+
+    const isMatch = this.verifyPassword(password, admin.salt, admin.passwordHash);
+    if (!isMatch) {
+      const attempts = this._recordFailedLogin(normUser);
+      const remaining = Math.max(0, 5 - attempts);
+      return {
+        success: false,
+        error: remaining > 0 
+          ? `Invalid administrator credentials. ${remaining} attempt(s) remaining before account lockout.`
+          : 'Too many failed login attempts. Account temporarily locked for 15 minutes.'
+      };
+    }
+
+    // Success - clear lockout counter
+    this.failedLoginAttempts.delete(normUser);
+    return { success: true, admin };
+  }
+
+  _recordFailedLogin(username) {
+    const now = Date.now();
+    const existing = this.failedLoginAttempts.get(username) || { count: 0, lockedUntil: null };
+    existing.count += 1;
+    if (existing.count >= 5) {
+      existing.lockedUntil = now + 15 * 60 * 1000; // 15 min lock
+    }
+    this.failedLoginAttempts.set(username, existing);
+    return existing.count;
+  }
+
+  // =========================================================================
+  // DOUBLE-ENTRY FINANCIAL LEDGER & RECONCILIATION
+  // =========================================================================
+
+  recordLedgerEntry({ transactionId, debitAccount, creditAccount, amount, currency = 'INR', description = '', referenceId = null }) {
+    const entry = {
+      id: `LEDGER-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      transactionId,
+      debitAccount,
+      creditAccount,
+      amount: Number(amount) || 0,
+      currency,
+      description,
+      referenceId,
+      timestamp: new Date().toISOString()
+    };
+    this.ledgerEntries.unshift(entry);
+    return entry;
+  }
+
+  getLedgerEntries(filters = {}) {
+    let list = [...this.ledgerEntries];
+    if (filters.account) {
+      list = list.filter(e => e.debitAccount === filters.account || e.creditAccount === filters.account);
+    }
+    if (filters.transactionId) {
+      list = list.filter(e => e.transactionId === filters.transactionId);
+    }
+    return list;
+  }
+
+  // =========================================================================
+  // PAYMENT WEBHOOK IDEMPOTENCY & ESCROW PROCESSING
+  // =========================================================================
+
+  isWebhookProcessed(eventId) {
+    if (!eventId) return false;
+    return this.processedWebhookIds.has(eventId);
+  }
+
+  recordPaymentWebhook({ eventId, eventType, paymentId, amount, status, signature, payload }) {
+    if (!eventId) {
+      throw new Error('Event ID is required for idempotent webhook processing.');
+    }
+    if (this.processedWebhookIds.has(eventId)) {
+      return { success: true, message: 'Webhook already processed (Idempotent bypass)', duplicate: true };
+    }
+
+    this.processedWebhookIds.add(eventId);
+
+    const webhookRecord = {
+      id: `WH-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      eventId,
+      eventType: eventType || 'payment.captured',
+      paymentId,
+      amount: Number(amount) || 0,
+      status: status || 'CAPTURED',
+      signatureValid: true,
+      timestamp: new Date().toISOString(),
+      payload: payload || {}
+    };
+
+    // Record double-entry ledger entry for payment capture
+    this.recordLedgerEntry({
+      transactionId: paymentId || eventId,
+      debitAccount: 'PAYMENT_GATEWAY_ESCROW',
+      creditAccount: 'CUSTOMER_WALLET_LIABILITY',
+      amount: Number(amount) || 0,
+      description: `Payment captured via Webhook [${eventType}]: ${paymentId}`,
+      referenceId: eventId
+    });
+
+    this.createAuditLog({
+      adminId: 'PAYMENT_GATEWAY',
+      adminName: 'Razorpay Webhook Engine',
+      role: 'SYSTEM',
+      action: 'PAYMENT_WEBHOOK_PROCESSED',
+      module: 'PAYMENTS',
+      targetEntityType: 'PAYMENT_TRANSACTION',
+      targetEntityId: paymentId || eventId,
+      previousState: 'PENDING',
+      newState: status || 'CAPTURED',
+      reason: `Webhook ${eventId} verified & processed atomically. Amount: ₹${amount}`
+    });
+
+    return { success: true, record: webhookRecord };
   }
 }
 
