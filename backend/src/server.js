@@ -126,11 +126,7 @@ wss.on('connection', (ws, req) => {
             return;
           }
         }
-        if (data.role && data.id) {
-          ws.authInfo = { role: data.role.toLowerCase(), id: data.id };
-          clients.set(ws, ws.authInfo);
-          ws.send(JSON.stringify({ type: 'REGISTERED', role: data.role, id: data.id }));
-        }
+        ws.send(JSON.stringify({ type: 'AUTH_ERROR', error: 'WebSocket authentication rejected: Valid session token required.' }));
       } else if (data.type === 'DRIVER_LOCATION_UPDATE') {
         const driverId = (ws.authInfo && ws.authInfo.role === 'driver') ? ws.authInfo.id : (data.driverId || 'DRV-101');
         const driver = db.getDriver(driverId);

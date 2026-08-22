@@ -166,22 +166,56 @@ CREATE TABLE IF NOT EXISTS jobs (
 );
 
 -- =========================================================================
--- 6. IMMUTABLE FINANCIAL LEDGER & AUDIT TRAILS
+-- 6. ADMIN ACCOUNTS & RBAC
 -- =========================================================================
 
-CREATE TABLE IF NOT EXISTS ledger_transactions (
+CREATE TABLE IF NOT EXISTS admin_accounts (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    transaction_ref VARCHAR(80) UNIQUE NOT NULL,
+    username VARCHAR(50) UNIQUE NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    email VARCHAR(150) UNIQUE NOT NULL,
+    phone VARCHAR(20),
+    role VARCHAR(40) NOT NULL CHECK (role IN ('SUPER_ADMIN', 'KYC_SPECIALIST', 'OPERATIONS', 'FINANCE_AUDITOR', 'SUPPORT_AGENT')),
+    department VARCHAR(50),
+    password_hash VARCHAR(200) NOT NULL,
+    password_salt VARCHAR(50) NOT NULL,
+    is_active BOOLEAN DEFAULT TRUE,
+    failed_attempts INTEGER DEFAULT 0,
+    locked_until TIMESTAMPTZ,
+    last_login_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- =========================================================================
+-- 7. IMMUTABLE FINANCIAL LEDGER & AUDIT TRAILS
+-- =========================================================================
+
+CREATE TABLE IF NOT EXISTS ledger_entries (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    entry_id VARCHAR(80) UNIQUE NOT NULL,
     job_id UUID REFERENCES jobs(id),
-    entity_type VARCHAR(30) NOT NULL CHECK (entity_type IN ('CUSTOMER', 'DRIVER', 'MERCHANT', 'PLATFORM')),
-    entity_id VARCHAR(60) NOT NULL,
-    entry_type VARCHAR(20) NOT NULL CHECK (entry_type IN ('CREDIT', 'DEBIT')),
-    amount NUMERIC(12, 2) NOT NULL,
-    balance_after NUMERIC(12, 2) NOT NULL,
     category VARCHAR(50) NOT NULL,
-    idempotency_key VARCHAR(100) UNIQUE,
-    notes TEXT,
+    debit_account VARCHAR(80) NOT NULL,
+    credit_account VARCHAR(80) NOT NULL,
+    amount NUMERIC(12, 2) NOT NULL,
+    currency VARCHAR(10) DEFAULT 'INR',
+    description TEXT,
+    reference_id VARCHAR(100),
+    recorded_by VARCHAR(50) DEFAULT 'SYSTEM_ESCROW',
     created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS payment_webhooks (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    event_id VARCHAR(100) UNIQUE NOT NULL,
+    event_type VARCHAR(60) NOT NULL,
+    provider VARCHAR(40) DEFAULT 'RAZORPAY',
+    amount NUMERIC(12, 2),
+    status VARCHAR(30) NOT NULL,
+    payload JSONB NOT NULL,
+    is_processed BOOLEAN DEFAULT TRUE,
+    processed_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS audit_logs (
@@ -201,7 +235,7 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 );
 
 -- =========================================================================
--- 7. GEOFENCES, SURGE ZONES & PROMOTIONS
+-- 8. GEOFENCES, SURGE ZONES & PROMOTIONS
 -- =========================================================================
 
 CREATE TABLE IF NOT EXISTS geo_fences (
@@ -232,21 +266,63 @@ CREATE TABLE IF NOT EXISTS promotions (
 );
 
 -- =========================================================================
--- 8. ROW-LEVEL SECURITY (RLS) POLICIES
+-- 9. ROW-LEVEL SECURITY (RLS) POLICIES
 -- =========================================================================
 
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE identity_documents ENABLE ROW LEVEL SECURITY;
+ALTER TABLE drivers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE merchants ENABLE ROW LEVEL SECURITY;
 ALTER TABLE jobs ENABLE ROW LEVEL SECURITY;
-ALTER TABLE ledger_transactions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE ledger_entries ENABLE ROW LEVEL SECURITY;
+ALTER TABLE payment_webhooks ENABLE ROW LEVEL SECURITY;
+ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE admin_accounts ENABLE ROW LEVEL SECURITY;
 
+-- Users RLS
 CREATE POLICY "Users can only read and update own profile"
     ON users FOR ALL
     USING (auth.uid() = id);
 
-CREATE POLICY "Users can view only their own jobs"
-    ON jobs FOR SELECT
-    USING (auth.uid() = customer_id OR auth.uid() = driver_id);
+-- Identity Documents RLS (Sensitive Government IDs)
+CREATE POLICY "Users can view own identity documents"
+    ON identity_documents FOR SELECT
+    USING (auth.uid() = user_id);
 
-CREATE POLICY "Users can view only their own ledger transactions"
-    ON ledger_transactions FOR SELECT
-    USING (entity_id = auth.uid()::text);
+CREATE POLICY "Users can submit own identity documents"
+    ON identity_documents FOR INSERT
+    WITH CHECK (auth.uid() = user_id);
+
+-- Drivers RLS
+CREATE POLICY "Drivers can view and update own record"
+    ON drivers FOR ALL
+    USING (auth.uid() = id);
+
+-- Merchants RLS
+CREATE POLICY "Merchants can view and manage own store"
+    ON merchants FOR ALL
+    USING (auth.uid() = id);
+
+-- Jobs RLS
+CREATE POLICY "Participants can view their own jobs"
+    ON jobs FOR SELECT
+    USING (auth.uid() = customer_id OR auth.uid() = driver_id OR auth.uid() = merchant_id);
+
+-- Double-Entry Ledger RLS (Admins & Service Role only)
+CREATE POLICY "Service role and admin full access to ledger"
+    ON ledger_entries FOR ALL
+    USING (auth.jwt() ->> 'role' = 'service_role' OR auth.jwt() ->> 'role' = 'SUPER_ADMIN' OR auth.jwt() ->> 'role' = 'FINANCE_AUDITOR');
+
+-- Audit Logs RLS (Immutable write, read by admins)
+CREATE POLICY "Audit logs viewable by authorized admins"
+    ON audit_logs FOR SELECT
+    USING (auth.jwt() ->> 'role' IN ('SUPER_ADMIN', 'KYC_SPECIALIST', 'OPERATIONS', 'FINANCE_AUDITOR', 'SUPPORT_AGENT'));
+
+-- Indexes for High Performance
+CREATE INDEX IF NOT EXISTS idx_users_phone ON users(phone);
+CREATE INDEX IF NOT EXISTS idx_drivers_phone ON drivers(phone);
+CREATE INDEX IF NOT EXISTS idx_jobs_customer ON jobs(customer_id);
+CREATE INDEX IF NOT EXISTS idx_jobs_driver ON jobs(driver_id);
+CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
+CREATE INDEX IF NOT EXISTS idx_ledger_entry_id ON ledger_entries(entry_id);
+CREATE INDEX IF NOT EXISTS idx_payment_webhooks_event ON payment_webhooks(event_id);
