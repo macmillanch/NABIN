@@ -1,11 +1,18 @@
 const crypto = require('crypto');
+const persistentStore = require('./database/persistentStore');
+const UserRepository = require('./repositories/UserRepository');
+const DriverRepository = require('./repositories/DriverRepository');
+const JobRepository = require('./repositories/JobRepository');
+const PaymentRepository = require('./repositories/PaymentRepository');
+const LedgerRepository = require('./repositories/LedgerRepository');
 
-// Shared in-memory relational store with persistent state simulation & central business rules
+// Shared relational store with durable persistence, crash recovery & double-entry accounting
 class NabinDatabase {
   constructor() {
     // Cryptographic Password Hashing & Security Tracking
     this.failedLoginAttempts = new Map();
     this.processedWebhookIds = new Set();
+    this.processedPaymentIds = new Set();
     this.ledgerEntries = [];
 
     this.users = [
@@ -1799,6 +1806,47 @@ class NabinDatabase {
         durationMinutes: 120
       }
     ];
+
+    // Load persistent state snapshot from disk/database
+    const persisted = persistentStore.loadState();
+    if (persisted) {
+      if (persisted.users && persisted.users.length) this.users = persisted.users;
+      if (persisted.drivers && persisted.drivers.length) this.drivers = persisted.drivers;
+      if (persisted.restaurants && persisted.restaurants.length) this.restaurants = persisted.restaurants;
+      if (persisted.groceryCatalog && persisted.groceryCatalog.length) this.groceryCatalog = persisted.groceryCatalog;
+      if (persisted.jobs && persisted.jobs.length) this.jobs = persisted.jobs;
+      if (persisted.supportTickets && persisted.supportTickets.length) this.supportTickets = persisted.supportTickets;
+      if (persisted.identityApplications && persisted.identityApplications.length) this.identityApplications = persisted.identityApplications;
+      if (persisted.geoFences && persisted.geoFences.length) this.geoFences = persisted.geoFences;
+      if (persisted.promotions && persisted.promotions.length) this.promotions = persisted.promotions;
+      if (persisted.adminAccounts && persisted.adminAccounts.length) this.adminAccounts = persisted.adminAccounts;
+      if (persisted.ledgerEntries && persisted.ledgerEntries.length) this.ledgerEntries = persisted.ledgerEntries;
+      if (persisted.processedWebhookIds && Array.isArray(persisted.processedWebhookIds)) {
+        this.processedWebhookIds = new Set(persisted.processedWebhookIds);
+      }
+      if (persisted.processedPaymentIds && Array.isArray(persisted.processedPaymentIds)) {
+        this.processedPaymentIds = new Set(persisted.processedPaymentIds);
+      }
+      if (persisted.auditLogs && persisted.auditLogs.length) this.auditLogs = persisted.auditLogs;
+      if (persisted.featureFlags && Array.isArray(persisted.featureFlags)) {
+        this.featureFlags = new Map(persisted.featureFlags);
+      }
+    }
+
+    // Instantiated Repository Layer
+    this.userRepo = new UserRepository(this);
+    this.driverRepo = new DriverRepository(this);
+    this.jobRepo = new JobRepository(this);
+    this.paymentRepo = new PaymentRepository(this);
+    this.ledgerRepo = new LedgerRepository(this);
+  }
+
+  save() {
+    persistentStore.scheduleSave(this);
+  }
+
+  saveSync() {
+    persistentStore.saveStateSync(this);
   }
 
   // --- Platform Service Controls & Emergency Killswitch ---
@@ -3220,6 +3268,7 @@ class NabinDatabase {
       ...jobData
     };
     this.jobs.unshift(newJob);
+    this.save();
     return newJob;
   }
 
@@ -3235,6 +3284,7 @@ class NabinDatabase {
       ...school
     };
     this.savedSchools.push(newSchool);
+    this.save();
     return newSchool;
   }
 
@@ -3242,6 +3292,7 @@ class NabinDatabase {
     const idx = this.savedSchools.findIndex(s => s.id === id);
     if (idx !== -1) {
       this.savedSchools[idx] = { ...this.savedSchools[idx], ...data };
+      this.save();
       return this.savedSchools[idx];
     }
     return null;
@@ -3250,7 +3301,9 @@ class NabinDatabase {
   deleteSchool(id) {
     const idx = this.savedSchools.findIndex(s => s.id === id);
     if (idx !== -1) {
-      return this.savedSchools.splice(idx, 1)[0];
+      const removed = this.savedSchools.splice(idx, 1)[0];
+      this.save();
+      return removed;
     }
     return null;
   }
@@ -3266,6 +3319,7 @@ class NabinDatabase {
       ...child
     };
     this.savedChildren.push(newChild);
+    this.save();
     return newChild;
   }
 
@@ -3273,6 +3327,7 @@ class NabinDatabase {
     const idx = this.savedChildren.findIndex(c => c.id === id);
     if (idx !== -1) {
       this.savedChildren[idx] = { ...this.savedChildren[idx], ...data };
+      this.save();
       return this.savedChildren[idx];
     }
     return null;
@@ -3281,7 +3336,9 @@ class NabinDatabase {
   deleteChild(id) {
     const idx = this.savedChildren.findIndex(c => c.id === id);
     if (idx !== -1) {
-      return this.savedChildren.splice(idx, 1)[0];
+      const removed = this.savedChildren.splice(idx, 1)[0];
+      this.save();
+      return removed;
     }
     return null;
   }
@@ -3369,6 +3426,7 @@ class NabinDatabase {
         user.walletBalance -= job.fare;
       }
     }
+    this.save();
     return job;
   }
 
@@ -3394,6 +3452,7 @@ class NabinDatabase {
         settlementStatus: 'COMPLETED',
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ' Today'
       });
+      this.save();
       return { success: true, balance: driver.walletBalance };
     }
     return { success: false, error: 'Insufficient wallet balance' };
@@ -4647,6 +4706,7 @@ class NabinDatabase {
       timestamp: new Date().toISOString()
     };
     this.ledgerEntries.unshift(entry);
+    this.save();
     return entry;
   }
 
@@ -4715,6 +4775,7 @@ class NabinDatabase {
       reason: `Webhook ${eventId} verified & processed atomically. Amount: ₹${amount}`
     });
 
+    this.save();
     return { success: true, record: webhookRecord };
   }
 }

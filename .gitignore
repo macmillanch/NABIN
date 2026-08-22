@@ -29,6 +29,7 @@ mobile/.packages
 # Antigravity IDE / Brain Logs
 .gemini/
 scratch/
+backend/data/
 
 # Operating System Files
 .DS_Store

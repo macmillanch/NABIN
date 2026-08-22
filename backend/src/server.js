@@ -1342,6 +1342,14 @@ app.post('/api/customer/book-ride', authenticateUser, (req, res) => {
   }
 
   const { customerId, vehicleType, pickup, drop, promoCode, zoneId, bookingType, passengerCategory, passengerInfo } = req.body;
+  const idempotencyKey = req.headers['idempotency-key'] || req.headers['x-idempotency-key'] || req.body.idempotencyKey;
+  if (idempotencyKey) {
+    const existing = db.jobs.find(j => j.idempotencyKey === idempotencyKey);
+    if (existing) {
+      return res.json({ success: true, job: existing, duplicate: true });
+    }
+  }
+
   const user = (customerId ? db.getUser(customerId) : req.user) || db.getUser('usr_1');
 
   if (user && user.identityStatus !== 'VERIFIED') {
@@ -1370,6 +1378,7 @@ app.post('/api/customer/book-ride', authenticateUser, (req, res) => {
 
   const job = db.createJob({
     type: 'RIDE',
+    idempotencyKey: idempotencyKey || null,
     customerId: user.id,
     customerName: user.name,
     customerPhone: user.phone,
@@ -1431,6 +1440,14 @@ app.post('/api/customer/book-parcel', authenticateUser, (req, res) => {
   }
 
   const { customerId, senderDetails, recipientDetails, promoCode } = req.body;
+  const idempotencyKey = req.headers['idempotency-key'] || req.headers['x-idempotency-key'] || req.body.idempotencyKey;
+  if (idempotencyKey) {
+    const existing = db.jobs.find(j => j.idempotencyKey === idempotencyKey);
+    if (existing) {
+      return res.json({ success: true, job: existing, duplicate: true });
+    }
+  }
+
   const user = req.user || db.getUser(customerId || 'usr_2');
   
   // Authoritative server-side pricing
@@ -1443,6 +1460,7 @@ app.post('/api/customer/book-parcel', authenticateUser, (req, res) => {
 
   const job = db.createJob({
     type: 'PARCEL',
+    idempotencyKey: idempotencyKey || null,
     customerId: user.id,
     customerName: user.name,
     customerPhone: user.phone,
@@ -1492,6 +1510,14 @@ app.post('/api/customer/book-food', authenticateUser, (req, res) => {
   }
 
   const { customerId, restaurantId, items, deliveryAddress, promoCode } = req.body;
+  const idempotencyKey = req.headers['idempotency-key'] || req.headers['x-idempotency-key'] || req.body.idempotencyKey;
+  if (idempotencyKey) {
+    const existing = db.jobs.find(j => j.idempotencyKey === idempotencyKey);
+    if (existing) {
+      return res.json({ success: true, job: existing, duplicate: true });
+    }
+  }
+
   const rest = db.restaurants.find(r => r.id === (restaurantId || 'rest_1')) || db.restaurants[0];
 
   if (rest.operationalStatus === 'SUSPENDED') {
@@ -1520,6 +1546,7 @@ app.post('/api/customer/book-food', authenticateUser, (req, res) => {
 
   const job = db.createJob({
     type: 'FOOD',
+    idempotencyKey: idempotencyKey || null,
     restaurantId: rest.id,
     restaurantName: rest.name,
     customerId: user.id,
