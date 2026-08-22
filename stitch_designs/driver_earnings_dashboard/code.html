@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport"/>
+<title>NABIN Driver - Earnings & Settlements</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;display=swap" rel="stylesheet"/>
+</head>
+<body class="bg-slate-50 text-slate-900 h-screen w-full flex flex-col font-sans">
+
+<!-- Header -->
+<div class="h-16 bg-white border-b border-slate-200 px-4 flex items-center justify-between shrink-0">
+  <div class="flex items-center gap-2">
+    <a href="../../driver_app.html" class="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center text-slate-700">
+      <span class="material-symbols-outlined text-sm">arrow_back</span>
+    </a>
+    <h2 class="text-base font-black text-slate-900">Earnings & Payouts</h2>
+  </div>
+  <a href="../../driver_app.html" class="px-3 py-1 rounded-xl bg-emerald-500 text-slate-950 font-black text-xs flex items-center gap-1">
+    <span class="material-symbols-outlined text-sm">payments</span>
+    <span>Instant Payout</span>
+  </a>
+</div>
+
+<!-- Scrollable Earnings Body -->
+<div class="flex-1 overflow-y-auto p-4 space-y-4">
+  
+  <!-- Period Selector -->
+  <div class="grid grid-cols-3 gap-1 bg-slate-200/80 p-1 rounded-2xl text-xs font-extrabold">
+    <button class="py-2 rounded-xl bg-white text-[#003D9B] shadow-sm">Today</button>
+    <button class="py-2 rounded-xl text-slate-600">This Week</button>
+    <button class="py-2 rounded-xl text-slate-600">This Month</button>
+  </div>
+
+  <!-- Primary Wallet Card -->
+  <div class="bg-gradient-to-br from-[#003D9B] to-[#001848] text-white rounded-3xl p-5 shadow-xl">
+    <div class="flex items-center justify-between text-xs text-blue-200 font-bold">
+      <span>WITHDRAWABLE BALANCE</span>
+      <span class="px-2 py-0.5 rounded-full bg-white/15 text-[10px]">Instant Bank Transfer</span>
+    </div>
+    <div class="text-3xl font-black mt-2 tracking-tight">₹1,420.00</div>
+    <div class="text-xs text-blue-100 mt-1">UPI: rajesh.driver@okhdfcbank</div>
+
+    <div class="grid grid-cols-2 gap-2 mt-4 pt-4 border-t border-white/10 text-xs">
+      <div>
+        <span class="text-blue-200 text-[10px]">Gross Fares</span>
+        <div class="font-extrabold text-sm">₹1,578.00</div>
+      </div>
+      <div>
+        <span class="text-blue-200 text-[10px]">Commission (10%)</span>
+        <div class="font-extrabold text-sm">-₹158.00</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Cash vs Online Breakdown -->
+  <div class="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3">
+    <div class="text-xs font-black text-slate-800 uppercase tracking-wider">Payment Breakdown</div>
+    <div class="flex justify-between text-xs">
+      <span class="text-slate-500 font-medium">Online Payments (UPI/Cards):</span>
+      <b class="text-slate-800">₹1,100.00</b>
+    </div>
+    <div class="flex justify-between text-xs">
+      <span class="text-slate-500 font-medium">Cash Collected directly:</span>
+      <b class="text-slate-800">₹320.00</b>
+    </div>
+  </div>
+
+  <!-- Recent Transactions -->
+  <div class="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3">
+    <div class="text-xs font-black text-slate-800 uppercase tracking-wider">Recent Trips & Transfers</div>
+    
+    <div class="flex items-center justify-between pb-2 border-b border-slate-100 text-xs">
+      <div>
+        <div class="font-extrabold text-slate-800">Ride: Civil Lines → Connaught Place</div>
+        <div class="text-[10px] text-slate-400">10:45 AM Today • 3W Auto</div>
+      </div>
+      <div class="text-right">
+        <div class="font-black text-emerald-600">+₹76.50</div>
+        <span class="text-[9px] text-slate-400">Net after comm</span>
+      </div>
+    </div>
+
+    <div class="flex items-center justify-between text-xs">
+      <div>
+        <div class="font-extrabold text-slate-800">Instant UPI Payout to HDFC Bank</div>
+        <div class="text-[10px] text-slate-400">Yesterday 08:00 PM • Transfer</div>
+      </div>
+      <div class="text-right">
+        <div class="font-black text-slate-700">-₹1,200.00</div>
+        <span class="text-[9px] text-emerald-600 font-bold">Settled</span>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Bottom Navigation Bar -->
+<div class="h-14 bg-white border-t border-slate-200 px-8 flex items-center justify-between shrink-0 z-50">
+  <a href="../../driver_app.html" class="flex flex-col items-center text-slate-400 font-bold text-xs">
+    <span class="material-symbols-outlined text-xl">map</span>
+    <span>Drive</span>
+  </a>
+  <div class="flex flex-col items-center text-[#003D9B] font-black text-xs">
+    <span class="material-symbols-outlined text-xl">account_balance_wallet</span>
+    <span>Earnings</span>
+  </div>
+  <a href="../../driver_app.html" class="flex flex-col items-center text-slate-400 font-bold text-xs">
+    <span class="material-symbols-outlined text-xl">person</span>
+    <span>Account</span>
+  </a>
+</div>
+
+</body>
+</html>

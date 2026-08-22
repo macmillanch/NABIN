@@ -1,0 +1,182 @@
+<!DOCTYPE html><html class="dark" lang="en"><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>Bank &amp; UPI Setup</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "inverse-surface": "#e1e2ed",
+                        "on-tertiary-fixed-variant": "#7d2d00",
+                        "surface-container-highest": "#32343d",
+                        "error-container": "#93000a",
+                        "surface-container-lowest": "#0c0e16",
+                        "on-secondary-fixed-variant": "#43474d",
+                        "on-surface-variant": "#c3c6d7",
+                        "surface-bright": "#373942",
+                        "background": "#11131b",
+                        "primary-fixed-dim": "#b4c5ff",
+                        "surface-container-low": "#191b23",
+                        "error": "#ffb4ab",
+                        "on-primary": "#002a78",
+                        "on-tertiary-fixed": "#360f00",
+                        "primary-fixed": "#dbe1ff",
+                        "on-tertiary-container": "#ffede6",
+                        "secondary": "#c3c6ce",
+                        "surface-variant": "#32343d",
+                        "on-background": "#e1e2ed",
+                        "outline": "#8d90a0",
+                        "on-tertiary": "#581e00",
+                        "tertiary-fixed-dim": "#ffb596",
+                        "outline-variant": "#434655",
+                        "on-secondary-container": "#b2b5bc",
+                        "primary": "#b4c5ff",
+                        "secondary-container": "#43474d",
+                        "on-surface": "#e1e2ed",
+                        "tertiary-container": "#bc4800",
+                        "inverse-on-surface": "#2e3039",
+                        "surface-container-high": "#282a32",
+                        "on-primary-container": "#eeefff",
+                        "on-primary-fixed": "#00174b",
+                        "secondary-fixed": "#e0e2ea",
+                        "secondary-fixed-dim": "#c3c6ce",
+                        "surface-dim": "#11131b",
+                        "surface": "#11131b",
+                        "inverse-primary": "#0053db",
+                        "surface-tint": "#b4c5ff",
+                        "on-error-container": "#ffdad6",
+                        "surface-container": "#1d1f27",
+                        "on-primary-fixed-variant": "#003ea8",
+                        "tertiary-fixed": "#ffdbcd",
+                        "on-secondary": "#2d3136",
+                        "primary-container": "#2563eb",
+                        "on-secondary-fixed": "#181c21",
+                        "on-error": "#690005",
+                        "tertiary": "#ffb596"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "stack-sm": "8px",
+                        "gutter": "16px",
+                        "touch-target-min": "48px",
+                        "margin-mobile": "16px",
+                        "stack-md": "16px",
+                        "base": "4px",
+                        "stack-lg": "24px",
+                        "margin-desktop": "32px"
+                    },
+                    "fontFamily": {
+                        "headline-xl": ["Inter"],
+                        "headline-lg-mobile": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "label-md": ["Inter"],
+                        "body-md": ["Inter"],
+                        "data-tabular": ["Inter"],
+                        "headline-lg": ["Inter"]
+                    },
+                    "fontSize": {
+                        "headline-xl": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "headline-lg-mobile": ["20px", { "lineHeight": "28px", "fontWeight": "600" }],
+                        "body-lg": ["18px", { "lineHeight": "28px", "fontWeight": "400" }],
+                        "label-md": ["14px", { "lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "500" }],
+                        "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "data-tabular": ["16px", { "lineHeight": "24px", "fontWeight": "600" }],
+                        "headline-lg": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        .glass-edge {
+            box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+        }
+    </style>
+</head>
+<body class="bg-background text-on-background antialiased min-h-screen flex flex-col selection:bg-primary-container selection:text-on-primary-container">
+<!-- TopAppBar -->
+<header class="w-full top-0 sticky bg-surface dark:bg-surface flex items-center justify-between px-margin-mobile h-touch-target-min z-50">
+<button aria-label="Go back" class="h-touch-target-min w-touch-target-min flex items-center justify-center text-primary dark:text-primary active:scale-95 duration-100 hover:bg-surface-variant/50 transition-colors rounded-full">
+<span class="material-symbols-outlined" data-icon="arrow_back">arrow_back</span>
+</button>
+<h1 class="font-headline-lg-mobile text-headline-lg-mobile font-bold text-on-surface">Bank &amp; UPI Setup</h1>
+<button aria-label="Help" class="h-touch-target-min w-touch-target-min flex items-center justify-center text-primary dark:text-primary active:scale-95 duration-100 hover:bg-surface-variant/50 transition-colors rounded-full">
+<span class="material-symbols-outlined" data-icon="help_outline">help_outline</span>
+</button>
+</header>
+<!-- Main Content -->
+<main class="flex-1 px-margin-mobile md:px-margin-desktop py-stack-lg max-w-3xl mx-auto w-full">
+<!-- Hero/Context Section -->
+<section class="mb-stack-lg flex flex-col items-center text-center">
+<div class="w-24 h-24 bg-surface-container rounded-full flex items-center justify-center mb-stack-md glass-edge">
+<span class="material-symbols-outlined text-4xl text-primary" data-icon="payments">payments</span>
+</div>
+<h2 class="font-headline-xl text-headline-xl mb-stack-sm">Instant Payouts</h2>
+<p class="font-body-md text-body-md text-on-surface-variant max-w-md">Link your UPI ID to receive earnings instantly after every completed trip. No waiting, no processing delays.</p>
+</section>
+<!-- Form Card -->
+<section class="bg-[#17202B] rounded-xl p-gutter glass-edge mb-stack-lg">
+<form class="flex flex-col gap-stack-md" id="upi-form">
+<div class="flex flex-col gap-base">
+<label class="font-label-md text-label-md text-on-surface-variant" for="upi-id">Enter UPI ID</label>
+<div class="relative flex items-center">
+<span class="material-symbols-outlined absolute left-3 text-on-surface-variant" data-icon="account_balance">account_balance</span>
+<input class="w-full bg-[#111827] border border-[#1E293B] rounded-lg h-[56px] pl-12 pr-4 font-body-md text-body-md text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors placeholder:text-outline" id="upi-id" name="upi-id" placeholder="e.g., drivername@okhdfcbank" required="" type="text">
+</div><p id="upi-id-error" class="hidden text-error text-sm mt-1 font-label-md">Please enter a valid UPI ID</p>
+</div>
+<div class="flex flex-col gap-base">
+<label class="font-label-md text-label-md text-on-surface-variant" for="holder-name">Account Holder Name</label>
+<div class="relative flex items-center">
+<span class="material-symbols-outlined absolute left-3 text-on-surface-variant" data-icon="person">person</span>
+<input class="w-full bg-[#111827] border border-[#1E293B] rounded-lg h-[56px] pl-12 pr-4 font-body-md text-body-md text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors placeholder:text-outline" id="holder-name" name="holder-name" placeholder="As per bank records" required="" type="text">
+</div><p id="holder-name-error" class="hidden text-error text-sm mt-1 font-label-md">Please enter the name as per bank records</p>
+</div>
+<div class="mt-stack-sm flex items-start gap-3 p-3 bg-surface-container-low rounded-lg glass-edge">
+<span class="material-symbols-outlined text-primary mt-0.5" data-icon="verified_user">verified_user</span>
+<p class="font-body-md text-body-md text-on-surface-variant text-sm">Your UPI details are encrypted and securely stored. We will deposit ₹1 to verify your account.</p>
+</div>
+<button class="w-full h-[56px] bg-primary-container text-white rounded-lg font-label-md text-label-md font-bold mt-stack-md flex items-center justify-center gap-2 hover:bg-primary-fixed-variant transition-colors active:scale-95 opacity-50 cursor-not-allowed" type="submit" disabled="true">
+<span class="material-symbols-outlined" data-icon="security">security</span>
+                    Verify &amp; Link
+                </button>
+</form>
+</section>
+</main>
+<script>
+        // Simple form interaction
+        document.getElementById('upi-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const btn = this.querySelector('button[type="submit"]');
+            const originalText = btn.innerHTML;
+            
+            btn.innerHTML = '<span class="material-symbols-outlined animate-spin" data-icon="sync">sync</span> Verifying...';
+            btn.classList.add('opacity-75', 'cursor-not-allowed');
+            
+            setTimeout(() => {
+                btn.innerHTML = '<span class="material-symbols-outlined" data-icon="check_circle">check_circle</span> Linked Successfully';
+                btn.classList.remove('bg-primary-container', 'hover:bg-primary-fixed-variant');
+                btn.classList.add('bg-[#14532D]', 'text-white'); // Success green
+                
+                setTimeout(() => {
+                    // Reset or navigate
+                    btn.innerHTML = originalText;
+                    btn.classList.remove('bg-[#14532D]', 'text-white', 'opacity-75', 'cursor-not-allowed');
+                    btn.classList.add('bg-primary-container', 'hover:bg-primary-fixed-variant');
+                }, 2000);
+            }, 1500);
+        });
+    </script>
+
+
+</body></html>

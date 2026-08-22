@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html class="light" lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport"/>
+  <title>NABIN Driver - 24/7 Safety SOS</title>
+  <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"/>
+</head>
+<body class="bg-rose-950 text-white h-screen w-full flex flex-col justify-between p-6 font-sans select-none">
+
+<!-- Header -->
+<div class="flex items-center justify-between">
+  <a href="../driver_home_console/code.html" class="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center text-white">
+    <span class="material-symbols-outlined">arrow_back</span>
+  </a>
+  <span class="px-3 py-1 rounded-full bg-rose-500 text-white text-xs font-black uppercase">
+    EMERGENCY MODE
+  </span>
+</div>
+
+<!-- Center SOS Radar Visual -->
+<div class="flex flex-col items-center text-center my-auto">
+  <div class="relative w-36 h-36 flex items-center justify-center mb-6">
+    <div class="absolute inset-0 rounded-full border-4 border-rose-500/40 animate-ping"></div>
+    <div class="w-28 h-28 rounded-full bg-rose-600 border-4 border-white flex items-center justify-center shadow-2xl text-white">
+      <span class="material-symbols-outlined text-6xl">sos</span>
+    </div>
+  </div>
+
+  <h1 class="text-2xl font-black tracking-tight mb-2">POLICE & SAFETY PATROL ALERT</h1>
+  <p class="text-rose-200 text-xs max-w-xs leading-relaxed">
+    Live GPS coordinates (28.6853° N, 77.2185° E) are being broadcast to Delhi Police Control Room and NABIN Safety Command.
+  </p>
+
+  <div class="mt-6 p-4 rounded-2xl bg-white/10 border border-white/15 text-left w-full text-xs space-y-1">
+    <div class="flex justify-between text-rose-200">
+      <span>Vehicle:</span>
+      <b class="text-white">Bajaj RE Auto (DL 1RA 4892)</b>
+    </div>
+    <div class="flex justify-between text-rose-200">
+      <span>Driver:</span>
+      <b class="text-white">Rajesh Kumar (+91 98765 43210)</b>
+    </div>
+    <div class="flex justify-between text-rose-200">
+      <span>Hotline:</span>
+      <b class="text-emerald-400">112 / 1800-NABIN-SAFE</b>
+    </div>
+  </div>
+</div>
+
+<!-- Bottom Emergency Calls -->
+<div class="flex flex-col gap-2.5">
+  <a href="tel:112" class="w-full h-14 bg-white text-rose-700 font-black rounded-2xl text-base flex items-center justify-center gap-2 shadow-xl active:scale-[0.98]">
+    <span class="material-symbols-outlined">call</span>
+    <span>Call Police 112 Directly</span>
+  </a>
+  <a href="../driver_home_console/code.html" class="w-full h-12 bg-white/10 text-white font-bold rounded-2xl text-xs flex items-center justify-center">
+    <span>Cancel False Alarm</span>
+  </a>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>NABIN - Application Status</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-error": "#ffffff",
+                        "primary-container": "#2563eb",
+                        "inverse-on-surface": "#f0f0fb",
+                        "outline": "#737686",
+                        "on-tertiary-container": "#ffede6",
+                        "on-tertiary": "#ffffff",
+                        "background": "#faf8ff",
+                        "surface-container-low": "#f3f3fe",
+                        "surface-container-highest": "#e1e2ed",
+                        "surface-variant": "#e1e2ed",
+                        "inverse-primary": "#b4c5ff",
+                        "error": "#ba1a1a",
+                        "primary": "#004ac6",
+                        "secondary-fixed-dim": "#b7c8e1",
+                        "surface-bright": "#faf8ff",
+                        "on-secondary-fixed": "#0b1c30",
+                        "secondary-container": "#d0e1fb",
+                        "on-primary-fixed-variant": "#003ea8",
+                        "surface-container": "#ededf9",
+                        "surface-container-lowest": "#ffffff",
+                        "on-primary-fixed": "#00174b",
+                        "surface-container-high": "#e7e7f3",
+                        "on-secondary-container": "#54647a",
+                        "surface-tint": "#0053db",
+                        "on-secondary-fixed-variant": "#38485d",
+                        "secondary": "#505f76",
+                        "tertiary": "#943700",
+                        "surface-dim": "#d9d9e5",
+                        "on-background": "#191b23",
+                        "tertiary-fixed-dim": "#ffb596",
+                        "on-primary": "#ffffff",
+                        "tertiary-fixed": "#ffdbcd",
+                        "on-tertiary-fixed": "#360f00",
+                        "error-container": "#ffdad6",
+                        "tertiary-container": "#bc4800",
+                        "inverse-surface": "#2e3039",
+                        "outline-variant": "#c3c6d7",
+                        "primary-fixed-dim": "#b4c5ff",
+                        "on-tertiary-fixed-variant": "#7d2d00",
+                        "on-error-container": "#93000a",
+                        "primary-fixed": "#dbe1ff",
+                        "on-primary-container": "#eeefff",
+                        "on-surface-variant": "#434655",
+                        "secondary-fixed": "#d3e4fe",
+                        "surface": "#faf8ff",
+                        "on-surface": "#191b23",
+                        "on-secondary": "#ffffff"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    "spacing": {
+                        "sm": "8px",
+                        "md": "16px",
+                        "margin-tablet": "24px",
+                        "xs": "4px",
+                        "lg": "24px",
+                        "unit": "4px",
+                        "gutter": "16px",
+                        "margin-mobile": "16px",
+                        "touch-target-min": "48px",
+                        "xl": "32px"
+                    },
+                    "fontFamily": {
+                        "headline-sm": ["Inter"],
+                        "label-lg": ["Inter"],
+                        "body-md": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "label-md": ["Inter"],
+                        "order-number": ["Inter"],
+                        "order-number-mobile": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "headline-md": ["Inter"]
+                    },
+                    "fontSize": {
+                        "headline-sm": ["20px", { "lineHeight": "28px", "fontWeight": "600" }],
+                        "label-lg": ["14px", { "lineHeight": "20px", "letterSpacing": "0.05em", "fontWeight": "600" }],
+                        "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "body-lg": ["18px", { "lineHeight": "26px", "fontWeight": "500" }],
+                        "label-md": ["12px", { "lineHeight": "16px", "fontWeight": "600" }],
+                        "order-number": ["48px", { "lineHeight": "56px", "letterSpacing": "-0.02em", "fontWeight": "800" }],
+                        "order-number-mobile": ["36px", { "lineHeight": "44px", "fontWeight": "800" }],
+                        "headline-lg": ["32px", { "lineHeight": "40px", "fontWeight": "700" }],
+                        "headline-md": ["24px", { "lineHeight": "32px", "fontWeight": "700" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .icon-fill {
+            font-variation-settings: 'FILL' 1;
+        }
+        
+        /* Subtle pulse for active status */
+        @keyframes pulse-ring {
+            0% { transform: scale(0.8); opacity: 0.5; }
+            100% { transform: scale(1.3); opacity: 0; }
+        }
+        .status-pulse::before {
+            content: '';
+            position: absolute;
+            inset: -4px;
+            border-radius: 50%;
+            background-color: theme('colors.primary');
+            animation: pulse-ring 2s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+            z-index: -1;
+        }
+    </style>
+</head>
+<body class="bg-background text-on-background min-h-screen flex flex-col font-body-md antialiased">
+<!-- TopAppBar (Transactional - Hidden Nav Elements) -->
+<header class="bg-surface border-b border-outline-variant flat no shadows fixed top-0 w-full z-50 flex justify-center items-center px-margin-mobile h-touch-target-min">
+<h1 class="font-headline-md text-headline-md font-bold text-primary tracking-tight">NABIN</h1>
+</header>
+<!-- Main Content Canvas -->
+<main class="flex-grow flex flex-col items-center justify-center pt-24 pb-12 px-margin-mobile">
+<!-- Status Container -->
+<div class="w-full max-w-2xl bg-surface-container-lowest rounded-xl border border-outline-variant shadow-md p-lg md:p-xl flex flex-col gap-xl">
+<!-- Header Section -->
+<div class="text-center flex flex-col gap-sm">
+<h2 class="font-headline-lg text-headline-lg md:text-headline-lg text-on-surface">Application Status</h2>
+<p class="font-body-md text-body-md text-on-surface-variant max-w-md mx-auto">
+                    We are currently reviewing your restaurant's application to join the NABIN platform. This process usually takes 1-2 business days.
+                </p>
+<div class="mt-xs inline-flex items-center justify-center gap-xs mx-auto bg-surface-container py-1 px-3 rounded-full border border-outline-variant">
+<span class="material-symbols-outlined text-[16px] text-on-surface-variant">storefront</span>
+<span class="font-label-md text-label-md text-on-surface-variant">ID: NBN-88492-RT</span>
+</div>
+</div>
+<!-- Bento Status Tracker -->
+<div class="grid grid-cols-1 md:grid-cols-3 gap-md relative">
+<!-- Connector Line (Desktop) -->
+<div class="hidden md:block absolute top-1/2 left-[16%] right-[16%] h-0.5 bg-outline-variant -translate-y-1/2 z-0"></div>
+<!-- Progress Line (Desktop) -->
+<div class="hidden md:block absolute top-1/2 left-[16%] right-[50%] h-0.5 bg-primary -translate-y-1/2 z-0"></div>
+<!-- Connector Line (Mobile) -->
+<div class="md:hidden absolute left-[31px] top-[10%] bottom-[10%] w-0.5 bg-outline-variant z-0"></div>
+<!-- Progress Line (Mobile) -->
+<div class="md:hidden absolute left-[31px] top-[10%] bottom-[50%] w-0.5 bg-primary z-0"></div>
+<!-- Step 1: Submitted (Completed) -->
+<div class="relative z-10 flex md:flex-col items-center gap-md bg-surface-container-lowest p-md rounded-lg">
+<div class="w-12 h-12 md:w-16 md:h-16 rounded-full bg-primary flex items-center justify-center text-on-primary shadow-sm shrink-0">
+<span class="material-symbols-outlined icon-fill text-[24px] md:text-[32px]">check_circle</span>
+</div>
+<div class="md:text-center flex-grow">
+<h3 class="font-label-lg text-label-lg text-on-surface">Application Submitted</h3>
+<p class="font-label-md text-label-md text-on-surface-variant mt-1">Oct 24, 09:41 AM</p>
+</div>
+</div>
+<!-- Step 2: Under Review (Active) -->
+<div class="relative z-10 flex md:flex-col items-center gap-md bg-primary-container/10 p-md rounded-lg border border-primary/20">
+<div class="relative w-12 h-12 md:w-16 md:h-16 rounded-full bg-primary flex items-center justify-center text-on-primary shadow-sm shrink-0 status-pulse">
+<span class="material-symbols-outlined text-[24px] md:text-[32px]">hourglass_empty</span>
+</div>
+<div class="md:text-center flex-grow">
+<h3 class="font-label-lg text-label-lg text-primary font-bold">Under Review</h3>
+<p class="font-label-md text-label-md text-primary mt-1">In Progress</p>
+</div>
+</div>
+<!-- Step 3: Approved (Pending) -->
+<div class="relative z-10 flex md:flex-col items-center gap-md bg-surface-container-lowest p-md rounded-lg opacity-60 grayscale">
+<div class="w-12 h-12 md:w-16 md:h-16 rounded-full bg-surface-variant flex items-center justify-center text-on-surface-variant border border-outline-variant shrink-0">
+<span class="material-symbols-outlined text-[24px] md:text-[32px]">verified</span>
+</div>
+<div class="md:text-center flex-grow">
+<h3 class="font-label-lg text-label-lg text-on-surface-variant">Approved</h3>
+<p class="font-label-md text-label-md text-on-surface-variant mt-1">Pending</p>
+</div>
+</div>
+</div>
+<!-- Divider -->
+<div class="h-px w-full bg-outline-variant"></div>
+<!-- Support Action Area -->
+<div class="flex flex-col sm:flex-row items-center justify-between gap-md bg-surface-container-low p-md rounded-lg">
+<div class="flex items-center gap-sm">
+<span class="material-symbols-outlined text-secondary text-[24px]">support_agent</span>
+<div>
+<h4 class="font-body-lg text-body-lg text-on-surface">Need assistance?</h4>
+<p class="font-label-md text-label-md text-on-surface-variant">Our onboarding team is here to help.</p>
+</div>
+</div>
+<button class="w-full sm:w-auto h-touch-target-min px-lg bg-surface-container-lowest border border-outline-variant text-on-surface font-label-lg text-label-lg rounded-full hover:bg-surface-container-high transition-colors flex items-center justify-center gap-sm">
+<span>Contact Support</span>
+<span class="material-symbols-outlined text-[18px]">arrow_forward</span>
+</button>
+</div>
+</div>
+<!-- Return to Home Link -->
+<a class="mt-lg flex items-center gap-xs font-label-lg text-label-lg text-secondary hover:text-on-surface transition-colors h-touch-target-min px-md" href="#">
+<span class="material-symbols-outlined text-[18px]">arrow_back</span>
+            Return to NABIN Home
+        </a>
+</main>
+</body></html>

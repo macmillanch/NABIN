@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html class="light" lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport"/>
+  <title>NABIN Driver - Partner Profile & Settings</title>
+  <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"/>
+</head>
+<body class="bg-slate-50 text-slate-900 h-screen w-full flex flex-col font-sans">
+
+<!-- Header -->
+<div class="h-16 bg-white border-b border-slate-200 px-4 flex items-center justify-between shrink-0">
+  <div class="flex items-center gap-2">
+    <a href="../driver_home_console/code.html" class="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center text-slate-700">
+      <span class="material-symbols-outlined text-sm">arrow_back</span>
+    </a>
+    <h2 class="text-base font-black text-slate-900">Partner Account</h2>
+  </div>
+  <span class="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-black uppercase">
+    KYC Active
+  </span>
+</div>
+
+<!-- Scrollable Body -->
+<div class="flex-1 overflow-y-auto p-4 space-y-4">
+  
+  <!-- Profile Card -->
+  <div class="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm flex items-center gap-3.5">
+    <div class="w-14 h-14 rounded-2xl bg-[#003D9B] text-white font-black text-xl flex items-center justify-center shadow-md">
+      RK
+    </div>
+    <div class="flex-1">
+      <div class="flex items-center justify-between">
+        <h3 class="text-base font-black text-slate-900">Rajesh Kumar</h3>
+        <span class="px-2 py-0.5 rounded-md bg-amber-100 text-amber-800 text-xs font-black">⭐ 4.92</span>
+      </div>
+      <div class="text-xs text-slate-500 font-medium">+91 98765 43210</div>
+      <div class="text-[11px] text-emerald-600 font-bold mt-0.5">384 Trips Completed • Acceptance 96%</div>
+    </div>
+  </div>
+
+  <!-- Vehicle Profile -->
+  <div class="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3">
+    <div class="text-xs font-black text-[#003D9B] uppercase tracking-wider flex items-center justify-between">
+      <span>Active Vehicle Profile</span>
+      <span class="text-emerald-600 text-[10px] font-bold">Verified</span>
+    </div>
+    <div class="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-200">
+      <div class="flex items-center gap-3">
+        <span class="text-2xl">🛺</span>
+        <div>
+          <div class="text-xs font-black text-slate-900">Bajaj RE Compact CNG</div>
+          <div class="text-[10px] text-slate-500">DL 1RA 4892 • Commercial Auto</div>
+        </div>
+      </div>
+      <a href="../../driver_app.html" class="px-3 py-1.5 rounded-xl bg-slate-200 text-slate-800 text-xs font-extrabold hover:bg-slate-300 transition">
+        Switch
+      </a>
+    </div>
+  </div>
+
+  <!-- Compliance Documents -->
+  <div class="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-2.5">
+    <div class="text-xs font-black text-slate-800 uppercase tracking-wider mb-1">Documents & Compliance</div>
+    
+    <div class="flex items-center justify-between p-2 rounded-xl bg-slate-50 text-xs">
+      <div class="flex items-center gap-2">
+        <span class="material-symbols-outlined text-emerald-600 text-sm">badge</span>
+        <span class="font-bold text-slate-800">Commercial DL: DL-14201900192</span>
+      </div>
+      <span class="text-[10px] font-black text-emerald-600">VALID ✓</span>
+    </div>
+
+    <div class="flex items-center justify-between p-2 rounded-xl bg-slate-50 text-xs">
+      <div class="flex items-center gap-2">
+        <span class="material-symbols-outlined text-emerald-600 text-sm">description</span>
+        <span class="font-bold text-slate-800">RC: DL 1RA 4892</span>
+      </div>
+      <span class="text-[10px] font-black text-emerald-600">VALID ✓</span>
+    </div>
+
+    <div class="flex items-center justify-between p-2 rounded-xl bg-slate-50 text-xs">
+      <div class="flex items-center gap-2">
+        <span class="material-symbols-outlined text-emerald-600 text-sm">shield</span>
+        <span class="font-bold text-slate-800">Commercial Insurance: 31 Dec 2027</span>
+      </div>
+      <span class="text-[10px] font-black text-emerald-600">ACTIVE ✓</span>
+    </div>
+  </div>
+
+  <!-- Safety SOS Hotline -->
+  <div class="bg-rose-50 rounded-2xl p-4 border border-rose-200 shadow-sm space-y-2">
+    <div class="text-xs font-black text-rose-700 uppercase tracking-wider flex items-center gap-1.5">
+      <span class="material-symbols-outlined text-rose-600 text-sm">emergency</span>
+      <span>24/7 Driver Safety & SOS Command</span>
+    </div>
+    <p class="text-[11px] text-slate-600">Instant connection to NABIN Safety Team and local police control room.</p>
+    <a href="../driver_emergency_sos/code.html" class="block w-full py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs shadow-md shadow-rose-600/30 transition text-center">
+      Test Safety SOS Alert
+    </a>
+  </div>
+
+  <!-- Logout -->
+  <div class="pt-2">
+    <a href="../driver_login/code.html" class="w-full h-12 rounded-2xl bg-white border border-rose-200 text-rose-600 font-extrabold text-xs flex items-center justify-center gap-2 hover:bg-rose-50 transition">
+      <span class="material-symbols-outlined text-base">logout</span>
+      <span>Logout Driver Session</span>
+    </a>
+  </div>
+
+</div>
+
+<!-- Bottom Navigation Bar -->
+<div class="h-14 bg-white border-t border-slate-200 px-8 flex items-center justify-between shrink-0 z-50">
+  <a href="../driver_home_console/code.html" class="flex flex-col items-center text-slate-400 font-bold text-xs">
+    <span class="material-symbols-outlined text-xl">map</span>
+    <span>Drive</span>
+  </a>
+  <a href="../driver_earnings_dashboard/code.html" class="flex flex-col items-center text-slate-400 font-bold text-xs">
+    <span class="material-symbols-outlined text-xl">account_balance_wallet</span>
+    <span>Earnings</span>
+  </a>
+  <div class="flex flex-col items-center text-[#003D9B] font-black text-xs">
+    <span class="material-symbols-outlined text-xl">person</span>
+    <span>Account</span>
+  </div>
+</div>
+
+</body>
+</html>

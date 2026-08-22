@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Parcel Delivery - Rider Assigned</title>
+<!-- Material Symbols -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<!-- Design System Configuration -->
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "on-tertiary": "#ffffff",
+                    "tertiary-container": "#a33500",
+                    "surface-container-highest": "#e1e2ec",
+                    "on-tertiary-container": "#ffc6b2",
+                    "surface-container-low": "#f3f3fd",
+                    "on-surface-variant": "#434654",
+                    "on-tertiary-fixed": "#380d00",
+                    "tertiary": "#7b2600",
+                    "surface-tint": "#0c56d0",
+                    "on-error": "#ffffff",
+                    "primary-container": "#0052cc",
+                    "outline": "#737685",
+                    "error-container": "#ffdad6",
+                    "on-surface": "#191b23",
+                    "on-secondary-fixed-variant": "#3b475b",
+                    "inverse-primary": "#b2c5ff",
+                    "surface-bright": "#faf8ff",
+                    "on-primary": "#ffffff",
+                    "surface-variant": "#e1e2ec",
+                    "on-primary-fixed-variant": "#0040a2",
+                    "on-error-container": "#93000a",
+                    "secondary": "#535f73",
+                    "error": "#ba1a1a",
+                    "on-primary-fixed": "#001848",
+                    "surface-container-lowest": "#ffffff",
+                    "on-tertiary-fixed-variant": "#812800",
+                    "tertiary-fixed": "#ffdbcf",
+                    "on-secondary-fixed": "#101c2d",
+                    "primary-fixed-dim": "#b2c5ff",
+                    "secondary-fixed": "#d7e3fb",
+                    "inverse-surface": "#2e3038",
+                    "outline-variant": "#c3c6d6",
+                    "background": "#faf8ff",
+                    "on-secondary": "#ffffff",
+                    "surface-container-high": "#e7e7f2",
+                    "secondary-container": "#d4e0f8",
+                    "inverse-on-surface": "#f0f0fb",
+                    "secondary-fixed-dim": "#bbc7de",
+                    "tertiary-fixed-dim": "#ffb59b",
+                    "on-primary-container": "#c4d2ff",
+                    "on-secondary-container": "#576377",
+                    "on-background": "#191b23",
+                    "surface-dim": "#d9d9e4",
+                    "surface": "#faf8ff",
+                    "surface-container": "#ededf8",
+                    "primary": "#003d9b",
+                    "primary-fixed": "#dae2ff"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.25rem",
+                    "lg": "0.5rem",
+                    "xl": "0.75rem",
+                    "full": "9999px"
+            },
+            "spacing": {
+                    "base": "4px",
+                    "xl": "32px",
+                    "md": "16px",
+                    "gutter-mobile": "12px",
+                    "margin-mobile": "16px",
+                    "xs": "4px",
+                    "touch-target-min": "48px",
+                    "lg": "24px",
+                    "sm": "8px"
+            },
+            "fontFamily": {
+                    "label-md": ["Inter", "sans-serif"],
+                    "body-sm": ["Inter", "sans-serif"],
+                    "body-lg": ["Inter", "sans-serif"],
+                    "headline-md": ["Inter", "sans-serif"],
+                    "headline-lg": ["Inter", "sans-serif"],
+                    "headline-lg-mobile": ["Inter", "sans-serif"],
+                    "button-text": ["Inter", "sans-serif"]
+            },
+            "fontSize": {
+                    "label-md": ["12px", { "lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "600" }],
+                    "body-sm": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+                    "body-lg": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                    "headline-md": ["20px", { "lineHeight": "28px", "fontWeight": "600" }],
+                    "headline-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                    "headline-lg-mobile": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "700" }],
+                    "button-text": ["16px", { "lineHeight": "24px", "fontWeight": "600" }]
+            }
+          }
+        }
+      }
+    </script>
+<style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        
+        /* Pulse animation for rider location */
+        @keyframes pulse-ring {
+            0% { transform: scale(0.8); opacity: 0.5; }
+            80% { transform: scale(2); opacity: 0; }
+            100% { transform: scale(2); opacity: 0; }
+        }
+        .rider-pulse::before {
+            content: '';
+            position: absolute;
+            left: -50%;
+            top: -50%;
+            width: 200%;
+            height: 200%;
+            background-color: #0052cc;
+            border-radius: 50%;
+            z-index: -1;
+            animation: pulse-ring 2s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+        }
+    </style>
+</head>
+<body class="bg-background text-on-background min-h-screen relative overflow-hidden flex flex-col light">
+<!-- Shared Component: TopAppBar -->
+<header class="w-full sticky top-0 z-50 bg-surface dark:bg-surface-dim flex justify-between items-center h-14 px-margin-mobile text-primary dark:text-primary-fixed-dim font-headline-md text-headline-md flat no shadows">
+<button aria-label="Location" class="w-touch-target-min h-touch-target-min flex items-center justify-start hover:bg-surface-container-high dark:hover:bg-surface-container-highest transition-colors active:scale-95 duration-100 rounded-full">
+<span class="material-symbols-outlined text-[24px]">location_on</span>
+</button>
+<span class="font-headline-lg-mobile text-headline-lg-mobile text-primary dark:text-primary-fixed tracking-tight">NABIN</span>
+<button aria-label="Notifications" class="w-touch-target-min h-touch-target-min flex items-center justify-end hover:bg-surface-container-high dark:hover:bg-surface-container-highest transition-colors active:scale-95 duration-100 rounded-full">
+<span class="material-symbols-outlined text-[24px]">notifications</span>
+</button>
+</header>
+<!-- Map Canvas (Background) -->
+<div class="absolute inset-0 top-[56px] z-0 bg-surface-container-highest">
+<!-- Using data-location for map generation placeholder -->
+<img alt="Map showing real-time location" class="w-full h-full object-cover" data-location="Jakarta" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBUH4MxHWCttsXZuyHx9LsnJl6lvTZqKqgcxHLkUKB8SOtlbaKtj_6-k9fligg85nW6_m-6AgUS-Z6b0k3r9tFKQzgfyCrbRVICY7z9b_t0U3Yt0iL_JVKWSLJ7trGVD6BAFTf_nsGtzreT1rNlXQrGwq5Xe7qX5eMcmDgBU7UOU5pUvXrbDgdA0l5EKgoJWHmwZoRQNUBDm6UTwAqrqpd1Gl7PMwfGtnPUOlT1SB7WY0RFcV5BSbHSdg"/>
+<!-- Map Overlay Gradient (for better contrast at the bottom) -->
+<div class="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-background/80 to-transparent"></div>
+<!-- Fake Map Route Path (SVG) -->
+<svg class="absolute inset-0 w-full h-full pointer-events-none" preserveaspectratio="none" viewbox="0 0 100 100">
+<path d="M 30 70 Q 50 60, 60 40 T 70 20" fill="none" stroke="#0052cc" stroke-dasharray="2 1" stroke-linecap="round" stroke-width="0.8"></path>
+</svg>
+<!-- Pickup Location Marker -->
+<div class="absolute top-[70%] left-[30%] transform -translate-x-1/2 -translate-y-1/2 flex flex-col items-center drop-shadow-md">
+<div class="bg-surface text-primary w-8 h-8 rounded-full flex items-center justify-center border-2 border-primary shadow-[0_4px_12px_0_rgba(0,0,0,0.12)]">
+<span class="material-symbols-outlined text-[16px]" style="font-variation-settings: 'FILL' 1;">package</span>
+</div>
+<div class="w-1 h-3 bg-primary"></div>
+</div>
+<!-- Rider Location Marker (Animated) -->
+<div class="absolute top-[40%] left-[60%] transform -translate-x-1/2 -translate-y-1/2 drop-shadow-md z-10">
+<div class="relative rider-pulse bg-primary text-on-primary w-10 h-10 rounded-full flex items-center justify-center border-[3px] border-surface shadow-[0_4px_12px_0_rgba(0,0,0,0.12)]">
+<span class="material-symbols-outlined text-[20px]" style="font-variation-settings: 'FILL' 1;">two_wheeler</span>
+</div>
+</div>
+</div>
+<!-- Bottom Sheet (Level 2 Elevation) -->
+<div class="absolute bottom-0 w-full z-20 bg-surface-container-lowest rounded-t-xl shadow-[0_-8px_20px_0_rgba(0,0,0,0.12)] pb-6 pt-sm px-margin-mobile flex flex-col">
+<!-- Drag Handle -->
+<div class="w-[40px] h-[4px] bg-outline-variant rounded-full mx-auto mb-md"></div>
+<!-- Status & OTP Section -->
+<div class="flex justify-between items-start mb-md">
+<div class="flex flex-col gap-xs">
+<h1 class="font-headline-md text-headline-md text-on-surface">Rider Assigned</h1>
+<div class="flex items-center gap-xs text-on-surface-variant font-body-sm text-body-sm">
+<span class="material-symbols-outlined text-[16px] text-tertiary-container" style="font-variation-settings: 'FILL' 1;">schedule</span>
+<span>Arriving in <strong class="text-on-surface font-semibold">4 mins</strong></span>
+</div>
+</div>
+<!-- OTP Display -->
+<div class="bg-surface-container-low border border-outline-variant rounded-lg p-sm flex flex-col items-center min-w-[80px]">
+<span class="font-label-md text-label-md text-on-surface-variant uppercase mb-xs">Pickup OTP</span>
+<span class="font-headline-lg-mobile text-headline-lg-mobile text-primary tracking-[0.1em]">4821</span>
+</div>
+</div>
+<!-- Rider Information Card (Level 1 Elevation) -->
+<div class="bg-surface border border-outline-variant rounded-lg p-md flex items-center gap-md shadow-[0_4px_12px_0_rgba(0,0,0,0.05)] mb-md">
+<!-- Rider Avatar -->
+<div class="relative">
+<img class="w-[56px] h-[56px] rounded-full object-cover border border-outline-variant" data-alt="A close-up, highly detailed portrait of a professional delivery rider wearing a modern, functional blue uniform and a clean helmet. The lighting is bright and soft, typical of a daytime setting, capturing a friendly and dependable expression. The aesthetic is clean, modern, and trustworthy, aligning with a premium logistics app interface." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDqj5WYwmMCz68Od7P1BlX_o0Qd7sjApHszLTpZAxBSpGNTir-FiBe0y6Zh9j7LapTN1qWuWbJFKsRMK1N-esUVFVdekBAaaUG09W4qVgHxIG2klt4grcOogUOyIEmtbWtYv4JA_sso9iWHxquHWtGbsdnHH6S5TykPI6VogU905isIgR8fnXJLbt6sBoR8i84n6PyfcsdKd-fnfU7YbCV3ZcEcqiWn7pTecdbis965uKjGikb-bDnwzg"/>
+</div>
+<!-- Rider Details -->
+<div class="flex-1 flex flex-col gap-xs">
+<div class="flex justify-between items-center w-full">
+<h2 class="font-button-text text-button-text text-on-surface">John D.</h2>
+<div class="flex items-center bg-surface-container-low px-xs py-[2px] rounded text-on-surface">
+<span class="material-symbols-outlined text-[14px] text-tertiary-container mr-1" style="font-variation-settings: 'FILL' 1;">star</span>
+<span class="font-label-md text-label-md">4.9</span>
+</div>
+</div>
+<div class="font-body-sm text-body-sm text-on-surface-variant flex items-center gap-sm">
+<span>Honda PCX</span>
+<span class="w-1 h-1 rounded-full bg-outline"></span>
+<span class="font-button-text text-button-text text-on-surface px-xs py-[2px] bg-surface-container-high rounded border border-outline-variant">ABC-1234</span>
+</div>
+</div>
+</div>
+<!-- Action Buttons -->
+<div class="flex gap-md w-full">
+<!-- Secondary Action -->
+<button class="flex-1 h-touch-target-min flex items-center justify-center gap-sm bg-surface-container-low text-primary border border-outline-variant rounded-lg font-button-text text-button-text hover:bg-surface-container-high transition-colors active:scale-95 duration-100">
+<span class="material-symbols-outlined text-[20px]">chat</span>
+                Message
+            </button>
+<!-- Primary Action -->
+<button class="flex-1 h-touch-target-min flex items-center justify-center gap-sm bg-primary text-on-primary rounded-lg font-button-text text-button-text shadow-[0_4px_12px_0_rgba(0,0,0,0.12)] hover:bg-on-primary-fixed-variant transition-colors active:scale-95 duration-100">
+<span class="material-symbols-outlined text-[20px]" style="font-variation-settings: 'FILL' 1;">call</span>
+                Call
+            </button>
+</div>
+</div>
+</body></html>

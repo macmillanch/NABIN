@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Goal Achieved - NABIN Driver</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "surface-variant": "#32343d",
+                      "inverse-on-surface": "#2e3039",
+                      "tertiary-fixed": "#ffdbcd",
+                      "surface-tint": "#b4c5ff",
+                      "on-error-container": "#ffdad6",
+                      "surface-container-low": "#191b23",
+                      "tertiary-fixed-dim": "#ffb596",
+                      "secondary-fixed-dim": "#c3c6ce",
+                      "inverse-primary": "#0053db",
+                      "on-tertiary-container": "#ffede6",
+                      "inverse-surface": "#e1e2ed",
+                      "on-tertiary-fixed-variant": "#7d2d00",
+                      "surface-container-highest": "#32343d",
+                      "on-primary": "#002a78",
+                      "secondary-fixed": "#e0e2ea",
+                      "surface-bright": "#373942",
+                      "tertiary": "#ffb596",
+                      "surface-container": "#1d1f27",
+                      "tertiary-container": "#bc4800",
+                      "surface-container-lowest": "#0c0e16",
+                      "surface-container-high": "#282a32",
+                      "outline-variant": "#434655",
+                      "on-tertiary": "#581e00",
+                      "primary-container": "#2563eb",
+                      "on-secondary": "#2d3136",
+                      "error-container": "#93000a",
+                      "on-tertiary-fixed": "#360f00",
+                      "on-background": "#e1e2ed",
+                      "on-primary-fixed": "#00174b",
+                      "surface-dim": "#11131b",
+                      "on-primary-container": "#eeefff",
+                      "on-primary-fixed-variant": "#003ea8",
+                      "primary-fixed-dim": "#b4c5ff",
+                      "on-error": "#690005",
+                      "on-secondary-fixed": "#181c21",
+                      "primary-fixed": "#dbe1ff",
+                      "secondary-container": "#43474d",
+                      "on-surface": "#e1e2ed",
+                      "background": "#11131b",
+                      "on-secondary-container": "#b2b5bc",
+                      "error": "#ffb4ab",
+                      "surface": "#11131b",
+                      "on-secondary-fixed-variant": "#43474d",
+                      "outline": "#8d90a0",
+                      "on-surface-variant": "#c3c6d7",
+                      "primary": "#b4c5ff",
+                      "secondary": "#c3c6ce"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.25rem",
+                      "lg": "0.5rem",
+                      "xl": "0.75rem",
+                      "full": "9999px"
+              },
+              "spacing": {
+                      "stack-md": "16px",
+                      "touch-target-min": "48px",
+                      "gutter": "16px",
+                      "margin-mobile": "16px",
+                      "stack-lg": "24px",
+                      "stack-sm": "8px",
+                      "base": "4px",
+                      "margin-desktop": "32px"
+              },
+              "fontFamily": {
+                      "headline-xl": [
+                              "Inter"
+                      ],
+                      "data-tabular": [
+                              "Inter"
+                      ],
+                      "label-md": [
+                              "Inter"
+                      ],
+                      "body-lg": [
+                              "Inter"
+                      ],
+                      "body-md": [
+                              "Inter"
+                      ],
+                      "headline-lg-mobile": [
+                              "Inter"
+                      ],
+                      "headline-lg": [
+                              "Inter"
+                      ]
+              },
+              "fontSize": {
+                      "headline-xl": [
+                              "32px",
+                              {
+                                      "lineHeight": "40px",
+                                      "letterSpacing": "-0.02em",
+                                      "fontWeight": "700"
+                              }
+                      ],
+                      "data-tabular": [
+                              "16px",
+                              {
+                                      "lineHeight": "24px",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "label-md": [
+                              "14px",
+                              {
+                                      "lineHeight": "20px",
+                                      "letterSpacing": "0.01em",
+                                      "fontWeight": "500"
+                              }
+                      ],
+                      "body-lg": [
+                              "18px",
+                              {
+                                      "lineHeight": "28px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "body-md": [
+                              "16px",
+                              {
+                                      "lineHeight": "24px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "headline-lg-mobile": [
+                              "20px",
+                              {
+                                      "lineHeight": "28px",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "headline-lg": [
+                              "24px",
+                              {
+                                      "lineHeight": "32px",
+                                      "letterSpacing": "-0.01em",
+                                      "fontWeight": "600"
+                              }
+                      ]
+              }
+            }
+          }
+        }
+    </script>
+<style>
+        .confetti-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            overflow: hidden;
+            z-index: 10;
+        }
+
+        .confetti {
+            position: absolute;
+            width: 8px;
+            height: 16px;
+            background-color: #2563eb;
+            opacity: 0;
+        }
+
+        @keyframes fall {
+            0% {
+                transform: translateY(-100vh) rotate(0deg);
+                opacity: 1;
+            }
+            100% {
+                transform: translateY(100vh) rotate(360deg);
+                opacity: 0;
+            }
+        }
+
+        .glow-effect {
+            box-shadow: 0 0 40px rgba(37, 99, 235, 0.4);
+            animation: pulse-glow 2s infinite alternate;
+        }
+
+        @keyframes pulse-glow {
+            0% { box-shadow: 0 0 20px rgba(37, 99, 235, 0.2); }
+            100% { box-shadow: 0 0 60px rgba(37, 99, 235, 0.6); }
+        }
+    </style>
+</head>
+<body class="bg-background text-on-background min-h-screen flex flex-col items-center justify-center relative overflow-hidden font-sans antialiased">
+<!-- Confetti Overlay -->
+<div class="confetti-container" id="confetti-container"></div>
+<!-- Main Content Canvas (No Nav Shell for transactional/success screen) -->
+<main class="w-full max-w-md px-margin-mobile flex flex-col items-center justify-center relative z-20 h-full">
+<!-- Trophy/Star Graphic Container -->
+<div class="relative w-48 h-48 mb-stack-lg flex items-center justify-center">
+<!-- Glow Background -->
+<div class="absolute inset-0 bg-primary-container rounded-full opacity-20 glow-effect blur-2xl"></div>
+<!-- Central Icon (Trophy/Star representation) -->
+<div class="relative z-10 w-32 h-32 bg-surface-container-high rounded-full flex items-center justify-center border border-white/10 shadow-2xl">
+<span class="material-symbols-outlined text-primary text-6xl" style="font-variation-settings: 'FILL' 1;">emoji_events</span>
+</div>
+<!-- Floating Elements around Trophy -->
+<div class="absolute top-4 left-4 animate-bounce" style="animation-delay: 0.2s;">
+<span class="material-symbols-outlined text-tertiary-fixed-dim text-2xl" style="font-variation-settings: 'FILL' 1;">star</span>
+</div>
+<div class="absolute bottom-8 right-0 animate-bounce" style="animation-delay: 0.5s;">
+<span class="material-symbols-outlined text-primary text-3xl" style="font-variation-settings: 'FILL' 1;">stars</span>
+</div>
+</div>
+<!-- Text Content -->
+<div class="text-center mb-stack-lg w-full">
+<h1 class="font-headline-xl text-headline-xl text-on-surface mb-stack-sm tracking-tight">Goal Achieved!</h1>
+<p class="font-body-lg text-body-lg text-on-surface-variant">Weekly Earnings Target Met</p>
+</div>
+<!-- Achievement Data Card -->
+<div class="w-full bg-surface-container rounded-xl p-stack-md border border-white/10 mb-stack-lg shadow-lg">
+<div class="flex flex-col items-center justify-center pb-stack-md border-b border-outline-variant/30">
+<span class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-base">Final Amount</span>
+<span class="font-headline-xl text-headline-xl text-primary font-bold">$1,250.00</span>
+</div>
+<div class="flex justify-between pt-stack-md">
+<div class="flex flex-col items-center">
+<span class="font-label-md text-label-md text-on-surface-variant mb-base">Target</span>
+<span class="font-data-tabular text-data-tabular text-on-surface">$1,200</span>
+</div>
+<div class="flex flex-col items-center border-l border-outline-variant/30 pl-stack-md">
+<span class="font-label-md text-label-md text-on-surface-variant mb-base">Bonus</span>
+<span class="font-data-tabular text-data-tabular text-tertiary-fixed-dim">+$50</span>
+</div>
+<div class="flex flex-col items-center border-l border-outline-variant/30 pl-stack-md">
+<span class="font-label-md text-label-md text-on-surface-variant mb-base">Trips</span>
+<span class="font-data-tabular text-data-tabular text-on-surface">42</span>
+</div>
+</div>
+</div>
+<!-- Actions -->
+<div class="w-full flex flex-col gap-stack-md">
+<button class="w-full h-touch-target-min bg-primary-container text-on-primary-container font-label-md text-label-md rounded-lg flex items-center justify-center hover:bg-primary transition-colors border border-white/10 active:scale-95">
+                Set New Goal
+            </button>
+<button class="w-full h-touch-target-min bg-secondary-container text-on-secondary-container font-label-md text-label-md rounded-lg flex items-center justify-center hover:bg-surface-variant transition-colors border border-white/5 active:scale-95">
+                View Rewards
+            </button>
+</div>
+</main>
+<script>
+        // Simple Confetti Logic
+        const container = document.getElementById('confetti-container');
+        const colors = ['#2563eb', '#ffb596', '#b4c5ff', '#ffffff']; // Brand colors
+
+        function createConfetti() {
+            for (let i = 0; i < 50; i++) {
+                const confetti = document.createElement('div');
+                confetti.classList.add('confetti');
+                
+                // Randomize properties
+                const left = Math.random() * 100;
+                const duration = Math.random() * 2 + 2; // 2-4s
+                const delay = Math.random() * 2;
+                const color = colors[Math.floor(Math.random() * colors.length)];
+                
+                confetti.style.left = `${left}%`;
+                confetti.style.backgroundColor = color;
+                confetti.style.animation = `fall ${duration}s linear ${delay}s forwards`;
+                
+                container.appendChild(confetti);
+            }
+        }
+
+        // Trigger on load
+        window.addEventListener('load', createConfetti);
+    </script>
+</body></html>

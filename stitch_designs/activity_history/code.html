@@ -1,0 +1,259 @@
+<!DOCTYPE html><html class="light" lang="en"><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport">
+<title>NABIN - Activity History</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "outline": "#737685",
+                    "background": "#faf8ff",
+                    "surface-container": "#ededf8",
+                    "secondary-fixed": "#d7e3fb",
+                    "surface-container-highest": "#e1e2ec",
+                    "primary-fixed": "#dae2ff",
+                    "on-error": "#ffffff",
+                    "primary": "#003d9b",
+                    "surface": "#faf8ff",
+                    "surface-dim": "#d9d9e4",
+                    "surface-container-high": "#e7e7f2",
+                    "on-secondary": "#ffffff",
+                    "surface-container-lowest": "#ffffff",
+                    "on-error-container": "#93000a",
+                    "on-primary-container": "#c4d2ff",
+                    "tertiary-fixed": "#ffdbcf",
+                    "on-tertiary-fixed": "#380d00",
+                    "on-secondary-container": "#576377",
+                    "tertiary-container": "#a33500",
+                    "error-container": "#ffdad6",
+                    "secondary-fixed-dim": "#bbc7de",
+                    "on-primary-fixed-variant": "#0040a2",
+                    "primary-fixed-dim": "#b2c5ff",
+                    "on-primary-fixed": "#001848",
+                    "error": "#ba1a1a",
+                    "on-background": "#191b23",
+                    "on-primary": "#ffffff",
+                    "on-tertiary-container": "#ffc6b2",
+                    "on-tertiary": "#ffffff",
+                    "inverse-primary": "#b2c5ff",
+                    "on-surface": "#191b23",
+                    "on-surface-variant": "#434654",
+                    "surface-bright": "#faf8ff",
+                    "surface-container-low": "#f3f3fd",
+                    "secondary": "#535f73",
+                    "on-tertiary-fixed-variant": "#812800",
+                    "inverse-surface": "#2e3038",
+                    "on-secondary-fixed-variant": "#3b475b",
+                    "on-secondary-fixed": "#101c2d",
+                    "surface-tint": "#0c56d0",
+                    "primary-container": "#0052cc",
+                    "outline-variant": "#c3c6d6",
+                    "tertiary-fixed-dim": "#ffb59b",
+                    "surface-variant": "#e1e2ec",
+                    "secondary-container": "#d4e0f8",
+                    "tertiary": "#7b2600",
+                    "inverse-on-surface": "#f0f0fb"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.25rem",
+                    "lg": "0.5rem",
+                    "xl": "0.75rem",
+                    "full": "9999px"
+            },
+            "spacing": {
+                    "gutter-mobile": "12px",
+                    "xs": "4px",
+                    "md": "16px",
+                    "touch-target-min": "48px",
+                    "lg": "24px",
+                    "base": "4px",
+                    "xl": "32px",
+                    "margin-mobile": "16px",
+                    "sm": "8px"
+            },
+            "fontFamily": {
+                    "body-lg": ["Inter"],
+                    "headline-md": ["Inter"],
+                    "label-md": ["Inter"],
+                    "headline-lg-mobile": ["Inter"],
+                    "headline-lg": ["Inter"],
+                    "button-text": ["Inter"],
+                    "body-sm": ["Inter"]
+            },
+            "fontSize": {
+                    "body-lg": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                    "headline-md": ["20px", {"lineHeight": "28px", "fontWeight": "600"}],
+                    "label-md": ["12px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "600"}],
+                    "headline-lg-mobile": ["24px", {"lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "700"}],
+                    "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                    "button-text": ["16px", {"lineHeight": "24px", "fontWeight": "600"}],
+                    "body-sm": ["14px", {"lineHeight": "20px", "fontWeight": "400"}]
+            }
+          }
+        }
+      }
+    </script>
+<style>
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .material-symbols-outlined.fill {
+            font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+    </style>
+</head>
+<body class="bg-background text-on-background font-body-lg min-h-screen flex flex-col antialiased">
+<!-- TopAppBar (Web & Mobile) -->
+<header class="w-full sticky top-0 z-50 bg-surface dark:bg-surface-dim">
+<div class="flex justify-between items-center h-14 px-margin-mobile w-full">
+<button class="flex items-center justify-center w-10 h-10 rounded-full hover:bg-surface-container-high dark:hover:bg-surface-container-highest transition-colors active:scale-95 duration-100 text-primary dark:text-primary-fixed-dim">
+<span class="material-symbols-outlined" data-icon="location_on">location_on</span>
+</button>
+<h1 class="font-headline-lg-mobile text-headline-lg-mobile text-primary dark:text-primary-fixed tracking-tight">NABIN</h1>
+<button class="flex items-center justify-center w-10 h-10 rounded-full hover:bg-surface-container-high dark:hover:bg-surface-container-highest transition-colors active:scale-95 duration-100 text-primary dark:text-primary-fixed-dim">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+</button>
+</div>
+</header>
+<!-- Main Content Canvas -->
+<main class="flex-grow flex flex-col pb-[calc(64px+env(safe-area-inset-bottom)+16px)]">
+<!-- Page Header -->
+<div class="px-margin-mobile pt-sm pb-md">
+<h2 class="font-headline-lg-mobile text-headline-lg-mobile text-on-background">Activity</h2>
+</div>
+<!-- Custom Tabs -->
+<div class="px-margin-mobile mb-md sticky top-14 z-40 bg-background/95 backdrop-blur-sm pt-xs pb-xs">
+<div class="flex p-1 bg-surface-container-low rounded-lg shadow-sm border border-outline-variant/30">
+<button class="flex-1 py-2 text-center rounded-md bg-surface shadow-sm font-button-text text-button-text text-primary-container border border-outline-variant/50 transition-all">Ongoing</button>
+<button class="flex-1 py-2 text-center rounded-md font-button-text text-button-text text-on-surface-variant hover:bg-surface-container transition-all">Past</button>
+</div>
+</div>
+<!-- Activity List -->
+<div class="px-margin-mobile flex flex-col gap-md">
+<!-- Item 1: Ride (Ongoing) -->
+<div class="bg-surface rounded-lg shadow-[0_4px_12px_0_rgba(0,0,0,0.05)] border border-outline-variant/20 p-md flex flex-col gap-sm active:scale-[0.98] transition-transform cursor-pointer">
+<div class="flex justify-between items-start">
+<div class="flex items-center gap-sm">
+<div class="w-12 h-12 rounded-full bg-primary-fixed flex items-center justify-center text-on-primary-fixed">
+<span class="material-symbols-outlined fill text-2xl" data-icon="directions_car">directions_car</span>
+</div>
+<div>
+<h3 class="font-headline-md text-headline-md text-on-surface">Standard Ride</h3>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Today, 2:30 PM</p>
+</div>
+</div>
+<div class="flex flex-col items-end">
+<span class="font-headline-md text-headline-md text-on-surface">$14.50</span>
+<span class="font-label-md text-label-md text-surface-tint bg-primary-fixed/50 px-2 py-0.5 rounded-full mt-1">In Progress</span>
+</div>
+</div>
+<div class="h-px w-full bg-outline-variant/30 my-xs"></div>
+<div class="flex items-center gap-sm text-on-surface-variant">
+<span class="material-symbols-outlined text-[18px]" data-icon="trip_origin">trip_origin</span>
+<span class="font-body-sm text-body-sm truncate flex-1">123 Market St, San Francisco</span>
+</div>
+<div class="flex items-center gap-sm text-on-surface-variant mt-[-4px]">
+<span class="material-symbols-outlined text-[18px]" data-icon="location_on">location_on</span>
+<span class="font-body-sm text-body-sm truncate flex-1">456 Tech Blvd, San Jose</span>
+</div>
+</div>
+<!-- Item 2: Food (Past) -->
+<div class="bg-surface rounded-lg shadow-[0_4px_12px_0_rgba(0,0,0,0.05)] border border-outline-variant/20 p-md flex flex-col gap-sm active:scale-[0.98] transition-transform cursor-pointer">
+<div class="flex justify-between items-start">
+<div class="flex items-center gap-sm">
+<div class="w-12 h-12 rounded-full bg-tertiary-fixed flex items-center justify-center text-on-tertiary-fixed">
+<span class="material-symbols-outlined fill text-2xl" data-icon="restaurant">restaurant</span>
+</div>
+<div>
+<h3 class="font-headline-md text-headline-md text-on-surface">Burger Joint</h3>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Yesterday, 7:15 PM</p>
+</div>
+</div>
+<div class="flex flex-col items-end">
+<span class="font-headline-md text-headline-md text-on-surface">$28.00</span>
+<span class="font-label-md text-label-md text-secondary bg-surface-container-high px-2 py-0.5 rounded-full mt-1">Delivered</span>
+</div>
+</div>
+</div><div class="bg-surface rounded-lg shadow-[0_4px_12px_0_rgba(0,0,0,0.05)] border border-outline-variant/20 p-md flex flex-col gap-sm active:scale-[0.98] transition-transform cursor-pointer">
+<div class="flex justify-between items-start">
+<div class="flex items-center gap-sm">
+<div class="w-12 h-12 rounded-full bg-tertiary-fixed flex items-center justify-center text-on-tertiary-fixed">
+<span class="material-symbols-outlined fill text-2xl" data-icon="restaurant">restaurant</span>
+</div>
+<div>
+<h3 class="font-headline-md text-headline-md text-on-surface">Burger Joint Royale</h3>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Yesterday, 8:45 PM</p>
+</div>
+</div>
+<div class="flex flex-col items-end">
+<span class="font-headline-md text-headline-md text-on-surface">$25.37</span>
+<span class="font-label-md text-label-md text-secondary bg-surface-container-high px-2 py-0.5 rounded-full mt-1">Delivered</span>
+</div>
+</div>
+<div class="h-px w-full bg-outline-variant/30 my-xs"></div>
+<div class="flex items-center gap-sm text-on-surface-variant">
+<span class="material-symbols-outlined text-[18px]" data-icon="trip_origin">trip_origin</span>
+<span class="font-body-sm text-body-sm truncate flex-1">Burger Joint Royale</span>
+</div>
+<div class="flex items-center gap-sm text-on-surface-variant mt-[-4px]">
+<span class="material-symbols-outlined text-[18px]" data-icon="location_on">location_on</span>
+<span class="font-body-sm text-body-sm truncate flex-1">123 Tech Boulevard</span>
+</div>
+</div>
+<!-- Item 3: Parcel (Past) -->
+<div class="bg-surface rounded-lg shadow-[0_4px_12px_0_rgba(0,0,0,0.05)] border border-outline-variant/20 p-md flex flex-col gap-sm active:scale-[0.98] transition-transform cursor-pointer">
+<div class="flex justify-between items-start">
+<div class="flex items-center gap-sm">
+<div class="w-12 h-12 rounded-full bg-secondary-fixed flex items-center justify-center text-on-secondary-fixed">
+<span class="material-symbols-outlined fill text-2xl" data-icon="local_shipping">local_shipping</span>
+</div>
+<div>
+<h3 class="font-headline-md text-headline-md text-on-surface">Document Delivery</h3>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Oct 12, 10:00 AM</p>
+</div>
+</div>
+<div class="flex flex-col items-end">
+<span class="font-headline-md text-headline-md text-on-surface">$8.25</span>
+<span class="font-label-md text-label-md text-secondary bg-surface-container-high px-2 py-0.5 rounded-full mt-1">Completed</span>
+</div>
+</div>
+</div>
+</div>
+</main>
+<!-- BottomNavBar (Mobile Only) -->
+<nav class="fixed bottom-0 w-full z-50 h-[64px] pb-safe border-t border-outline-variant dark:border-outline shadow-[0_-4px_12px_0_rgba(0,0,0,0.05)] md:hidden">
+<div class="flex justify-around items-center w-full h-full bg-surface dark:bg-surface-dim px-2">
+<a class="flex flex-col items-center justify-center w-full h-full text-secondary dark:text-secondary-fixed-dim hover:bg-surface-container-low dark:hover:bg-surface-container-high active:scale-90 duration-200 ease-out" href="#">
+<span class="material-symbols-outlined mb-1" data-icon="home">home</span>
+<span class="font-label-md text-label-md">Home</span>
+</a>
+<a class="flex flex-col items-center justify-center w-full h-full text-primary dark:text-primary-fixed-dim relative after:content-[''] after:absolute after:bottom-[8px] after:w-1 after:h-1 after:bg-primary after:rounded-full hover:bg-surface-container-low dark:hover:bg-surface-container-high active:scale-90 duration-200 ease-out" href="#">
+<span class="material-symbols-outlined mb-1 fill" data-icon="receipt_long">receipt_long</span>
+<span class="font-label-md text-label-md">Activity</span>
+</a>
+<a class="flex flex-col items-center justify-center w-full h-full text-secondary dark:text-secondary-fixed-dim hover:bg-surface-container-low dark:hover:bg-surface-container-high active:scale-90 duration-200 ease-out" href="#">
+<span class="material-symbols-outlined mb-1" data-icon="account_balance_wallet">account_balance_wallet</span>
+<span class="font-label-md text-label-md">Wallet</span>
+</a>
+<a class="flex flex-col items-center justify-center w-full h-full text-secondary dark:text-secondary-fixed-dim hover:bg-surface-container-low dark:hover:bg-surface-container-high active:scale-90 duration-200 ease-out" href="#">
+<span class="material-symbols-outlined mb-1" data-icon="person">person</span>
+<span class="font-label-md text-label-md">Profile</span>
+</a>
+</div>
+</nav>
+
+
+</body></html>

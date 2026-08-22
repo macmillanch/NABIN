@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Active Trip - Driver</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface-tint": "#b4c5ff",
+                        "inverse-surface": "#e1e2ed",
+                        "on-primary-fixed-variant": "#003ea8",
+                        "outline-variant": "#434655",
+                        "tertiary-container": "#bc4800",
+                        "surface-container-lowest": "#0c0e16",
+                        "surface-dim": "#11131b",
+                        "on-primary-fixed": "#00174b",
+                        "error": "#ffb4ab",
+                        "surface": "#11131b",
+                        "on-secondary-fixed-variant": "#43474d",
+                        "surface-bright": "#373942",
+                        "on-tertiary-fixed": "#360f00",
+                        "on-tertiary-fixed-variant": "#7d2d00",
+                        "on-background": "#e1e2ed",
+                        "primary-container": "#2563eb",
+                        "on-error": "#690005",
+                        "surface-container": "#1d1f27",
+                        "on-secondary": "#2d3136",
+                        "surface-variant": "#32343d",
+                        "background": "#11131b",
+                        "tertiary-fixed-dim": "#ffb596",
+                        "tertiary": "#ffb596",
+                        "outline": "#8d90a0",
+                        "on-secondary-fixed": "#181c21",
+                        "tertiary-fixed": "#ffdbcd",
+                        "primary-fixed": "#dbe1ff",
+                        "secondary-fixed": "#e0e2ea",
+                        "surface-container-highest": "#32343d",
+                        "primary": "#b4c5ff",
+                        "error-container": "#93000a",
+                        "secondary-fixed-dim": "#c3c6ce",
+                        "on-tertiary-container": "#ffede6",
+                        "surface-container-high": "#282a32",
+                        "secondary": "#c3c6ce",
+                        "secondary-container": "#43474d",
+                        "on-surface-variant": "#c3c6d7",
+                        "on-primary": "#002a78",
+                        "primary-fixed-dim": "#b4c5ff",
+                        "inverse-primary": "#0053db",
+                        "surface-container-low": "#191b23",
+                        "on-tertiary": "#581e00",
+                        "on-primary-container": "#eeefff",
+                        "on-secondary-container": "#b2b5bc",
+                        "on-surface": "#e1e2ed",
+                        "on-error-container": "#ffdad6",
+                        "inverse-on-surface": "#2e3039"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "stack-md": "16px",
+                        "base": "4px",
+                        "stack-sm": "8px",
+                        "stack-lg": "24px",
+                        "touch-target-min": "48px",
+                        "margin-mobile": "16px",
+                        "gutter": "16px",
+                        "margin-desktop": "32px"
+                    },
+                    "fontFamily": {
+                        "body-lg": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "label-md": ["Inter"],
+                        "body-md": ["Inter"],
+                        "headline-xl": ["Inter"],
+                        "headline-lg-mobile": ["Inter"],
+                        "data-tabular": ["Inter"]
+                    },
+                    "fontSize": {
+                        "body-lg": ["18px", { "lineHeight": "28px", "fontWeight": "400" }],
+                        "headline-lg": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+                        "label-md": ["14px", { "lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "500" }],
+                        "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "headline-xl": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "headline-lg-mobile": ["20px", { "lineHeight": "28px", "fontWeight": "600" }],
+                        "data-tabular": ["16px", { "lineHeight": "24px", "fontWeight": "600" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>.map-bg {
+    background-image: url(https://lh3.googleusercontent.com/aida-public/AB6AXuDiBBKoXtkkI9kWXqqYoiLxMRz-B8VJ0ITCn4QY87tK1Fub0g4bWc74VhgpHFF9V37nFfI6fX84-aMXs6q8MmbjQPARTqvteyNsZJ4jjMR-G9vWkiNTsxZmb-pmTE1Vm6HTWXv1z2qOx9HsanWdwbN_cPo3zXyDlcFLuXKIXEfhUGuKUtWrZuXP3XTpLrqfhybp-Owifz6FelO7C4s64pAzfk9gdg_S8Iugn4icYRXdj-V4xYem9ug);
+    background-size: cover;
+    background-position: center
+    }
+.slider-thumb {
+    transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1)
+    }</style>
+</head>
+<body class="bg-background text-on-surface h-screen w-screen overflow-hidden font-body-md flex flex-col relative">
+<!-- Top App Bar -->
+<header class="bg-surface dark:bg-surface text-primary dark:text-primary font-headline-lg-mobile text-headline-lg-mobile fixed top-0 w-full bg-surface-container-low border-b border-white/10 flat no shadows flex justify-between items-center px-margin-mobile h-touch-target-min z-50">
+<button class="h-touch-target-min w-touch-target-min flex items-center justify-center text-on-surface-variant hover:bg-surface-variant/20 transition-colors duration-200 rounded-full">
+<span class="material-symbols-outlined" data-icon="safety_check" data-weight="fill" style="font-variation-settings: 'FILL' 1;">safety_check</span>
+</button>
+<h1 class="font-headline-lg-mobile text-headline-lg-mobile font-bold text-primary">Heading to Pickup</h1>
+<button class="h-touch-target-min w-touch-target-min flex items-center justify-center text-on-surface-variant hover:bg-surface-variant/20 transition-colors duration-200 rounded-full">
+<span class="material-symbols-outlined" data-icon="emergency">emergency</span>
+</button>
+</header>
+<!-- Map Area (Canvas) -->
+<main class="flex-1 relative w-full mt-touch-target-min h-[60vh]">
+<!-- Map Background -->
+<div class="absolute inset-0 map-bg w-full h-full" data-alt="A dark, high-contrast digital map interface optimized for night driving, displaying intricate city street grids in deep obsidian and charcoal tones. A bright, glowing royal blue navigation line winds through the streets, indicating the driver's route. Minimalist typography and sleek tech-driven aesthetics convey professional precision." data-location="San Francisco" style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuBaKuDnDGvKXbl7fazOb9XOD7SCB12IffHd56qbtcdA89_Nsb6CBIXQnrymxXuB15lz3i2o9Bnu3zb4YI88KzukWETAhI3lsVRr8-U3aJ6ISteMS4-UdmD3vWET1N7HIK9xghS45L7lhUWcu-J-PAHg22PQDOsMaKpyi-ItjJYy8cOZImiTIzYr7vyDaaStvg5V-jM7f2qS4G3v-r14kCc6WqZR4166C95asQE8DaKewLNdYgkTOuA')"></div>
+<!-- Floating SOS Button -->
+<button class="absolute bottom-[24px] right-margin-mobile h-touch-target-min w-touch-target-min rounded-full bg-surface-container-high shadow-lg border border-outline-variant/30 flex items-center justify-center text-error hover:bg-surface-variant transition-colors z-40">
+<span class="material-symbols-outlined" data-icon="shield">shield</span>
+</button>
+<button class="absolute bottom-[88px] right-margin-mobile h-touch-target-min w-touch-target-min rounded-full bg-surface-container-high shadow-lg border border-outline-variant/30 flex items-center justify-center text-primary hover:bg-surface-variant transition-colors z-40">
+<span class="material-symbols-outlined" data-icon="my_location">my_location</span>
+</button>
+</main>
+<!-- Bottom Sheet -->
+<section class="absolute bottom-0 w-full h-[45vh] bg-surface-container rounded-t-xl shadow-[0_-8px_32px_rgba(0,0,0,0.5)] border-t border-white/5 flex flex-col z-50 transform transition-transform duration-300">
+<!-- Drag Handle Indicator -->
+<div class="w-full flex justify-center py-stack-sm">
+<div class="w-12 h-1 bg-outline-variant rounded-full"></div>
+</div>
+<div class="px-margin-mobile flex-1 flex flex-col">
+<!-- Customer Info Header -->
+<div class="flex items-center justify-between mb-stack-md pt-stack-sm pb-stack-sm border-b border-outline-variant/20">
+<div class="flex items-center gap-stack-md">
+<div class="w-[56px] h-[56px] rounded-full overflow-hidden border-2 border-primary-container bg-surface-container-high flex-shrink-0">
+<img class="w-full h-full object-cover" data-alt="A close-up profile portrait of a young professional man in a dimly lit, high-end vehicle interior, illuminated softly by the cool blue light of a digital dashboard. The setting is modern and sleek, fitting a premium dark mode aesthetic." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAyleBfUMCob8hG_pAXAoyG6NfAb3yZlVoK6s-0bnvtNir0JTDRP_r22tVdaQ1yjX71PtJnGIOhIjL6scjeLN3Xy7bujVnG0b6z8UTW8zK1aL1_pmvGnV-spmEhs4lsIi5D7npzQWAVB7hg7EzRVIMmEnKOwQ3MP7wECk-ijpFlRdJnD9G2NOVoeb0h4J_VuHGtLaOj6jxIqA7osGhNvwSGWgpA-gdvKCk15FZR4ir8CRQPfgHdYCk"/>
+</div>
+<div>
+<h2 class="font-headline-lg-mobile text-headline-lg-mobile text-on-surface">Arjun K.</h2>
+<div class="flex items-center gap-1 text-tertiary">
+<span class="material-symbols-outlined text-[16px]" data-icon="star" data-weight="fill" style="font-variation-settings: 'FILL' 1;">star</span>
+<span class="font-label-md text-label-md">4.9</span>
+</div>
+</div>
+</div>
+<div class="flex gap-stack-sm">
+<button class="h-touch-target-min w-touch-target-min rounded-full bg-surface-container-high flex items-center justify-center text-primary hover:bg-surface-variant border border-white/5">
+<span class="material-symbols-outlined" data-icon="chat_bubble">chat_bubble</span>
+</button>
+<button class="h-touch-target-min w-touch-target-min rounded-full bg-surface-container-high flex items-center justify-center text-primary hover:bg-surface-variant border border-white/5">
+<span class="material-symbols-outlined" data-icon="call">call</span>
+</button>
+</div>
+</div>
+<!-- Trip Details -->
+<div class="flex-1 overflow-y-auto mb-stack-md">
+<div class="relative pl-8 pr-4 py-2">
+<!-- Vertical Connection Line -->
+<div class="absolute left-[11px] top-6 bottom-6 w-0.5 bg-outline-variant/50"></div>
+<!-- Pickup -->
+<div class="relative mb-stack-lg">
+<div class="absolute -left-[30px] top-1 w-4 h-4 rounded-full bg-primary-container border-2 border-surface-container z-10 flex items-center justify-center">
+<div class="w-1.5 h-1.5 rounded-full bg-on-primary-container"></div>
+</div>
+<p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-1">Pickup</p>
+<p class="font-body-lg text-body-lg text-on-surface">440 Terry Ave N</p>
+<p class="font-body-md text-body-md text-on-surface-variant">Seattle, WA 98109</p>
+</div>
+<!-- Drop-off -->
+<div class="relative">
+<div class="absolute -left-[30px] top-1 w-4 h-4 rounded-full bg-surface-container-high border-2 border-outline-variant z-10"></div>
+<p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-1">Drop-off</p>
+<p class="font-body-lg text-body-lg text-on-surface">Pike Place Market</p>
+</div>
+</div>
+</div>
+<!-- Action Slider -->
+<div class="pb-margin-mobile pt-stack-sm mt-auto relative">
+<div class="w-full h-14 bg-surface-container-high rounded-full border border-outline-variant/30 relative flex items-center overflow-hidden">
+<div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+<span class="font-label-md text-label-md text-on-surface-variant tracking-wider uppercase">Swipe to Arrive</span>
+</div>
+<div class="h-12 w-12 bg-primary-container rounded-full ml-1 absolute left-0 flex items-center justify-center shadow-lg border border-white/10 slider-thumb cursor-pointer text-on-primary-container z-10 hover:bg-inverse-primary transition-colors">
+<span class="material-symbols-outlined" data-icon="keyboard_double_arrow_right">keyboard_double_arrow_right</span>
+</div>
+</div>
+</div>
+</div>
+</section>
+</body></html>

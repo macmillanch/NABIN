@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport"/>
+<title>NABIN - Onboarding</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "outline": "#737685",
+                        "background": "#faf8ff",
+                        "surface-container": "#ededf8",
+                        "secondary-fixed": "#d7e3fb",
+                        "surface-container-highest": "#e1e2ec",
+                        "primary-fixed": "#dae2ff",
+                        "on-error": "#ffffff",
+                        "primary": "#003d9b",
+                        "surface": "#faf8ff",
+                        "surface-dim": "#d9d9e4",
+                        "surface-container-high": "#e7e7f2",
+                        "on-secondary": "#ffffff",
+                        "surface-container-lowest": "#ffffff",
+                        "on-error-container": "#93000a",
+                        "on-primary-container": "#c4d2ff",
+                        "tertiary-fixed": "#ffdbcf",
+                        "on-tertiary-fixed": "#380d00",
+                        "on-secondary-container": "#576377",
+                        "tertiary-container": "#a33500",
+                        "error-container": "#ffdad6",
+                        "secondary-fixed-dim": "#bbc7de",
+                        "on-primary-fixed-variant": "#0040a2",
+                        "primary-fixed-dim": "#b2c5ff",
+                        "on-primary-fixed": "#001848",
+                        "error": "#ba1a1a",
+                        "on-background": "#191b23",
+                        "on-primary": "#ffffff",
+                        "on-tertiary-container": "#ffc6b2",
+                        "on-tertiary": "#ffffff",
+                        "inverse-primary": "#b2c5ff",
+                        "on-surface": "#191b23",
+                        "on-surface-variant": "#434654",
+                        "surface-bright": "#faf8ff",
+                        "surface-container-low": "#f3f3fd",
+                        "secondary": "#535f73",
+                        "on-tertiary-fixed-variant": "#812800",
+                        "inverse-surface": "#2e3038",
+                        "on-secondary-fixed-variant": "#3b475b",
+                        "on-secondary-fixed": "#101c2d",
+                        "surface-tint": "#0c56d0",
+                        "primary-container": "#0052cc",
+                        "outline-variant": "#c3c6d6",
+                        "tertiary-fixed-dim": "#ffb59b",
+                        "surface-variant": "#e1e2ec",
+                        "secondary-container": "#d4e0f8",
+                        "tertiary": "#7b2600",
+                        "inverse-on-surface": "#f0f0fb"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "gutter-mobile": "12px",
+                        "xs": "4px",
+                        "md": "16px",
+                        "touch-target-min": "48px",
+                        "lg": "24px",
+                        "base": "4px",
+                        "xl": "32px",
+                        "margin-mobile": "16px",
+                        "sm": "8px"
+                    },
+                    "fontFamily": {
+                        "body-lg": ["Inter"],
+                        "headline-md": ["Inter"],
+                        "label-md": ["Inter"],
+                        "headline-lg-mobile": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "button-text": ["Inter"],
+                        "body-sm": ["Inter"]
+                    },
+                    "fontSize": {
+                        "body-lg": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                        "headline-md": ["20px", {"lineHeight": "28px", "fontWeight": "600"}],
+                        "label-md": ["12px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "600"}],
+                        "headline-lg-mobile": ["24px", {"lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "700"}],
+                        "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                        "button-text": ["16px", {"lineHeight": "24px", "fontWeight": "600"}],
+                        "body-sm": ["14px", {"lineHeight": "20px", "fontWeight": "400"}]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        .scrollbar-hide::-webkit-scrollbar {
+            display: none;
+        }
+        .scrollbar-hide {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+    </style>
+</head>
+<body class="bg-background text-on-background selection:bg-primary-fixed selection:text-on-primary-fixed antialiased">
+<!-- Splash Screen Overlay -->
+<div class="fixed inset-0 z-[100] bg-primary flex items-center justify-center transition-opacity duration-700 ease-in-out" id="splash-screen">
+<h1 class="font-headline-lg text-headline-lg text-on-primary tracking-tighter">NABIN</h1>
+</div>
+<!-- Onboarding Flow -->
+<main class="min-h-[100dvh] flex flex-col relative w-full max-w-md mx-auto bg-surface-bright overflow-hidden shadow-[0_0_40px_rgba(0,0,0,0.05)]">
+<!-- Top Actions -->
+<header class="flex justify-end p-margin-mobile absolute top-0 w-full z-10">
+<button class="font-button-text text-button-text text-primary bg-transparent py-sm px-md rounded-full hover:bg-surface-container-lowest active:bg-surface-container-high transition-colors">
+                Skip
+            </button>
+</header>
+<!-- Carousel Container -->
+<div class="flex-1 flex flex-col relative pt-xl mt-xl">
+<div class="flex-1 flex overflow-x-auto snap-x snap-mandatory scrollbar-hide pb-xl" id="carousel">
+<!-- Slide 1: Rides -->
+<div class="w-full flex-shrink-0 snap-center flex flex-col items-center justify-center px-xl">
+<div class="w-full aspect-square max-w-[280px] rounded-2xl bg-surface-container-lowest shadow-[0_8px_20px_0_rgba(0,0,0,0.04)] border border-outline-variant/30 flex items-center justify-center p-lg mb-xl transform transition-transform hover:scale-[1.02]">
+<img class="w-full h-full object-contain" data-alt="A clean, minimalist 3D or flat vector illustration of a modern car driving smoothly on a stylized, clean city map. The design uses a bright light-mode aesthetic with a pure white background. The car is rendered in the brand's solid deep blue (#003d9b), surrounded by subtle, light gray geometric shapes representing buildings and routes. The mood is highly efficient, dependable, and modern corporate." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAVBl2Dk3sBiW-DGRMagzfZEtoAD-Dqm5SSJOHR4cLalriQFQvze2oCXP6Av6F_JJvO3qoC3y2dR6bq3UNSc1hrlyRwKhseIRxBPHmdFDuFDlw2PBWindp61gjmgT5tZx6YXANArgwm328eAW1IgcDhJ0Mez5hIRNN5-FaDFLLFSWJHMAakP4ucbpNwkYes_dtcwOWID5H6F6vix4o5_-CjpoEW0XS7IfHtbdcqyhIqji9ZUfhGirI21Q"/>
+</div>
+<div class="text-center px-md">
+<h2 class="font-headline-md text-headline-md text-on-surface mb-sm">Seamless Rides</h2>
+<p class="font-body-lg text-body-lg text-on-surface-variant max-w-[280px] mx-auto">Get from A to B with ease, comfort, and unmatched reliability across the city.</p>
+</div>
+</div>
+<!-- Slide 2: Food -->
+<div class="w-full flex-shrink-0 snap-center flex flex-col items-center justify-center px-xl">
+<div class="w-full aspect-square max-w-[280px] rounded-2xl bg-surface-container-lowest shadow-[0_8px_20px_0_rgba(0,0,0,0.04)] border border-outline-variant/30 flex items-center justify-center p-lg mb-xl transform transition-transform hover:scale-[1.02]">
+<img class="w-full h-full object-contain" data-alt="A polished, modern corporate illustration of an appetizing hot meal inside a sleek takeout container, featuring subtle abstract lines indicating speed and hot delivery. Set against a clean white canvas, the primary visual elements utilize a bold, dependable deep blue (#003d9b) alongside subtle warm accents to evoke appetite. The aesthetic is highly structured, minimal, and mobile-first." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDa-uQqOGLQizWWeiNAPlmRK6fA39-HCicohhGbDK1kNoVFsIemoKTJ4fBcf6wbvI1RYEqOvqJuiFzFIwQe1OamuD3-G2ESC2Lq1LP421t06ccqizErI1Sq6EnsgqfFyjAc3ZYiBX3SMzqLq2fU01CGbFTsKOCfhaxCGhI7JkJ7heY-7UlDXbgqzqicAltr0jmewBbBQ0IS6l6MO7K9tM5YTZZnF_9sU_Yrl2v9WjR_xbmb-cihHGvdJg"/>
+</div>
+<div class="text-center px-md">
+<h2 class="font-headline-md text-headline-md text-on-surface mb-sm">Delicious Food</h2>
+<p class="font-body-lg text-body-lg text-on-surface-variant max-w-[280px] mx-auto">Your favorite local meals delivered piping hot and incredibly fast right to your door.</p>
+</div>
+</div>
+<!-- Slide 3: Parcels -->
+<div class="w-full flex-shrink-0 snap-center flex flex-col items-center justify-center px-xl">
+<div class="w-full aspect-square max-w-[280px] rounded-2xl bg-surface-container-lowest shadow-[0_8px_20px_0_rgba(0,0,0,0.04)] border border-outline-variant/30 flex items-center justify-center p-lg mb-xl transform transition-transform hover:scale-[1.02]">
+<img class="w-full h-full object-contain" data-alt="A pristine, functional illustration showing a neatly wrapped parcel box with a scanning label, symbolizing efficient logistics. The environment is entirely light-mode, using a bright white background. The box and surrounding directional arrows are styled in a strong, dependable deep blue (#003d9b). The overall design implies frictionless service, security, and precision corporate styling." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBThxB1UsiDIWSjHIuP6aL7R3t8Ut1GEMCixXUJrJe5pUje_VQo4ApBxHldScd9_clcrpEV9WVZQT1xG6KtPQY2xRKK7ZLI6SYh0WfJBI2hQbvO72e6aACzchVGpeH1JUHzOB4_q8Q0aDXoL_IDVWAfqw05T8qhb4TABgaDB3ZTlZwBCm1AYtRSFGvMygDpF7kM9_q2xx2X9e8C0jZlhdknnS2Y9MdCftse8-lVDxXhACtwlWVoJJkg-A"/>
+</div>
+<div class="text-center px-md">
+<h2 class="font-headline-md text-headline-md text-on-surface mb-sm">Reliable Parcels</h2>
+<p class="font-body-lg text-body-lg text-on-surface-variant max-w-[280px] mx-auto">Send and receive packages securely with real-time tracking and precise handling.</p>
+</div>
+</div>
+</div>
+<!-- Custom Pagination Indicators -->
+<div class="flex justify-center items-center gap-sm mb-lg">
+<div class="indicator w-6 h-2 rounded-full bg-primary transition-all duration-300"></div>
+<div class="indicator w-2 h-2 rounded-full bg-surface-variant transition-all duration-300"></div>
+<div class="indicator w-2 h-2 rounded-full bg-surface-variant transition-all duration-300"></div>
+</div>
+</div>
+<!-- Bottom Action Button -->
+<div class="px-margin-mobile pb-margin-mobile pt-sm bg-surface-bright">
+<button class="w-full h-[56px] rounded-lg bg-primary text-on-primary font-button-text text-button-text flex items-center justify-center shadow-[0_4px_12px_0_rgba(0,61,155,0.2)] active:scale-[0.98] transition-transform duration-150 ease-out">
+                Get Started
+            </button>
+</div>
+</main>
+<script>
+        // Splash Screen Logic
+        document.addEventListener('DOMContentLoaded', () => {
+            const splash = document.getElementById('splash-screen');
+            setTimeout(() => {
+                splash.style.opacity = '0';
+                setTimeout(() => {
+                    splash.style.display = 'none';
+                }, 700); // Wait for transition to finish
+            }, 1500); // Show splash for 1.5 seconds
+
+            // Simple Carousel Indicator Logic
+            const carousel = document.getElementById('carousel');
+            const indicators = document.querySelectorAll('.indicator');
+            
+            carousel.addEventListener('scroll', () => {
+                const scrollPosition = carousel.scrollLeft;
+                const slideWidth = carousel.clientWidth;
+                const activeIndex = Math.round(scrollPosition / slideWidth);
+
+                indicators.forEach((ind, index) => {
+                    if (index === activeIndex) {
+                        ind.classList.remove('w-2', 'bg-surface-variant');
+                        ind.classList.add('w-6', 'bg-primary');
+                    } else {
+                        ind.classList.remove('w-6', 'bg-primary');
+                        ind.classList.add('w-2', 'bg-surface-variant');
+                    }
+                });
+            });
+        });
+    </script>
+</body></html>

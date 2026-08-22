@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Payout Success - NABIN Driver</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "primary": "#b4c5ff",
+                        "on-secondary-container": "#b2b5bc",
+                        "primary-fixed": "#dbe1ff",
+                        "secondary-fixed": "#e0e2ea",
+                        "surface-container-high": "#282a32",
+                        "surface-bright": "#373942",
+                        "outline-variant": "#434655",
+                        "background": "#11131b",
+                        "inverse-surface": "#e1e2ed",
+                        "surface-container-highest": "#32343d",
+                        "surface-tint": "#b4c5ff",
+                        "on-primary-container": "#eeefff",
+                        "tertiary-fixed-dim": "#ffb596",
+                        "primary-fixed-dim": "#b4c5ff",
+                        "on-secondary": "#2d3136",
+                        "on-tertiary": "#581e00",
+                        "on-error-container": "#ffdad6",
+                        "on-background": "#e1e2ed",
+                        "on-error": "#690005",
+                        "secondary": "#c3c6ce",
+                        "error-container": "#93000a",
+                        "on-tertiary-fixed": "#360f00",
+                        "tertiary-container": "#bc4800",
+                        "error": "#ffb4ab",
+                        "on-primary-fixed-variant": "#003ea8",
+                        "outline": "#8d90a0",
+                        "on-surface-variant": "#c3c6d7",
+                        "surface-container-lowest": "#0c0e16",
+                        "surface-container-low": "#191b23",
+                        "surface-container": "#1d1f27",
+                        "on-tertiary-container": "#ffede6",
+                        "inverse-primary": "#0053db",
+                        "surface-variant": "#32343d",
+                        "on-primary": "#002a78",
+                        "surface": "#11131b",
+                        "on-secondary-fixed-variant": "#43474d",
+                        "inverse-on-surface": "#2e3039",
+                        "tertiary": "#ffb596",
+                        "secondary-fixed-dim": "#c3c6ce",
+                        "tertiary-fixed": "#ffdbcd",
+                        "secondary-container": "#43474d",
+                        "on-tertiary-fixed-variant": "#7d2d00",
+                        "primary-container": "#2563eb",
+                        "on-secondary-fixed": "#181c21",
+                        "on-primary-fixed": "#00174b",
+                        "surface-dim": "#11131b",
+                        "on-surface": "#e1e2ed",
+                        "success": "#10B981",
+                        "on-success": "#064E3B",
+                        "success-container": "#047857",
+                        "on-success-container": "#D1FAE5"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "stack-md": "16px",
+                        "touch-target-min": "48px",
+                        "stack-lg": "24px",
+                        "gutter": "16px",
+                        "base": "4px",
+                        "margin-mobile": "16px",
+                        "margin-desktop": "32px",
+                        "stack-sm": "8px"
+                    },
+                    "fontFamily": {
+                        "headline-xl": ["Inter"],
+                        "headline-lg-mobile": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "data-tabular": ["Inter"],
+                        "body-md": ["Inter"],
+                        "label-md": ["Inter"]
+                    },
+                    "fontSize": {
+                        "headline-xl": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "headline-lg-mobile": ["20px", { "lineHeight": "28px", "fontWeight": "600" }],
+                        "headline-lg": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+                        "body-lg": ["18px", { "lineHeight": "28px", "fontWeight": "400" }],
+                        "data-tabular": ["16px", { "lineHeight": "24px", "fontWeight": "600" }],
+                        "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "label-md": ["14px", { "lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "500" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        .glass-edge {
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .success-glow {
+            box-shadow: 0 0 40px rgba(16, 185, 129, 0.2);
+        }
+
+        @keyframes scaleIn {
+            0% { transform: scale(0.8); opacity: 0; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+
+        @keyframes slideUp {
+            0% { transform: translateY(20px); opacity: 0; }
+            100% { transform: translateY(0); opacity: 1; }
+        }
+
+        .animate-scale-in {
+            animation: scaleIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+
+        .animate-slide-up-1 {
+            opacity: 0;
+            animation: slideUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.2s forwards;
+        }
+
+        .animate-slide-up-2 {
+            opacity: 0;
+            animation: slideUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.4s forwards;
+        }
+        
+        .animate-slide-up-3 {
+            opacity: 0;
+            animation: slideUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.6s forwards;
+        }
+    </style>
+</head>
+<body class="bg-background text-on-surface min-h-screen flex flex-col justify-between selection:bg-primary-container selection:text-on-primary-container">
+<!-- Canvas area -->
+<main class="flex-grow flex flex-col items-center justify-center px-margin-mobile md:px-margin-desktop py-12">
+<!-- Animated Success Graphic -->
+<div class="mb-stack-lg relative animate-scale-in">
+<div class="absolute inset-0 bg-success/20 rounded-full blur-2xl"></div>
+<div class="w-24 h-24 rounded-full bg-success-container/20 glass-edge flex items-center justify-center relative z-10 success-glow">
+<span class="material-symbols-outlined text-[48px] text-success" style="font-variation-settings: 'FILL' 1;">
+                    check_circle
+                </span>
+</div>
+</div>
+<!-- Typography Header -->
+<div class="text-center mb-stack-lg w-full max-w-md animate-slide-up-1">
+<h1 class="font-headline-xl text-headline-xl text-on-surface mb-stack-sm">Transfer Successful!</h1>
+<p class="font-body-lg text-body-lg text-on-surface-variant">
+<span class="text-on-surface font-semibold">$380.00</span> is on its way to your bank account.
+            </p>
+</div>
+<!-- Detailed Breakdown Card -->
+<div class="w-full max-w-md bg-[#17202B] rounded-xl p-stack-md glass-edge mb-stack-lg animate-slide-up-2">
+<div class="flex justify-between items-center py-stack-sm border-b border-outline-variant/30">
+<span class="font-body-md text-body-md text-on-surface-variant">Transaction ID</span>
+<span class="font-data-tabular text-data-tabular text-on-surface">#NB-PY-92810</span>
+</div>
+<div class="flex justify-between items-center py-stack-sm border-b border-outline-variant/30">
+<span class="font-body-md text-body-md text-on-surface-variant">Destination</span>
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px] text-primary" style="font-variation-settings: 'FILL' 1;">account_balance</span>
+<span class="font-data-tabular text-data-tabular text-on-surface">Chase Bank (...4829)</span>
+</div>
+</div>
+<div class="flex justify-between items-center pt-stack-sm">
+<span class="font-body-md text-body-md text-on-surface-variant">Date</span>
+<span class="font-data-tabular text-data-tabular text-on-surface">Oct 24, 2023, 10:45 AM</span>
+</div>
+</div>
+<!-- Secondary Info -->
+<div class="w-full max-w-md text-center animate-slide-up-3">
+<div class="inline-flex items-center gap-2 bg-[#17202B]/50 rounded-lg px-4 py-3 glass-edge">
+<span class="material-symbols-outlined text-[20px] text-primary">notifications_active</span>
+<p class="font-label-md text-label-md text-on-surface-variant">
+                    You'll receive a notification once the funds are available.
+                </p>
+</div>
+</div>
+</main>
+<!-- Bottom Action Area -->
+<div class="px-margin-mobile md:px-margin-desktop pb-margin-mobile md:pb-margin-desktop w-full max-w-md mx-auto animate-slide-up-3">
+<button class="w-full h-touch-target-min bg-primary-container text-on-primary-container rounded-lg font-headline-lg-mobile text-headline-lg-mobile glass-edge flex items-center justify-center gap-2 active:scale-95 transition-transform duration-100 hover:bg-primary-container/90">
+<span class="material-symbols-outlined">account_balance_wallet</span>
+            Back to Wallet
+        </button>
+</div>
+</body></html>

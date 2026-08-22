@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport"/>
+<title>NABIN Driver - Active Trip</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-primary-fixed-variant": "#003ea8",
+                        "inverse-surface": "#e1e2ed",
+                        "primary-fixed": "#dbe1ff",
+                        "on-tertiary-fixed-variant": "#7d2d00",
+                        "tertiary-container": "#bc4800",
+                        "surface-tint": "#b4c5ff",
+                        "surface-container-low": "#191b23",
+                        "outline-variant": "#434655",
+                        "primary-container": "#2563eb",
+                        "on-error": "#690005",
+                        "primary": "#b4c5ff",
+                        "inverse-primary": "#0053db",
+                        "surface-container-highest": "#32343d",
+                        "surface-dim": "#11131b",
+                        "error-container": "#93000a",
+                        "surface": "#11131b",
+                        "on-error-container": "#ffdad6",
+                        "on-primary-fixed": "#00174b",
+                        "tertiary-fixed": "#ffdbcd",
+                        "on-tertiary-container": "#ffede6",
+                        "on-surface-variant": "#c3c6d7",
+                        "secondary": "#c3c6ce",
+                        "on-background": "#e1e2ed",
+                        "on-secondary-container": "#b2b5bc",
+                        "on-primary": "#002a78",
+                        "secondary-fixed": "#e0e2ea",
+                        "tertiary-fixed-dim": "#ffb596",
+                        "error": "#ffb4ab",
+                        "tertiary": "#ffb596",
+                        "on-surface": "#e1e2ed",
+                        "background": "#11131b",
+                        "surface-variant": "#32343d",
+                        "surface-container": "#1d1f27",
+                        "surface-container-high": "#282a32",
+                        "outline": "#8d90a0",
+                        "secondary-fixed-dim": "#c3c6ce",
+                        "on-primary-container": "#eeefff",
+                        "surface-container-lowest": "#0c0e16",
+                        "secondary-container": "#43474d",
+                        "on-secondary-fixed": "#181c21",
+                        "on-tertiary": "#581e00",
+                        "inverse-on-surface": "#2e3039",
+                        "on-secondary-fixed-variant": "#43474d",
+                        "primary-fixed-dim": "#b4c5ff",
+                        "on-secondary": "#2d3136",
+                        "surface-bright": "#373942",
+                        "on-tertiary-fixed": "#360f00"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "base": "4px",
+                        "stack-lg": "24px",
+                        "margin-mobile": "16px",
+                        "stack-md": "16px",
+                        "stack-sm": "8px",
+                        "gutter": "16px",
+                        "margin-desktop": "32px",
+                        "touch-target-min": "48px"
+                    },
+                    "fontFamily": {
+                        "label-md": ["Inter"],
+                        "headline-xl": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "body-md": ["Inter"],
+                        "data-tabular": ["Inter"],
+                        "headline-lg-mobile": ["Inter"],
+                        "headline-lg": ["Inter"]
+                    },
+                    "fontSize": {
+                        "label-md": ["14px", { "lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "500" }],
+                        "headline-xl": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "body-lg": ["18px", { "lineHeight": "28px", "fontWeight": "400" }],
+                        "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "data-tabular": ["16px", { "lineHeight": "24px", "fontWeight": "600" }],
+                        "headline-lg-mobile": ["20px", { "lineHeight": "28px", "fontWeight": "600" }],
+                        "headline-lg": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        .glass-edge {
+            box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+        }
+        /* Hide scrollbar for cleaner UI */
+        ::-webkit-scrollbar {
+            display: none;
+        }
+        body {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+    </style>
+</head>
+<body class="bg-background text-on-background antialiased h-screen w-full overflow-hidden flex flex-col relative">
+<!-- Active Map Background -->
+<div class="absolute inset-0 z-0 bg-surface-container-low" data-alt="A highly detailed, minimalist dark mode city map interface designed for a professional driving application. The map features deep obsidian backgrounds (#0B0F14) with subtle grey streets (#1E293B) and a prominent, vibrant Royal Blue (#2563EB) route line indicating an active trip. The aesthetic is tech-driven, precise, and devoid of unnecessary visual clutter, resembling an advanced industrial-grade navigation system." data-location="San Francisco" style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuDupYRiScW4-MErqHsyjkU6hZSSd6nFaf3erCtBiHBbmdcFqWKQqJBkr9dzwFRq2NB1Am-WHHiLbyjpGWmBzFmnbDtXdAx7e-xvp8GQSFUtFW13YCC35ckxD4HbFRf44G7Dc33RSFq7UEKhQpumVpDpdBjZB4qOoYXc1jgXeaIncoCh7Gu6HPx6UCjdF0Gp9gPqS4o8_qNLGVV8s7z0ZfDtgVH_cE8d5Mc1QofvuK_JCzM_MJay-kU')">
+<!-- Simulated Route Overlay Elements (Optional visual enhancement) -->
+<div class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">
+<div class="w-4 h-4 bg-primary rounded-full border-2 border-surface shadow-[0_0_15px_rgba(37,99,235,0.8)] animate-pulse"></div>
+</div>
+</div>
+<!-- Top Info Bar (Floating) -->
+<div class="absolute top-0 w-full z-20 p-margin-mobile">
+<div class="bg-surface-container/90 backdrop-blur-md rounded-xl glass-edge p-4 flex justify-between items-center shadow-lg">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-full bg-surface-variant flex items-center justify-center">
+<span class="material-symbols-outlined text-primary" data-icon="directions_car">directions_car</span>
+</div>
+<div>
+<h2 class="font-headline-lg-mobile text-headline-lg-mobile text-on-surface">To Destination</h2>
+<p class="font-label-md text-label-md text-on-surface-variant">Via I-80 W</p>
+</div>
+</div>
+<div class="text-right">
+<div class="font-data-tabular text-data-tabular text-primary text-xl">14 min</div>
+<div class="font-label-md text-label-md text-on-surface-variant">4.2 mi</div>
+</div>
+</div>
+</div>
+<!-- Bottom Trip Panel -->
+<div class="absolute bottom-0 w-full z-20 pb-safe">
+<div class="bg-surface-container-high rounded-t-3xl glass-edge shadow-[0_-8px_30px_rgba(0,0,0,0.5)] flex flex-col">
+<!-- Drag Handle -->
+<div class="w-full flex justify-center py-3">
+<div class="w-12 h-1.5 bg-outline-variant rounded-full"></div>
+</div>
+<div class="px-margin-mobile pb-margin-mobile flex flex-col gap-stack-md">
+<!-- Passenger Info -->
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-3">
+<img class="w-12 h-12 rounded-full object-cover border border-outline-variant" data-alt="A professional headshot of a diverse passenger, styled in a minimalist and clean aesthetic. The lighting is soft and neutral, ensuring the face is clearly visible. The background is a stark, deep obsidian (#0B0F14) to perfectly match the application's high-contrast dark mode interface, removing any distracting elements." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDU5PgHz6b0oqkqVSu0Vz61Safa1zcUtLJY-zs1KSvkBhvPgbYfa7iVMOMj5tViHb2SO65K6fTUMHG-F6mP2VyT3hUNvNjQC-gS8mxd_MlkHp8DicZ2VpthtmM2S5BM1BuUTgM5Sn6YVDy-7FEw3Lblg_BB9IeCy3uhT_LRq7CRxrZ1HfstVcsf8St2hEFKCm-pHvDnySPND8-dh77c_u6MwIqtQVT3mSTO2sbhFw6QYwNVxR2f4bw"/>
+<div>
+<h3 class="font-headline-lg-mobile text-headline-lg-mobile text-on-surface">Sarah Jenkins</h3>
+<div class="flex items-center gap-1 text-on-surface-variant">
+<span class="material-symbols-outlined text-sm" data-icon="star" data-weight="fill" style="font-variation-settings: 'FILL' 1;">star</span>
+<span class="font-label-md text-label-md">4.9</span>
+</div>
+</div>
+</div>
+<div class="flex gap-2">
+<button class="w-12 h-12 rounded-full bg-surface-variant glass-edge flex items-center justify-center text-on-surface hover:bg-surface-container-highest transition-colors active:scale-95">
+<span class="material-symbols-outlined" data-icon="chat">chat</span>
+</button>
+<button class="w-12 h-12 rounded-full bg-surface-variant glass-edge flex items-center justify-center text-on-surface hover:bg-surface-container-highest transition-colors active:scale-95">
+<span class="material-symbols-outlined" data-icon="call">call</span>
+</button>
+</div>
+</div>
+<!-- Divider -->
+<div class="h-[1px] w-full bg-outline-variant/30"></div>
+<!-- Destination Details -->
+<div class="flex flex-col gap-2">
+<div class="flex items-start gap-3">
+<div class="mt-1">
+<span class="material-symbols-outlined text-primary" data-icon="location_on" data-weight="fill" style="font-variation-settings: 'FILL' 1;">location_on</span>
+</div>
+<div>
+<div class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider text-xs mb-1">Drop-off</div>
+<h4 class="font-body-lg text-body-lg text-on-surface font-medium">1455 Market St</h4>
+<p class="font-body-md text-body-md text-on-surface-variant">San Francisco, CA 94103</p>
+</div>
+</div>
+</div>
+<!-- Action Button -->
+<button class="w-full h-[56px] mt-2 bg-primary-container text-on-primary-container font-headline-lg-mobile text-headline-lg-mobile rounded-xl glass-edge flex items-center justify-center gap-2 transition-transform active:scale-[0.98]">
+<span>COMPLETE TRIP</span>
+<span class="material-symbols-outlined" data-icon="check_circle">check_circle</span>
+</button>
+</div>
+</div>
+</div>
+</body></html>

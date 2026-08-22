@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>NABIN - Add Payment Method</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "inverse-on-surface": "#f0f0fb",
+                        "secondary-fixed": "#d7e3fb",
+                        "surface-tint": "#0c56d0",
+                        "on-primary-container": "#c4d2ff",
+                        "error-container": "#ffdad6",
+                        "primary-fixed": "#dae2ff",
+                        "secondary": "#535f73",
+                        "on-primary-fixed": "#001848",
+                        "on-surface-variant": "#434654",
+                        "secondary-fixed-dim": "#bbc7de",
+                        "surface-dim": "#d9d9e4",
+                        "primary-container": "#0052cc",
+                        "on-secondary-container": "#576377",
+                        "on-primary-fixed-variant": "#0040a2",
+                        "surface-container-lowest": "#ffffff",
+                        "outline": "#737685",
+                        "outline-variant": "#c3c6d6",
+                        "on-surface": "#191b23",
+                        "on-error-container": "#93000a",
+                        "tertiary-fixed-dim": "#ffb59b",
+                        "on-secondary-fixed-variant": "#3b475b",
+                        "primary": "#003d9b",
+                        "background": "#faf8ff",
+                        "on-primary": "#ffffff",
+                        "primary-fixed-dim": "#b2c5ff",
+                        "surface-container-highest": "#e1e2ec",
+                        "on-tertiary": "#ffffff",
+                        "on-tertiary-fixed": "#380d00",
+                        "on-background": "#191b23",
+                        "on-tertiary-container": "#ffc6b2",
+                        "inverse-surface": "#2e3038",
+                        "error": "#ba1a1a",
+                        "surface-container": "#ededf8",
+                        "on-secondary": "#ffffff",
+                        "on-error": "#ffffff",
+                        "on-tertiary-fixed-variant": "#812800",
+                        "surface-container-high": "#e7e7f2",
+                        "tertiary-container": "#a33500",
+                        "surface-variant": "#e1e2ec",
+                        "secondary-container": "#d4e0f8",
+                        "tertiary-fixed": "#ffdbcf",
+                        "surface-bright": "#faf8ff",
+                        "tertiary": "#7b2600",
+                        "on-secondary-fixed": "#101c2d",
+                        "surface": "#faf8ff",
+                        "inverse-primary": "#b2c5ff",
+                        "surface-container-low": "#f3f3fd"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "gutter-mobile": "12px",
+                        "margin-mobile": "16px",
+                        "xl": "32px",
+                        "touch-target-min": "48px",
+                        "lg": "24px",
+                        "md": "16px",
+                        "base": "4px",
+                        "sm": "8px",
+                        "xs": "4px"
+                    },
+                    "fontFamily": {
+                        "body-lg": ["Inter"],
+                        "headline-md": ["Inter"],
+                        "headline-lg-mobile": ["Inter"],
+                        "label-md": ["Inter"],
+                        "body-sm": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "button-text": ["Inter"]
+                    },
+                    "fontSize": {
+                        "body-lg": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "headline-md": ["20px", { "lineHeight": "28px", "fontWeight": "600" }],
+                        "headline-lg-mobile": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "700" }],
+                        "label-md": ["12px", { "lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "600" }],
+                        "body-sm": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "headline-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "button-text": ["16px", { "lineHeight": "24px", "fontWeight": "600" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+    </style>
+</head>
+<body class="bg-background text-on-background font-body-lg min-h-screen flex flex-col">
+<!-- Top App Bar -->
+<header class="w-full sticky top-0 z-50 bg-surface flex justify-between items-center h-14 px-margin-mobile">
+<button aria-label="Go back" class="flex items-center justify-center w-touch-target-min h-touch-target-min text-secondary hover:bg-surface-container-high transition-colors rounded-full -ml-2 active:scale-95 duration-100">
+<span class="material-symbols-outlined" data-icon="arrow_back">arrow_back</span>
+</button>
+<h1 class="font-headline-md text-headline-md text-primary">Add Payment Method</h1>
+<div class="w-touch-target-min h-touch-target-min"></div> <!-- Spacer for centering -->
+</header>
+<!-- Main Content Canvas -->
+<main class="flex-grow px-margin-mobile py-md flex flex-col gap-sm">
+<!-- Payment Options List -->
+<div class="bg-surface-container-lowest rounded-xl shadow-[0_4px_12px_0_rgba(0,0,0,0.05)] overflow-hidden">
+<!-- Credit or Debit Card -->
+<button class="w-full flex items-center justify-between p-md border-b border-outline-variant hover:bg-surface-container-low transition-colors active:scale-[0.98] duration-100 group text-left">
+<div class="flex items-center gap-md">
+<div class="flex items-center justify-center w-12 h-12 bg-secondary-container text-on-secondary-container rounded-full group-hover:bg-primary-container group-hover:text-on-primary transition-colors">
+<span class="material-symbols-outlined" data-icon="credit_card">credit_card</span>
+</div>
+<div class="flex flex-col">
+<span class="font-button-text text-button-text text-on-surface">Credit or Debit Card</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant">Add Visa, Mastercard, or Amex</span>
+</div>
+</div>
+<span class="material-symbols-outlined text-secondary group-hover:text-primary transition-colors" data-icon="chevron_right">chevron_right</span>
+</button>
+<!-- UPI ID -->
+<button class="w-full flex items-center justify-between p-md border-b border-outline-variant hover:bg-surface-container-low transition-colors active:scale-[0.98] duration-100 group text-left">
+<div class="flex items-center gap-md">
+<div class="flex items-center justify-center w-12 h-12 bg-secondary-container text-on-secondary-container rounded-full group-hover:bg-primary-container group-hover:text-on-primary transition-colors">
+<span class="material-symbols-outlined" data-icon="account_balance">account_balance</span>
+</div>
+<div class="flex flex-col">
+<span class="font-button-text text-button-text text-on-surface">UPI ID</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant">Pay directly from your bank</span>
+</div>
+</div>
+<span class="material-symbols-outlined text-secondary group-hover:text-primary transition-colors" data-icon="chevron_right">chevron_right</span>
+</button>
+<!-- Bank Account -->
+<button class="w-full flex items-center justify-between p-md border-b border-outline-variant hover:bg-surface-container-low transition-colors active:scale-[0.98] duration-100 group text-left">
+<div class="flex items-center gap-md">
+<div class="flex items-center justify-center w-12 h-12 bg-secondary-container text-on-secondary-container rounded-full group-hover:bg-primary-container group-hover:text-on-primary transition-colors">
+<span class="material-symbols-outlined" data-icon="account_balance">account_balance</span>
+</div>
+<div class="flex flex-col">
+<span class="font-button-text text-button-text text-on-surface">Bank Account</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant">Direct bank transfer setup</span>
+</div>
+</div>
+<span class="material-symbols-outlined text-secondary group-hover:text-primary transition-colors" data-icon="chevron_right">chevron_right</span>
+</button>
+<!-- Digital Wallets -->
+<button class="w-full flex items-center justify-between p-md hover:bg-surface-container-low transition-colors active:scale-[0.98] duration-100 group text-left">
+<div class="flex items-center gap-md">
+<div class="flex items-center justify-center w-12 h-12 bg-secondary-container text-on-secondary-container rounded-full group-hover:bg-primary-container group-hover:text-on-primary transition-colors">
+<span class="material-symbols-outlined" data-icon="account_balance_wallet">account_balance_wallet</span>
+</div>
+<div class="flex flex-col">
+<span class="font-button-text text-button-text text-on-surface">Digital Wallets</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant">Link existing payment wallets</span>
+</div>
+</div>
+<span class="material-symbols-outlined text-secondary group-hover:text-primary transition-colors" data-icon="chevron_right">chevron_right</span>
+</button>
+</div>
+<!-- Info Security Note -->
+<div class="mt-lg flex items-center justify-center gap-2 text-on-surface-variant">
+<span class="material-symbols-outlined text-[18px]" data-icon="lock" data-weight="fill" style="font-variation-settings: 'FILL' 1;">lock</span>
+<span class="font-body-sm text-body-sm">Your payment information is securely encrypted.</span>
+</div>
+</main>
+</body></html>

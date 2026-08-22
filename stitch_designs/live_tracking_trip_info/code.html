@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport"/>
+<title>NABIN - Unified Tracking</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "outline": "#737685",
+                        "background": "#faf8ff",
+                        "surface-container": "#ededf8",
+                        "secondary-fixed": "#d7e3fb",
+                        "surface-container-highest": "#e1e2ec",
+                        "primary-fixed": "#dae2ff",
+                        "on-error": "#ffffff",
+                        "primary": "#003d9b",
+                        "surface": "#faf8ff",
+                        "surface-dim": "#d9d9e4",
+                        "surface-container-high": "#e7e7f2",
+                        "on-secondary": "#ffffff",
+                        "surface-container-lowest": "#ffffff",
+                        "on-error-container": "#93000a",
+                        "on-primary-container": "#c4d2ff",
+                        "tertiary-fixed": "#ffdbcf",
+                        "on-tertiary-fixed": "#380d00",
+                        "on-secondary-container": "#576377",
+                        "tertiary-container": "#a33500",
+                        "error-container": "#ffdad6",
+                        "secondary-fixed-dim": "#bbc7de",
+                        "on-primary-fixed-variant": "#0040a2",
+                        "primary-fixed-dim": "#b2c5ff",
+                        "on-primary-fixed": "#001848",
+                        "error": "#ba1a1a",
+                        "on-background": "#191b23",
+                        "on-primary": "#ffffff",
+                        "on-tertiary-container": "#ffc6b2",
+                        "on-tertiary": "#ffffff",
+                        "inverse-primary": "#b2c5ff",
+                        "on-surface": "#191b23",
+                        "on-surface-variant": "#434654",
+                        "surface-bright": "#faf8ff",
+                        "surface-container-low": "#f3f3fd",
+                        "secondary": "#535f73",
+                        "on-tertiary-fixed-variant": "#812800",
+                        "inverse-surface": "#2e3038",
+                        "on-secondary-fixed-variant": "#3b475b",
+                        "on-secondary-fixed": "#101c2d",
+                        "surface-tint": "#0c56d0",
+                        "primary-container": "#0052cc",
+                        "outline-variant": "#c3c6d6",
+                        "tertiary-fixed-dim": "#ffb59b",
+                        "surface-variant": "#e1e2ec",
+                        "secondary-container": "#d4e0f8",
+                        "tertiary": "#7b2600",
+                        "inverse-on-surface": "#f0f0fb"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "gutter-mobile": "12px",
+                        "xs": "4px",
+                        "md": "16px",
+                        "touch-target-min": "48px",
+                        "lg": "24px",
+                        "base": "4px",
+                        "xl": "32px",
+                        "margin-mobile": "16px",
+                        "sm": "8px"
+                    },
+                    "fontFamily": {
+                        "body-lg": ["Inter"],
+                        "headline-md": ["Inter"],
+                        "label-md": ["Inter"],
+                        "headline-lg-mobile": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "button-text": ["Inter"],
+                        "body-sm": ["Inter"]
+                    },
+                    "fontSize": {
+                        "body-lg": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "headline-md": ["20px", { "lineHeight": "28px", "fontWeight": "600" }],
+                        "label-md": ["12px", { "lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "600" }],
+                        "headline-lg-mobile": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "700" }],
+                        "headline-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "button-text": ["16px", { "lineHeight": "24px", "fontWeight": "600" }],
+                        "body-sm": ["14px", { "lineHeight": "20px", "fontWeight": "400" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        .map-bg {
+            background-color: #E8EAED;
+            background-image: 
+                linear-gradient(#d1d5db 1px, transparent 1px),
+                linear-gradient(90deg, #d1d5db 1px, transparent 1px);
+            background-size: 40px 40px;
+        }
+    </style>
+</head>
+<body class="bg-background text-on-background font-body-lg h-screen w-screen overflow-hidden flex flex-col relative">
+<!-- Top Navigation Overlay -->
+<header class="absolute top-0 w-full z-10 p-margin-mobile flex justify-between items-center bg-gradient-to-b from-black/20 to-transparent pt-safe">
+<button class="w-touch-target-min h-touch-target-min flex items-center justify-center bg-surface rounded-full shadow-[0_4px_12px_0_rgba(0,0,0,0.12)] active:scale-95 transition-transform">
+<span class="material-symbols-outlined text-on-surface" data-icon="arrow_back">arrow_back</span>
+</button>
+<div class="bg-surface px-md py-sm rounded-full shadow-[0_4px_12px_0_rgba(0,0,0,0.12)] flex items-center gap-sm">
+<span class="w-2 h-2 rounded-full bg-primary animate-pulse"></span>
+<span class="font-button-text text-button-text text-on-surface">Arriving in 3 min</span>
+</div>
+<button class="w-touch-target-min h-touch-target-min flex items-center justify-center bg-surface rounded-full shadow-[0_4px_12px_0_rgba(0,0,0,0.12)] active:scale-95 transition-transform">
+<span class="material-symbols-outlined text-on-surface" data-icon="more_vert">more_vert</span>
+</button>
+</header>
+<!-- Map Canvas Area -->
+<main class="flex-grow relative map-bg">
+<!-- Mock Route Line -->
+<svg class="absolute inset-0 w-full h-full pointer-events-none" preserveaspectratio="none" viewbox="0 0 400 800">
+<path d="M 200,600 Q 150,400 250,200" fill="none" stroke="#0052cc" stroke-dasharray="1 12" stroke-linecap="round" stroke-width="6"></path>
+</svg>
+<!-- Driver Pin -->
+<div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center">
+<div class="bg-surface p-xs rounded-lg shadow-[0_8px_20px_0_rgba(0,0,0,0.15)] flex items-center gap-xs mb-xs relative">
+<span class="material-symbols-outlined text-primary text-[20px]" data-icon="directions_car">directions_car</span>
+<span class="font-label-md text-label-md text-on-surface pr-1">ABC-1234</span>
+<div class="absolute -bottom-2 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[8px] border-t-surface"></div>
+</div>
+<div class="w-4 h-4 bg-primary rounded-full border-2 border-surface shadow-md"></div>
+</div>
+<!-- Destination Pin -->
+<div class="absolute top-[25%] left-[60%] flex flex-col items-center">
+<span class="material-symbols-outlined text-primary text-3xl" data-icon="location_on" style="font-variation-settings: 'FILL' 1;">location_on</span>
+<div class="w-8 h-2 bg-black/20 rounded-[100%] blur-[2px] -mt-1"></div>
+</div>
+<!-- Center Map Button -->
+<button class="absolute bottom-[calc(100%+16px)] right-margin-mobile w-touch-target-min h-touch-target-min flex items-center justify-center bg-surface rounded-full shadow-[0_4px_12px_0_rgba(0,0,0,0.12)] active:scale-95 transition-transform z-20">
+<span class="material-symbols-outlined text-on-surface" data-icon="my_location">my_location</span>
+</button>
+</main>
+<!-- Bottom Tracking Sheet -->
+<section class="bg-surface rounded-t-[16px] shadow-[0_-8px_20px_0_rgba(0,0,0,0.12)] z-20 flex flex-col pb-safe">
+<!-- Handle -->
+<div class="w-full flex justify-center pt-sm pb-xs">
+<div class="w-10 h-1 bg-outline-variant rounded-full"></div>
+</div>
+<div class="px-margin-mobile pb-margin-mobile flex flex-col gap-md">
+<!-- Header: Status & OTP -->
+<div class="flex justify-between items-center border-b border-outline-variant pb-md">
+<div>
+<h2 class="font-headline-md text-headline-md text-on-surface">Your ride is nearby</h2>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Drop-off: 124 Main Street</p>
+</div>
+<div class="bg-surface-container-low px-md py-sm rounded-lg border border-outline-variant flex flex-col items-center">
+<span class="font-label-md text-label-md text-on-surface-variant uppercase">PIN</span>
+<span class="font-headline-md text-headline-md text-primary tracking-widest">4821</span>
+</div>
+</div>
+<!-- Driver & Vehicle Info -->
+<div class="flex items-center gap-md">
+<div class="relative w-14 h-14 rounded-full overflow-hidden border border-outline-variant shrink-0">
+<img class="w-full h-full object-cover" data-alt="A professional close-up portrait of a friendly driver wearing a clean casual shirt, sitting in the driver's seat of a modern car. Natural daytime lighting, shallow depth of field blurring the car interior background. High resolution, bright, modern corporate style." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBdj0uHwsN7DzeonlKTPKCQKd15lXxlVT7IPDKT3k7Ak9rfeXAKBZurzeJYbuWeji3_N4PA7qv6R600ww_5dQpmPUPr2Yl9QIovIxBhPzZb0ACTP45dOUcUp0hJNdt0fJNElyoXRmTLRWAGXL90xFdrxBO3rfAR4I4I2hu3ZUeuR_LAcugv_d_Y2F0oHyRjmkjTW2fRrofZj90N1MMbCJQM5cdYt8P_ooOasj70O8-kJGXROc7eYNTDfA"/>
+<div class="absolute bottom-0 right-0 bg-surface rounded-full p-[2px]">
+<span class="material-symbols-outlined text-primary text-[14px]" data-icon="verified" style="font-variation-settings: 'FILL' 1;">verified</span>
+</div>
+</div>
+<div class="flex-grow flex flex-col justify-center">
+<div class="flex items-baseline gap-sm">
+<span class="font-button-text text-button-text text-on-surface">Michael T.</span>
+<div class="flex items-center gap-xs bg-surface-container-high px-2 py-0.5 rounded text-on-surface">
+<span class="material-symbols-outlined text-[14px] text-primary" data-icon="star" style="font-variation-settings: 'FILL' 1;">star</span>
+<span class="font-label-md text-label-md">4.9</span>
+</div>
+</div>
+<span class="font-body-sm text-body-sm text-on-surface-variant">Toyota Camry • Silver</span>
+</div>
+<div class="flex flex-col items-end">
+<span class="font-headline-md text-headline-md text-on-surface uppercase border border-outline-variant px-2 py-1 rounded bg-surface-container-low">ABC-1234</span>
+</div>
+</div>
+<!-- Action Buttons -->
+<div class="flex gap-sm pt-sm">
+<button class="flex-1 h-touch-target-min flex items-center justify-center gap-sm bg-[#DEEBFF] text-[#0052CC] rounded-lg font-button-text text-button-text active:bg-primary-fixed transition-colors">
+<span class="material-symbols-outlined" data-icon="chat">chat</span>
+                    Message
+                </button>
+<button class="w-touch-target-min h-touch-target-min shrink-0 flex items-center justify-center bg-[#DEEBFF] text-[#0052CC] rounded-lg active:bg-primary-fixed transition-colors">
+<span class="material-symbols-outlined" data-icon="call">call</span>
+</button>
+<button class="w-touch-target-min h-touch-target-min shrink-0 flex items-center justify-center bg-surface border border-outline-variant text-on-surface rounded-lg active:bg-surface-container-high transition-colors">
+<span class="material-symbols-outlined" data-icon="safety_check">safety_check</span>
+</button>
+</div>
+</div>
+</section>
+</body></html>

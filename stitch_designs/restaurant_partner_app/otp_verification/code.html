@@ -1,0 +1,243 @@
+<!DOCTYPE html><html class="light" lang="en"><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>NABIN - OTP Verification</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "on-error": "#ffffff",
+                    "primary-container": "#2563eb",
+                    "inverse-on-surface": "#f0f0fb",
+                    "outline": "#737686",
+                    "on-tertiary-container": "#ffede6",
+                    "on-tertiary": "#ffffff",
+                    "background": "#faf8ff",
+                    "surface-container-low": "#f3f3fe",
+                    "surface-container-highest": "#e1e2ed",
+                    "surface-variant": "#e1e2ed",
+                    "inverse-primary": "#b4c5ff",
+                    "error": "#ba1a1a",
+                    "primary": "#004ac6",
+                    "secondary-fixed-dim": "#b7c8e1",
+                    "surface-bright": "#faf8ff",
+                    "on-secondary-fixed": "#0b1c30",
+                    "secondary-container": "#d0e1fb",
+                    "on-primary-fixed-variant": "#003ea8",
+                    "surface-container": "#ededf9",
+                    "surface-container-lowest": "#ffffff",
+                    "on-primary-fixed": "#00174b",
+                    "surface-container-high": "#e7e7f3",
+                    "on-secondary-container": "#54647a",
+                    "surface-tint": "#0053db",
+                    "on-secondary-fixed-variant": "#38485d",
+                    "secondary": "#505f76",
+                    "tertiary": "#943700",
+                    "surface-dim": "#d9d9e5",
+                    "on-background": "#191b23",
+                    "tertiary-fixed-dim": "#ffb596",
+                    "on-primary": "#ffffff",
+                    "tertiary-fixed": "#ffdbcd",
+                    "on-tertiary-fixed": "#360f00",
+                    "error-container": "#ffdad6",
+                    "tertiary-container": "#bc4800",
+                    "inverse-surface": "#2e3039",
+                    "outline-variant": "#c3c6d7",
+                    "primary-fixed-dim": "#b4c5ff",
+                    "on-tertiary-fixed-variant": "#7d2d00",
+                    "on-error-container": "#93000a",
+                    "primary-fixed": "#dbe1ff",
+                    "on-primary-container": "#eeefff",
+                    "on-surface-variant": "#434655",
+                    "secondary-fixed": "#d3e4fe",
+                    "surface": "#faf8ff",
+                    "on-surface": "#191b23",
+                    "on-secondary": "#ffffff"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.125rem",
+                    "lg": "0.25rem",
+                    "xl": "0.5rem",
+                    "full": "0.75rem"
+            },
+            "spacing": {
+                    "sm": "8px",
+                    "md": "16px",
+                    "margin-tablet": "24px",
+                    "xs": "4px",
+                    "lg": "24px",
+                    "unit": "4px",
+                    "gutter": "16px",
+                    "margin-mobile": "16px",
+                    "touch-target-min": "48px",
+                    "xl": "32px"
+            },
+            "fontFamily": {
+                    "headline-sm": ["Inter"],
+                    "label-lg": ["Inter"],
+                    "body-md": ["Inter"],
+                    "body-lg": ["Inter"],
+                    "label-md": ["Inter"],
+                    "order-number": ["Inter"],
+                    "order-number-mobile": ["Inter"],
+                    "headline-lg": ["Inter"],
+                    "headline-md": ["Inter"]
+            },
+            "fontSize": {
+                    "headline-sm": ["20px", {"lineHeight": "28px", "fontWeight": "600"}],
+                    "label-lg": ["14px", {"lineHeight": "20px", "letterSpacing": "0.05em", "fontWeight": "600"}],
+                    "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                    "body-lg": ["18px", {"lineHeight": "26px", "fontWeight": "500"}],
+                    "label-md": ["12px", {"lineHeight": "16px", "fontWeight": "600"}],
+                    "order-number": ["48px", {"lineHeight": "56px", "letterSpacing": "-0.02em", "fontWeight": "800"}],
+                    "order-number-mobile": ["36px", {"lineHeight": "44px", "fontWeight": "800"}],
+                    "headline-lg": ["32px", {"lineHeight": "40px", "fontWeight": "700"}],
+                    "headline-md": ["24px", {"lineHeight": "32px", "fontWeight": "700"}]
+            }
+          }
+        }
+      }
+    </script>
+<style>
+        body { font-family: 'Inter', sans-serif; }
+        .otp-input::-webkit-outer-spin-button,
+        .otp-input::-webkit-inner-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+        .otp-input[type=number] {
+            -moz-appearance: textfield;
+        }
+    </style>
+</head>
+<body class="bg-surface text-on-surface min-h-screen flex items-center justify-center p-margin-mobile md:p-margin-tablet">
+<!-- Main Container: Glassmorphism / Clean Corporate Card -->
+<main class="w-full max-w-md bg-surface-container-lowest border border-outline-variant rounded-xl shadow-md p-lg md:p-xl flex flex-col gap-lg relative overflow-hidden">
+<!-- Decorative Header Element -->
+<div class="absolute top-0 left-0 w-full h-2 bg-primary"></div>
+<!-- Header -->
+<header class="text-center flex flex-col items-center gap-sm mt-sm">
+<div class="w-16 h-16 bg-surface-container-high rounded-full flex items-center justify-center mb-sm text-primary">
+<span class="material-symbols-outlined" style="font-size: 32px; font-variation-settings: 'FILL' 1;">security</span>
+</div>
+<h1 class="font-headline-lg text-headline-lg text-on-surface">Verification</h1>
+<p class="font-body-md text-body-md text-on-surface-variant max-w-[280px]">
+                We've sent a 6-digit verification code to your device. Please enter it below.
+            </p>
+</header>
+<!-- Form Section -->
+<form class="flex flex-col gap-lg w-full" id="otp-form">
+<!-- OTP Input Group -->
+<div class="flex justify-between gap-sm w-full" id="otp-inputs">
+<input aria-label="Digit 1" class="otp-input w-12 h-16 md:w-14 md:h-16 bg-surface-container text-center font-headline-md text-headline-md text-on-surface border border-outline-variant rounded-lg focus:border-primary focus:ring-2 focus:ring-primary-fixed focus:outline-none transition-colors" maxlength="1" type="number">
+<input aria-label="Digit 2" class="otp-input w-12 h-16 md:w-14 md:h-16 bg-surface-container text-center font-headline-md text-headline-md text-on-surface border border-outline-variant rounded-lg focus:border-primary focus:ring-2 focus:ring-primary-fixed focus:outline-none transition-colors" maxlength="1" type="number">
+<input aria-label="Digit 3" class="otp-input w-12 h-16 md:w-14 md:h-16 bg-surface-container text-center font-headline-md text-headline-md text-on-surface border border-outline-variant rounded-lg focus:border-primary focus:ring-2 focus:ring-primary-fixed focus:outline-none transition-colors" maxlength="1" type="number">
+<input aria-label="Digit 4" class="otp-input w-12 h-16 md:w-14 md:h-16 bg-surface-container text-center font-headline-md text-headline-md text-on-surface border border-outline-variant rounded-lg focus:border-primary focus:ring-2 focus:ring-primary-fixed focus:outline-none transition-colors" maxlength="1" type="number">
+<input aria-label="Digit 5" class="otp-input w-12 h-16 md:w-14 md:h-16 bg-surface-container text-center font-headline-md text-headline-md text-on-surface border border-outline-variant rounded-lg focus:border-primary focus:ring-2 focus:ring-primary-fixed focus:outline-none transition-colors" maxlength="1" type="number">
+<input aria-label="Digit 6" class="otp-input w-12 h-16 md:w-14 md:h-16 bg-surface-container text-center font-headline-md text-headline-md text-on-surface border border-outline-variant rounded-lg focus:border-primary focus:ring-2 focus:ring-primary-fixed focus:outline-none transition-colors" maxlength="1" type="number">
+</div>
+<!-- Resend Timer -->
+<div class="text-center font-label-md text-label-md text-on-surface-variant flex flex-col gap-xs">
+<span class="">Didn't receive the code?</span>
+<button class="font-label-lg text-label-lg text-primary disabled:cursor-not-allowed hover:text-primary-container transition-colors" id="resend-btn" type="button">Resend Code Now</button>
+</div>
+<!-- Action Button -->
+<button class="w-full h-touch-target-min bg-primary-container text-on-primary font-label-lg text-label-lg font-bold rounded-lg shadow-md hover:bg-primary transition-colors focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:outline-none flex items-center justify-center gap-sm mt-sm" type="submit">
+<span class="">Verify &amp; Continue</span>
+<span class="material-symbols-outlined text-[20px]">arrow_forward</span>
+</button>
+</form>
+<!-- Back Link -->
+<div class="text-center">
+<button class="font-label-md text-label-md text-secondary hover:text-on-secondary-container transition-colors flex items-center justify-center gap-xs mx-auto" type="button">
+<span class="material-symbols-outlined text-[16px]">arrow_back</span>
+                Back to Login
+            </button>
+</div>
+</main>
+<script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const inputs = document.querySelectorAll('.otp-input');
+            const timerSpan = document.getElementById('timer');
+            const resendBtn = document.getElementById('resend-btn');
+            let timeLeft = 30;
+            let timerId;
+
+            // OTP Input Logic
+            inputs.forEach((input, index) => {
+                input.addEventListener('input', (e) => {
+                    if (e.target.value.length > 1) {
+                        e.target.value = e.target.value.slice(0, 1); // Restrict to 1 char
+                    }
+                    if (e.target.value !== '' && index < inputs.length - 1) {
+                        inputs[index + 1].focus();
+                    }
+                });
+
+                input.addEventListener('keydown', (e) => {
+                    if (e.key === 'Backspace' && e.target.value === '' && index > 0) {
+                        inputs[index - 1].focus();
+                    }
+                });
+                
+                // Handle paste
+                input.addEventListener('paste', (e) => {
+                    e.preventDefault();
+                    const pastedData = e.clipboardData.getData('text').slice(0, inputs.length).replace(/[^0-9]/g, '');
+                    for (let i = 0; i < pastedData.length; i++) {
+                        if (i < inputs.length) {
+                            inputs[i].value = pastedData[i];
+                            if (i < inputs.length - 1) inputs[i + 1].focus();
+                        }
+                    }
+                });
+            });
+
+            // Timer Logic
+            function startTimer() {
+                timeLeft = 30;
+                resendBtn.disabled = true;
+                resendBtn.classList.add('disabled:text-outline');
+                
+                clearInterval(timerId);
+                timerId = setInterval(() => {
+                    timeLeft--;
+                    const seconds = timeLeft.toString().padStart(2, '0');
+                    timerSpan.textContent = `00:${seconds}`;
+                    
+                    if (timeLeft <= 0) {
+                        clearInterval(timerId);
+                        resendBtn.disabled = false;
+                        timerSpan.textContent = '';
+                        resendBtn.innerHTML = 'Resend Code Now';
+                        resendBtn.classList.remove('disabled:text-outline');
+                    }
+                }, 1000);
+            }
+
+            resendBtn.addEventListener('click', () => {
+                if (!resendBtn.disabled) {
+                    resendBtn.innerHTML = 'Resend Code in <span id="timer">00:30</span>';
+                    startTimer();
+                    // Clear inputs on resend (optional UX choice)
+                    inputs.forEach(input => input.value = '');
+                    inputs[0].focus();
+                }
+            });
+
+            // Start initial timer
+            startTimer();
+            
+            // Auto focus first input
+            setTimeout(() => inputs[0].focus(), 100);
+        });
+    </script>
+
+
+</body></html>

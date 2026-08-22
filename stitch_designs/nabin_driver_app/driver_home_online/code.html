@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>NABIN Driver - Home</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-primary-fixed-variant": "#003ea8",
+                        "inverse-surface": "#e1e2ed",
+                        "primary-fixed": "#dbe1ff",
+                        "on-tertiary-fixed-variant": "#7d2d00",
+                        "tertiary-container": "#bc4800",
+                        "surface-tint": "#b4c5ff",
+                        "surface-container-low": "#191b23",
+                        "outline-variant": "#434655",
+                        "primary-container": "#2563eb",
+                        "on-error": "#690005",
+                        "primary": "#b4c5ff",
+                        "inverse-primary": "#0053db",
+                        "surface-container-highest": "#32343d",
+                        "surface-dim": "#11131b",
+                        "error-container": "#93000a",
+                        "surface": "#11131b",
+                        "on-error-container": "#ffdad6",
+                        "on-primary-fixed": "#00174b",
+                        "tertiary-fixed": "#ffdbcd",
+                        "on-tertiary-container": "#ffede6",
+                        "on-surface-variant": "#c3c6d7",
+                        "secondary": "#c3c6ce",
+                        "on-background": "#e1e2ed",
+                        "on-secondary-container": "#b2b5bc",
+                        "on-primary": "#002a78",
+                        "secondary-fixed": "#e0e2ea",
+                        "tertiary-fixed-dim": "#ffb596",
+                        "error": "#ffb4ab",
+                        "tertiary": "#ffb596",
+                        "on-surface": "#e1e2ed",
+                        "background": "#11131b",
+                        "surface-variant": "#32343d",
+                        "surface-container": "#1d1f27",
+                        "surface-container-high": "#282a32",
+                        "outline": "#8d90a0",
+                        "secondary-fixed-dim": "#c3c6ce",
+                        "on-primary-container": "#eeefff",
+                        "surface-container-lowest": "#0c0e16",
+                        "secondary-container": "#43474d",
+                        "on-secondary-fixed": "#181c21",
+                        "on-tertiary": "#581e00",
+                        "inverse-on-surface": "#2e3039",
+                        "on-secondary-fixed-variant": "#43474d",
+                        "primary-fixed-dim": "#b4c5ff",
+                        "on-secondary": "#2d3136",
+                        "surface-bright": "#373942",
+                        "on-tertiary-fixed": "#360f00"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "base": "4px",
+                        "stack-lg": "24px",
+                        "margin-mobile": "16px",
+                        "stack-md": "16px",
+                        "stack-sm": "8px",
+                        "gutter": "16px",
+                        "margin-desktop": "32px",
+                        "touch-target-min": "48px"
+                    },
+                    "fontFamily": {
+                        "label-md": ["Inter"],
+                        "headline-xl": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "body-md": ["Inter"],
+                        "data-tabular": ["Inter"],
+                        "headline-lg-mobile": ["Inter"],
+                        "headline-lg": ["Inter"]
+                    },
+                    "fontSize": {
+                        "label-md": ["14px", { "lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "500" }],
+                        "headline-xl": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "body-lg": ["18px", { "lineHeight": "28px", "fontWeight": "400" }],
+                        "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "data-tabular": ["16px", { "lineHeight": "24px", "fontWeight": "600" }],
+                        "headline-lg-mobile": ["20px", { "lineHeight": "28px", "fontWeight": "600" }],
+                        "headline-lg": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        .pulse-ring {
+            animation: pulse 2s infinite cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        @keyframes pulse {
+            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.7); }
+            70% { transform: scale(1); box-shadow: 0 0 0 20px rgba(37, 99, 235, 0); }
+            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(37, 99, 235, 0); }
+        }
+        .bottom-sheet-shadow {
+            box-shadow: 0 -8px 24px rgba(0,0,0,0.5);
+        }
+    </style>
+</head>
+<body class="bg-background text-on-background font-body-md min-h-screen relative overflow-hidden flex flex-col">
+<!-- Map Background -->
+<div class="absolute inset-0 z-0">
+<img class="w-full h-full object-cover" data-alt="A highly detailed, professional dark-mode map interface showing city streets at night. The map uses a sophisticated color palette of deep blacks, dark greys (#111827), and subtle muted blues for water features. Roads are highlighted with faint, glowing neon-like lines in Royal Blue (#2563EB) indicating high-traffic routes. The lighting is cinematic and moody, reflecting a high-end tech-driven dashboard environment typical of a modern driver app." data-location="Mumbai, India" src="https://lh3.googleusercontent.com/aida-public/AB6AXuChoaE3FHtUftppMEkWbT1eSwaec69vz58j2vz0VSqJ2rBSMZ-rjtzHEXTDCWMMKz4WreEaBqpngKgyzef__cqin1-xrYyza8r6oCD5Fhn4E2dF4RgYizLDeOQwiPi2TLLphGcu2XXeoUyAK58gSNhCbiRpOahqeYFsZKw_MIKdNevfq_VF9gUwW8ku7yuGZjkZKttJ-nRHR1d7AeVnEUw29q6pMeOuTk3WLLBSr1EW4skO584ojvY"/>
+<!-- Current Location Marker -->
+<div class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-10 flex items-center justify-center">
+<div class="w-6 h-6 bg-primary-container rounded-full border-2 border-white pulse-ring shadow-[0_0_15px_rgba(37,99,235,0.8)]"></div>
+<div class="absolute w-12 h-12 bg-primary-container/20 rounded-full"></div>
+</div>
+</div>
+<!-- Top Navigation (Shared Component JSON) -->
+<header class="fixed top-0 w-full z-50 bg-surface/90 backdrop-blur-md border-b border-outline-variant/10 h-14 px-margin-mobile flex justify-between items-center hidden md:flex">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-full overflow-hidden bg-surface-container-high border border-outline-variant/30 flex items-center justify-center">
+<span class="material-symbols-outlined text-on-surface-variant text-[20px]">person</span>
+</div>
+<span class="font-headline-lg font-bold text-primary">NABIN Driver</span>
+</div>
+<div class="flex items-center gap-4">
+<div class="bg-[#10B981]/15 text-[#10B981] px-4 py-1 rounded-full font-label-md flex items-center gap-2 border border-[#10B981]/30">
+<div class="w-2 h-2 rounded-full bg-[#10B981] shadow-[0_0_8px_#10B981]"></div>
+                ONLINE
+            </div>
+<button class="w-10 h-10 rounded-full flex items-center justify-center text-on-surface-variant hover:bg-surface-container-highest transition-colors duration-200 active:scale-95">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+</div>
+</header>
+<!-- Top Overlay (Mobile) -->
+<div class="fixed top-0 w-full z-40 p-margin-mobile md:hidden flex justify-between items-start pointer-events-none">
+<div class="bg-surface/90 backdrop-blur-md border border-outline-variant/20 rounded-full p-1 pl-1 pr-4 flex items-center gap-3 pointer-events-auto shadow-lg">
+<div class="w-10 h-10 rounded-full overflow-hidden bg-surface-container-high border border-outline-variant/30 flex items-center justify-center">
+<img class="w-full h-full object-cover" data-alt="Close up portrait of a professional driver, looking confident. Dark cinematic lighting, high-contrast style suited for a modern app avatar. Sharp focus." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDTPolzx3gvvbN8u5FCYhaeyzFyOhlnM5Oyt_41eWrR-iEhzkdH26XpZBoXYRq-GSTvMzjTvBeWweW3vGNnKlar5Sl9weA8VTeb_gcskp7kHFZa69ADDVS-Y0VGzNo2PJzYqo5zjzOk-2Z2aIw2hWqfPDKDu-aDgUaOKoQ7KwzSO6zgqBsXYr4_FHoox4FqWTXt2Yx0zvzAwgb_Spfib7HHC_ND6wmhK7AV79N7dhdKLMBs3Ia-rZ8"/>
+</div>
+<span class="font-headline-lg-mobile font-bold text-primary">NABIN</span>
+</div>
+<div class="bg-[#10B981]/90 backdrop-blur-md text-[#022C22] px-4 py-2 rounded-full font-label-md flex items-center gap-2 pointer-events-auto shadow-lg shadow-[#10B981]/20 border border-[#10B981]/50">
+<div class="w-2.5 h-2.5 rounded-full bg-[#022C22] animate-pulse"></div>
+<span class="font-bold tracking-wider">ONLINE</span>
+</div>
+</div>
+<!-- Main Content Canvas -->
+<main class="flex-1 relative z-10 w-full max-w-7xl mx-auto flex flex-col justify-end p-margin-mobile md:p-margin-desktop mb-[80px] md:mb-0 md:mt-14 h-screen pb-safe">
+<!-- Floating Actions -->
+<div class="absolute right-margin-mobile bottom-[calc(100%+24px)] flex flex-col gap-3 pointer-events-auto">
+<button class="w-12 h-12 bg-surface rounded-full flex items-center justify-center shadow-lg border border-outline-variant/20 text-on-surface hover:bg-surface-container-high active:scale-95 transition-all">
+<span class="material-symbols-outlined">my_location</span>
+</button>
+<button class="w-12 h-12 bg-surface rounded-full flex items-center justify-center shadow-lg border border-outline-variant/20 text-on-surface hover:bg-surface-container-high active:scale-95 transition-all">
+<span class="material-symbols-outlined">traffic</span>
+</button>
+</div>
+<!-- Bottom Sheet (Dashboard) -->
+<div class="w-full bg-surface-container/95 backdrop-blur-xl rounded-t-[24px] rounded-b-xl md:rounded-[24px] bottom-sheet-shadow border border-outline-variant/20 p-6 flex flex-col gap-stack-lg pointer-events-auto relative overflow-hidden">
+<!-- Glass Edge highlight -->
+<div class="absolute inset-0 rounded-[24px] pointer-events-none border border-white/5"></div>
+<!-- Handle -->
+<div class="w-12 h-1.5 bg-outline-variant/50 rounded-full mx-auto -mt-2 mb-2 md:hidden"></div>
+<!-- Stats Grid -->
+<div class="grid grid-cols-2 gap-4">
+<div class="bg-surface rounded-xl p-4 border border-outline-variant/20 shadow-inner flex flex-col gap-1">
+<span class="font-label-md text-on-surface-variant uppercase tracking-wider">Today's Earnings</span>
+<span class="font-headline-xl text-primary font-data-tabular">₹1,240</span>
+</div>
+<div class="bg-surface rounded-xl p-4 border border-outline-variant/20 shadow-inner flex flex-col gap-1">
+<span class="font-label-md text-on-surface-variant uppercase tracking-wider">Completed Jobs</span>
+<span class="font-headline-xl text-on-surface font-data-tabular">8</span>
+</div>
+</div>
+<!-- Service Preferences -->
+<div class="flex flex-col gap-3">
+<span class="font-label-md text-on-surface-variant">Active Services</span>
+<div class="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
+<button class="flex-shrink-0 min-w-[100px] h-[48px] rounded-lg bg-primary-container text-on-primary-container font-label-md flex items-center justify-center gap-2 border border-primary-container shadow-[0_0_15px_rgba(37,99,235,0.2)] active:scale-95 transition-all">
+<span class="material-symbols-outlined text-[20px]" data-weight="fill" style="font-variation-settings: 'FILL' 1;">directions_car</span>
+                        Ride
+                    </button>
+<button class="flex-shrink-0 min-w-[100px] h-[48px] rounded-lg bg-surface text-on-surface font-label-md flex items-center justify-center gap-2 border border-outline-variant/30 hover:border-outline-variant/60 active:scale-95 transition-all">
+<span class="material-symbols-outlined text-[20px]">local_shipping</span>
+                        Parcel
+                    </button>
+<button class="flex-shrink-0 min-w-[100px] h-[48px] rounded-lg bg-primary-container text-on-primary-container font-label-md flex items-center justify-center gap-2 border border-primary-container shadow-[0_0_15px_rgba(37,99,235,0.2)] active:scale-95 transition-all">
+<span class="material-symbols-outlined text-[20px]" data-weight="fill" style="font-variation-settings: 'FILL' 1;">restaurant</span>
+                        Food
+                    </button>
+</div>
+</div>
+<!-- Action Button -->
+<button class="w-full h-[56px] bg-error-container text-on-error-container rounded-xl font-headline-lg-mobile uppercase tracking-wider flex items-center justify-center gap-2 hover:bg-[#B3261E] hover:text-white transition-colors border border-[#8C1D18] shadow-lg active:scale-[0.98]">
+<span class="material-symbols-outlined">power_settings_new</span>
+                GO OFFLINE
+            </button>
+</div>
+</main>
+<!-- Bottom Navigation (Shared Component JSON) -->
+<nav class="fixed bottom-0 w-full z-50 bg-surface-container border-t border-outline-variant/10 shadow-lg flex justify-around items-center h-20 px-2 pb-safe md:hidden rounded-t-xl">
+<button class="flex flex-col items-center justify-center bg-primary-container text-on-primary-container rounded-full px-4 py-1 transition-all duration-300 ease-in-out active:scale-90">
+<span class="material-symbols-outlined">home_work</span>
+<span class="font-label-md text-label-md mt-1">Home</span>
+</button>
+<button class="flex flex-col items-center justify-center text-on-surface-variant hover:text-primary transition-all duration-300 ease-in-out active:scale-90">
+<span class="material-symbols-outlined">format_list_bulleted</span>
+<span class="font-label-md text-label-md mt-1">Jobs</span>
+</button>
+<button class="flex flex-col items-center justify-center text-on-surface-variant hover:text-primary transition-all duration-300 ease-in-out active:scale-90">
+<span class="material-symbols-outlined">payments</span>
+<span class="font-label-md text-label-md mt-1">Earnings</span>
+</button>
+<button class="flex flex-col items-center justify-center text-on-surface-variant hover:text-primary transition-all duration-300 ease-in-out active:scale-90">
+<span class="material-symbols-outlined">history</span>
+<span class="font-label-md text-label-md mt-1">Activity</span>
+</button>
+<button class="flex flex-col items-center justify-center text-on-surface-variant hover:text-primary transition-all duration-300 ease-in-out active:scale-90">
+<span class="material-symbols-outlined">person</span>
+<span class="font-label-md text-label-md mt-1">Profile</span>
+</button>
+</nav>
+<style>
+        .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+</body></html>

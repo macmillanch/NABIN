@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport"/>
+<title>Checkout - Burger Joint Royale</title>
+<!-- Fonts -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;display=swap" rel="stylesheet"/>
+<!-- Material Symbols -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        /* Custom hide scrollbar for clean mobile look */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+    </style>
+<!-- Tailwind Configuration -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "surface-container-lowest": "#ffffff",
+                    "on-error-container": "#93000a",
+                    "error-container": "#ffdad6",
+                    "surface-container-highest": "#e1e2ec",
+                    "on-primary-fixed": "#001848",
+                    "inverse-surface": "#2e3038",
+                    "on-tertiary-fixed": "#380d00",
+                    "tertiary-fixed": "#ffdbcf",
+                    "primary-fixed": "#dae2ff",
+                    "on-secondary-container": "#576377",
+                    "on-primary": "#ffffff",
+                    "secondary-container": "#d4e0f8",
+                    "surface": "#faf8ff",
+                    "surface-container-high": "#e7e7f2",
+                    "inverse-on-surface": "#f0f0fb",
+                    "on-surface-variant": "#434654",
+                    "background": "#faf8ff",
+                    "on-primary-fixed-variant": "#0040a2",
+                    "outline-variant": "#c3c6d6",
+                    "primary-fixed-dim": "#b2c5ff",
+                    "tertiary-fixed-dim": "#ffb59b",
+                    "surface-variant": "#e1e2ec",
+                    "secondary": "#535f73",
+                    "on-tertiary": "#ffffff",
+                    "on-tertiary-container": "#ffc6b2",
+                    "on-error": "#ffffff",
+                    "surface-container": "#ededf8",
+                    "on-tertiary-fixed-variant": "#812800",
+                    "surface-dim": "#d9d9e4",
+                    "surface-tint": "#0c56d0",
+                    "inverse-primary": "#b2c5ff",
+                    "secondary-fixed-dim": "#bbc7de",
+                    "tertiary": "#7b2600",
+                    "on-secondary": "#ffffff",
+                    "surface-container-low": "#f3f3fd",
+                    "outline": "#737685",
+                    "error": "#ba1a1a",
+                    "on-secondary-fixed": "#101c2d",
+                    "primary-container": "#0052cc",
+                    "primary": "#003d9b",
+                    "on-surface": "#191b23",
+                    "on-primary-container": "#c4d2ff",
+                    "tertiary-container": "#a33500",
+                    "secondary-fixed": "#d7e3fb",
+                    "on-secondary-fixed-variant": "#3b475b",
+                    "surface-bright": "#faf8ff",
+                    "on-background": "#191b23"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.25rem",
+                    "lg": "0.5rem",
+                    "xl": "0.75rem",
+                    "full": "9999px"
+            },
+            "spacing": {
+                    "margin-mobile": "16px",
+                    "xl": "32px",
+                    "lg": "24px",
+                    "xs": "4px",
+                    "md": "16px",
+                    "sm": "8px",
+                    "base": "4px",
+                    "touch-target-min": "48px",
+                    "gutter-mobile": "12px"
+            },
+            "fontFamily": {
+                    "label-md": ["Inter"],
+                    "button-text": ["Inter"],
+                    "body-sm": ["Inter"],
+                    "headline-md": ["Inter"],
+                    "headline-lg-mobile": ["Inter"],
+                    "body-lg": ["Inter"],
+                    "headline-lg": ["Inter"]
+            },
+            "fontSize": {
+                    "label-md": ["12px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "600"}],
+                    "button-text": ["16px", {"lineHeight": "24px", "fontWeight": "600"}],
+                    "body-sm": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                    "headline-md": ["20px", {"lineHeight": "28px", "fontWeight": "600"}],
+                    "headline-lg-mobile": ["24px", {"lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "700"}],
+                    "body-lg": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                    "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700"}]
+            }
+          }
+        }
+      }
+    </script>
+</head>
+<body class="bg-surface text-on-surface h-screen flex flex-col antialiased">
+<!-- Top App Bar (Transactional variant) -->
+<header class="w-full sticky top-0 z-50 bg-surface flex justify-between items-center h-14 px-margin-mobile shrink-0">
+<button aria-label="Go back" class="w-[48px] h-[48px] flex items-center justify-start text-primary active:scale-95 transition-transform">
+<span class="material-symbols-outlined" data-icon="arrow_back">arrow_back</span>
+</button>
+<h1 class="font-headline-md text-headline-md text-on-surface flex-1 text-center truncate pr-[48px]">
+            Summary &amp; Checkout
+        </h1>
+</header>
+<!-- Main Scrollable Content -->
+<main class="flex-1 overflow-y-auto no-scrollbar px-margin-mobile py-md flex flex-col gap-md pb-32">
+<!-- Delivery Details Card (Level 1 Elevation) -->
+<section class="bg-surface-container-lowest rounded-lg p-md shadow-[0_4px_12px_0_rgba(0,0,0,0.05)] flex flex-col gap-sm">
+<div class="flex justify-between items-center">
+<h2 class="font-label-md text-label-md text-secondary uppercase tracking-wider">Deliver To</h2>
+<button class="font-button-text text-button-text text-primary active:opacity-70 transition-opacity">Change</button>
+</div>
+<div class="flex items-center gap-sm">
+<div class="w-10 h-10 rounded-full bg-surface-container-low flex items-center justify-center text-primary shrink-0">
+<span class="material-symbols-outlined" data-icon="location_on" data-weight="fill" style="font-variation-settings: 'FILL' 1;">location_on</span>
+</div>
+<div class="flex flex-col">
+<span class="font-headline-md text-body-lg font-semibold text-on-surface">Home</span>
+<span class="font-body-sm text-body-sm text-secondary">123 Maple St</span>
+</div>
+</div>
+</section>
+<!-- Order Summary Card (Level 1 Elevation) -->
+<section class="bg-surface-container-lowest rounded-lg p-md shadow-[0_4px_12px_0_rgba(0,0,0,0.05)] flex flex-col gap-md">
+<div class="flex items-center gap-sm border-b border-surface-dim pb-sm">
+<div class="w-8 h-8 rounded bg-surface-container-highest flex items-center justify-center text-on-surface shrink-0">
+<span class="material-symbols-outlined text-sm" data-icon="storefront">storefront</span>
+</div>
+<h2 class="font-headline-md text-body-lg font-semibold text-on-surface">Burger Joint Royale</h2>
+</div>
+<!-- Items List -->
+<ul class="flex flex-col gap-sm font-body-sm text-body-sm text-on-surface">
+<li class="flex justify-between items-start">
+<div class="flex gap-sm">
+<span class="font-semibold text-primary">1x</span>
+<span>Burger Joint Royale</span>
+</div>
+</li>
+<li class="flex justify-between items-start">
+<div class="flex gap-sm">
+<span class="font-semibold text-primary">1x</span>
+<span>Large Fries</span>
+</div>
+</li>
+<li class="flex justify-between items-start">
+<div class="flex gap-sm">
+<span class="font-semibold text-primary">1x</span>
+<span>Vanilla Shake</span>
+</div>
+</li>
+</ul>
+<!-- Total Line -->
+<div class="border-t border-surface-dim pt-md flex justify-between items-center">
+<span class="font-headline-md text-headline-md text-on-surface">Total</span>
+<span class="font-headline-md text-headline-md text-on-surface">$24.50</span>
+</div>
+</section>
+<!-- Payment Method Card (Level 1 Elevation) -->
+<section class="bg-surface-container-lowest rounded-lg p-md shadow-[0_4px_12px_0_rgba(0,0,0,0.05)] flex flex-col gap-sm">
+<div class="flex justify-between items-center">
+<h2 class="font-label-md text-label-md text-secondary uppercase tracking-wider">Payment Method</h2>
+<button class="font-button-text text-button-text text-primary active:opacity-70 transition-opacity">Change</button>
+</div>
+<div class="flex items-center gap-sm mt-xs">
+<div class="w-10 h-10 rounded border border-outline-variant flex items-center justify-center text-on-surface shrink-0">
+<span class="material-symbols-outlined" data-icon="credit_card">credit_card</span>
+</div>
+<span class="font-body-lg text-body-lg text-on-surface">Visa ending in 8888</span>
+</div>
+</section>
+</main>
+<!-- Bottom Action Area (Level 2 Elevation implicitly via placement and shadow) -->
+<div class="fixed bottom-0 w-full bg-surface-container-lowest border-t border-outline-variant px-margin-mobile py-sm pb-[max(env(safe-area-inset-bottom),16px)] z-50 shadow-[0_-8px_20px_0_rgba(0,0,0,0.08)]">
+<button class="w-full h-[56px] bg-primary-container text-on-primary rounded-lg font-button-text text-button-text flex items-center justify-center active:scale-[0.98] transition-transform shadow-sm">
+            Place Order
+        </button>
+</div>
+</body></html>

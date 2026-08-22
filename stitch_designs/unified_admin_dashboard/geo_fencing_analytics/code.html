@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>NABIN - Geo-Fencing Analytics</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@600;700&amp;family=Inter:wght@400&amp;family=Geist:wght@400;500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "background": "#f7f9fb",
+                        "on-primary": "#ffffff",
+                        "primary-fixed-dim": "#b6c4ff",
+                        "surface-variant": "#e0e3e5",
+                        "secondary-fixed": "#d3e4fe",
+                        "on-tertiary-fixed": "#001e2f",
+                        "on-tertiary-container": "#f3f8ff",
+                        "on-surface-variant": "#434654",
+                        "inverse-on-surface": "#eff1f3",
+                        "tertiary-fixed": "#c9e6ff",
+                        "outline-variant": "#c4c5d6",
+                        "on-secondary-container": "#54647a",
+                        "outline": "#747685",
+                        "surface-container": "#eceef0",
+                        "primary-fixed": "#dce1ff",
+                        "surface-container-highest": "#e0e3e5",
+                        "on-secondary": "#ffffff",
+                        "surface-container-lowest": "#ffffff",
+                        "on-error-container": "#93000a",
+                        "on-primary-fixed-variant": "#003baf",
+                        "tertiary-container": "#0079ad",
+                        "tertiary": "#005f89",
+                        "secondary-container": "#d0e1fb",
+                        "surface-tint": "#2854cc",
+                        "surface-container-high": "#e6e8ea",
+                        "inverse-surface": "#2d3133",
+                        "on-tertiary-fixed-variant": "#004c6e",
+                        "secondary-fixed-dim": "#b7c8e1",
+                        "inverse-primary": "#b6c4ff",
+                        "on-secondary-fixed": "#0b1c30",
+                        "on-surface": "#191c1e",
+                        "secondary": "#505f76",
+                        "on-primary-container": "#f8f7ff",
+                        "primary-container": "#4169e1",
+                        "error": "#ba1a1a",
+                        "on-tertiary": "#ffffff",
+                        "surface-bright": "#f7f9fb",
+                        "on-error": "#ffffff",
+                        "surface-dim": "#d8dadc",
+                        "tertiary-fixed-dim": "#89ceff",
+                        "surface-container-low": "#f2f4f6",
+                        "error-container": "#ffdad6",
+                        "on-primary-fixed": "#00164e",
+                        "surface": "#f7f9fb",
+                        "on-background": "#191c1e",
+                        "primary": "#214fc7",
+                        "on-secondary-fixed-variant": "#38485d"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "stack-sm": "0.5rem",
+                        "stack-lg": "2rem",
+                        "gutter": "1.5rem",
+                        "margin-mobile": "1rem",
+                        "stack-md": "1rem",
+                        "margin-desktop": "2rem",
+                        "container-max": "1440px",
+                        "stack-xs": "0.25rem"
+                    },
+                    "fontFamily": {
+                        "headline-sm": ["Hanken Grotesk"],
+                        "mono-sm": ["Geist"],
+                        "headline-md": ["Hanken Grotesk"],
+                        "body-md": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "label-md": ["Geist"],
+                        "body-sm": ["Inter"],
+                        "display-lg": ["Hanken Grotesk"]
+                    },
+                    "fontSize": {
+                        "headline-sm": ["20px", { "lineHeight": "28px", "fontWeight": "600" }],
+                        "mono-sm": ["12px", { "lineHeight": "16px", "fontWeight": "400" }],
+                        "headline-md": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+                        "body-md": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "body-lg": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "label-md": ["13px", { "lineHeight": "18px", "letterSpacing": "0.05em", "fontWeight": "500" }],
+                        "body-sm": ["12px", { "lineHeight": "16px", "fontWeight": "400" }],
+                        "display-lg": ["36px", { "lineHeight": "44px", "letterSpacing": "-0.02em", "fontWeight": "700" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style type="text/tailwindcss">
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+    </style>
+</head>
+<body class="bg-background text-on-background antialiased font-body-md text-body-md">
+<div class="flex h-screen overflow-hidden">
+<nav class="w-[280px] h-screen fixed left-0 top-0 bg-surface border-r border-outline-variant flex flex-col h-full py-stack-lg z-50">
+<div class="px-gutter mb-stack-lg">
+<h1 class="font-headline-md text-headline-md font-bold text-primary">NABIN</h1>
+<p class="font-label-md text-label-md text-on-surface-variant mt-1">Mobility Admin</p>
+</div>
+<ul class="flex-1 px-stack-sm flex flex-col gap-1 overflow-y-auto">
+<li>
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-on-secondary-fixed-variant hover:bg-surface-container transition-colors" href="#">
+<span class="material-symbols-outlined">dashboard</span>
+<span class="font-label-md text-label-md">Dashboard</span>
+</a>
+</li>
+<li>
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-on-secondary-fixed-variant hover:bg-surface-container transition-colors" href="#">
+<span class="material-symbols-outlined">local_shipping</span>
+<span class="font-label-md text-label-md">Operations</span>
+</a>
+</li>
+<li>
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-on-secondary-fixed-variant hover:bg-surface-container transition-colors" href="#">
+<span class="material-symbols-outlined">groups</span>
+<span class="font-label-md text-label-md">People</span>
+</a>
+</li>
+<li>
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-on-secondary-fixed-variant hover:bg-surface-container transition-colors" href="#">
+<span class="material-symbols-outlined">hub</span>
+<span class="font-label-md text-label-md">Platform</span>
+</a>
+</li>
+<li>
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-on-secondary-fixed-variant hover:bg-surface-container transition-colors" href="#">
+<span class="material-symbols-outlined">payments</span>
+<span class="font-label-md text-label-md">Finance</span>
+</a>
+</li>
+<li>
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-on-secondary-fixed-variant hover:bg-surface-container transition-colors" href="#">
+<span class="material-symbols-outlined">support_agent</span>
+<span class="font-label-md text-label-md">Support</span>
+</a>
+</li>
+<li>
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg bg-secondary-container text-on-secondary-container font-bold scale-95 transition-transform duration-150" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">analytics</span>
+<span class="font-label-md text-label-md">Analytics</span>
+</a>
+</li>
+<li>
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-on-secondary-fixed-variant hover:bg-surface-container transition-colors mt-4" href="#">
+<span class="material-symbols-outlined">settings</span>
+<span class="font-label-md text-label-md">System</span>
+</a>
+</li>
+</ul>
+<div class="px-gutter mt-auto pt-stack-md">
+<button class="w-full bg-primary-container text-on-primary-container font-label-md text-label-md py-3 rounded-lg font-medium hover:opacity-90 transition-opacity">Quick Dispatch</button>
+</div>
+</nav>
+<div class="flex-1 flex flex-col pl-[280px]">
+<header class="h-16 fixed top-0 right-0 left-[280px] z-40 bg-surface border-b border-outline-variant flex justify-between items-center px-gutter w-[calc(100%-280px)] transition-all duration-200">
+<div class="flex items-center gap-3 text-on-surface-variant bg-surface-container-low px-3 py-1.5 rounded-md border border-outline-variant/50 w-64">
+<span class="material-symbols-outlined text-sm">search</span>
+<input class="bg-transparent border-none focus:ring-0 p-0 font-body-sm text-body-sm w-full outline-none placeholder-on-surface-variant" placeholder="Search resources..." type="text"/>
+</div>
+<div class="flex items-center gap-4">
+<button class="font-label-md text-label-md text-on-surface border border-outline-variant px-4 py-1.5 rounded-md bg-surface-container-lowest hover:bg-surface-container-low transition-colors">Export</button>
+<button class="font-label-md text-label-md bg-primary-container text-on-primary-container px-4 py-1.5 rounded-md hover:opacity-90 transition-opacity">New Zone</button>
+<div class="flex items-center gap-4 text-on-surface-variant ml-2 border-l border-outline-variant pl-6">
+<button class="hover:text-primary transition-colors flex items-center justify-center">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+<button class="hover:text-primary transition-colors flex items-center justify-center">
+<span class="material-symbols-outlined">help</span>
+</button>
+<button class="hover:text-primary transition-colors flex items-center justify-center">
+<span class="material-symbols-outlined text-[28px]">account_circle</span>
+</button>
+</div>
+</div>
+</header>
+<main class="flex-1 overflow-y-auto bg-background p-gutter pt-[calc(64px+1.5rem)]">
+<div class="max-w-container-max mx-auto flex flex-col gap-gutter">
+<div class="flex items-center justify-between">
+<div>
+<h2 class="font-headline-md text-headline-md text-on-surface">Geo-Fencing Analytics</h2>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-1">Monitor real-time boundary activity and zone performance.</p>
+</div>
+<div class="flex items-center gap-3">
+<div class="flex items-center gap-2 bg-surface-container-lowest border border-outline-variant rounded-md px-3 py-1.5 cursor-pointer hover:border-primary transition-colors">
+<span class="material-symbols-outlined text-sm text-on-surface-variant">calendar_today</span>
+<span class="font-body-sm text-body-sm text-on-surface">Today, Oct 24</span>
+</div>
+<div class="flex items-center gap-2 bg-surface-container-lowest border border-outline-variant rounded-md px-3 py-1.5 cursor-pointer hover:border-primary transition-colors">
+<span class="material-symbols-outlined text-sm text-on-surface-variant">layers</span>
+<span class="font-body-sm text-body-sm text-on-surface">All Regions</span>
+<span class="material-symbols-outlined text-sm text-on-surface-variant ml-2">expand_more</span>
+</div>
+</div>
+</div>
+<div class="grid grid-cols-4 gap-gutter">
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-5 flex flex-col">
+<span class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Total Active Zones</span>
+<div class="flex items-end gap-3 mt-2">
+<span class="font-display-lg text-display-lg text-on-surface">42</span>
+<span class="font-body-sm text-body-sm text-primary mb-2 flex items-center bg-primary-fixed-dim/20 px-1.5 rounded text-[10px]">
+<span class="material-symbols-outlined text-[14px]">arrow_upward</span> 12%
+                            </span>
+</div>
+</div>
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-5 flex flex-col">
+<span class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Avg. Dwell Time</span>
+<div class="flex items-end gap-3 mt-2">
+<span class="font-display-lg text-display-lg text-on-surface">18<span class="text-headline-sm font-headline-sm text-on-surface-variant ml-1">m</span></span>
+<span class="font-body-sm text-body-sm text-error mb-2 flex items-center bg-error-container/50 px-1.5 rounded text-[10px] text-error">
+<span class="material-symbols-outlined text-[14px]">arrow_downward</span> 2m
+                            </span>
+</div>
+</div>
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-5 flex flex-col">
+<span class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Boundary Violations</span>
+<div class="flex items-end gap-3 mt-2">
+<span class="font-display-lg text-display-lg text-on-surface">12</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant mb-2">Today</span>
+</div>
+</div>
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-5 flex flex-col">
+<span class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Entry/Exit Volume</span>
+<div class="flex items-end gap-3 mt-2">
+<span class="font-display-lg text-display-lg text-on-surface">2.4k</span>
+<span class="font-body-sm text-body-sm text-primary mb-2 flex items-center bg-primary-fixed-dim/20 px-1.5 rounded text-[10px]">
+<span class="material-symbols-outlined text-[14px]">arrow_upward</span> 5%
+                            </span>
+</div>
+</div>
+</div>
+<div class="grid grid-cols-3 gap-gutter">
+<div class="col-span-2 bg-surface-container-lowest border border-outline-variant rounded-xl overflow-hidden flex flex-col min-h-[400px]">
+<div class="p-4 border-b border-outline-variant bg-surface-container-low/50 flex justify-between items-center">
+<h3 class="font-headline-sm text-headline-sm text-on-surface">Live Zone Activity</h3>
+<button class="font-label-md text-label-md text-primary flex items-center gap-1">
+<span class="material-symbols-outlined text-sm">fullscreen</span> Expand Map
+                            </button>
+</div>
+<div class="flex-1 relative bg-surface-variant/30">
+<div class="w-full h-full bg-cover bg-center absolute inset-0 opacity-80" data-alt="A highly detailed, minimalist digital map visualization centered on a dense urban grid, styled for a modern mobility dashboard in light mode. The map uses subtle grays and off-whites, overlaid with precise, glowing Royal Blue translucent geometric polygons representing geofenced zones. High contrast, technical aesthetic, clean lines, professional data visualization." data-location="New York" style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuCf3S0xbTd7rwCVU7L2o9TEvE_VeeJfYKgWbNugcKdNDaVaSza0Kaehw-X7qbWNm1XzcJUNoOVYSZTF3GbFNAw4Q8Lv9zTx6PsXmuRMRsscfz1DKv60au9nr96ZFGgL1R6GopqOrA_86rtsFaj2osLPfGWma36038VoSbL4zuBN6-QBnBSLRKWzLfBPTTwM3k3QHoRMHPYrVdRADbgGaUva2_PT294a3HJVdDMy8G2gEKlEmnHUwLw0Rg')"></div>
+<div class="absolute top-1/4 left-1/4 w-32 h-32 bg-primary/20 border-2 border-primary rounded-lg shadow-[0_0_15px_rgba(33,79,199,0.3)]"></div>
+<div class="absolute top-1/2 left-1/2 w-48 h-24 bg-tertiary-container/30 border-2 border-tertiary rounded-lg shadow-[0_0_15px_rgba(0,121,173,0.3)]"></div>
+<div class="absolute bottom-4 right-4 bg-surface-container-lowest border border-outline-variant rounded-md p-2 flex flex-col gap-2 shadow-sm">
+<div class="flex items-center gap-2"><div class="w-3 h-3 bg-primary rounded-full"></div><span class="font-mono-sm text-mono-sm text-on-surface">High Density</span></div>
+<div class="flex items-center gap-2"><div class="w-3 h-3 bg-tertiary rounded-full"></div><span class="font-mono-sm text-mono-sm text-on-surface">Normal Load</span></div>
+</div>
+</div>
+</div>
+<div class="col-span-1 flex flex-col gap-gutter">
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-5 flex-1 flex flex-col">
+<h3 class="font-headline-sm text-headline-sm text-on-surface mb-4">Peak Activity by Zone</h3>
+<div class="flex-1 flex items-end gap-2 mt-auto h-32">
+<div class="flex-1 bg-surface-container-high rounded-t-sm h-[40%] relative group cursor-pointer hover:bg-primary/20 transition-colors"><div class="absolute -top-6 left-1/2 -translate-x-1/2 font-mono-sm text-mono-sm opacity-0 group-hover:opacity-100 transition-opacity text-primary">Downtown</div></div>
+<div class="flex-1 bg-primary rounded-t-sm h-[85%] relative group cursor-pointer shadow-[0_-2px_10px_rgba(65,105,225,0.2)]"><div class="absolute -top-6 left-1/2 -translate-x-1/2 font-mono-sm text-mono-sm text-primary">Midtown</div></div>
+<div class="flex-1 bg-surface-container-high rounded-t-sm h-[60%] relative group cursor-pointer hover:bg-primary/20 transition-colors"><div class="absolute -top-6 left-1/2 -translate-x-1/2 font-mono-sm text-mono-sm opacity-0 group-hover:opacity-100 transition-opacity text-primary">Airport</div></div>
+<div class="flex-1 bg-surface-container-high rounded-t-sm h-[30%] relative group cursor-pointer hover:bg-primary/20 transition-colors"><div class="absolute -top-6 left-1/2 -translate-x-1/2 font-mono-sm text-mono-sm opacity-0 group-hover:opacity-100 transition-opacity text-primary">Suburbs</div></div>
+<div class="flex-1 bg-surface-container-high rounded-t-sm h-[50%] relative group cursor-pointer hover:bg-primary/20 transition-colors"><div class="absolute -top-6 left-1/2 -translate-x-1/2 font-mono-sm text-mono-sm opacity-0 group-hover:opacity-100 transition-opacity text-primary">Port</div></div>
+</div>
+</div>
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-5 flex-1 flex flex-col">
+<h3 class="font-headline-sm text-headline-sm text-on-surface mb-1">Violation Trends</h3>
+<p class="font-body-sm text-body-sm text-on-surface-variant mb-4">Past 7 days</p>
+<div class="flex-1 relative flex items-center justify-center border-b border-l border-outline-variant/30 h-24">
+<svg class="w-full h-full" preserveaspectratio="none" viewbox="0 0 100 40">
+<path class="opacity-80" d="M0,35 Q10,30 20,25 T40,15 T60,20 T80,5 T100,10" fill="none" stroke="#ba1a1a" stroke-width="2"></path>
+<circle cx="80" cy="5" fill="#ba1a1a" r="2"></circle>
+</svg>
+</div>
+<div class="flex justify-between mt-2 font-mono-sm text-mono-sm text-on-surface-variant">
+<span>Mon</span><span>Wed</span><span>Fri</span><span>Sun</span>
+</div>
+</div>
+</div>
+</div>
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl overflow-hidden">
+<div class="p-5 border-b border-outline-variant">
+<h3 class="font-headline-sm text-headline-sm text-on-surface">Zone Performance Metrics</h3>
+</div>
+<div class="overflow-x-auto">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="bg-surface-container-low/50">
+<th class="p-4 font-label-md text-label-md text-on-surface-variant uppercase border-b border-outline-variant">Zone Name</th>
+<th class="p-4 font-label-md text-label-md text-on-surface-variant uppercase border-b border-outline-variant">Entry Vol.</th>
+<th class="p-4 font-label-md text-label-md text-on-surface-variant uppercase border-b border-outline-variant">Exit Vol.</th>
+<th class="p-4 font-label-md text-label-md text-on-surface-variant uppercase border-b border-outline-variant">Avg Dwell</th>
+<th class="p-4 font-label-md text-label-md text-on-surface-variant uppercase border-b border-outline-variant">Status</th>
+</tr>
+</thead>
+<tbody>
+<tr class="hover:bg-surface transition-colors border-b border-outline-variant/50">
+<td class="p-4 font-body-md text-body-md text-on-surface font-medium flex items-center gap-2">
+<span class="material-symbols-outlined text-on-surface-variant text-sm">location_on</span> Midtown Hub
+                                    </td>
+<td class="p-4 font-mono-sm text-mono-sm text-on-surface">1,204</td>
+<td class="p-4 font-mono-sm text-mono-sm text-on-surface">1,180</td>
+<td class="p-4 font-mono-sm text-mono-sm text-on-surface">22m</td>
+<td class="p-4">
+<span class="inline-block px-2 py-1 rounded bg-error-container/30 text-error font-label-md text-label-md text-[11px] uppercase tracking-wide">High Load</span>
+</td>
+</tr>
+<tr class="hover:bg-surface transition-colors border-b border-outline-variant/50">
+<td class="p-4 font-body-md text-body-md text-on-surface font-medium flex items-center gap-2">
+<span class="material-symbols-outlined text-on-surface-variant text-sm">location_on</span> Downtown Core
+                                    </td>
+<td class="p-4 font-mono-sm text-mono-sm text-on-surface">845</td>
+<td class="p-4 font-mono-sm text-mono-sm text-on-surface">850</td>
+<td class="p-4 font-mono-sm text-mono-sm text-on-surface">15m</td>
+<td class="p-4">
+<span class="inline-block px-2 py-1 rounded bg-primary-fixed-dim/30 text-primary font-label-md text-label-md text-[11px] uppercase tracking-wide">Active</span>
+</td>
+</tr>
+<tr class="hover:bg-surface transition-colors border-b border-outline-variant/50">
+<td class="p-4 font-body-md text-body-md text-on-surface font-medium flex items-center gap-2">
+<span class="material-symbols-outlined text-on-surface-variant text-sm">location_on</span> Airport Logistics
+                                    </td>
+<td class="p-4 font-mono-sm text-mono-sm text-on-surface">320</td>
+<td class="p-4 font-mono-sm text-mono-sm text-on-surface">315</td>
+<td class="p-4 font-mono-sm text-mono-sm text-on-surface">45m</td>
+<td class="p-4">
+<span class="inline-block px-2 py-1 rounded bg-[#dcfce7] text-[#166534] font-label-md text-label-md text-[11px] uppercase tracking-wide">Optimized</span>
+</td>
+</tr>
+<tr class="hover:bg-surface transition-colors">
+<td class="p-4 font-body-md text-body-md text-on-surface font-medium flex items-center gap-2">
+<span class="material-symbols-outlined text-on-surface-variant text-sm">location_on</span> North Suburbs
+                                    </td>
+<td class="p-4 font-mono-sm text-mono-sm text-on-surface">150</td>
+<td class="p-4 font-mono-sm text-mono-sm text-on-surface">142</td>
+<td class="p-4 font-mono-sm text-mono-sm text-on-surface">8m</td>
+<td class="p-4">
+<span class="inline-block px-2 py-1 rounded bg-primary-fixed-dim/30 text-primary font-label-md text-label-md text-[11px] uppercase tracking-wide">Active</span>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+</div>
+</main>
+</div>
+</div>
+</body></html>

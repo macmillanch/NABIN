@@ -1,0 +1,195 @@
+<!DOCTYPE html><html class="dark" lang="en"><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>Digital Voucher Detail - Nabin Driver System</title>
+<!-- Material Symbols -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<style>
+        .material-symbols-outlined {
+            font-family: 'Material Symbols Outlined';
+            font-weight: normal;
+            font-style: normal;
+            font-size: 24px;
+            line-height: 1;
+            letter-spacing: normal;
+            text-transform: none;
+            display: inline-block;
+            white-space: nowrap;
+            word-wrap: normal;
+            direction: ltr;
+            -webkit-font-feature-settings: 'liga';
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* Subtle glow for the ticket */
+        .ticket-glow {
+            box-shadow: 0 0 40px rgba(37, 99, 235, 0.1);
+        }
+    </style>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<!-- Tailwind Configuration -->
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-secondary-fixed-variant": "#43474d",
+                        "primary-fixed": "#dbe1ff",
+                        "on-error": "#690005",
+                        "error": "#ffb4ab",
+                        "on-secondary-container": "#b2b5bc",
+                        "on-surface-variant": "#c3c6d7",
+                        "error-container": "#93000a",
+                        "inverse-primary": "#0053db",
+                        "on-primary": "#002a78",
+                        "outline-variant": "#434655",
+                        "on-tertiary-fixed-variant": "#7d2d00",
+                        "on-tertiary": "#581e00",
+                        "background": "#11131b",
+                        "on-tertiary-fixed": "#360f00",
+                        "surface": "#11131b",
+                        "tertiary-fixed-dim": "#ffb596",
+                        "secondary-fixed-dim": "#c3c6ce",
+                        "tertiary": "#ffb596",
+                        "surface-dim": "#11131b",
+                        "surface-bright": "#373942",
+                        "secondary": "#c3c6ce",
+                        "on-error-container": "#ffdad6",
+                        "surface-container-high": "#282a32",
+                        "on-secondary-fixed": "#181c21",
+                        "on-secondary": "#2d3136",
+                        "tertiary-container": "#bc4800",
+                        "on-surface": "#e1e2ed",
+                        "on-primary-fixed-variant": "#003ea8",
+                        "primary-container": "#2563eb",
+                        "on-primary-container": "#eeefff",
+                        "secondary-fixed": "#e0e2ea",
+                        "inverse-surface": "#e1e2ed",
+                        "on-background": "#e1e2ed",
+                        "inverse-on-surface": "#2e3039",
+                        "on-tertiary-container": "#ffede6",
+                        "surface-container-lowest": "#0c0e16",
+                        "secondary-container": "#43474d",
+                        "surface-variant": "#32343d",
+                        "primary-fixed-dim": "#b4c5ff",
+                        "tertiary-fixed": "#ffdbcd",
+                        "surface-container-highest": "#32343d",
+                        "surface-container-low": "#191b23",
+                        "surface-container": "#1d1f27",
+                        "primary": "#b4c5ff",
+                        "surface-tint": "#b4c5ff",
+                        "on-primary-fixed": "#00174b",
+                        "outline": "#8d90a0"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "base": "4px",
+                        "touch-target-min": "48px",
+                        "stack-sm": "8px",
+                        "stack-md": "16px",
+                        "margin-mobile": "16px",
+                        "gutter": "16px",
+                        "margin-desktop": "32px",
+                        "stack-lg": "24px"
+                    },
+                    "fontFamily": {
+                        "headline-lg": ["Inter", "sans-serif"],
+                        "body-md": ["Inter", "sans-serif"],
+                        "label-md": ["Inter", "sans-serif"],
+                        "headline-xl": ["Inter", "sans-serif"],
+                        "headline-lg-mobile": ["Inter", "sans-serif"],
+                        "data-tabular": ["JetBrains Mono", "monospace", "Inter", "sans-serif"],
+                        "body-lg": ["Inter", "sans-serif"]
+                    },
+                    "fontSize": {
+                        "headline-lg": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+                        "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "label-md": ["14px", { "lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "500" }],
+                        "headline-xl": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "headline-lg-mobile": ["20px", { "lineHeight": "28px", "fontWeight": "600" }],
+                        "data-tabular": ["18px", { "lineHeight": "24px", "letterSpacing": "0.05em", "fontWeight": "600" }],
+                        "body-lg": ["18px", { "lineHeight": "28px", "fontWeight": "400" }]
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-surface text-on-surface min-h-screen flex flex-col font-sans selection:bg-primary-container selection:text-on-primary-container">
+<!-- TopAppBar (Mapped from JSON) -->
+<header class="w-full top-0 sticky z-50 bg-surface-dim border-b border-outline-variant/10 flex items-center justify-between px-margin-mobile h-touch-target-min md:px-margin-desktop">
+<button aria-label="Go Back" class="w-touch-target-min h-touch-target-min flex items-center justify-center -ml-3 text-primary hover:bg-surface-bright transition-colors rounded-full active:scale-95 duration-150">
+<span class="material-symbols-outlined">arrow_back</span>
+</button>
+<h1 class="font-headline-lg-mobile text-headline-lg-mobile font-bold text-primary md:font-headline-lg md:text-headline-lg">Voucher Detail</h1>
+<div class="w-touch-target-min h-touch-target-min"></div> <!-- Spacer for balance -->
+</header>
+<!-- Canvas -->
+<main class="flex-1 flex flex-col items-center py-stack-lg px-margin-mobile md:px-margin-desktop w-full max-w-md mx-auto gap-stack-lg">
+<!-- The Ticket Card -->
+<div class="w-full bg-surface-container-high rounded-2xl ring-1 ring-white/10 shadow-lg ticket-glow flex flex-col relative overflow-hidden">
+<!-- Top Section: Reward Info -->
+<div class="p-stack-lg flex flex-col items-center text-center gap-stack-sm bg-gradient-to-b from-primary-container/20 to-transparent">
+<div class="w-16 h-16 rounded-full bg-primary-container/20 flex items-center justify-center mb-2 ring-1 ring-primary/30">
+<span class="material-symbols-outlined text-primary text-3xl" style="font-variation-settings: 'FILL' 1;">local_gas_station</span>
+</div>
+<h2 class="font-headline-xl text-headline-xl text-on-surface">50L Premium Fuel</h2>
+<p class="font-body-md text-body-md text-on-surface-variant">Nabin Partner Network</p>
+<div class="mt-4 inline-flex items-center gap-2 px-3 py-1 rounded-full bg-surface-variant border border-outline-variant/50">
+<span class="w-2 h-2 rounded-full bg-green-400"></span>
+<span class="font-label-md text-label-md text-on-surface">Valid until Oct 31, 2024</span>
+</div>
+</div>
+<!-- The Perforated Divider -->
+<div class="relative w-full h-8 flex items-center">
+<div class="absolute left-0 -translate-x-1/2 w-8 h-8 rounded-full bg-surface ring-1 ring-white/10 z-10"></div>
+<div class="w-full border-t-[2px] border-dashed border-outline-variant/30"></div>
+<div class="absolute right-0 translate-x-1/2 w-8 h-8 rounded-full bg-surface ring-1 ring-white/10 z-10"></div>
+</div>
+<!-- Bottom Section: QR & Code -->
+<div class="p-stack-lg flex flex-col items-center gap-stack-lg">
+<!-- QR Code Container -->
+<div class="p-4 bg-white rounded-xl shadow-inner relative group cursor-pointer transition-transform hover:scale-105 duration-300">
+<img alt="QR Code for scanning" class="w-48 h-48 object-cover rounded-md" data-alt="A high-contrast, crisp black and white digital QR code perfectly centered within a minimalist white square container. The surrounding interface is dark and tech-focused, making the stark white of the QR container pop intensely. Subtle glowing edges surround the white square." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDR0Anf4vZKUl99O9hmSH1_0M8z69plqWdM6U0KbnwfQQ6ARdkOrhYRzBCx6IExaPHTl1DiQcSFLLuebJnY9IuofzbIDJwa_MIe45-Gxhq9nbKUr3yGM1S-88tyjwK1ex2YCWF_XWJDzKubvqwkfZVgrKNnxoFrLI-Qi3570oTMAhiSwwmrotn2AtQamEHzDhkTQgSnfK-HSGP0dt-1f0dcBRl_XLZz2JLxRhMUeIMRMcysy6NT4Ho">
+<!-- Scan overlay hint -->
+<div class="absolute inset-0 bg-primary/10 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
+<span class="material-symbols-outlined text-primary text-4xl">fit_screen</span>
+</div>
+</div>
+<!-- Tabular Voucher Code -->
+<div class="flex flex-col items-center gap-2">
+<span class="font-label-md text-label-md text-on-surface-variant uppercase tracking-widest">Voucher Code</span>
+<div class="px-4 py-2 bg-surface-variant/50 rounded-lg border border-outline-variant/20 flex items-center gap-3 cursor-pointer hover:bg-surface-variant transition-colors" onclick="alert('Code copied!')">
+<span class="font-data-tabular text-data-tabular text-primary font-bold tracking-widest">NB-FUEL-500-A9X2</span>
+<span class="material-symbols-outlined text-outline text-sm">content_copy</span>
+</div>
+</div>
+<!-- Instructions -->
+<div class="mt-2 text-center flex flex-col items-center gap-2">
+<span class="material-symbols-outlined text-outline-variant" style="font-variation-settings: 'FILL' 1;">info</span>
+<p class="font-body-md text-body-md text-on-surface-variant max-w-[280px]">Show this QR code at any Nabin partner station. If the scanner isn't working, provide the voucher code manually to the attendant.</p>
+<a href="#" class="text-primary font-label-md text-label-md flex items-center gap-1 hover:underline mt-2"><span class="material-symbols-outlined text-sm">help</span> Need help?</a></div>
+</div>
+</div>
+<!-- Action Buttons -->
+<div class="w-full flex gap-stack-md mt-4">
+<button class="flex-1 h-touch-target-min bg-surface-variant hover:bg-surface-bright text-on-surface font-label-md text-label-md rounded-xl flex items-center justify-center gap-2 transition-colors active:scale-95 duration-150 ring-1 ring-white/5">
+<span class="material-symbols-outlined">share</span>
+                Share
+            </button>
+<button class="flex-[2] h-touch-target-min bg-primary-container hover:bg-primary text-on-primary-container font-label-md text-label-md font-bold rounded-xl flex items-center justify-center gap-2 transition-colors active:scale-95 duration-150 shadow-lg shadow-primary-container/20">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">download</span>
+                Save to Gallery
+            </button>
+</div>
+</main>
+
+
+</body></html>

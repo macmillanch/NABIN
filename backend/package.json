@@ -1,0 +1,17 @@
+{
+  "name": "nabin-unified-backend",
+  "version": "1.0.0",
+  "description": "Shared real-time backend API and dispatch engine for NABIN Customer, Driver, and Restaurant apps",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.112.3",
+    "cors": "^2.8.5",
+    "dotenv": "^17.4.2",
+    "express": "^4.21.2",
+    "ws": "^8.18.0"
+  }
+}

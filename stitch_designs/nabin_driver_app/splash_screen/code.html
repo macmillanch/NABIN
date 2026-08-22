@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>NABIN Driver - Splash</title>
+<!-- Material Symbols -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 48;
+        }
+        
+        /* Subtle entrance animation */
+        @keyframes fade-in-up {
+            0% { opacity: 0; transform: translateY(20px); }
+            100% { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes pulse-slow {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+        .animate-fade-in-up {
+            animation: fade-in-up 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+        .animate-pulse-slow {
+            animation: pulse-slow 3s ease-in-out infinite;
+        }
+        .delay-100 { animation-delay: 100ms; opacity: 0; }
+        .delay-300 { animation-delay: 300ms; opacity: 0; }
+    </style>
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-primary-fixed-variant": "#003ea8",
+                        "inverse-surface": "#e1e2ed",
+                        "primary-fixed": "#dbe1ff",
+                        "on-tertiary-fixed-variant": "#7d2d00",
+                        "tertiary-container": "#bc4800",
+                        "surface-tint": "#b4c5ff",
+                        "surface-container-low": "#191b23",
+                        "outline-variant": "#434655",
+                        "primary-container": "#2563eb",
+                        "on-error": "#690005",
+                        "primary": "#b4c5ff",
+                        "inverse-primary": "#0053db",
+                        "surface-container-highest": "#32343d",
+                        "surface-dim": "#11131b",
+                        "error-container": "#93000a",
+                        "surface": "#11131b",
+                        "on-error-container": "#ffdad6",
+                        "on-primary-fixed": "#00174b",
+                        "tertiary-fixed": "#ffdbcd",
+                        "on-tertiary-container": "#ffede6",
+                        "on-surface-variant": "#c3c6d7",
+                        "secondary": "#c3c6ce",
+                        "on-background": "#e1e2ed",
+                        "on-secondary-container": "#b2b5bc",
+                        "on-primary": "#002a78",
+                        "secondary-fixed": "#e0e2ea",
+                        "tertiary-fixed-dim": "#ffb596",
+                        "error": "#ffb4ab",
+                        "tertiary": "#ffb596",
+                        "on-surface": "#e1e2ed",
+                        "background": "#11131b",
+                        "surface-variant": "#32343d",
+                        "surface-container": "#1d1f27",
+                        "surface-container-high": "#282a32",
+                        "outline": "#8d90a0",
+                        "secondary-fixed-dim": "#c3c6ce",
+                        "on-primary-container": "#eeefff",
+                        "surface-container-lowest": "#0c0e16",
+                        "secondary-container": "#43474d",
+                        "on-secondary-fixed": "#181c21",
+                        "on-tertiary": "#581e00",
+                        "inverse-on-surface": "#2e3039",
+                        "on-secondary-fixed-variant": "#43474d",
+                        "primary-fixed-dim": "#b4c5ff",
+                        "on-secondary": "#2d3136",
+                        "surface-bright": "#373942",
+                        "on-tertiary-fixed": "#360f00"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "base": "4px",
+                        "stack-lg": "24px",
+                        "margin-mobile": "16px",
+                        "stack-md": "16px",
+                        "stack-sm": "8px",
+                        "gutter": "16px",
+                        "margin-desktop": "32px",
+                        "touch-target-min": "48px"
+                    },
+                    "fontFamily": {
+                        "label-md": ["Inter", "sans-serif"],
+                        "headline-xl": ["Inter", "sans-serif"],
+                        "body-lg": ["Inter", "sans-serif"],
+                        "body-md": ["Inter", "sans-serif"],
+                        "data-tabular": ["Inter", "sans-serif"],
+                        "headline-lg-mobile": ["Inter", "sans-serif"],
+                        "headline-lg": ["Inter", "sans-serif"]
+                    },
+                    "fontSize": {
+                        "label-md": ["14px", { "lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "500" }],
+                        "headline-xl": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "body-lg": ["18px", { "lineHeight": "28px", "fontWeight": "400" }],
+                        "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "data-tabular": ["16px", { "lineHeight": "24px", "fontWeight": "600" }],
+                        "headline-lg-mobile": ["20px", { "lineHeight": "28px", "fontWeight": "600" }],
+                        "headline-lg": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }]
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-primary-container text-on-primary-container min-h-screen flex items-center justify-center overflow-hidden antialiased selection:bg-on-primary-container selection:text-primary-container">
+<!-- Ambient Background Glow (Optional subtle texture for depth) -->
+<div class="absolute inset-0 bg-gradient-to-br from-primary-container via-primary-container to-[#1a4bba] opacity-90 pointer-events-none"></div>
+<main class="relative z-10 flex flex-col items-center justify-center px-margin-mobile md:px-margin-desktop text-center">
+<!-- Logo / Icon Cluster -->
+<div class="mb-stack-lg animate-fade-in-up">
+<div class="w-32 h-32 rounded-full bg-white/10 backdrop-blur-sm border border-white/20 flex items-center justify-center animate-pulse-slow shadow-2xl">
+<span class="material-symbols-outlined text-[64px]" data-icon="local_taxi" data-weight="fill">
+                    local_taxi
+                </span>
+</div>
+</div>
+<!-- Typography -->
+<div class="flex flex-col gap-stack-sm items-center">
+<h1 class="font-headline-xl text-headline-xl animate-fade-in-up delay-100 tracking-tight">
+                NABIN Driver
+            </h1>
+<p class="font-body-lg text-body-lg text-on-primary-container/80 animate-fade-in-up delay-300">
+                Drive with Pride
+            </p>
+</div>
+<!-- Minimal Loading Indicator (Simulated) -->
+<div class="absolute bottom-16 left-1/2 -translate-x-1/2 flex gap-2 animate-fade-in-up delay-300">
+<div class="w-2 h-2 rounded-full bg-on-primary-container/40 animate-[pulse-slow_1.5s_infinite]"></div>
+<div class="w-2 h-2 rounded-full bg-on-primary-container/80 animate-[pulse-slow_1.5s_0.2s_infinite]"></div>
+<div class="w-2 h-2 rounded-full bg-on-primary-container/40 animate-[pulse-slow_1.5s_0.4s_infinite]"></div>
+</div>
+</main>
+</body></html>

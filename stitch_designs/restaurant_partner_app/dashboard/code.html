@@ -1,0 +1,261 @@
+<!DOCTYPE html><html class="h-full bg-surface" lang="en"><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>NABIN Dashboard</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "on-error": "#ffffff",
+                        "primary-container": "#2563eb",
+                        "inverse-on-surface": "#f0f0fb",
+                        "outline": "#737686",
+                        "on-tertiary-container": "#ffede6",
+                        "on-tertiary": "#ffffff",
+                        "background": "#faf8ff",
+                        "surface-container-low": "#f3f3fe",
+                        "surface-container-highest": "#e1e2ed",
+                        "surface-variant": "#e1e2ed",
+                        "inverse-primary": "#b4c5ff",
+                        "error": "#ba1a1a",
+                        "primary": "#004ac6",
+                        "secondary-fixed-dim": "#b7c8e1",
+                        "surface-bright": "#faf8ff",
+                        "on-secondary-fixed": "#0b1c30",
+                        "secondary-container": "#d0e1fb",
+                        "on-primary-fixed-variant": "#003ea8",
+                        "surface-container": "#ededf9",
+                        "surface-container-lowest": "#ffffff",
+                        "on-primary-fixed": "#00174b",
+                        "surface-container-high": "#e7e7f3",
+                        "on-secondary-container": "#54647a",
+                        "surface-tint": "#0053db",
+                        "on-secondary-fixed-variant": "#38485d",
+                        "secondary": "#505f76",
+                        "tertiary": "#943700",
+                        "surface-dim": "#d9d9e5",
+                        "on-background": "#191b23",
+                        "tertiary-fixed-dim": "#ffb596",
+                        "on-primary": "#ffffff",
+                        "tertiary-fixed": "#ffdbcd",
+                        "on-tertiary-fixed": "#360f00",
+                        "error-container": "#ffdad6",
+                        "tertiary-container": "#bc4800",
+                        "inverse-surface": "#2e3039",
+                        "outline-variant": "#c3c6d7",
+                        "primary-fixed-dim": "#b4c5ff",
+                        "on-tertiary-fixed-variant": "#7d2d00",
+                        "on-error-container": "#93000a",
+                        "primary-fixed": "#dbe1ff",
+                        "on-primary-container": "#eeefff",
+                        "on-surface-variant": "#434655",
+                        "secondary-fixed": "#d3e4fe",
+                        "surface": "#faf8ff",
+                        "on-surface": "#191b23",
+                        "on-secondary": "#ffffff"
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    spacing: {
+                        "sm": "8px",
+                        "md": "16px",
+                        "margin-tablet": "24px",
+                        "xs": "4px",
+                        "lg": "24px",
+                        "unit": "4px",
+                        "gutter": "16px",
+                        "margin-mobile": "16px",
+                        "touch-target-min": "48px",
+                        "xl": "32px"
+                    },
+                    fontFamily: {
+                        "headline-sm": ["Inter"],
+                        "label-lg": ["Inter"],
+                        "body-md": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "label-md": ["Inter"],
+                        "order-number": ["Inter"],
+                        "order-number-mobile": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "headline-md": ["Inter"]
+                    },
+                    fontSize: {
+                        "headline-sm": ["20px", { lineHeight: "28px", fontWeight: "600" }],
+                        "label-lg": ["14px", { lineHeight: "20px", letterSpacing: "0.05em", fontWeight: "600" }],
+                        "body-md": ["16px", { lineHeight: "24px", fontWeight: "400" }],
+                        "body-lg": ["18px", { lineHeight: "26px", fontWeight: "500" }],
+                        "label-md": ["12px", { lineHeight: "16px", fontWeight: "600" }],
+                        "order-number": ["48px", { lineHeight: "56px", letterSpacing: "-0.02em", fontWeight: "800" }],
+                        "order-number-mobile": ["36px", { lineHeight: "44px", fontWeight: "800" }],
+                        "headline-lg": ["32px", { lineHeight: "40px", fontWeight: "700" }],
+                        "headline-md": ["24px", { lineHeight: "32px", fontWeight: "700" }]
+                    }
+                }
+            }
+        };
+    </script>
+</head>
+<body class="bg-surface text-on-surface h-full pb-20 md:pb-0 pt-16">
+<!-- TopAppBar -->
+<header class="fixed top-0 w-full z-50 flex justify-between items-center px-margin-mobile h-touch-target-min bg-surface border-b border-outline-variant">
+<button class="flex items-center justify-center p-2 rounded hover:bg-surface-container-low transition-colors text-primary" data-icon="storefront">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">storefront</span>
+</button>
+<h1 class="font-headline-md text-headline-md font-bold text-primary text-center flex-1">NABIN</h1>
+<button class="flex items-center justify-center p-2 rounded hover:bg-surface-container-low transition-colors text-primary" data-icon="notifications">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+</header>
+<!-- Main Content Canvas -->
+<main class="px-margin-mobile md:px-margin-tablet py-lg max-w-7xl mx-auto flex flex-col gap-lg">
+<!-- Top Control Bar (Store Status) -->
+<section class="flex justify-between items-center bg-surface-container-lowest p-md rounded-xl border border-outline-variant shadow-sm">
+<div>
+<h2 class="font-headline-sm text-headline-sm text-on-surface">Store Status</h2>
+<p class="font-body-md text-body-md text-on-surface-variant">Accepting new orders</p>
+</div>
+<label class="relative inline-flex items-center cursor-pointer h-touch-target-min">
+<input checked="" class="sr-only peer" type="checkbox" value="">
+<div class="w-14 h-7 bg-surface-variant peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[4px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-primary-container"></div>
+<span class="ml-3 font-label-lg text-label-lg text-primary-container">Open</span>
+</label>
+</section>
+<!-- Bento Grid Metrics -->
+<section class="grid grid-cols-1 md:grid-cols-3 gap-md">
+<!-- Revenue Card -->
+<div class="bg-surface-container-lowest p-lg rounded-xl border border-outline-variant shadow-sm flex flex-col gap-sm">
+<div class="flex items-center gap-sm text-primary">
+<span class="material-symbols-outlined">payments</span>
+<h3 class="font-label-lg text-label-lg uppercase">Today's Revenue</h3>
+</div>
+<p class="font-headline-lg text-headline-lg text-on-surface">$2,450.00</p>
+<p class="font-body-md text-body-md text-secondary">+12% from yesterday</p>
+</div>
+<!-- Orders Card -->
+<div class="bg-surface-container-lowest p-lg rounded-xl border border-outline-variant shadow-sm flex flex-col gap-sm">
+<div class="flex items-center gap-sm text-primary">
+<span class="material-symbols-outlined">receipt_long</span>
+<h3 class="font-label-lg text-label-lg uppercase">Total Orders</h3>
+</div>
+<p class="font-headline-lg text-headline-lg text-on-surface">142</p>
+<p class="font-body-md text-body-md text-secondary">38 pending preparation</p>
+</div>
+<!-- Tasks Card -->
+<div class="bg-primary p-lg rounded-xl shadow-sm flex flex-col gap-sm text-on-primary">
+<div class="flex items-center gap-sm">
+<span class="material-symbols-outlined">assignment</span>
+<h3 class="font-label-lg text-label-lg uppercase">Pending Tasks</h3>
+</div>
+<p class="font-headline-lg text-headline-lg">5</p>
+<p class="font-body-md text-body-md opacity-90">Low stock alert: Tomatoes</p>
+</div>
+</section>
+<!-- Active Orders Summary -->
+<section class="bg-surface-container-lowest rounded-xl border border-outline-variant shadow-sm overflow-hidden flex flex-col">
+<div class="p-md border-b border-outline-variant flex justify-between items-center bg-surface-container-low">
+<h3 class="font-headline-sm text-headline-sm text-on-surface">Active Orders Summary</h3>
+<button class="bg-primary text-on-primary font-bold text-label-lg px-4 py-2 h-touch-target-min rounded flex items-center justify-center hover:bg-primary-container transition-colors">View All</button>
+</div>
+<div class="p-0">
+<!-- Order Item -->
+<div class="p-md border-b border-outline-variant flex flex-col sm:flex-row justify-between items-start sm:items-center gap-sm hover:bg-surface-container-low transition-colors">
+<div class="flex items-center gap-md">
+<span class="font-order-number-mobile text-order-number-mobile text-on-surface w-16">#42</span>
+<div>
+<p class="font-body-lg text-body-lg font-bold text-on-surface">Table 4 - Dine In</p>
+<p class="font-body-md text-body-md text-on-surface-variant">3 items • $45.50</p>
+</div>
+</div>
+<div class="flex items-center gap-md w-full sm:w-auto justify-between sm:justify-end">
+<span class="bg-amber-100 text-amber-900 font-label-md text-label-md px-3 py-1 rounded-full whitespace-nowrap">Preparing - 5m</span>
+<button class="bg-primary text-on-primary font-label-lg text-label-lg px-4 h-touch-target-min rounded flex items-center justify-center hover:bg-primary-container transition-colors">Complete</button>
+</div>
+</div>
+<!-- Order Item -->
+<div class="p-md border-b border-outline-variant flex flex-col sm:flex-row justify-between items-start sm:items-center gap-sm hover:bg-surface-container-low transition-colors">
+<div class="flex items-center gap-md">
+<span class="font-order-number-mobile text-order-number-mobile text-on-surface w-16">#43</span>
+<div>
+<p class="font-body-lg text-body-lg font-bold text-on-surface">Pickup - John D.</p>
+<p class="font-body-md text-body-md text-on-surface-variant">1 item • $12.00</p>
+</div>
+</div>
+<div class="flex items-center gap-md w-full sm:w-auto justify-between sm:justify-end">
+<span class="bg-green-100 text-green-900 font-label-md text-label-md px-3 py-1 rounded-full whitespace-nowrap">Ready</span>
+<button class="bg-surface text-primary border border-outline font-label-lg text-label-lg px-4 h-touch-target-min rounded flex items-center justify-center hover:bg-surface-container-low transition-colors">Handed Over</button>
+</div>
+</div>
+</div>
+</section>
+</main>
+<!-- BottomNavBar -->
+<nav class="md:hidden fixed bottom-0 w-full z-50 flex justify-around items-center px-sm py-xs bg-surface-container-lowest border-t border-outline-variant shadow-md pb-safe">
+<!-- Active Tab: Dashboard -->
+<a class="flex flex-col items-center justify-center bg-primary-container text-on-primary-container rounded-full px-4 py-1 hover:bg-surface-container-high transition-all scale-90 duration-150" data-icon="dashboard" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">dashboard</span>
+<span class="font-label-md text-label-md mt-1">Dashboard</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant hover:bg-surface-container-high transition-all p-2 rounded-lg" data-icon="receipt_long" href="#">
+<span class="material-symbols-outlined">receipt_long</span>
+<span class="font-label-md text-label-md mt-1">Orders</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant hover:bg-surface-container-high transition-all p-2 rounded-lg" data-icon="restaurant_menu" href="#">
+<span class="material-symbols-outlined">restaurant_menu</span>
+<span class="font-label-md text-label-md mt-1">Menu</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant hover:bg-surface-container-high transition-all p-2 rounded-lg" data-icon="payments" href="#">
+<span class="material-symbols-outlined">payments</span>
+<span class="font-label-md text-label-md mt-1">Finance</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant hover:bg-surface-container-high transition-all p-2 rounded-lg" data-icon="account_circle" href="#">
+<span class="material-symbols-outlined">account_circle</span>
+<span class="font-label-md text-label-md mt-1">Profile</span>
+</a>
+</nav>
+<!-- Desktop Side Nav Overlay Equivalent (Hidden on Mobile) -->
+<aside class="hidden md:flex flex-col fixed left-0 top-16 bottom-0 w-64 bg-surface-container-lowest border-r border-outline-variant shadow-sm z-40 py-lg">
+<nav class="flex flex-col gap-sm px-md">
+<!-- Active Tab: Dashboard -->
+<a class="flex items-center gap-md bg-primary-container text-on-primary-container px-md py-3 rounded-lg font-label-lg text-label-lg transition-colors" data-icon="dashboard" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">dashboard</span>
+                Dashboard
+            </a>
+<a class="flex items-center gap-md text-on-surface-variant hover:bg-surface-container-high px-md py-3 rounded-lg font-label-lg text-label-lg transition-colors" data-icon="receipt_long" href="#">
+<span class="material-symbols-outlined">receipt_long</span>
+                Orders
+            </a>
+<a class="flex items-center gap-md text-on-surface-variant hover:bg-surface-container-high px-md py-3 rounded-lg font-label-lg text-label-lg transition-colors" data-icon="restaurant_menu" href="#">
+<span class="material-symbols-outlined">restaurant_menu</span>
+                Menu
+            </a>
+<a class="flex items-center gap-md text-on-surface-variant hover:bg-surface-container-high px-md py-3 rounded-lg font-label-lg text-label-lg transition-colors" data-icon="payments" href="#">
+<span class="material-symbols-outlined">payments</span>
+                Finance
+            </a>
+<a class="flex items-center gap-md text-on-surface-variant hover:bg-surface-container-high px-md py-3 rounded-lg font-label-lg text-label-lg transition-colors" data-icon="account_circle" href="#">
+<span class="material-symbols-outlined">account_circle</span>
+                Profile
+            </a>
+</nav>
+</aside>
+<style>
+        /* Pad main content to account for fixed desktop sidebar */
+        @media (min-width: 768px) {
+            main {
+                margin-left: 16rem; /* 64 * 0.25rem = 16rem */
+            }
+        }
+    </style>
+
+
+</body></html>

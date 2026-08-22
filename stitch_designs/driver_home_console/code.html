@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>NABIN Driver - Home</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "outline": "#747783",
+                        "surface": "#fcf9f8",
+                        "primary": "#00296d",
+                        "secondary": "#006e2a",
+                        "error": "#ba1a1a",
+                        "primary-container": "#003d9b",
+                        "surface-container": "#f0edec",
+                        "on-primary": "#ffffff",
+                        "on-secondary": "#ffffff",
+                        "on-surface": "#1c1b1b"
+                    }
+                }
+            }
+        }
+</script>
+<style>
+    .radar-pulse { animation: pulse-ring 2s cubic-bezier(0.215, 0.61, 0.355, 1) infinite; }
+    @keyframes pulse-ring { 0% { transform: scale(0.5); opacity: 0; } 50% { opacity: 0.5; } 100% { transform: scale(2.5); opacity: 0; } }
+</style>
+</head>
+<body class="bg-surface text-on-surface h-screen w-screen overflow-hidden flex flex-col font-sans select-none relative">
+
+<!-- Map Background Area -->
+<div class="absolute inset-0 z-0 bg-slate-200">
+  <img class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuANZCpBvjRWpCqqSBxmzTd2W-z1AQyi0lZS7mWOXNaKZsSv0nG3CvokFZ_FG-5SCy41mBDzq_dLM0Fc2-ZN1iuF2QDtCNe_Wqhxou7EIVwA9RW31i1zqYQxTqtUz0uno5y_zckd7cfDiG2vd-OMIp5Oqu_pLTfsdhNnNrKga7S12UfZJoVCtONSCOiqJ6qV39oeCZbjsh7G7MtNylVNonHLjBV07nk1qB4zcKcyCyktumyLDPhg2GvDXfdBczyidGgfPhf-sghFtPl8" alt="Driver Map Vector"/>
+  
+  <!-- Central Vehicle Marker -->
+  <div class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 flex items-center justify-center pointer-events-none">
+    <div class="absolute w-24 h-24 rounded-full bg-emerald-400 opacity-50 radar-pulse"></div>
+    <div class="relative w-12 h-12 bg-[#003D9B] text-white rounded-full border-4 border-white shadow-lg flex items-center justify-center z-10 text-xl font-bold">
+      🛺
+    </div>
+  </div>
+</div>
+
+<!-- Top Floating Bar (Driver Info & Online Switch) -->
+<div class="relative z-50 fixed top-0 w-full px-4 pt-3 pb-2 flex flex-col gap-2">
+  <div class="bg-white/95 backdrop-blur-md border border-slate-200 shadow-md rounded-2xl p-3 flex justify-between items-center">
+    <div class="flex items-center gap-3">
+      <div class="w-11 h-11 rounded-xl bg-[#003D9B] text-white font-black text-sm flex items-center justify-center">RK</div>
+      <div class="flex flex-col">
+        <span class="font-bold text-sm text-[#00296d]">Rajesh Kumar <span class="text-slate-500 font-medium text-xs ml-1">(4.92 ★)</span></span>
+        <span class="text-xs font-semibold text-slate-500">3W Auto • DL 1RA 4892</span>
+      </div>
+    </div>
+    <!-- Online Master Switch -->
+    <div class="flex items-center gap-2">
+      <span class="font-extrabold text-xs text-emerald-600 uppercase">Online</span>
+      <div class="w-12 h-7 bg-emerald-500 rounded-full relative shadow-sm cursor-pointer">
+        <div class="absolute top-0.5 right-0.5 w-6 h-6 bg-white rounded-full shadow-sm"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Service Toggles -->
+  <div class="flex gap-2 overflow-x-auto pb-1">
+    <button class="px-3.5 py-1.5 rounded-full bg-emerald-600 text-white font-bold text-xs uppercase flex items-center gap-1.5 shadow-sm">
+      <span>🛵 🛺 🚗 Rides ON</span>
+    </button>
+    <button class="px-3.5 py-1.5 rounded-full bg-amber-500 text-slate-950 font-bold text-xs uppercase flex items-center gap-1.5 shadow-sm">
+      <span>📦 Parcels ON</span>
+    </button>
+    <button class="px-3.5 py-1.5 rounded-full bg-rose-500 text-white font-bold text-xs uppercase flex items-center gap-1.5 shadow-sm">
+      <span>🍽️ Food ON</span>
+    </button>
+  </div>
+</div>
+
+<!-- Floating Overlays (SOS & Recenter) -->
+<div class="absolute bottom-60 left-4 z-40">
+  <button class="w-14 h-14 rounded-2xl bg-rose-600 text-white shadow-xl flex items-center justify-center font-black text-sm">
+    <span class="material-symbols-outlined text-2xl">sos</span>
+  </button>
+</div>
+<div class="absolute bottom-60 right-4 z-40">
+  <button class="w-14 h-14 rounded-2xl bg-white text-slate-800 border border-slate-200 shadow-xl flex items-center justify-center">
+    <span class="material-symbols-outlined text-2xl">my_location</span>
+  </button>
+</div>
+
+<!-- Bottom Shift Card -->
+<div class="absolute bottom-14 left-0 right-0 z-40 bg-white rounded-t-3xl shadow-2xl border-t border-slate-200 p-4 flex flex-col gap-3">
+  <div class="w-10 h-1 bg-slate-300 rounded-full mx-auto"></div>
+  <div class="flex justify-between items-center border-b border-slate-100 pb-2">
+    <div>
+      <span class="text-[10px] font-black text-slate-400 uppercase">Today's Earnings</span>
+      <div class="text-2xl font-black text-[#00296d]">₹1,420.00</div>
+    </div>
+    <div class="text-right">
+      <span class="text-[10px] font-black text-slate-400 uppercase">Completed</span>
+      <div class="text-sm font-black text-emerald-600">8 Trips ✓</div>
+    </div>
+  </div>
+
+  <div class="flex gap-2">
+    <a href="../../driver_app.html" class="flex-1 py-2 text-center rounded-xl bg-blue-50 text-blue-700 font-extrabold text-xs border border-blue-200">
+      Open Full Interactive App
+    </a>
+  </div>
+</div>
+
+<!-- Bottom Navigation Bar -->
+<div class="absolute bottom-0 left-0 right-0 h-14 bg-white border-t border-slate-200 px-8 flex items-center justify-between z-50">
+  <div class="flex flex-col items-center text-[#003D9B] font-black text-xs">
+    <span class="material-symbols-outlined text-xl">map</span>
+    <span>Drive</span>
+  </div>
+  <div class="flex flex-col items-center text-slate-400 font-bold text-xs">
+    <span class="material-symbols-outlined text-xl">account_balance_wallet</span>
+    <span>Earnings</span>
+  </div>
+  <div class="flex flex-col items-center text-slate-400 font-bold text-xs">
+    <span class="material-symbols-outlined text-xl">person</span>
+    <span>Account</span>
+  </div>
+</div>
+
+</body>
+</html>

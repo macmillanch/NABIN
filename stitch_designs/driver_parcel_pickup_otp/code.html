@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html class="light" lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport"/>
+  <title>NABIN Driver - Parcel Pickup (Dual-OTP)</title>
+  <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"/>
+</head>
+<body class="bg-slate-900 text-slate-900 h-screen w-full overflow-hidden relative font-sans">
+
+<div class="absolute inset-0 w-full h-full z-0">
+  <img alt="Map" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuD7ZMqDKbudMTjfEwU1vOZvTF6sN05ss-Qq0Btf85I03ylGVLvBuB7tzwZVhEIj2lpFLqYT6srdNCO9FJkpkkACIbfR5G9kvkEO-RbS6htvyrA7rCAs39gV1K-8EpE0KZompZyhnNT-RHG1uD2ASmxZzTeNqcI0-W5teFlHebYSBodgkmqPPnrNyTnDPvHV3jnNTrqRmF1QGvQTiC8ieRoal8NoYC8mZjE4iegoz9tFCeuGiTjxraxiPdYLuM-0jw3XE-eCFLp73M-h"/>
+</div>
+
+<!-- Top Banner -->
+<div class="relative z-30 fixed top-3 left-3 right-3">
+  <div class="bg-amber-600 text-slate-950 rounded-2xl p-4 shadow-2xl flex items-center justify-between border border-amber-500">
+    <div class="flex items-center gap-3">
+      <div class="w-11 h-11 rounded-xl bg-amber-800 text-white flex items-center justify-center font-bold">
+        <span class="material-symbols-outlined text-3xl">inventory_2</span>
+      </div>
+      <div>
+        <div class="text-base font-black leading-tight">Arrived at Sender Pickup</div>
+        <div class="text-xs font-semibold">Kamla Nagar Market, Block C</div>
+      </div>
+    </div>
+    <span class="px-2.5 py-1 rounded-full bg-slate-950 text-amber-400 font-bold text-xs">Dual-OTP</span>
+  </div>
+</div>
+
+<!-- Bottom Control Sheet -->
+<div class="absolute bottom-4 left-3 right-3 z-30">
+  <div class="bg-white rounded-3xl p-4 shadow-2xl border border-slate-200 flex flex-col gap-3">
+    
+    <div class="flex items-center justify-between">
+      <span class="px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 text-[10px] font-black uppercase tracking-wider">
+        STEP 1 OF 2: SENDER PICKUP OTP
+      </span>
+      <span class="text-xs font-black text-slate-900">₹60.00 Guaranteed</span>
+    </div>
+
+    <!-- Package Metadata -->
+    <div class="p-3 rounded-2xl bg-amber-50/60 border border-amber-200 text-xs">
+      <div class="font-extrabold text-amber-950">Package: Electronics Box (1.4 kg, Fragile)</div>
+      <div class="text-[10px] text-amber-800 mt-0.5">Sender: Amit Traders (+91 98221 44019)</div>
+    </div>
+
+    <!-- OTP Input -->
+    <div class="bg-slate-50 rounded-2xl p-3 border border-slate-200">
+      <div class="text-xs font-bold text-slate-700 mb-1.5">
+        Enter 4-digit Sender Pickup OTP (7729):
+      </div>
+      <div class="flex items-center gap-2">
+        <input type="text" maxlength="4" value="7729" class="flex-1 p-2.5 rounded-xl border border-slate-300 font-black text-center text-lg tracking-widest text-amber-900 bg-white outline-none" />
+        <a href="../driver_parcel_delivery_pod/code.html" class="px-4 py-2.5 bg-amber-500 text-slate-950 font-black rounded-xl text-xs text-center">
+          Verify OTP
+        </a>
+      </div>
+    </div>
+
+    <a href="../driver_parcel_delivery_pod/code.html" class="w-full h-14 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black rounded-2xl text-base flex items-center justify-center gap-2 shadow-lg shadow-amber-500/20">
+      <span>PARCEL COLLECTED • NAVIGATE TO RECIPIENT</span>
+      <span class="material-symbols-outlined">arrow_forward</span>
+    </a>
+
+  </div>
+</div>
+
+</body>
+</html>

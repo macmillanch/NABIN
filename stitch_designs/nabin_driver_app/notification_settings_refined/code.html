@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Notification Settings</title>
+<!-- Material Symbols -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&amp;display=swap" rel="stylesheet"/>
+<style>
+        .material-symbols-outlined {
+            font-family: 'Material Symbols Outlined';
+            font-weight: normal;
+            font-style: normal;
+            font-size: 24px;
+            line-height: 1;
+            letter-spacing: normal;
+            text-transform: none;
+            display: inline-block;
+            white-space: nowrap;
+            word-wrap: normal;
+            direction: ltr;
+            -webkit-font-feature-settings: 'liga';
+            -webkit-font-smoothing: antialiased;
+        }
+    </style>
+<!-- Tailwind CSS & Config -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface-container-lowest": "#0c0e16",
+                        "on-primary-fixed-variant": "#003ea8",
+                        "on-error-container": "#ffdad6",
+                        "on-tertiary-fixed": "#360f00",
+                        "background": "#11131b",
+                        "on-error": "#690005",
+                        "inverse-surface": "#e1e2ed",
+                        "surface-container-highest": "#32343d",
+                        "on-secondary-fixed": "#181c21",
+                        "error": "#ffb4ab",
+                        "on-secondary-container": "#b2b5bc",
+                        "secondary-fixed-dim": "#c3c6ce",
+                        "on-primary": "#002a78",
+                        "tertiary-fixed-dim": "#ffb596",
+                        "surface": "#11131b",
+                        "surface-container-high": "#282a32",
+                        "on-surface-variant": "#c3c6d7",
+                        "outline-variant": "#434655",
+                        "surface-dim": "#11131b",
+                        "surface-bright": "#373942",
+                        "on-surface": "#e1e2ed",
+                        "secondary-fixed": "#e0e2ea",
+                        "on-tertiary-container": "#ffede6",
+                        "primary-fixed": "#dbe1ff",
+                        "on-primary-container": "#eeefff",
+                        "inverse-primary": "#0053db",
+                        "surface-tint": "#b4c5ff",
+                        "on-primary-fixed": "#00174b",
+                        "tertiary-container": "#bc4800",
+                        "surface-variant": "#32343d",
+                        "on-tertiary-fixed-variant": "#7d2d00",
+                        "tertiary-fixed": "#ffdbcd",
+                        "surface-container-low": "#191b23",
+                        "primary": "#b4c5ff",
+                        "on-tertiary": "#581e00",
+                        "surface-container": "#1d1f27",
+                        "secondary": "#c3c6ce",
+                        "on-secondary-fixed-variant": "#43474d",
+                        "error-container": "#93000a",
+                        "primary-container": "#2563eb",
+                        "on-background": "#e1e2ed",
+                        "outline": "#8d90a0",
+                        "tertiary": "#ffb596",
+                        "on-secondary": "#2d3136",
+                        "inverse-on-surface": "#2e3039",
+                        "primary-fixed-dim": "#b4c5ff",
+                        "secondary-container": "#43474d"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "margin-mobile": "16px",
+                        "stack-md": "16px",
+                        "base": "4px",
+                        "margin-desktop": "32px",
+                        "stack-lg": "24px",
+                        "stack-sm": "8px",
+                        "touch-target-min": "48px",
+                        "gutter": "16px"
+                    },
+                    "fontFamily": {
+                        "body-lg": ["Inter"],
+                        "data-tabular": ["Inter"],
+                        "headline-xl": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "label-md": ["Inter"],
+                        "body-md": ["Inter"],
+                        "headline-lg-mobile": ["Inter"]
+                    },
+                    "fontSize": {
+                        "body-lg": ["18px", { "lineHeight": "28px", "fontWeight": "400" }],
+                        "data-tabular": ["16px", { "lineHeight": "24px", "fontWeight": "600" }],
+                        "headline-xl": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "headline-lg": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+                        "label-md": ["14px", { "lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "500" }],
+                        "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "headline-lg-mobile": ["20px", { "lineHeight": "28px", "fontWeight": "600" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+</head>
+<body class="bg-surface text-on-surface font-body-md h-screen flex flex-col overflow-hidden selection:bg-primary-container selection:text-on-primary-container">
+<!-- TopAppBar -->
+<!-- Applying JSON styling keys: style_bg_color, style_primary_color, style_brand_logo, style_component_shape, style_separation_logic, style_shell_layout, style_interactions -->
+<header class="bg-surface border-b border-outline-variant w-full top-0 sticky flex items-center px-margin-mobile h-touch-target-min z-50 shadow-sm">
+<div class="flex items-center gap-stack-md w-full">
+<button aria-label="Go back" class="text-primary hover:bg-surface-container-high transition-colors cursor-pointer active:scale-95 transition-transform flex items-center justify-center w-touch-target-min h-touch-target-min rounded-full -ml-2">
+<span class="material-symbols-outlined" data-icon="arrow_back">arrow_back</span>
+</button>
+<h1 class="font-headline-lg-mobile text-headline-lg-mobile font-bold text-on-surface flex-1">
+                Notifications
+            </h1>
+</div>
+</header>
+<!-- Main Content Area -->
+<main class="flex-1 overflow-y-auto px-margin-mobile py-stack-lg flex flex-col gap-stack-lg md:px-margin-desktop md:max-w-3xl md:mx-auto md:w-full w-full relative">
+<!-- Background Ambient Glow (Subtle) -->
+<div class="absolute top-0 left-1/2 -translate-x-1/2 w-[200%] h-96 bg-primary-container/5 blur-[120px] rounded-full pointer-events-none -z-10"></div>
+<!-- Settings Group: Trip & Job Alerts -->
+<section class="flex flex-col gap-stack-sm">
+<h2 class="font-label-md text-label-md text-primary uppercase tracking-widest pl-1">Trip &amp; Job Alerts</h2>
+<div class="bg-surface-container-low rounded-xl ring-1 ring-white/10 px-margin-mobile flex flex-col shadow-lg shadow-black/20">
+<!-- Toggle Item 1 -->
+<label class="flex justify-between items-center py-stack-md min-h-[64px] border-b border-outline-variant last:border-0 cursor-pointer group">
+<div class="flex flex-col gap-1 pr-stack-md">
+<span class="font-body-lg text-body-lg text-on-surface group-hover:text-primary transition-colors">New Job Requests</span>
+<span class="font-body-md text-body-md text-on-surface-variant">Push notifications and sound for incoming rides</span>
+</div>
+<div class="relative w-12 h-6 flex-shrink-0">
+<input checked="" class="sr-only peer" type="checkbox"/>
+<div class="absolute inset-0 rounded-full bg-surface-variant ring-1 ring-inset ring-white/10 transition-colors duration-300 peer-checked:bg-primary-container"></div>
+<div class="absolute left-[2px] top-[2px] w-5 h-5 rounded-full bg-on-surface shadow-sm transition-transform duration-300 peer-checked:translate-x-6"></div>
+</div>
+</label>
+<!-- Toggle Item 2 -->
+<label class="flex justify-between items-center py-stack-md min-h-[64px] border-b border-outline-variant last:border-0 cursor-pointer group">
+<div class="flex flex-col gap-1 pr-stack-md">
+<span class="font-body-lg text-body-lg text-on-surface group-hover:text-primary transition-colors">Trip Status Updates</span>
+<span class="font-body-md text-body-md text-on-surface-variant">Alerts for passenger cancellations or delays</span>
+</div>
+<div class="relative w-12 h-6 flex-shrink-0">
+<input checked="" class="sr-only peer" type="checkbox"/>
+<div class="absolute inset-0 rounded-full bg-surface-variant ring-1 ring-inset ring-white/10 transition-colors duration-300 peer-checked:bg-primary-container"></div>
+<div class="absolute left-[2px] top-[2px] w-5 h-5 rounded-full bg-on-surface shadow-sm transition-transform duration-300 peer-checked:translate-x-6"></div>
+</div>
+</label>
+</div>
+</section>
+<!-- Settings Group: Earnings & Payments -->
+<section class="flex flex-col gap-stack-sm">
+<h2 class="font-label-md text-label-md text-primary uppercase tracking-widest pl-1">Earnings &amp; Payments</h2>
+<div class="bg-surface-container-low rounded-xl ring-1 ring-white/10 px-margin-mobile flex flex-col shadow-lg shadow-black/20">
+<!-- Toggle Item 3 -->
+<label class="flex justify-between items-center py-stack-md min-h-[64px] border-b border-outline-variant last:border-0 cursor-pointer group">
+<div class="flex flex-col gap-1 pr-stack-md">
+<span class="font-body-lg text-body-lg text-on-surface group-hover:text-primary transition-colors">Daily Earnings Summary</span>
+<span class="font-body-md text-body-md text-on-surface-variant">A wrap-up of your daily revenue and stats</span>
+</div>
+<div class="relative w-12 h-6 flex-shrink-0">
+<input checked="" class="sr-only peer" type="checkbox"/>
+<div class="absolute inset-0 rounded-full bg-surface-variant ring-1 ring-inset ring-white/10 transition-colors duration-300 peer-checked:bg-primary-container"></div>
+<div class="absolute left-[2px] top-[2px] w-5 h-5 rounded-full bg-on-surface shadow-sm transition-transform duration-300 peer-checked:translate-x-6"></div>
+</div>
+</label>
+<!-- Toggle Item 4 -->
+<label class="flex justify-between items-center py-stack-md min-h-[64px] border-b border-outline-variant last:border-0 cursor-pointer group">
+<div class="flex flex-col gap-1 pr-stack-md">
+<span class="font-body-lg text-body-lg text-on-surface group-hover:text-primary transition-colors">Payout Confirmations</span>
+<span class="font-body-md text-body-md text-on-surface-variant">Know exactly when funds hit your bank account</span>
+</div>
+<div class="relative w-12 h-6 flex-shrink-0">
+<input checked="" class="sr-only peer" type="checkbox"/>
+<div class="absolute inset-0 rounded-full bg-surface-variant ring-1 ring-inset ring-white/10 transition-colors duration-300 peer-checked:bg-primary-container"></div>
+<div class="absolute left-[2px] top-[2px] w-5 h-5 rounded-full bg-on-surface shadow-sm transition-transform duration-300 peer-checked:translate-x-6"></div>
+</div>
+</label>
+</div>
+</section>
+<!-- Settings Group: Support & Account -->
+<section class="flex flex-col gap-stack-sm">
+<h2 class="font-label-md text-label-md text-primary uppercase tracking-widest pl-1">Support &amp; Account</h2>
+<div class="bg-surface-container-low rounded-xl ring-1 ring-white/10 px-margin-mobile flex flex-col shadow-lg shadow-black/20">
+<!-- Toggle Item 5 -->
+<label class="flex justify-between items-center py-stack-md min-h-[64px] border-b border-outline-variant last:border-0 cursor-pointer group">
+<div class="flex flex-col gap-1 pr-stack-md">
+<span class="font-body-lg text-body-lg text-on-surface group-hover:text-primary transition-colors">Support Ticket Replies</span>
+<span class="font-body-md text-body-md text-on-surface-variant">Real-time updates on your active help requests</span>
+</div>
+<div class="relative w-12 h-6 flex-shrink-0">
+<input class="sr-only peer" type="checkbox"/>
+<div class="absolute inset-0 rounded-full bg-surface-variant ring-1 ring-inset ring-white/10 transition-colors duration-300 peer-checked:bg-primary-container"></div>
+<div class="absolute left-[2px] top-[2px] w-5 h-5 rounded-full bg-on-surface shadow-sm transition-transform duration-300 peer-checked:translate-x-6"></div>
+</div>
+</label>
+<!-- Toggle Item 6 (Mandatory Security - Locked Active State) -->
+<div class="flex justify-between items-center py-stack-md min-h-[64px] border-b border-outline-variant last:border-0 opacity-50 pointer-events-none group">
+<div class="flex flex-col gap-1 pr-stack-md">
+<span class="font-body-lg text-body-lg text-on-surface flex items-center gap-2">
+                            Account Security Alerts
+                            <span class="material-symbols-outlined text-[16px] text-on-surface-variant" data-icon="lock" style="font-variation-settings: 'FILL' 1;">lock</span>
+</span>
+<span class="font-body-md text-body-md text-on-surface-variant">Login attempts and critical account changes (Required)</span>
+</div>
+<div class="relative w-12 h-6 flex-shrink-0">
+<input checked="" class="sr-only peer" disabled="" type="checkbox"/>
+<div class="absolute inset-0 rounded-full bg-primary-container/50 ring-1 ring-inset ring-white/10 transition-colors duration-300 peer-checked:bg-primary-container/60"></div>
+<div class="absolute left-[2px] top-[2px] w-5 h-5 rounded-full bg-on-surface/80 shadow-sm transition-transform duration-300 translate-x-6"></div>
+</div>
+</div>
+</div>
+</section>
+<!-- Settings Group: Promotions -->
+<section class="flex flex-col gap-stack-sm">
+<h2 class="font-label-md text-label-md text-primary uppercase tracking-widest pl-1">Promotions</h2>
+<div class="bg-surface-container-low rounded-xl ring-1 ring-white/10 px-margin-mobile flex flex-col shadow-lg shadow-black/20">
+<!-- Toggle Item 7 -->
+<label class="flex justify-between items-center py-stack-md min-h-[64px] border-b border-outline-variant last:border-0 cursor-pointer group">
+<div class="flex flex-col gap-1 pr-stack-md">
+<span class="font-body-lg text-body-lg text-on-surface group-hover:text-primary transition-colors">New Offers &amp; Bonuses</span>
+<span class="font-body-md text-body-md text-on-surface-variant">Notifications for surge areas and streak bonuses</span>
+</div>
+<div class="relative w-12 h-6 flex-shrink-0">
+<input class="sr-only peer" type="checkbox"/>
+<div class="absolute inset-0 rounded-full bg-surface-variant ring-1 ring-inset ring-white/10 transition-colors duration-300 peer-checked:bg-primary-container"></div>
+<div class="absolute left-[2px] top-[2px] w-5 h-5 rounded-full bg-on-surface shadow-sm transition-transform duration-300 peer-checked:translate-x-6"></div>
+</div>
+</label>
+</div>
+</section>
+<!-- Settings Group: System Notifications -->
+<section class="flex flex-col gap-stack-sm pb-stack-lg">
+<h2 class="font-label-md text-label-md text-primary uppercase tracking-widest pl-1">System Notifications</h2>
+<div class="bg-surface-container-low rounded-xl ring-1 ring-white/10 px-margin-mobile flex flex-col shadow-lg shadow-black/20">
+<!-- Toggle Item 8 -->
+<label class="flex justify-between items-center py-stack-md min-h-[64px] border-b border-outline-variant last:border-0 cursor-pointer group">
+<div class="flex flex-col gap-1 pr-stack-md">
+<span class="font-body-lg text-body-lg text-on-surface group-hover:text-primary transition-colors">App Updates</span>
+<span class="font-body-md text-body-md text-on-surface-variant">Important updates about new app versions</span>
+</div>
+<div class="relative w-12 h-6 flex-shrink-0">
+<input checked="" class="sr-only peer" type="checkbox"/>
+<div class="absolute inset-0 rounded-full bg-surface-variant ring-1 ring-inset ring-white/10 transition-colors duration-300 peer-checked:bg-primary-container"></div>
+<div class="absolute left-[2px] top-[2px] w-5 h-5 rounded-full bg-on-surface shadow-sm transition-transform duration-300 peer-checked:translate-x-6"></div>
+</div>
+</label>
+</div>
+</section>
+</main>
+<!-- BottomNavBar is suppressed based on the Task-Focused rule (page has a 'Back' action, indicating a temporary departure from main nav flow). -->
+</body></html>

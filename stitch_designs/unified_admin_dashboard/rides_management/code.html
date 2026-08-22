@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>NABIN - Ride Management</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=Hanken+Grotesk:wght@600;700&amp;family=Inter:wght@400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .icon-fill {
+            font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        /* Hide scrollbar for cleaner look in sidebars/drawers */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+        
+        /* Drawer transition */
+        #details-drawer {
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .drawer-open {
+            transform: translateX(0);
+        }
+        .drawer-closed {
+            transform: translateX(100%);
+        }
+    </style>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "tertiary-container": "#0079ad",
+                        "secondary-fixed-dim": "#b7c8e1",
+                        "primary-container": "#4169e1",
+                        "inverse-on-surface": "#eff1f3",
+                        "surface-dim": "#d8dadc",
+                        "inverse-primary": "#b6c4ff",
+                        "surface": "#f7f9fb",
+                        "on-primary": "#ffffff",
+                        "surface-container": "#eceef0",
+                        "tertiary-fixed-dim": "#89ceff",
+                        "secondary-container": "#d0e1fb",
+                        "surface-container-lowest": "#ffffff",
+                        "on-error-container": "#93000a",
+                        "outline-variant": "#c4c5d6",
+                        "primary": "#214fc7",
+                        "error": "#ba1a1a",
+                        "on-secondary-fixed": "#0b1c30",
+                        "on-secondary": "#ffffff",
+                        "on-primary-fixed": "#00164e",
+                        "background": "#f7f9fb",
+                        "surface-tint": "#2854cc",
+                        "surface-bright": "#f7f9fb",
+                        "on-error": "#ffffff",
+                        "secondary-fixed": "#d3e4fe",
+                        "tertiary": "#005f89",
+                        "surface-container-low": "#f2f4f6",
+                        "on-surface-variant": "#434654",
+                        "secondary": "#505f76",
+                        "surface-variant": "#e0e3e5",
+                        "tertiary-fixed": "#c9e6ff",
+                        "on-secondary-fixed-variant": "#38485d",
+                        "on-tertiary-fixed": "#001e2f",
+                        "on-tertiary": "#ffffff",
+                        "outline": "#747685",
+                        "primary-fixed-dim": "#b6c4ff",
+                        "inverse-surface": "#2d3133",
+                        "primary-fixed": "#dce1ff",
+                        "on-secondary-container": "#54647a",
+                        "on-primary-container": "#f8f7ff",
+                        "error-container": "#ffdad6",
+                        "on-background": "#191c1e",
+                        "on-tertiary-container": "#f3f8ff",
+                        "surface-container-high": "#e6e8ea",
+                        "on-surface": "#191c1e",
+                        "on-primary-fixed-variant": "#003baf",
+                        "surface-container-highest": "#e0e3e5",
+                        "on-tertiary-fixed-variant": "#004c6e"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "gutter": "1.5rem",
+                        "margin-mobile": "1rem",
+                        "stack-sm": "0.5rem",
+                        "stack-xs": "0.25rem",
+                        "margin-desktop": "2rem",
+                        "stack-md": "1rem",
+                        "container-max": "1440px",
+                        "stack-lg": "2rem"
+                    },
+                    "fontFamily": {
+                        "headline-md": ["Hanken Grotesk"],
+                        "headline-sm": ["Hanken Grotesk"],
+                        "mono-sm": ["Geist"],
+                        "body-lg": ["Inter"],
+                        "body-sm": ["Inter"],
+                        "body-md": ["Inter"],
+                        "label-md": ["Geist"],
+                        "display-lg": ["Hanken Grotesk"]
+                    },
+                    "fontSize": {
+                        "headline-md": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+                        "headline-sm": ["20px", { "lineHeight": "28px", "fontWeight": "600" }],
+                        "mono-sm": ["12px", { "lineHeight": "16px", "fontWeight": "400" }],
+                        "body-lg": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "body-sm": ["12px", { "lineHeight": "16px", "fontWeight": "400" }],
+                        "body-md": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "label-md": ["13px", { "lineHeight": "18px", "letterSpacing": "0.05em", "fontWeight": "500" }],
+                        "display-lg": ["36px", { "lineHeight": "44px", "letterSpacing": "-0.02em", "fontWeight": "700" }]
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-background text-on-background font-body-md text-body-md antialiased overflow-hidden flex h-screen">
+<!-- JSON Component: SideNavBar -->
+<nav class="fixed left-0 top-0 h-full flex flex-col h-screen w-[280px] shrink-0 border-r border-outline-variant bg-surface z-50 transition-all duration-200 ease-in-out hidden md:flex">
+<!-- Header -->
+<div class="p-6 flex items-center gap-4">
+<div class="w-10 h-10 rounded-lg bg-primary-container text-on-primary-container flex items-center justify-center font-headline-sm text-headline-sm shrink-0">
+                N
+            </div>
+<div>
+<h1 class="text-headline-md font-headline-md font-bold text-primary">NABIN Admin</h1>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Logistics Control</p>
+</div>
+</div>
+<!-- Navigation Links -->
+<div class="flex-1 px-4 py-2 space-y-1 overflow-y-auto no-scrollbar">
+<!-- Inactive -->
+<a class="flex items-center gap-3 px-4 py-3 text-secondary hover:bg-surface-container-high transition-colors rounded-lg" href="#">
+<span class="material-symbols-outlined">dashboard</span>
+<span class="font-label-md text-label-md">Dashboard</span>
+</a>
+<!-- Active (Operations selected based on Ride Management context) -->
+<a class="flex items-center gap-3 px-4 py-3 bg-secondary-container text-on-secondary-container rounded-lg font-bold" href="#">
+<span class="material-symbols-outlined icon-fill">local_shipping</span>
+<span class="font-label-md text-label-md">Operations</span>
+</a>
+<!-- Inactive -->
+<a class="flex items-center gap-3 px-4 py-3 text-secondary hover:bg-surface-container-high transition-colors rounded-lg" href="#">
+<span class="material-symbols-outlined">groups</span>
+<span class="font-label-md text-label-md">People</span>
+</a>
+<!-- Inactive -->
+<a class="flex items-center gap-3 px-4 py-3 text-secondary hover:bg-surface-container-high transition-colors rounded-lg" href="#">
+<span class="material-symbols-outlined">hub</span>
+<span class="font-label-md text-label-md">Platform</span>
+</a>
+<!-- Inactive -->
+<a class="flex items-center gap-3 px-4 py-3 text-secondary hover:bg-surface-container-high transition-colors rounded-lg" href="#">
+<span class="material-symbols-outlined">payments</span>
+<span class="font-label-md text-label-md">Finance</span>
+</a>
+<!-- Inactive -->
+<a class="flex items-center gap-3 px-4 py-3 text-secondary hover:bg-surface-container-high transition-colors rounded-lg" href="#">
+<span class="material-symbols-outlined">support_agent</span>
+<span class="font-label-md text-label-md">Support</span>
+</a>
+<!-- Inactive -->
+<a class="flex items-center gap-3 px-4 py-3 text-secondary hover:bg-surface-container-high transition-colors rounded-lg" href="#">
+<span class="material-symbols-outlined">analytics</span>
+<span class="font-label-md text-label-md">Analytics</span>
+</a>
+<!-- Inactive -->
+<a class="flex items-center gap-3 px-4 py-3 text-secondary hover:bg-surface-container-high transition-colors rounded-lg" href="#">
+<span class="material-symbols-outlined">settings</span>
+<span class="font-label-md text-label-md">System</span>
+</a>
+</div>
+</nav>
+<!-- Main Content Wrapper -->
+<div class="flex-1 flex flex-col min-w-0 md:ml-[280px]">
+<!-- JSON Component: TopNavBar -->
+<header class="sticky top-0 z-40 flex items-center justify-between px-margin-desktop bg-surface-container-lowest w-full h-16 border-b border-outline-variant shrink-0">
+<!-- Search Bar (on_left) -->
+<div class="flex-1 max-w-md focus-within:ring-2 focus-within:ring-primary rounded-lg transition-all">
+<div class="relative flex items-center w-full h-10 rounded-lg bg-surface border border-outline-variant overflow-hidden">
+<div class="grid place-items-center h-full w-12 text-on-surface-variant">
+<span class="material-symbols-outlined text-[20px]">search</span>
+</div>
+<input class="peer h-full w-full outline-none text-body-md font-body-md text-on-surface bg-transparent pr-2" id="search" placeholder="Search ride ID, driver, or customer..." type="text"/>
+</div>
+</div>
+<!-- Trailing Actions -->
+<div class="flex items-center gap-2 ml-4">
+<button class="text-on-surface-variant hover:bg-surface-container rounded-full p-2 transition-all grid place-items-center">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+<button class="text-on-surface-variant hover:bg-surface-container rounded-full p-2 transition-all grid place-items-center">
+<span class="material-symbols-outlined">help</span>
+</button>
+<button class="text-on-surface-variant hover:bg-surface-container rounded-full p-2 transition-all grid place-items-center">
+<span class="material-symbols-outlined">apps</span>
+</button>
+<div class="ml-2 w-8 h-8 rounded-full bg-secondary-container overflow-hidden border border-outline-variant cursor-pointer">
+<img alt="Admin User Profile" class="w-full h-full object-cover" data-alt="A professional headshot of a corporate logistics administrator in a modern office setting. Bright, natural lighting, sharp focus on the face, minimalist background. Corporate style, realistic, 8k resolution." src="https://lh3.googleusercontent.com/aida-public/AB6AXuABxg72-tACThE_amyEBCJQKATiEGwi1yW0UtktzxeBFfa6J17GAOkrPpesTYNXfQsUL1jHDymdV4U2HINWG-QrXTkJgOo6UpmIk-g-70nNyVUa9DJ3pYDSrWf7H4B5swDwQ017u84Dcbsp1S2WHU2Sr-xFa2sFvnfSbm37aMXkJ2YPgO7zTMutnusYtPUNvfDj1QZe9rjUFe-kERigrDJVFsWj5_cTjeinPibqX3G6iznMGKFZmousjA"/>
+</div>
+</div>
+</header>
+<!-- Page Canvas -->
+<main class="flex-1 overflow-y-auto p-gutter relative bg-background">
+<div class="max-w-container-max mx-auto space-y-stack-lg">
+<!-- Page Header -->
+<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+<div>
+<h2 class="text-headline-md font-headline-md text-on-surface">Ride Management</h2>
+<p class="text-body-sm font-body-sm text-on-surface-variant mt-1">Monitor and manage all active and historical fleet deployments.</p>
+</div>
+<div class="flex gap-3">
+<button class="px-4 py-2 border border-outline-variant bg-surface-container-lowest text-on-surface rounded-lg font-label-md text-label-md hover:bg-surface-container transition-colors flex items-center gap-2">
+<span class="material-symbols-outlined text-[18px]">download</span>
+                            Export CSV
+                        </button>
+<button class="px-4 py-2 bg-primary text-on-primary rounded-lg font-label-md text-label-md hover:bg-surface-tint transition-colors shadow-sm">
+                            New Dispatch
+                        </button>
+</div>
+</div>
+<!-- Bento Grid Summary Widgets -->
+<div class="grid grid-cols-1 md:grid-cols-4 gap-gutter">
+<!-- Widget 1 -->
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-4 flex flex-col justify-between h-28">
+<span class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Active Rides</span>
+<div class="flex items-end justify-between">
+<span class="font-display-lg text-display-lg text-on-surface">1,248</span>
+<span class="text-body-sm font-body-sm text-tertiary flex items-center gap-1 bg-tertiary-container/20 px-2 py-0.5 rounded text-[11px] font-medium">
+<span class="material-symbols-outlined text-[14px]">trending_up</span> 12%
+                            </span>
+</div>
+</div>
+<!-- Widget 2 -->
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-4 flex flex-col justify-between h-28">
+<span class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Avg Wait Time</span>
+<div class="flex items-end justify-between">
+<span class="font-display-lg text-display-lg text-on-surface">4.2<span class="text-headline-sm font-headline-sm text-on-surface-variant ml-1">min</span></span>
+<span class="text-body-sm font-body-sm text-error flex items-center gap-1 bg-error-container/20 px-2 py-0.5 rounded text-[11px] font-medium">
+<span class="material-symbols-outlined text-[14px]">trending_down</span> 0.5m
+                            </span>
+</div>
+</div>
+<!-- Widget 3 -->
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-4 flex flex-col justify-between h-28">
+<span class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Completion Rate</span>
+<div class="flex items-end justify-between">
+<span class="font-display-lg text-display-lg text-on-surface">94.8%</span>
+<div class="w-16 h-8 flex items-center">
+<!-- Simulated sparkline -->
+<svg height="100%" preserveaspectratio="none" viewbox="0 0 100 30" width="100%">
+<path d="M0,25 L20,20 L40,28 L60,15 L80,18 L100,5" fill="none" stroke="#214fc7" stroke-width="2" vector-effect="non-scaling-stroke"></path>
+</svg>
+</div>
+</div>
+</div>
+<!-- Widget 4 -->
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-4 flex flex-col justify-between h-28">
+<span class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Est. Revenue</span>
+<div class="flex items-end justify-between">
+<span class="font-display-lg text-display-lg text-on-surface"><span class="text-headline-sm font-headline-sm text-on-surface-variant mr-1">$</span>42.5k</span>
+<span class="text-body-sm font-body-sm text-tertiary flex items-center gap-1 bg-tertiary-container/20 px-2 py-0.5 rounded text-[11px] font-medium">
+<span class="material-symbols-outlined text-[14px]">trending_up</span> 8%
+                            </span>
+</div>
+</div>
+</div>
+<!-- Filters & Table Area -->
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl overflow-hidden flex flex-col">
+<!-- Filter Bar -->
+<div class="p-4 border-b border-outline-variant bg-surface-container-low/50 flex flex-wrap gap-4 items-center justify-between">
+<div class="flex flex-wrap gap-3">
+<!-- Status Filter -->
+<div class="relative">
+<select class="appearance-none bg-surface border border-outline-variant text-on-surface text-body-sm font-body-sm rounded-lg pl-3 pr-8 py-2 focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary">
+<option>All Statuses</option>
+<option>Searching</option>
+<option>Accepted</option>
+<option>Started</option>
+<option>Completed</option>
+<option>Cancelled</option>
+</select>
+<span class="material-symbols-outlined absolute right-2 top-1/2 -translate-y-1/2 text-[18px] text-on-surface-variant pointer-events-none">expand_more</span>
+</div>
+<!-- Vehicle Type Filter -->
+<div class="relative">
+<select class="appearance-none bg-surface border border-outline-variant text-on-surface text-body-sm font-body-sm rounded-lg pl-3 pr-8 py-2 focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary">
+<option>All Vehicles</option>
+<option>Bike</option>
+<option>Auto</option>
+<option>Car</option>
+</select>
+<span class="material-symbols-outlined absolute right-2 top-1/2 -translate-y-1/2 text-[18px] text-on-surface-variant pointer-events-none">expand_more</span>
+</div>
+<!-- Zone Filter -->
+<div class="relative">
+<select class="appearance-none bg-surface border border-outline-variant text-on-surface text-body-sm font-body-sm rounded-lg pl-3 pr-8 py-2 focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary">
+<option>All Zones</option>
+<option>North District</option>
+<option>Central Hub</option>
+<option>South Sector</option>
+</select>
+<span class="material-symbols-outlined absolute right-2 top-1/2 -translate-y-1/2 text-[18px] text-on-surface-variant pointer-events-none">expand_more</span>
+</div>
+</div>
+<!-- Date Range (Simulated) -->
+<div class="flex items-center gap-2 bg-surface border border-outline-variant rounded-lg px-3 py-2">
+<span class="material-symbols-outlined text-[16px] text-on-surface-variant">calendar_today</span>
+<span class="text-body-sm font-body-sm text-on-surface">Oct 24 - Oct 31, 2023</span>
+</div>
+</div>
+<!-- Data Table -->
+<div class="overflow-x-auto">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="bg-surface-container-low text-label-md font-label-md text-on-surface-variant uppercase border-b border-outline-variant">
+<th class="px-6 py-4 font-medium tracking-wider">Ride ID</th>
+<th class="px-6 py-4 font-medium tracking-wider">Customer</th>
+<th class="px-6 py-4 font-medium tracking-wider">Driver / Vehicle</th>
+<th class="px-6 py-4 font-medium tracking-wider">Fare</th>
+<th class="px-6 py-4 font-medium tracking-wider">Status</th>
+<th class="px-6 py-4 font-medium tracking-wider">Timestamp</th>
+<th class="px-6 py-4 font-medium tracking-wider text-right">Actions</th>
+</tr>
+</thead>
+<tbody class="text-body-md font-body-md text-on-surface divide-y divide-surface-container-high">
+<!-- Row 1 -->
+<tr class="hover:bg-surface-container-low transition-colors group cursor-pointer" onclick="toggleDrawer()">
+<td class="px-6 py-4 font-mono-sm text-mono-sm text-on-surface-variant">#RD-8842</td>
+<td class="px-6 py-4">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-full bg-secondary-container flex items-center justify-center text-on-secondary-container font-label-md">SJ</div>
+<span class="font-medium">Sarah Jenkins</span>
+</div>
+</td>
+<td class="px-6 py-4">
+<div class="flex flex-col">
+<span class="font-medium">Mike R.</span>
+<span class="text-body-sm text-on-surface-variant flex items-center gap-1 mt-0.5">
+<span class="material-symbols-outlined text-[14px]">directions_car</span> Toyota Prius • XL-442
+                                            </span>
+</div>
+</td>
+<td class="px-6 py-4 font-medium">$24.50</td>
+<td class="px-6 py-4">
+<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-label-md font-label-md bg-secondary-container text-primary">
+                                            Completed
+                                        </span>
+</td>
+<td class="px-6 py-4 text-on-surface-variant text-body-sm">10:42 AM, Today</td>
+<td class="px-6 py-4 text-right">
+<button class="text-on-surface-variant hover:text-primary transition-colors p-1 rounded hover:bg-surface-container">
+<span class="material-symbols-outlined text-[20px]">chevron_right</span>
+</button>
+</td>
+</tr>
+<!-- Row 2 -->
+<tr class="hover:bg-surface-container-low transition-colors group cursor-pointer" onclick="toggleDrawer()">
+<td class="px-6 py-4 font-mono-sm text-mono-sm text-on-surface-variant">#RD-8843</td>
+<td class="px-6 py-4">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-full bg-surface-variant flex items-center justify-center text-on-surface-variant font-label-md">DP</div>
+<span class="font-medium">David Park</span>
+</div>
+</td>
+<td class="px-6 py-4">
+<div class="flex flex-col">
+<span class="font-medium">Aisha T.</span>
+<span class="text-body-sm text-on-surface-variant flex items-center gap-1 mt-0.5">
+<span class="material-symbols-outlined text-[14px]">two_wheeler</span> Honda Activa • BK-911
+                                            </span>
+</div>
+</td>
+<td class="px-6 py-4 font-medium">$8.20</td>
+<td class="px-6 py-4">
+<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-label-md font-label-md bg-tertiary-container text-on-tertiary-container">
+                                            Started
+                                        </span>
+</td>
+<td class="px-6 py-4 text-on-surface-variant text-body-sm">11:15 AM, Today</td>
+<td class="px-6 py-4 text-right">
+<button class="text-on-surface-variant hover:text-primary transition-colors p-1 rounded hover:bg-surface-container">
+<span class="material-symbols-outlined text-[20px]">chevron_right</span>
+</button>
+</td>
+</tr>
+<!-- Row 3 -->
+<tr class="hover:bg-surface-container-low transition-colors group cursor-pointer" onclick="toggleDrawer()">
+<td class="px-6 py-4 font-mono-sm text-mono-sm text-on-surface-variant">#RD-8844</td>
+<td class="px-6 py-4">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-full bg-surface-variant flex items-center justify-center text-on-surface-variant font-label-md">EL</div>
+<span class="font-medium">Emma Lewis</span>
+</div>
+</td>
+<td class="px-6 py-4">
+<div class="flex flex-col">
+<span class="font-medium text-on-surface-variant">Pending Assignment</span>
+<span class="text-body-sm text-on-surface-variant flex items-center gap-1 mt-0.5">
+<span class="material-symbols-outlined text-[14px]">local_taxi</span> Auto Rickshaw
+                                            </span>
+</div>
+</td>
+<td class="px-6 py-4 font-medium text-on-surface-variant">Est. $12.00</td>
+<td class="px-6 py-4">
+<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-label-md font-label-md bg-surface-variant text-on-surface-variant">
+                                            Searching
+                                        </span>
+</td>
+<td class="px-6 py-4 text-on-surface-variant text-body-sm">11:30 AM, Today</td>
+<td class="px-6 py-4 text-right">
+<button class="text-on-surface-variant hover:text-primary transition-colors p-1 rounded hover:bg-surface-container">
+<span class="material-symbols-outlined text-[20px]">chevron_right</span>
+</button>
+</td>
+</tr>
+<!-- Row 4 -->
+<tr class="hover:bg-surface-container-low transition-colors group cursor-pointer" onclick="toggleDrawer()">
+<td class="px-6 py-4 font-mono-sm text-mono-sm text-on-surface-variant">#RD-8845</td>
+<td class="px-6 py-4">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-full bg-surface-variant flex items-center justify-center text-on-surface-variant font-label-md">RC</div>
+<span class="font-medium">Robert Chen</span>
+</div>
+</td>
+<td class="px-6 py-4">
+<div class="flex flex-col">
+<span class="font-medium text-on-surface-variant">John D.</span>
+<span class="text-body-sm text-on-surface-variant flex items-center gap-1 mt-0.5">
+<span class="material-symbols-outlined text-[14px]">directions_car</span> Hyundai Sedan • CR-122
+                                            </span>
+</div>
+</td>
+<td class="px-6 py-4 font-medium text-on-surface-variant">$0.00</td>
+<td class="px-6 py-4">
+<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-label-md font-label-md bg-error-container/50 text-error">
+                                            Cancelled
+                                        </span>
+</td>
+<td class="px-6 py-4 text-on-surface-variant text-body-sm">10:05 AM, Today</td>
+<td class="px-6 py-4 text-right">
+<button class="text-on-surface-variant hover:text-primary transition-colors p-1 rounded hover:bg-surface-container">
+<span class="material-symbols-outlined text-[20px]">chevron_right</span>
+</button>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<!-- Pagination -->
+<div class="p-4 border-t border-outline-variant flex items-center justify-between text-body-sm font-body-sm text-on-surface-variant">
+<span>Showing 1 to 10 of 1,248 entries</span>
+<div class="flex gap-1">
+<button class="px-3 py-1 border border-outline-variant rounded hover:bg-surface-container-low disabled:opacity-50" disabled="">Prev</button>
+<button class="px-3 py-1 bg-primary text-on-primary rounded">1</button>
+<button class="px-3 py-1 border border-outline-variant rounded hover:bg-surface-container-low">2</button>
+<button class="px-3 py-1 border border-outline-variant rounded hover:bg-surface-container-low">3</button>
+<span class="px-2 py-1">...</span>
+<button class="px-3 py-1 border border-outline-variant rounded hover:bg-surface-container-low">Next</button>
+</div>
+</div>
+</div>
+</div>
+</main>
+</div>
+<!-- Ride Details Drawer (Slide-over) -->
+<div class="fixed inset-y-0 right-0 w-[400px] bg-surface-container-lowest border-l border-outline-variant shadow-2xl z-50 drawer-closed flex flex-col" id="details-drawer">
+<!-- Drawer Header -->
+<div class="p-6 border-b border-outline-variant flex items-center justify-between shrink-0 bg-surface">
+<div>
+<h3 class="text-headline-sm font-headline-sm text-on-surface">Ride Details</h3>
+<p class="text-body-sm font-mono-sm text-on-surface-variant mt-1">#RD-8842</p>
+</div>
+<button class="p-2 rounded-full hover:bg-surface-container-high text-on-surface-variant transition-colors grid place-items-center" onclick="toggleDrawer()">
+<span class="material-symbols-outlined">close</span>
+</button>
+</div>
+<!-- Drawer Content -->
+<div class="flex-1 overflow-y-auto p-6 space-y-6 bg-surface-bright">
+<!-- Map Placeholder -->
+<div class="w-full h-48 bg-surface-container rounded-xl border border-outline-variant overflow-hidden relative" data-location="San Francisco" style="">
+<div class="w-full h-full bg-cover bg-center opacity-80" data-alt="A clean, minimalist vector map view of a city grid. The map uses a very light silver and white color palette, typical of modern corporate dashboards. A bright blue route line connects a green start marker to a red destination marker. High contrast, clean lines, UI design element." style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuB_74z79ygX2qmi33mEQj5pqrFGVVBssJqgc9nkI1X8yHq9rbvjEDJa0QljRGWnfKAe4FZx0I00kU_psrpNIDWBW3kPsCGQoF2t5tvNPyKRAshnLlGqcys3et3UHGixW4RPMmjONQ7Izl4XOfzGmBPDUAbgDQikEkvV-MtW5-aE2p4lkg1xWsYjno30n4jREPs9o5X89Xre-nnGvONrbFwlHoH_tcCeug9MC2IbMD2qV0NlkBt-qe6gDQ')"></div>
+<!-- Overlay Status -->
+<div class="absolute top-3 right-3 bg-surface-container-lowest/90 backdrop-blur border border-outline-variant px-3 py-1 rounded-full text-label-md font-label-md text-primary shadow-sm flex items-center gap-1">
+<div class="w-2 h-2 rounded-full bg-primary animate-pulse"></div> Completed
+                </div>
+</div>
+<!-- Ride Timeline Step Component -->
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-5">
+<h4 class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-4">Timeline</h4>
+<div class="space-y-4 relative before:absolute before:inset-0 before:ml-2.5 before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-outline-variant before:to-transparent">
+<!-- Step 1 -->
+<div class="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group is-active">
+<div class="flex items-center justify-center w-5 h-5 rounded-full border-2 border-primary bg-surface-container-lowest text-primary shadow shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2 z-10"></div>
+<div class="w-[calc(100%-2.5rem)] md:w-[calc(50%-1.25rem)] p-2">
+<div class="flex items-center justify-between mb-1">
+<span class="font-body-sm font-medium text-on-surface">Ride Requested</span>
+<span class="font-mono-sm text-body-sm text-on-surface-variant">10:15 AM</span>
+</div>
+</div>
+</div>
+<!-- Step 2 -->
+<div class="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group is-active">
+<div class="flex items-center justify-center w-5 h-5 rounded-full border-2 border-primary bg-primary text-on-primary shadow shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2 z-10"></div>
+<div class="w-[calc(100%-2.5rem)] md:w-[calc(50%-1.25rem)] p-2">
+<div class="flex items-center justify-between mb-1">
+<span class="font-body-sm font-medium text-on-surface">Driver Assigned</span>
+<span class="font-mono-sm text-body-sm text-on-surface-variant">10:17 AM</span>
+</div>
+<p class="text-[11px] text-on-surface-variant">Mike R. is on the way</p>
+</div>
+</div>
+<!-- Step 3 -->
+<div class="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group is-active">
+<div class="flex items-center justify-center w-5 h-5 rounded-full border-2 border-primary bg-primary text-on-primary shadow shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2 z-10"></div>
+<div class="w-[calc(100%-2.5rem)] md:w-[calc(50%-1.25rem)] p-2">
+<div class="flex items-center justify-between mb-1">
+<span class="font-body-sm font-medium text-on-surface">Ride Started</span>
+<span class="font-mono-sm text-body-sm text-on-surface-variant">10:22 AM</span>
+</div>
+</div>
+</div>
+<!-- Step 4 -->
+<div class="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group">
+<div class="flex items-center justify-center w-5 h-5 rounded-full border-2 border-outline-variant bg-surface-container-lowest shadow shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2 z-10"></div>
+<div class="w-[calc(100%-2.5rem)] md:w-[calc(50%-1.25rem)] p-2 opacity-50">
+<div class="flex items-center justify-between mb-1">
+<span class="font-body-sm font-medium text-on-surface">Ride Completed</span>
+<span class="font-mono-sm text-body-sm text-on-surface-variant">--:--</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Entities Grid -->
+<div class="grid grid-cols-2 gap-4">
+<!-- Driver Info -->
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-4 flex flex-col gap-2">
+<span class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Driver</span>
+<div class="flex items-center gap-3 mt-1">
+<div class="w-10 h-10 rounded bg-secondary-container flex items-center justify-center text-on-secondary-container">MR</div>
+<div>
+<p class="font-medium text-body-sm">Mike R.</p>
+<p class="text-[11px] text-on-surface-variant">4.9 ★ (120 rides)</p>
+</div>
+</div>
+</div>
+<!-- Vehicle Info -->
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-4 flex flex-col gap-2">
+<span class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Vehicle</span>
+<div class="flex items-center gap-3 mt-1">
+<div class="w-10 h-10 rounded bg-surface-container flex items-center justify-center text-on-surface-variant">
+<span class="material-symbols-outlined">directions_car</span>
+</div>
+<div>
+<p class="font-medium text-body-sm">Toyota Prius</p>
+<p class="text-[11px] text-on-surface-variant">XL-442 • Car</p>
+</div>
+</div>
+</div>
+</div>
+<!-- Fare Breakdown -->
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-5">
+<h4 class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-4">Fare Breakdown</h4>
+<div class="space-y-3 text-body-sm font-body-sm">
+<div class="flex justify-between text-on-surface-variant">
+<span>Base Fare</span>
+<span>$15.00</span>
+</div>
+<div class="flex justify-between text-on-surface-variant">
+<span>Distance (5.2 mi)</span>
+<span>$7.80</span>
+</div>
+<div class="flex justify-between text-on-surface-variant">
+<span>Time (18 min)</span>
+<span>$1.20</span>
+</div>
+<div class="flex justify-between text-on-surface-variant">
+<span>Surge Multiplier (1.1x)</span>
+<span>$0.50</span>
+</div>
+<hr class="border-outline-variant my-2"/>
+<div class="flex justify-between font-medium text-body-md text-on-surface">
+<span>Total Paid</span>
+<span>$24.50</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Drawer Footer -->
+<div class="p-4 border-t border-outline-variant bg-surface-container-lowest shrink-0 flex gap-3">
+<button class="flex-1 py-2 bg-surface border border-outline-variant text-on-surface rounded-lg font-label-md text-label-md hover:bg-surface-container transition-colors">
+                Contact Support
+            </button>
+<button class="flex-1 py-2 bg-primary text-on-primary rounded-lg font-label-md text-label-md hover:bg-surface-tint transition-colors">
+                Download Receipt
+            </button>
+</div>
+</div>
+<!-- Backdrop for Drawer -->
+<div class="fixed inset-0 bg-inverse-surface/20 backdrop-blur-sm z-40 hidden" id="drawer-backdrop" onclick="toggleDrawer()"></div>
+<script>
+        function toggleDrawer() {
+            const drawer = document.getElementById('details-drawer');
+            const backdrop = document.getElementById('drawer-backdrop');
+            
+            if (drawer.classList.contains('drawer-closed')) {
+                drawer.classList.remove('drawer-closed');
+                drawer.classList.add('drawer-open');
+                backdrop.classList.remove('hidden');
+            } else {
+                drawer.classList.remove('drawer-open');
+                drawer.classList.add('drawer-closed');
+                backdrop.classList.add('hidden');
+            }
+        }
+    </script>
+</body></html>

@@ -1,0 +1,403 @@
+<!DOCTYPE html><html class="dark" lang="en"><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>Weekly Breakdown - NABIN</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-error": "#690005",
+                        "tertiary": "#ffb596",
+                        "inverse-surface": "#e1e2ed",
+                        "error-container": "#93000a",
+                        "on-tertiary": "#581e00",
+                        "surface-bright": "#373942",
+                        "on-primary-container": "#eeefff",
+                        "secondary-container": "#43474d",
+                        "on-secondary": "#2d3136",
+                        "on-surface-variant": "#c3c6d7",
+                        "outline": "#8d90a0",
+                        "surface-variant": "#32343d",
+                        "primary-container": "#2563eb",
+                        "secondary-fixed-dim": "#c3c6ce",
+                        "surface-tint": "#b4c5ff",
+                        "surface-container-highest": "#32343d",
+                        "on-surface": "#e1e2ed",
+                        "on-tertiary-fixed-variant": "#7d2d00",
+                        "on-primary-fixed-variant": "#003ea8",
+                        "surface-container": "#1d1f27",
+                        "surface-container-high": "#282a32",
+                        "on-secondary-fixed": "#181c21",
+                        "on-primary": "#002a78",
+                        "outline-variant": "#434655",
+                        "on-secondary-fixed-variant": "#43474d",
+                        "error": "#ffb4ab",
+                        "surface-container-low": "#191b23",
+                        "on-error-container": "#ffdad6",
+                        "surface-dim": "#11131b",
+                        "primary-fixed-dim": "#b4c5ff",
+                        "secondary": "#c3c6ce",
+                        "secondary-fixed": "#e0e2ea",
+                        "primary": "#b4c5ff",
+                        "on-secondary-container": "#b2b5bc",
+                        "surface-container-lowest": "#0c0e16",
+                        "primary-fixed": "#dbe1ff",
+                        "inverse-primary": "#0053db",
+                        "on-tertiary-fixed": "#360f00",
+                        "inverse-on-surface": "#2e3039",
+                        "tertiary-container": "#bc4800",
+                        "on-background": "#e1e2ed",
+                        "on-primary-fixed": "#00174b",
+                        "surface": "#11131b",
+                        "on-tertiary-container": "#ffede6",
+                        "tertiary-fixed": "#ffdbcd",
+                        "background": "#11131b",
+                        "tertiary-fixed-dim": "#ffb596"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "margin-desktop": "32px",
+                        "stack-sm": "8px",
+                        "stack-md": "16px",
+                        "gutter": "16px",
+                        "stack-lg": "24px",
+                        "touch-target-min": "48px",
+                        "margin-mobile": "16px",
+                        "base": "4px"
+                    },
+                    "fontFamily": {
+                        "data-tabular": ["Inter"],
+                        "body-md": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "headline-xl": ["Inter"],
+                        "headline-lg-mobile": ["Inter"],
+                        "label-md": ["Inter"]
+                    },
+                    "fontSize": {
+                        "data-tabular": ["16px", { "lineHeight": "24px", "fontWeight": "600" }],
+                        "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "headline-lg": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+                        "body-lg": ["18px", { "lineHeight": "28px", "fontWeight": "400" }],
+                        "headline-xl": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "headline-lg-mobile": ["20px", { "lineHeight": "28px", "fontWeight": "600" }],
+                        "label-md": ["14px", { "lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "500" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body {
+            background-color: #0B0F14; /* Level 0 Base */
+            color: #e1e2ed;
+        }
+        .glass-edge {
+            box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+        }
+        /* Custom scrollbar for webkit */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #11131b;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #32343d;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #434655;
+        }
+        .bar-chart-animation {
+            animation: growUp 1s ease-out forwards;
+            transform-origin: bottom;
+            transform: scaleY(0);
+        }
+        @keyframes growUp {
+            to { transform: scaleY(1); }
+        }
+    </style>
+</head>
+<body class="antialiased min-h-screen flex flex-col font-body-md text-on-background selection:bg-primary-container selection:text-on-primary-container">
+<!-- TopAppBar -->
+<header class="fixed top-0 w-full z-50 bg-surface-container border-b border-outline-variant flex items-center px-margin-mobile h-touch-target-min w-full">
+<button aria-label="Go back" class="w-12 h-12 flex items-center justify-center rounded-full hover:bg-surface-variant transition-colors active:scale-95 duration-100 mr-2 text-primary">
+<span class="material-symbols-outlined">arrow_back</span>
+</button>
+<h1 class="font-headline-lg-mobile text-headline-lg-mobile text-primary flex-1 truncate">Weekly Breakdown</h1>
+</header>
+<!-- Main Content Canvas -->
+<main class="flex-1 pt-20 pb-28 px-margin-mobile md:px-margin-desktop w-full max-w-7xl mx-auto space-y-stack-lg">
+<!-- Summary Header & Date Range -->
+<div class="flex flex-col space-y-stack-sm md:flex-row md:justify-between md:items-end">
+<div>
+<p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-1">Current Week</p>
+<h2 class="font-headline-xl text-headline-xl text-on-surface">Oct 9 - Oct 15</h2>
+</div>
+<button class="h-touch-target-min px-4 rounded-xl bg-surface-container-high glass-edge flex items-center space-x-2 hover:bg-surface-variant transition-colors w-fit md:mb-2">
+<span class="material-symbols-outlined text-primary" style="font-variation-settings: 'FILL' 1;">calendar_today</span>
+<span class="font-label-md text-label-md text-on-surface">Change Week</span>
+</button>
+</div>
+<!-- Weekly Summary Bento Grid -->
+<div class="grid grid-cols-1 md:grid-cols-3 gap-gutter">
+<!-- Total Earnings Card -->
+<div class="bg-[#111827] rounded-xl p-4 glass-edge flex flex-col justify-between min-h-[140px] relative overflow-hidden group hover:bg-[#17202B] transition-colors">
+<div class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+<span class="material-symbols-outlined text-6xl text-primary" style="font-variation-settings: 'FILL' 1;">payments</span>
+</div>
+<div class="z-10">
+<div class="flex items-center space-x-2 mb-2">
+<span class="w-8 h-8 rounded-full bg-primary-container/20 flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-sm" style="font-variation-settings: 'FILL' 1;">account_balance_wallet</span>
+</span>
+<p class="font-label-md text-label-md text-on-surface-variant">Total Earnings</p>
+</div>
+</div>
+<div class="z-10">
+<p class="font-headline-xl text-headline-xl text-primary font-data-tabular">₹10,450</p>
+<p class="font-label-md text-label-md text-[#10B981] mt-1 flex items-center">
+<span class="material-symbols-outlined text-sm mr-1">trending_up</span> +12% vs last week
+                    </p>
+</div>
+</div>
+<!-- Total Trips Card -->
+<div class="bg-[#111827] rounded-xl p-4 glass-edge flex flex-col justify-between min-h-[140px] hover:bg-[#17202B] transition-colors">
+<div class="flex items-center space-x-2 mb-2">
+<span class="w-8 h-8 rounded-full bg-secondary-container flex items-center justify-center text-on-surface">
+<span class="material-symbols-outlined text-sm" style="font-variation-settings: 'FILL' 1;">directions_car</span>
+</span>
+<p class="font-label-md text-label-md text-on-surface-variant">Total Trips</p>
+</div>
+<div>
+<p class="font-headline-xl text-headline-xl text-on-surface font-data-tabular">42</p>
+<p class="font-label-md text-label-md text-on-surface-variant mt-1">Completed</p>
+</div>
+</div>
+<!-- Online Hours Card -->
+<div class="bg-[#111827] rounded-xl p-4 glass-edge flex flex-col justify-between min-h-[140px] hover:bg-[#17202B] transition-colors">
+<div class="flex items-center space-x-2 mb-2">
+<span class="w-8 h-8 rounded-full bg-secondary-container flex items-center justify-center text-on-surface">
+<span class="material-symbols-outlined text-sm" style="font-variation-settings: 'FILL' 1;">timer</span>
+</span>
+<p class="font-label-md text-label-md text-on-surface-variant">Online Hours</p>
+</div>
+<div>
+<div class="flex items-baseline space-x-1">
+<p class="font-headline-xl text-headline-xl text-on-surface font-data-tabular">38</p>
+<p class="font-body-md text-body-md text-on-surface-variant">h</p>
+<p class="font-headline-xl text-headline-xl text-on-surface font-data-tabular ml-2">15</p>
+<p class="font-body-md text-body-md text-on-surface-variant">m</p>
+</div>
+<div class="w-full bg-surface-variant h-1.5 rounded-full mt-3 overflow-hidden">
+<div class="bg-primary h-full rounded-full" style="width: 75%"></div>
+</div>
+</div>
+</div>
+</div>
+<!-- Weekly Chart Section -->
+<section class="bg-[#111827] rounded-xl p-margin-mobile glass-edge mt-stack-lg">
+<h3 class="font-headline-lg-mobile text-headline-lg-mobile text-on-surface mb-6">Daily Trend</h3>
+<div class="h-48 flex items-end justify-between space-x-2 mt-4 relative">
+<!-- Chart Grid Lines (Background) -->
+<div class="absolute inset-0 flex flex-col justify-between pointer-events-none opacity-20 z-0">
+<div class="w-full border-t border-outline-variant"></div>
+<div class="w-full border-t border-outline-variant"></div>
+<div class="w-full border-t border-outline-variant"></div>
+<div class="w-full border-t border-outline-variant"></div>
+</div>
+<!-- Mon -->
+<div class="flex flex-col items-center flex-1 z-10 group relative">
+<!-- Tooltip -->
+<div class="absolute -top-10 opacity-0 group-hover:opacity-100 transition-opacity bg-surface-container-high px-2 py-1 rounded text-xs text-on-surface pointer-events-none whitespace-nowrap">₹1,200</div>
+<div class="w-full max-w-[40px] bg-secondary-container rounded-t-sm bar-chart-animation group-hover:bg-primary/50 transition-colors cursor-pointer" style="height: 45%; animation-delay: 0.1s;"></div>
+<span class="mt-2 font-label-md text-label-md text-on-surface-variant text-xs">Mon</span>
+</div>
+<!-- Tue -->
+<div class="flex flex-col items-center flex-1 z-10 group relative">
+<div class="absolute -top-10 group-hover:opacity-100 transition-opacity bg-surface-container-high px-2 py-1 rounded text-xs text-on-surface pointer-events-none whitespace-nowrap opacity-100">₹1,450</div>
+<div class="w-full max-w-[40px] bg-secondary-container rounded-t-sm bar-chart-animation group-hover:bg-primary/50 transition-colors cursor-pointer shadow-[0_0_12px_rgba(37,99,235,1)]" style="height: 55%; animation-delay: 0.2s;"></div>
+<span class="mt-2 font-label-md text-label-md text-on-surface-variant text-xs tracking-wider">Tue</span>
+</div>
+<!-- Wed (Peak Day) -->
+<div class="flex flex-col items-center flex-1 z-10 group relative">
+<div class="absolute -top-10 opacity-0 group-hover:opacity-100 transition-opacity bg-primary-container px-2 py-1 rounded text-xs text-on-primary-container pointer-events-none whitespace-nowrap">₹2,800</div>
+<div class="w-full max-w-[40px] bg-primary rounded-t-sm bar-chart-animation hover:bg-primary-fixed transition-colors cursor-pointer relative" style="height: 100%; animation-delay: 0.3s;">
+<div class="absolute -top-2 left-1/2 transform -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-primary-container shadow-[0_0_8px_rgba(37,99,235,0.8)]"></div>
+</div>
+<span class="mt-2 font-label-md text-label-md text-primary font-bold text-xs">Wed</span>
+</div>
+<!-- Thu -->
+<div class="flex flex-col items-center flex-1 z-10 group relative">
+<div class="absolute -top-10 opacity-0 group-hover:opacity-100 transition-opacity bg-surface-container-high px-2 py-1 rounded text-xs text-on-surface pointer-events-none whitespace-nowrap">₹900</div>
+<div class="w-full max-w-[40px] bg-secondary-container rounded-t-sm bar-chart-animation group-hover:bg-primary/50 transition-colors cursor-pointer" style="height: 35%; animation-delay: 0.4s;"></div>
+<span class="mt-2 font-label-md text-label-md text-on-surface-variant text-xs">Thu</span>
+</div>
+<!-- Fri -->
+<div class="flex flex-col items-center flex-1 z-10 group relative">
+<div class="absolute -top-10 opacity-0 group-hover:opacity-100 transition-opacity bg-surface-container-high px-2 py-1 rounded text-xs text-on-surface pointer-events-none whitespace-nowrap">₹1,800</div>
+<div class="w-full max-w-[40px] bg-secondary-container rounded-t-sm bar-chart-animation group-hover:bg-primary/50 transition-colors cursor-pointer" style="height: 65%; animation-delay: 0.5s;"></div>
+<span class="mt-2 font-label-md text-label-md text-on-surface-variant text-xs">Fri</span>
+</div>
+<!-- Sat -->
+<div class="flex flex-col items-center flex-1 z-10 group relative">
+<div class="absolute -top-10 opacity-0 group-hover:opacity-100 transition-opacity bg-surface-container-high px-2 py-1 rounded text-xs text-on-surface pointer-events-none whitespace-nowrap">₹2,100</div>
+<div class="w-full max-w-[40px] bg-secondary-container rounded-t-sm bar-chart-animation group-hover:bg-primary/50 transition-colors cursor-pointer" style="height: 75%; animation-delay: 0.6s;"></div>
+<span class="mt-2 font-label-md text-label-md text-on-surface-variant text-xs">Sat</span>
+</div>
+<!-- Sun -->
+<div class="flex flex-col items-center flex-1 z-10 group relative">
+<div class="absolute -top-10 opacity-0 group-hover:opacity-100 transition-opacity bg-surface-container-high px-2 py-1 rounded text-xs text-on-surface pointer-events-none whitespace-nowrap">₹200</div>
+<div class="w-full max-w-[40px] bg-secondary-container rounded-t-sm bar-chart-animation group-hover:bg-primary/50 transition-colors cursor-pointer" style="height: 15%; animation-delay: 0.7s;"></div>
+<span class="mt-2 font-label-md text-label-md text-on-surface-variant text-xs">Sun</span>
+</div>
+</div>
+</section>
+<!-- Daily Performance List -->
+<section class="mt-stack-lg">
+<div class="flex items-center justify-between mb-4">
+<h3 class="font-headline-lg-mobile text-headline-lg-mobile text-on-surface">Daily Breakdown</h3>
+<button class="font-label-md text-label-md text-primary hover:text-primary-fixed transition-colors">Sort</button>
+</div>
+<div class="flex flex-col space-y-2">
+<!-- Day Card: Wed (Highlighted) -->
+<button class="w-full bg-[#17202B] border border-primary/30 rounded-xl p-4 glass-edge flex items-center justify-between min-h-[72px] hover:bg-[#1E293B] transition-all active:scale-[0.98] group relative overflow-hidden">
+<div class="absolute left-0 top-0 bottom-0 w-1 bg-primary"></div>
+<div class="flex items-center space-x-4 pl-2">
+<div class="w-12 h-12 rounded-lg bg-surface-container flex flex-col items-center justify-center">
+<span class="font-label-md text-label-md text-on-surface-variant text-[10px] uppercase">Wed</span>
+<span class="font-headline-lg-mobile text-headline-lg-mobile text-on-surface">11</span>
+</div>
+<div class="text-left">
+<p class="font-data-tabular text-data-tabular text-primary">₹2,800</p>
+<p class="font-label-md text-label-md text-on-surface-variant flex items-center mt-0.5">
+<span class="material-symbols-outlined text-[14px] mr-1">route</span> 12 trips
+                                <span class="mx-2 text-outline-variant">•</span>
+<span class="material-symbols-outlined text-[14px] mr-1">schedule</span> 8.5h
+                            </p>
+</div>
+</div>
+<span class="material-symbols-outlined text-primary group-hover:translate-x-1 transition-transform">chevron_right</span>
+</button>
+<!-- Day Card: Sat -->
+<button class="w-full bg-[#111827] rounded-xl p-4 glass-edge flex items-center justify-between min-h-[72px] hover:bg-[#17202B] transition-all active:scale-[0.98] group">
+<div class="flex items-center space-x-4">
+<div class="w-12 h-12 rounded-lg bg-surface-container flex flex-col items-center justify-center">
+<span class="font-label-md text-label-md text-on-surface-variant text-[10px] uppercase">Sat</span>
+<span class="font-headline-lg-mobile text-headline-lg-mobile text-on-surface">14</span>
+</div>
+<div class="text-left">
+<p class="font-data-tabular text-data-tabular text-on-surface">₹2,100</p>
+<p class="font-label-md text-label-md text-on-surface-variant flex items-center mt-0.5">
+<span class="material-symbols-outlined text-[14px] mr-1">route</span> 8 trips
+                            </p>
+</div>
+</div>
+<span class="material-symbols-outlined text-on-surface-variant group-hover:text-on-surface group-hover:translate-x-1 transition-all">chevron_right</span>
+</button>
+<!-- Day Card: Fri -->
+<button class="w-full bg-[#111827] rounded-xl p-4 glass-edge flex items-center justify-between min-h-[72px] hover:bg-[#17202B] transition-all active:scale-[0.98] group">
+<div class="flex items-center space-x-4">
+<div class="w-12 h-12 rounded-lg bg-surface-container flex flex-col items-center justify-center">
+<span class="font-label-md text-label-md text-on-surface-variant text-[10px] uppercase">Fri</span>
+<span class="font-headline-lg-mobile text-headline-lg-mobile text-on-surface">13</span>
+</div>
+<div class="text-left">
+<p class="font-data-tabular text-data-tabular text-on-surface">₹1,800</p>
+<p class="font-label-md text-label-md text-on-surface-variant flex items-center mt-0.5">
+<span class="material-symbols-outlined text-[14px] mr-1">route</span> 7 trips
+                            </p>
+</div>
+</div>
+<span class="material-symbols-outlined text-on-surface-variant group-hover:text-on-surface group-hover:translate-x-1 transition-all">chevron_right</span>
+</button>
+<!-- Day Card: Tue -->
+<button class="w-full bg-[#111827] rounded-xl p-4 glass-edge flex items-center justify-between min-h-[72px] hover:bg-[#17202B] transition-all active:scale-[0.98] group">
+<div class="flex items-center space-x-4">
+<div class="w-12 h-12 rounded-lg bg-surface-container flex flex-col items-center justify-center">
+<span class="font-label-md text-label-md text-on-surface-variant text-[10px] uppercase">Tue</span>
+<span class="font-headline-lg-mobile text-headline-lg-mobile text-on-surface">10</span>
+</div>
+<div class="text-left">
+<p class="font-data-tabular text-data-tabular text-on-surface">₹1,450</p>
+<p class="font-label-md text-label-md text-on-surface-variant flex items-center mt-0.5">
+<span class="material-symbols-outlined text-[14px] mr-1">route</span> 6 trips
+                            </p>
+</div>
+</div>
+<span class="material-symbols-outlined text-on-surface-variant group-hover:text-on-surface group-hover:translate-x-1 transition-all">chevron_right</span>
+</button>
+<!-- Day Card: Mon -->
+<button class="w-full bg-[#111827] rounded-xl p-4 glass-edge flex items-center justify-between min-h-[72px] hover:bg-[#17202B] transition-all active:scale-[0.98] group">
+<div class="flex items-center space-x-4">
+<div class="w-12 h-12 rounded-lg bg-surface-container flex flex-col items-center justify-center">
+<span class="font-label-md text-label-md text-on-surface-variant text-[10px] uppercase">Mon</span>
+<span class="font-headline-lg-mobile text-headline-lg-mobile text-on-surface">09</span>
+</div>
+<div class="text-left">
+<p class="font-data-tabular text-data-tabular text-on-surface">₹1,200</p>
+<p class="font-label-md text-label-md text-on-surface-variant flex items-center mt-0.5">
+<span class="material-symbols-outlined text-[14px] mr-1">route</span> 5 trips
+                            </p>
+</div>
+</div>
+<span class="material-symbols-outlined text-on-surface-variant group-hover:text-on-surface group-hover:translate-x-1 transition-all">chevron_right</span>
+</button>
+</div>
+</section>
+</main>
+<!-- BottomNavBar -->
+<nav class="fixed bottom-0 w-full z-50 bg-surface-container-high border-t border-outline-variant shadow-lg flex justify-around items-center h-16 px-margin-mobile pb-safe md:hidden">
+<button class="flex flex-col items-center justify-center text-on-surface-variant p-2 hover:text-on-surface transition-all active:scale-90 duration-200">
+<span class="material-symbols-outlined">home</span>
+<span class="font-label-md text-label-md mt-1 text-[10px]">Home</span>
+</button>
+<!-- Active State: Earnings -->
+<button class="flex flex-col items-center justify-center bg-primary-container text-on-primary-container rounded-xl p-2 hover:text-on-surface transition-all active:scale-90 duration-200 w-16">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">payments</span>
+<span class="font-label-md text-label-md mt-1 text-[10px]">Earnings</span>
+</button>
+<button class="flex flex-col items-center justify-center text-on-surface-variant p-2 hover:text-on-surface transition-all active:scale-90 duration-200">
+<span class="material-symbols-outlined">history</span>
+<span class="font-label-md text-label-md mt-1 text-[10px]">Activity</span>
+</button>
+<button class="flex flex-col items-center justify-center text-on-surface-variant p-2 hover:text-on-surface transition-all active:scale-90 duration-200">
+<span class="material-symbols-outlined">person</span>
+<span class="font-label-md text-label-md mt-1 text-[10px]">Profile</span>
+</button>
+</nav>
+<!-- Desktop Sidebar Stub (Hidden on mobile) -->
+<aside class="hidden md:flex fixed left-0 top-20 bottom-0 w-64 bg-surface-container-high border-r border-outline-variant flex-col p-4 space-y-2">
+<button class="w-full flex items-center space-x-3 text-on-surface-variant p-3 rounded-xl hover:bg-surface-variant transition-colors">
+<span class="material-symbols-outlined">home</span>
+<span class="font-label-md text-label-md">Home</span>
+</button>
+<button class="w-full flex items-center space-x-3 bg-primary-container text-on-primary-container p-3 rounded-xl hover:bg-primary-fixed transition-colors">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">payments</span>
+<span class="font-label-md text-label-md">Earnings</span>
+</button>
+<button class="w-full flex items-center space-x-3 text-on-surface-variant p-3 rounded-xl hover:bg-surface-variant transition-colors">
+<span class="material-symbols-outlined">history</span>
+<span class="font-label-md text-label-md">Activity</span>
+</button>
+<button class="w-full flex items-center space-x-3 text-on-surface-variant p-3 rounded-xl hover:bg-surface-variant transition-colors">
+<span class="material-symbols-outlined">person</span>
+<span class="font-label-md text-label-md">Profile</span>
+</button>
+</aside>
+
+
+</body></html>

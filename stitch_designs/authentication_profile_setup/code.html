@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport"/>
+<title>NABIN - Customer Onboarding</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "outline": "#737685",
+                        "background": "#faf8ff",
+                        "surface-container": "#ededf8",
+                        "secondary-fixed": "#d7e3fb",
+                        "surface-container-highest": "#e1e2ec",
+                        "primary-fixed": "#dae2ff",
+                        "on-error": "#ffffff",
+                        "primary": "#003d9b",
+                        "surface": "#faf8ff",
+                        "surface-dim": "#d9d9e4",
+                        "surface-container-high": "#e7e7f2",
+                        "on-secondary": "#ffffff",
+                        "surface-container-lowest": "#ffffff",
+                        "on-error-container": "#93000a",
+                        "on-primary-container": "#c4d2ff",
+                        "tertiary-fixed": "#ffdbcf",
+                        "on-tertiary-fixed": "#380d00",
+                        "on-secondary-container": "#576377",
+                        "tertiary-container": "#a33500",
+                        "error-container": "#ffdad6",
+                        "secondary-fixed-dim": "#bbc7de",
+                        "on-primary-fixed-variant": "#0040a2",
+                        "primary-fixed-dim": "#b2c5ff",
+                        "on-primary-fixed": "#001848",
+                        "error": "#ba1a1a",
+                        "on-background": "#191b23",
+                        "on-primary": "#ffffff",
+                        "on-tertiary-container": "#ffc6b2",
+                        "on-tertiary": "#ffffff",
+                        "inverse-primary": "#b2c5ff",
+                        "on-surface": "#191b23",
+                        "on-surface-variant": "#434654",
+                        "surface-bright": "#faf8ff",
+                        "surface-container-low": "#f3f3fd",
+                        "secondary": "#535f73",
+                        "on-tertiary-fixed-variant": "#812800",
+                        "inverse-surface": "#2e3038",
+                        "on-secondary-fixed-variant": "#3b475b",
+                        "on-secondary-fixed": "#101c2d",
+                        "surface-tint": "#0c56d0",
+                        "primary-container": "#0052cc",
+                        "outline-variant": "#c3c6d6",
+                        "tertiary-fixed-dim": "#ffb59b",
+                        "surface-variant": "#e1e2ec",
+                        "secondary-container": "#d4e0f8",
+                        "tertiary": "#7b2600",
+                        "inverse-on-surface": "#f0f0fb"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "gutter-mobile": "12px",
+                        "xs": "4px",
+                        "md": "16px",
+                        "touch-target-min": "48px",
+                        "lg": "24px",
+                        "base": "4px",
+                        "xl": "32px",
+                        "margin-mobile": "16px",
+                        "sm": "8px"
+                    },
+                    "fontFamily": {
+                        "body-lg": ["Inter"],
+                        "headline-md": ["Inter"],
+                        "label-md": ["Inter"],
+                        "headline-lg-mobile": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "button-text": ["Inter"],
+                        "body-sm": ["Inter"]
+                    },
+                    "fontSize": {
+                        "body-lg": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                        "headline-md": ["20px", {"lineHeight": "28px", "fontWeight": "600"}],
+                        "label-md": ["12px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "600"}],
+                        "headline-lg-mobile": ["24px", {"lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "700"}],
+                        "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                        "button-text": ["16px", {"lineHeight": "24px", "fontWeight": "600"}],
+                        "body-sm": ["14px", {"lineHeight": "20px", "fontWeight": "400"}]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body { -webkit-tap-highlight-color: transparent; }
+        .hide-scrollbar::-webkit-scrollbar { display: none; }
+        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        
+        /* Smooth view transitions */
+        .view-container {
+            position: relative;
+            width: 100%;
+            height: 100vh;
+            overflow: hidden;
+        }
+        .view {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            background-color: theme('colors.background');
+        }
+        .view.hidden {
+            display: none;
+        }
+        .view.slide-out-left {
+            transform: translateX(-100%);
+            opacity: 0;
+        }
+        .view.slide-out-right {
+            transform: translateX(100%);
+            opacity: 0;
+        }
+        .view.slide-in-right {
+            transform: translateX(100%);
+            opacity: 0;
+        }
+        .view.slide-in-left {
+            transform: translateX(-100%);
+            opacity: 0;
+        }
+        .view.active {
+            transform: translateX(0);
+            opacity: 1;
+            z-index: 10;
+        }
+    </style>
+</head>
+<body class="bg-background text-on-background font-body-lg antialiased overflow-hidden">
+<!-- Top App Bar (Used across linear flows as a header, but suppresses main nav features) -->
+<header class="w-full sticky top-0 z-50 bg-surface dark:bg-surface-dim flat no shadows flex justify-between items-center h-14 px-margin-mobile w-full">
+<div class="flex items-center">
+<button class="w-[48px] h-[48px] flex items-center justify-center -ml-3 text-on-surface opacity-0 pointer-events-none transition-opacity duration-200" id="back-button">
+<span class="material-symbols-outlined">arrow_back</span>
+</button>
+</div>
+<div class="font-headline-lg-mobile text-headline-lg-mobile text-primary tracking-tight">NABIN</div>
+<div class="w-[48px] h-[48px]"></div> <!-- Spacer for centering -->
+</header>
+<div class="view-container mt-4" id="app-container">
+<!-- ============================== -->
+<!-- VIEW 1: LOGIN                  -->
+<!-- ============================== -->
+<div class="view active flex flex-col px-margin-mobile pb-safe" id="view-login">
+<div class="flex-1 flex flex-col justify-center max-w-md mx-auto w-full pt-8 pb-12">
+<div class="text-center mb-8">
+<div class="w-24 h-24 mx-auto bg-surface-container rounded-full flex items-center justify-center mb-6 shadow-[0_4px_12px_0_rgba(0,0,0,0.05)]">
+<span class="material-symbols-outlined text-primary text-[48px]" style="font-variation-settings: 'FILL' 1;">directions_car</span>
+</div>
+<h1 class="font-headline-lg-mobile text-headline-lg-mobile text-on-background mb-2">Welcome to Nabin</h1>
+<p class="font-body-lg text-body-lg text-on-surface-variant">Enter your mobile number to get started.</p>
+</div>
+<div class="bg-surface rounded-xl shadow-[0_4px_12px_0_rgba(0,0,0,0.05)] p-md mb-6">
+<label class="block font-label-md text-label-md text-on-surface-variant mb-2 uppercase">Mobile Number</label>
+<div class="flex items-center bg-surface-container-lowest border border-outline-variant rounded-lg focus-within:border-primary focus-within:ring-1 focus-within:ring-primary transition-colors duration-200 overflow-hidden h-[56px]">
+<!-- Country Code Dropdown (Simulated) -->
+<div class="flex items-center px-3 border-r border-outline-variant h-full bg-surface-container-lowest cursor-pointer hover:bg-surface-container-low transition-colors">
+<span class="font-body-lg text-body-lg text-on-surface mr-1">+1</span>
+<span class="material-symbols-outlined text-on-surface-variant text-[20px]">expand_more</span>
+</div>
+<!-- Input Field -->
+<input autocomplete="tel" class="flex-1 h-full bg-transparent border-none focus:ring-0 font-body-lg text-body-lg text-on-background px-4 placeholder:text-outline" id="phone-input" placeholder="(555) 000-0000" type="tel"/>
+</div>
+</div>
+<button class="w-full h-[56px] bg-primary-container text-on-primary font-button-text text-button-text rounded-lg flex items-center justify-center shadow-[0_8px_20px_0_rgba(0,0,0,0.12)] active:scale-95 transition-transform duration-100 disabled:opacity-50 disabled:active:scale-100" disabled="" id="btn-to-otp">
+                    Continue
+                </button>
+<p class="text-center font-body-sm text-body-sm text-on-surface-variant mt-6 px-4">
+                    By continuing, you agree to our <a class="text-primary hover:underline" href="#">Terms of Service</a> and <a class="text-primary hover:underline" href="#">Privacy Policy</a>.
+                </p>
+</div>
+</div>
+<!-- ============================== -->
+<!-- VIEW 2: OTP VERIFICATION       -->
+<!-- ============================== -->
+<div class="view hidden flex flex-col px-margin-mobile pb-safe" id="view-otp">
+<div class="flex-1 flex flex-col pt-8 pb-12 max-w-md mx-auto w-full">
+<div class="mb-8">
+<h1 class="font-headline-lg-mobile text-headline-lg-mobile text-on-background mb-2">Verify it's you</h1>
+<p class="font-body-lg text-body-lg text-on-surface-variant">We've sent a 4-digit code to <span class="font-headline-md text-headline-md text-on-background" id="display-phone">+1 (555) 000-0000</span></p>
+</div>
+<div class="flex justify-between gap-3 mb-8">
+<input class="otp-input w-16 h-16 text-center font-headline-lg-mobile text-headline-lg-mobile bg-surface rounded-xl border border-outline-variant focus:border-primary focus:ring-1 focus:ring-primary shadow-[0_4px_12px_0_rgba(0,0,0,0.05)] transition-colors" maxlength="1" placeholder="•" type="number"/>
+<input class="otp-input w-16 h-16 text-center font-headline-lg-mobile text-headline-lg-mobile bg-surface rounded-xl border border-outline-variant focus:border-primary focus:ring-1 focus:ring-primary shadow-[0_4px_12px_0_rgba(0,0,0,0.05)] transition-colors" maxlength="1" placeholder="•" type="number"/>
+<input class="otp-input w-16 h-16 text-center font-headline-lg-mobile text-headline-lg-mobile bg-surface rounded-xl border border-outline-variant focus:border-primary focus:ring-1 focus:ring-primary shadow-[0_4px_12px_0_rgba(0,0,0,0.05)] transition-colors" maxlength="1" placeholder="•" type="number"/>
+<input class="otp-input w-16 h-16 text-center font-headline-lg-mobile text-headline-lg-mobile bg-surface rounded-xl border border-outline-variant focus:border-primary focus:ring-1 focus:ring-primary shadow-[0_4px_12px_0_rgba(0,0,0,0.05)] transition-colors" maxlength="1" placeholder="•" type="number"/>
+</div>
+<div class="text-center mb-8">
+<p class="font-body-sm text-body-sm text-on-surface-variant mb-2">Didn't receive the code?</p>
+<button class="font-button-text text-button-text text-primary disabled:text-outline transition-colors" disabled="" id="resend-btn">
+                        Resend Code in <span id="timer">00:30</span>
+</button>
+</div>
+<div class="mt-auto">
+<button class="w-full h-[56px] bg-primary-container text-on-primary font-button-text text-button-text rounded-lg flex items-center justify-center shadow-[0_8px_20px_0_rgba(0,0,0,0.12)] active:scale-95 transition-transform duration-100 disabled:opacity-50 disabled:active:scale-100" disabled="" id="btn-to-profile">
+                        Verify &amp; Proceed
+                    </button>
+</div>
+</div>
+</div>
+<!-- ============================== -->
+<!-- VIEW 3: PROFILE SETUP          -->
+<!-- ============================== -->
+<div class="view hidden flex flex-col px-margin-mobile pb-safe overflow-y-auto" id="view-profile">
+<div class="flex-1 flex flex-col pt-8 pb-12 max-w-md mx-auto w-full">
+<div class="mb-8">
+<h1 class="font-headline-lg-mobile text-headline-lg-mobile text-on-background mb-2">Complete your profile</h1>
+<p class="font-body-lg text-body-lg text-on-surface-variant">Just a few details before we get moving.</p>
+</div>
+<!-- Avatar Selection -->
+<div class="flex flex-col items-center justify-center mb-8 relative">
+<div class="w-24 h-24 rounded-full bg-surface-container border-2 border-dashed border-outline-variant flex items-center justify-center overflow-hidden shadow-[0_4px_12px_0_rgba(0,0,0,0.05)] cursor-pointer group" id="avatar-container">
+<span class="material-symbols-outlined text-outline text-[32px] group-hover:text-primary transition-colors">add_a_photo</span>
+<img class="w-full h-full object-cover hidden" data-alt="A clean, modern user avatar illustration in a corporate logistics style. Simple blue and gray color palette, flat vector design representing a professional user profile. High quality, clear features." id="avatar-img" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDX2dxcfI-IHIRv9qNwE4Z7gdGNFr7qwI4mwb7ac5Uvuq7B4n_6p9H4WQxcyK8Qtz1YLjTKivU1JW-pOD_WYl0Qawh3ayDcC6k2slHjEoRnOLyNyLBAL8fCWZmy6I_3rnLb9bRN50k4OMDscQBFvpIdzVKruRRBVEn6wRF392Qn8ZZFK8OESE4-ppd_UlzkuIF3kTG6bIIB_Surxgi5YGojln4pZB0EaSniGstU3W19qF0twSPoti0ggg"/>
+</div>
+<button class="absolute bottom-0 right-[calc(50%-40px)] w-8 h-8 bg-primary text-on-primary rounded-full flex items-center justify-center shadow-[0_4px_12px_0_rgba(0,0,0,0.12)] border-2 border-surface">
+<span class="material-symbols-outlined text-[16px]">edit</span>
+</button>
+</div>
+<!-- Form Fields -->
+<div class="bg-surface rounded-xl shadow-[0_4px_12px_0_rgba(0,0,0,0.05)] p-md mb-4">
+<div class="mb-4">
+<label class="block font-label-md text-label-md text-on-surface-variant mb-2 uppercase">Full Name</label>
+<div class="flex items-center bg-surface-container-lowest border border-outline-variant rounded-lg focus-within:border-primary focus-within:ring-1 focus-within:ring-primary transition-colors overflow-hidden h-[56px] px-3">
+<span class="material-symbols-outlined text-outline mr-3">person</span>
+<input class="flex-1 h-full bg-transparent border-none focus:ring-0 font-body-lg text-body-lg text-on-background placeholder:text-outline" id="name-input" placeholder="John Doe" type="text"/>
+</div>
+</div>
+<div>
+<label class="block font-label-md text-label-md text-on-surface-variant mb-2 uppercase">Email Address (Optional)</label>
+<div class="flex items-center bg-surface-container-lowest border border-outline-variant rounded-lg focus-within:border-primary focus-within:ring-1 focus-within:ring-primary transition-colors overflow-hidden h-[56px] px-3">
+<span class="material-symbols-outlined text-outline mr-3">mail</span>
+<input class="flex-1 h-full bg-transparent border-none focus:ring-0 font-body-lg text-body-lg text-on-background placeholder:text-outline" id="email-input" placeholder="john@example.com" type="email"/>
+</div>
+</div>
+</div>
+<div class="mt-auto pt-8">
+<button class="w-full h-[56px] bg-primary-container text-on-primary font-button-text text-button-text rounded-lg flex items-center justify-center shadow-[0_8px_20px_0_rgba(0,0,0,0.12)] active:scale-95 transition-transform duration-100 disabled:opacity-50 disabled:active:scale-100" disabled="" id="btn-finish">
+                        Finish Setup
+                    </button>
+</div>
+</div>
+</div>
+</div>
+<script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // View Navigation Logic
+            const views = {
+                login: document.getElementById('view-login'),
+                otp: document.getElementById('view-otp'),
+                profile: document.getElementById('view-profile')
+            };
+            const backBtn = document.getElementById('back-button');
+            
+            let currentView = 'login';
+            let viewHistory = ['login'];
+
+            function navigateTo(targetViewId) {
+                if(currentView === targetViewId) return;
+
+                const currentEl = views[currentView];
+                const targetEl = views[targetViewId];
+
+                // Setup animation classes
+                targetEl.classList.remove('hidden', 'slide-out-left', 'slide-out-right');
+                targetEl.classList.add('slide-in-right');
+
+                // Trigger reflow
+                void targetEl.offsetWidth;
+
+                // Execute transition
+                currentEl.classList.remove('active');
+                currentEl.classList.add('slide-out-left');
+                
+                targetEl.classList.remove('slide-in-right');
+                targetEl.classList.add('active');
+
+                setTimeout(() => {
+                    currentEl.classList.add('hidden');
+                    currentEl.classList.remove('slide-out-left');
+                }, 400); // Matches CSS transition duration
+
+                viewHistory.push(targetViewId);
+                currentView = targetViewId;
+                updateBackButton();
+            }
+
+            function navigateBack() {
+                if(viewHistory.length <= 1) return;
+
+                const currentViewId = viewHistory.pop();
+                const targetViewId = viewHistory[viewHistory.length - 1];
+
+                const currentEl = views[currentViewId];
+                const targetEl = views[targetViewId];
+
+                targetEl.classList.remove('hidden', 'slide-out-left', 'slide-out-right');
+                targetEl.classList.add('slide-in-left');
+
+                void targetEl.offsetWidth;
+
+                currentEl.classList.remove('active');
+                currentEl.classList.add('slide-out-right');
+                
+                targetEl.classList.remove('slide-in-left');
+                targetEl.classList.add('active');
+
+                setTimeout(() => {
+                    currentEl.classList.add('hidden');
+                    currentEl.classList.remove('slide-out-right');
+                }, 400);
+
+                currentView = targetViewId;
+                updateBackButton();
+            }
+
+            function updateBackButton() {
+                if(viewHistory.length > 1) {
+                    backBtn.classList.remove('opacity-0', 'pointer-events-none');
+                    backBtn.classList.add('opacity-100');
+                } else {
+                    backBtn.classList.add('opacity-0', 'pointer-events-none');
+                    backBtn.classList.remove('opacity-100');
+                }
+            }
+
+            backBtn.addEventListener('click', navigateBack);
+
+            // --- Login Logic ---
+            const phoneInput = document.getElementById('phone-input');
+            const btnToOtp = document.getElementById('btn-to-otp');
+            const displayPhone = document.getElementById('display-phone');
+
+            phoneInput.addEventListener('input', (e) => {
+                // Basic formatting for demo
+                let val = e.target.value.replace(/\D/g, '');
+                if(val.length > 0) {
+                    btnToOtp.disabled = val.length < 10;
+                } else {
+                    btnToOtp.disabled = true;
+                }
+            });
+
+            btnToOtp.addEventListener('click', () => {
+                displayPhone.textContent = `+1 ${phoneInput.value}`;
+                navigateTo('otp');
+                startOtpTimer();
+                setTimeout(() => document.querySelector('.otp-input').focus(), 500);
+            });
+
+            // --- OTP Logic ---
+            const otpInputs = document.querySelectorAll('.otp-input');
+            const btnToProfile = document.getElementById('btn-to-profile');
+            const timerSpan = document.getElementById('timer');
+            const resendBtn = document.getElementById('resend-btn');
+            let timerInterval;
+
+            otpInputs.forEach((input, index) => {
+                input.addEventListener('input', (e) => {
+                    if (e.target.value.length > 1) {
+                        e.target.value = e.target.value.slice(0, 1);
+                    }
+                    if (e.target.value !== '') {
+                        if (index < otpInputs.length - 1) {
+                            otpInputs[index + 1].focus();
+                        } else {
+                            input.blur();
+                            checkOtpComplete();
+                        }
+                    }
+                    checkOtpComplete();
+                });
+
+                input.addEventListener('keydown', (e) => {
+                    if (e.key === 'Backspace' && e.target.value === '' && index > 0) {
+                        otpInputs[index - 1].focus();
+                    }
+                });
+            });
+
+            function checkOtpComplete() {
+                const isComplete = Array.from(otpInputs).every(input => input.value !== '');
+                btnToProfile.disabled = !isComplete;
+            }
+
+            function startOtpTimer() {
+                let timeLeft = 30;
+                resendBtn.disabled = true;
+                clearInterval(timerInterval);
+                
+                timerInterval = setInterval(() => {
+                    timeLeft--;
+                    const seconds = timeLeft < 10 ? `0${timeLeft}` : timeLeft;
+                    timerSpan.textContent = `00:${seconds}`;
+                    
+                    if(timeLeft <= 0) {
+                        clearInterval(timerInterval);
+                        resendBtn.disabled = false;
+                        timerSpan.textContent = '';
+                    }
+                }, 1000);
+            }
+
+            resendBtn.addEventListener('click', () => {
+                startOtpTimer();
+                // Simulate resend
+            });
+
+            btnToProfile.addEventListener('click', () => {
+                navigateTo('profile');
+            });
+
+
+            // --- Profile Logic ---
+            const nameInput = document.getElementById('name-input');
+            const btnFinish = document.getElementById('btn-finish');
+            const avatarContainer = document.getElementById('avatar-container');
+            const avatarImg = document.getElementById('avatar-img');
+
+            nameInput.addEventListener('input', (e) => {
+                btnFinish.disabled = e.target.value.trim().length < 2;
+            });
+
+            avatarContainer.addEventListener('click', () => {
+                // Simulate avatar selection
+                avatarImg.classList.remove('hidden');
+                avatarContainer.querySelector('span').classList.add('hidden');
+            });
+
+            btnFinish.addEventListener('click', () => {
+                // Simulate finishing flow
+                btnFinish.innerHTML = '<span class="material-symbols-outlined animate-spin">sync</span>';
+                setTimeout(() => {
+                    alert('Onboarding Complete! Navigating to Home...');
+                }, 1000);
+            });
+        });
+    </script>
+</body></html>

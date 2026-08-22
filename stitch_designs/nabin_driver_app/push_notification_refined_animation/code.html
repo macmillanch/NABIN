@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en" style=""><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>NABIN Driver - New Job Request</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "primary-fixed": "#dbe1ff",
+                        "on-tertiary-fixed": "#360f00",
+                        "surface-container-lowest": "#0c0e16",
+                        "surface-container": "#1d1f27",
+                        "inverse-primary": "#0053db",
+                        "surface-container-low": "#191b23",
+                        "on-primary-container": "#eeefff",
+                        "inverse-on-surface": "#2e3039",
+                        "surface-bright": "#373942",
+                        "background": "#11131b",
+                        "tertiary": "#ffb596",
+                        "on-secondary": "#2d3136",
+                        "on-secondary-container": "#b2b5bc",
+                        "on-error": "#690005",
+                        "on-secondary-fixed-variant": "#43474d",
+                        "secondary": "#c3c6ce",
+                        "on-primary": "#002a78",
+                        "primary-container": "#2563eb",
+                        "tertiary-container": "#bc4800",
+                        "on-secondary-fixed": "#181c21",
+                        "outline": "#8d90a0",
+                        "surface-variant": "#32343d",
+                        "on-background": "#e1e2ed",
+                        "tertiary-fixed-dim": "#ffb596",
+                        "surface-container-highest": "#32343d",
+                        "surface-dim": "#11131b",
+                        "tertiary-fixed": "#ffdbcd",
+                        "secondary-container": "#43474d",
+                        "surface": "#11131b",
+                        "surface-container-high": "#282a32",
+                        "inverse-surface": "#e1e2ed",
+                        "primary": "#b4c5ff",
+                        "on-tertiary-fixed-variant": "#7d2d00",
+                        "on-tertiary-container": "#ffede6",
+                        "on-primary-fixed": "#00174b",
+                        "error": "#ffb4ab",
+                        "on-surface": "#e1e2ed",
+                        "secondary-fixed": "#e0e2ea",
+                        "surface-tint": "#b4c5ff",
+                        "secondary-fixed-dim": "#c3c6ce",
+                        "error-container": "#93000a",
+                        "on-error-container": "#ffdad6",
+                        "on-primary-fixed-variant": "#003ea8",
+                        "outline-variant": "#434655",
+                        "on-tertiary": "#581e00",
+                        "primary-fixed-dim": "#b4c5ff",
+                        "on-surface-variant": "#c3c6d7"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "margin-mobile": "16px",
+                        "margin-desktop": "32px",
+                        "gutter": "16px",
+                        "stack-lg": "24px",
+                        "touch-target-min": "48px",
+                        "base": "4px",
+                        "stack-md": "16px",
+                        "stack-sm": "8px"
+                    },
+                    "fontFamily": {
+                        "data-tabular": ["Inter"],
+                        "headline-lg-mobile": ["Inter"],
+                        "headline-xl": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "body-md": ["Inter"],
+                        "label-md": ["Inter"]
+                    },
+                    "fontSize": {
+                        "data-tabular": ["16px", { "lineHeight": "24px", "fontWeight": "600" }],
+                        "headline-lg-mobile": ["20px", { "lineHeight": "28px", "fontWeight": "600" }],
+                        "headline-xl": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "body-lg": ["18px", { "lineHeight": "28px", "fontWeight": "400" }],
+                        "headline-lg": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+                        "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "label-md": ["14px", { "lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "500" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0B0F14;
+        }
+        .glass-edge {
+            box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+        }
+        .time-display {
+            text-shadow: 0 2px 10px rgba(0,0,0,0.5);
+        }
+        @keyframes button-pulse {
+            0% {
+                box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.4);
+            }
+            70% {
+                box-shadow: 0 0 0 10px rgba(37, 99, 235, 0);
+            }
+            100% {
+                box-shadow: 0 0 0 0 rgba(37, 99, 235, 0);
+            }
+        }
+        .premium-pulse {
+            animation: button-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+    </style>
+</head>
+<body class="h-screen w-full flex items-center justify-center overflow-hidden">
+<!-- Mobile Screen Container -->
+<div class="relative w-[375px] h-[812px] bg-black rounded-[40px] overflow-hidden border-[8px] border-[#2E3039] shadow-2xl flex flex-col items-center pt-12 pb-8">
+<!-- Wallpaper Background -->
+<div class="absolute inset-0 z-0 bg-cover bg-center" data-alt="A dark, abstract mobile wallpaper suitable for an OLED screen. It features subtle, deep midnight blue and charcoal gray wisps of smoke or ink dissipating in water, illuminated faintly by a sophisticated, soft bioluminescent blue light. The composition is highly minimalist and clean, providing a premium, uncluttered backdrop that won't distract from overlaid UI elements. High quality, smooth gradients, no harsh lines." style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuD8qXs_7QL9j--FgT3XNRz-BS5FbN33dUEVlmmqfJ2I3RcFpR9gPrWUFYkRGZV1m3nrOvFdAPKAM9ugU1WQA78JUIUdOaCUsYGk5ZjwvMsfdkqSiL1YdM1oypCT3kuPvc-mUl-n3I6jHdsAU_PczlL9X-OpJAkNeIWVVDO3_7yxfM7L9Opg9BcTu9T9E6DrldwzC2ugXGrDNlXAet3BpEz8RMvafIwShOw9PEQqk0WGBaKQ4X21F-8')">
+<!-- Dark Overlay for better contrast -->
+<div class="absolute inset-0 bg-black/40"></div>
+</div>
+<!-- Status Bar Mockup -->
+<div class="absolute top-0 w-full h-12 flex justify-between items-center px-6 z-20 text-white">
+<span class="text-sm font-semibold tracking-wider">9:41</span>
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[16px]" style="font-variation-settings: 'FILL' 1;">signal_cellular_4_bar</span>
+<span class="material-symbols-outlined text-[16px]" style="font-variation-settings: 'FILL' 1;">wifi</span>
+<span class="material-symbols-outlined text-[16px]" style="font-variation-settings: 'FILL' 1;">battery_full</span>
+</div>
+</div>
+<!-- Lock Screen Time -->
+<div class="z-10 mt-8 mb-auto text-center flex flex-col items-center">
+<span class="material-symbols-outlined text-white/80 mb-2 text-2xl">lock</span>
+<h1 class="text-white text-6xl font-light tracking-tighter time-display" id="clock">09:41</h1>
+<p class="text-white/80 text-lg font-medium mt-1">Wednesday, October 25</p>
+</div>
+<!-- Notification Container -->
+<div class="w-full px-4 z-20 mb-16">
+<!-- NABIN Driver Notification Card -->
+<div class="bg-[#17202B]/95 backdrop-blur-xl rounded-xl p-4 glass-edge shadow-lg transform transition-transform active:scale-[0.98]">
+<!-- Notification Header -->
+<div class="flex items-center justify-between mb-3">
+<div class="flex items-center gap-2">
+<!-- App Icon -->
+<div class="w-6 h-6 bg-primary-container rounded flex items-center justify-center">
+<span class="material-symbols-outlined text-white text-[16px]" style="font-variation-settings: 'FILL' 1;">local_taxi</span>
+</div>
+<span class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">NABIN Driver</span>
+</div>
+<span class="font-label-md text-label-md text-on-surface-variant">now</span>
+</div>
+<!-- Notification Content -->
+<div class="mb-4 pl-8">
+<h2 class="font-headline-lg-mobile text-headline-lg-mobile text-on-surface mb-1">New Job Request</h2>
+<p class="font-body-md text-body-md text-on-surface-variant">
+                        Pickup at Terminal 2 • 3.2 km away • Estimated ₹180
+                    </p>
+</div>
+<!-- Quick Actions -->
+<div class="flex gap-3 pl-8">
+<button class="flex-1 bg-primary-container text-white h-[48px] rounded-lg font-semibold text-label-md glass-edge flex items-center justify-center gap-2 active:bg-inverse-primary active:scale-95 transition-all duration-300 premium-pulse shadow-lg">
+<span class="material-symbols-outlined text-[18px]">check</span>
+                        Accept
+                    </button>
+<button class="flex-1 border border-outline text-on-surface-variant h-[48px] rounded-lg font-label-md text-label-md flex items-center justify-center gap-2 active:bg-surface-variant transition-colors">
+<span class="material-symbols-outlined text-[18px]">close</span>
+                        Decline
+                    </button>
+</div>
+</div>
+</div>
+<!-- Swipe indicator -->
+<div class="absolute bottom-2 w-full flex justify-center z-20">
+<div class="w-32 h-1.5 bg-white/50 rounded-full"></div>
+</div>
+</div>
+<script>
+        // Simple script to update the mock clock
+        function updateClock() {
+            const now = new Date();
+            let hours = now.getHours();
+            let minutes = now.getMinutes();
+            hours = hours < 10 ? '0' + hours : hours;
+            minutes = minutes < 10 ? '0' + minutes : minutes;
+            document.getElementById('clock').textContent = hours + ':' + minutes;
+        }
+        setInterval(updateClock, 60000); // Update every minute
+    </script>
+</body></html>

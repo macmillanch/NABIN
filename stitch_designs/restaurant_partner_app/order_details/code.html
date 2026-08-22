@@ -1,0 +1,287 @@
+<!DOCTYPE html><html lang="en"><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>NABIN - Order Details</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-error": "#ffffff",
+                        "primary-container": "#2563eb",
+                        "inverse-on-surface": "#f0f0fb",
+                        "outline": "#737686",
+                        "on-tertiary-container": "#ffede6",
+                        "on-tertiary": "#ffffff",
+                        "background": "#faf8ff",
+                        "surface-container-low": "#f3f3fe",
+                        "surface-container-highest": "#e1e2ed",
+                        "surface-variant": "#e1e2ed",
+                        "inverse-primary": "#b4c5ff",
+                        "error": "#ba1a1a",
+                        "primary": "#004ac6",
+                        "secondary-fixed-dim": "#b7c8e1",
+                        "surface-bright": "#faf8ff",
+                        "on-secondary-fixed": "#0b1c30",
+                        "secondary-container": "#d0e1fb",
+                        "on-primary-fixed-variant": "#003ea8",
+                        "surface-container": "#ededf9",
+                        "surface-container-lowest": "#ffffff",
+                        "on-primary-fixed": "#00174b",
+                        "surface-container-high": "#e7e7f3",
+                        "on-secondary-container": "#54647a",
+                        "surface-tint": "#0053db",
+                        "on-secondary-fixed-variant": "#38485d",
+                        "secondary": "#505f76",
+                        "tertiary": "#943700",
+                        "surface-dim": "#d9d9e5",
+                        "on-background": "#191b23",
+                        "tertiary-fixed-dim": "#ffb596",
+                        "on-primary": "#ffffff",
+                        "tertiary-fixed": "#ffdbcd",
+                        "on-tertiary-fixed": "#360f00",
+                        "error-container": "#ffdad6",
+                        "tertiary-container": "#bc4800",
+                        "inverse-surface": "#2e3039",
+                        "outline-variant": "#c3c6d7",
+                        "primary-fixed-dim": "#b4c5ff",
+                        "on-tertiary-fixed-variant": "#7d2d00",
+                        "on-error-container": "#93000a",
+                        "primary-fixed": "#dbe1ff",
+                        "on-primary-container": "#eeefff",
+                        "on-surface-variant": "#434655",
+                        "secondary-fixed": "#d3e4fe",
+                        "surface": "#faf8ff",
+                        "on-surface": "#191b23",
+                        "on-secondary": "#ffffff"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    "spacing": {
+                        "sm": "8px",
+                        "md": "16px",
+                        "margin-tablet": "24px",
+                        "xs": "4px",
+                        "lg": "24px",
+                        "unit": "4px",
+                        "gutter": "16px",
+                        "margin-mobile": "16px",
+                        "touch-target-min": "48px",
+                        "xl": "32px"
+                    },
+                    "fontFamily": {
+                        "headline-sm": ["Inter"],
+                        "label-lg": ["Inter"],
+                        "body-md": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "label-md": ["Inter"],
+                        "order-number": ["Inter"],
+                        "order-number-mobile": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "headline-md": ["Inter"]
+                    },
+                    "fontSize": {
+                        "headline-sm": ["20px", { "lineHeight": "28px", "fontWeight": "600" }],
+                        "label-lg": ["14px", { "lineHeight": "20px", "letterSpacing": "0.05em", "fontWeight": "600" }],
+                        "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "body-lg": ["18px", { "lineHeight": "26px", "fontWeight": "500" }],
+                        "label-md": ["12px", { "lineHeight": "16px", "fontWeight": "600" }],
+                        "order-number": ["48px", { "lineHeight": "56px", "letterSpacing": "-0.02em", "fontWeight": "800" }],
+                        "order-number-mobile": ["36px", { "lineHeight": "44px", "fontWeight": "800" }],
+                        "headline-lg": ["32px", { "lineHeight": "40px", "fontWeight": "700" }],
+                        "headline-md": ["24px", { "lineHeight": "32px", "fontWeight": "700" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body { font-family: 'Inter', sans-serif; background-color: #F8FAFC; }
+        .material-symbols-outlined { font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+    </style>
+</head>
+<body class="bg-surface text-on-surface antialiased min-h-screen pb-touch-target-min md:pb-0">
+<!-- TopAppBar -->
+<header class="fixed top-0 w-full z-50 flex justify-between items-center px-margin-mobile h-touch-target-min bg-surface dark:bg-surface-dim border-b border-outline-variant dark:border-outline">
+<div class="flex items-center gap-sm">
+<button class="h-touch-target-min w-touch-target-min flex items-center justify-center text-primary dark:text-inverse-primary hover:bg-surface-container-low transition-colors rounded-full" onclick="window.history.back()">
+<span class="material-symbols-outlined" data-icon="arrow_back">arrow_back</span>
+</button>
+<span class="font-headline-md text-headline-md font-bold text-primary dark:text-inverse-primary">NABIN</span>
+</div>
+<div class="flex items-center">
+<button class="h-touch-target-min w-touch-target-min flex items-center justify-center text-primary dark:text-inverse-primary hover:bg-surface-container-low transition-colors rounded-full">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+</button>
+</div>
+</header>
+<main class="pt-touch-target-min max-w-5xl mx-auto p-margin-mobile md:p-margin-tablet grid grid-cols-1 md:grid-cols-12 gap-gutter">
+<!-- Left Column: Order Details & Items -->
+<div class="md:col-span-8 flex flex-col gap-margin-tablet">
+<!-- Header/Summary Card -->
+<div class="bg-surface-container-lowest border border-outline-variant rounded-lg p-margin-mobile shadow-[0px_4px_6px_-1px_rgba(15,23,42,0.1)]">
+<div class="flex justify-between items-start mb-md">
+<div>
+<h1 class="font-order-number text-order-number md:font-order-number-mobile md:text-order-number-mobile text-on-surface">#4920</h1>
+<p class="font-body-md text-body-md text-on-surface-variant flex items-center gap-xs mt-xs">
+<span class="material-symbols-outlined text-[18px]" data-icon="schedule">schedule</span>
+                            Placed at 18:42
+                        </p>
+</div>
+<div class="bg-amber-100 text-amber-900 px-sm py-xs rounded-full font-label-md text-label-md flex items-center gap-xs">
+<span class="material-symbols-outlined text-[16px]" data-icon="outdoor_grill">outdoor_grill</span>
+                        Preparing
+                    </div>
+</div>
+<div class="grid grid-cols-2 gap-md border-t border-outline-variant pt-md">
+<div>
+<p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Customer</p>
+<p class="font-body-lg text-body-lg text-on-surface font-medium mt-xs">J*** S.</p>
+<p class="font-body-md text-body-md text-on-surface-variant">Delivery</p>
+</div>
+<div>
+<p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Courier</p>
+<p class="font-body-lg text-body-lg text-on-surface font-medium mt-xs">M. Ali</p>
+<p class="font-body-md text-body-md text-on-surface-variant text-primary flex items-center gap-xs cursor-pointer">
+<span class="material-symbols-outlined text-[16px]" data-icon="call">call</span> Call Courier
+                        </p>
+</div>
+</div>
+</div>
+<!-- Items List -->
+<div class="bg-surface-container-lowest border border-outline-variant rounded-lg overflow-hidden">
+<div class="bg-surface-container px-margin-mobile py-sm border-b border-outline-variant flex justify-between items-center">
+<h2 class="font-headline-sm text-headline-sm text-on-surface">Order Items (3)</h2>
+<button class="font-label-md text-label-md text-primary flex items-center gap-xs hover:bg-surface-container-low px-sm py-xs rounded">
+<span class="material-symbols-outlined text-[16px]" data-icon="print">print</span> Ticket
+                    </button>
+</div>
+<div class="p-margin-mobile flex flex-col gap-md">
+<!-- Item 1 -->
+<div class="flex items-start gap-md pb-md border-b border-surface-variant">
+<div class="bg-surface-container-high rounded p-sm flex-shrink-0">
+<span class="font-headline-md text-headline-md text-on-surface">1x</span>
+</div>
+<div class="flex-grow">
+<div class="flex justify-between">
+<h3 class="font-body-lg text-body-lg text-on-surface font-medium">Double Cheeseburger</h3>
+<span class="font-body-lg text-body-lg text-on-surface">$12.50</span>
+</div>
+<ul class="mt-xs text-on-surface-variant font-body-md text-body-md list-disc list-inside">
+<li class="">No Pickles</li>
+<li class="">Extra Sauce</li>
+</ul>
+</div>
+</div>
+<!-- Item 2 -->
+<div class="flex items-start gap-md pb-md border-b border-surface-variant">
+<div class="bg-surface-container-high rounded p-sm flex-shrink-0">
+<span class="font-headline-md text-headline-md text-on-surface">2x</span>
+</div>
+<div class="flex-grow">
+<div class="flex justify-between">
+<h3 class="font-body-lg text-body-lg text-on-surface font-medium">Large Fries</h3>
+<span class="font-body-lg text-body-lg text-on-surface">$9.00</span>
+</div>
+</div>
+</div>
+<!-- Item 3 -->
+<div class="flex items-start gap-md">
+<div class="bg-surface-container-high rounded p-sm flex-shrink-0">
+<span class="font-headline-md text-headline-md text-on-surface">1x</span>
+</div>
+<div class="flex-grow">
+<div class="flex justify-between">
+<h3 class="font-body-lg text-body-lg text-on-surface font-medium">Oreo Milkshake</h3>
+<span class="font-body-lg text-body-lg text-on-surface">$6.50</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Right Column: Timeline & Actions -->
+<div class="md:col-span-4 flex flex-col gap-margin-tablet">
+<!-- Primary Action -->
+<button class="w-full bg-primary text-on-primary rounded-lg font-label-lg text-label-lg flex items-center justify-center gap-sm shadow-[0px_4px_6px_-1px_rgba(15,23,42,0.1)] hover:bg-on-primary-fixed-variant transition-colors py-sm font-bold">
+<span class="material-symbols-outlined" data-icon="check_circle">check_circle</span>
+                Mark as Ready
+            </button>
+<!-- Financial Summary -->
+<div class="bg-surface-container-lowest border border-outline-variant rounded-lg p-margin-mobile">
+<h3 class="font-headline-sm text-headline-sm text-on-surface mb-md">Summary</h3>
+<div class="flex flex-col gap-sm font-body-md text-body-md text-on-surface-variant border-b border-outline-variant pb-md mb-md">
+<div class="flex justify-between">
+<span class="">Subtotal</span>
+<span class="">$28.00</span>
+</div>
+<div class="flex justify-between">
+<span class="">Tax</span>
+<span class="">$2.52</span>
+</div>
+<div class="flex justify-between">
+<span class="">Delivery Fee</span>
+<span class="">$3.99</span>
+</div>
+</div>
+<div class="flex justify-between font-headline-sm text-headline-sm text-on-surface font-bold">
+<span class="">Total</span>
+<span class="">$34.51</span>
+</div>
+</div>
+<!-- Timeline -->
+<div class="bg-surface-container-lowest border border-outline-variant rounded-lg p-margin-mobile">
+<h3 class="font-headline-sm text-headline-sm text-on-surface mb-md">Timeline</h3>
+<div class="relative pl-lg border-l-2 border-surface-variant flex flex-col gap-lg">
+<div class="relative">
+<div class="absolute -left-[33px] bg-primary text-on-primary rounded-full p-xs flex items-center justify-center border-4 border-surface-container-lowest">
+<span class="material-symbols-outlined text-[16px]" data-icon="receipt">receipt</span>
+</div>
+<p class="font-body-lg text-body-lg text-on-surface font-medium">Order Received</p>
+<p class="font-body-md text-body-md text-on-surface-variant">18:42</p>
+</div>
+<div class="relative">
+<div class="absolute -left-[33px] bg-primary text-on-primary rounded-full p-xs flex items-center justify-center border-4 border-surface-container-lowest">
+<span class="material-symbols-outlined text-[16px]" data-icon="storefront">storefront</span>
+</div>
+<p class="font-body-lg text-body-lg text-on-surface font-medium">Accepted by Kitchen</p>
+<p class="font-body-md text-body-md text-on-surface-variant">18:45</p>
+</div>
+<div class="relative">
+<div class="absolute -left-[33px] bg-surface-variant text-on-surface-variant rounded-full p-xs flex items-center justify-center border-4 border-surface-container-lowest">
+<span class="material-symbols-outlined text-[16px]" data-icon="two_wheeler">two_wheeler</span>
+</div>
+<p class="font-body-lg text-body-lg text-on-surface-variant font-medium">Courier Assigned</p>
+<p class="font-body-md text-body-md text-on-surface-variant">M. Ali is 5 mins away</p>
+</div>
+<div class="relative">
+<div class="absolute -left-[33px] bg-surface-variant text-on-surface-variant rounded-full p-xs flex items-center justify-center border-4 border-surface-container-lowest">
+<span class="material-symbols-outlined text-[16px]" data-icon="check_circle">check_circle</span>
+</div>
+<p class="font-body-lg text-body-lg text-on-surface-variant font-medium opacity-50">Order Ready</p>
+</div>
+</div>
+</div>
+<!-- Secondary Actions -->
+<div class="flex gap-md">
+<button class="flex-1 h-touch-target-min bg-surface-container-lowest border border-outline-variant text-on-surface rounded-lg font-label-lg text-label-lg flex items-center justify-center gap-xs hover:bg-surface-container-low transition-colors">
+<span class="material-symbols-outlined" data-icon="help">help</span> Help
+                </button>
+<button class="flex-1 h-touch-target-min bg-error-container text-on-error-container rounded-lg font-label-lg text-label-lg flex items-center justify-center gap-xs hover:bg-red-200 transition-colors">
+<span class="material-symbols-outlined" data-icon="cancel">cancel</span> Cancel
+                </button>
+</div>
+</div>
+</main>
+
+
+</body></html>

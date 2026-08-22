@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Environment Variables & Secrets
+.env
+.env.*
+!.env.example
+!.env.beta.example
+!.env.production.example
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Flutter / Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+build/
+mobile/build/
+mobile/.dart_tool/
+mobile/.packages
+
+# Antigravity IDE / Brain Logs
+.gemini/
+scratch/
+
+# Operating System Files
+.DS_Store
+Thumbs.db
+desktop.ini
+*.tmp
+*.log
+
+# IDE Files
+.vscode/
+.idea/
+*.swp
+*.swo

@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Parcel Delivery Status</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-tertiary": "#ffffff",
+                        "tertiary-container": "#a33500",
+                        "surface-container-highest": "#e1e2ec",
+                        "on-tertiary-container": "#ffc6b2",
+                        "surface-container-low": "#f3f3fd",
+                        "on-surface-variant": "#434654",
+                        "on-tertiary-fixed": "#380d00",
+                        "tertiary": "#7b2600",
+                        "surface-tint": "#0c56d0",
+                        "on-error": "#ffffff",
+                        "primary-container": "#0052cc",
+                        "outline": "#737685",
+                        "error-container": "#ffdad6",
+                        "on-surface": "#191b23",
+                        "on-secondary-fixed-variant": "#3b475b",
+                        "inverse-primary": "#b2c5ff",
+                        "surface-bright": "#faf8ff",
+                        "on-primary": "#ffffff",
+                        "surface-variant": "#e1e2ec",
+                        "on-primary-fixed-variant": "#0040a2",
+                        "on-error-container": "#93000a",
+                        "secondary": "#535f73",
+                        "error": "#ba1a1a",
+                        "on-primary-fixed": "#001848",
+                        "surface-container-lowest": "#ffffff",
+                        "on-tertiary-fixed-variant": "#812800",
+                        "tertiary-fixed": "#ffdbcf",
+                        "on-secondary-fixed": "#101c2d",
+                        "primary-fixed-dim": "#b2c5ff",
+                        "secondary-fixed": "#d7e3fb",
+                        "inverse-surface": "#2e3038",
+                        "outline-variant": "#c3c6d6",
+                        "background": "#faf8ff",
+                        "on-secondary": "#ffffff",
+                        "surface-container-high": "#e7e7f2",
+                        "secondary-container": "#d4e0f8",
+                        "inverse-on-surface": "#f0f0fb",
+                        "secondary-fixed-dim": "#bbc7de",
+                        "tertiary-fixed-dim": "#ffb59b",
+                        "on-primary-container": "#c4d2ff",
+                        "on-secondary-container": "#576377",
+                        "on-background": "#191b23",
+                        "surface-dim": "#d9d9e4",
+                        "surface": "#faf8ff",
+                        "surface-container": "#ededf8",
+                        "primary": "#003d9b",
+                        "primary-fixed": "#dae2ff"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "base": "4px",
+                        "xl": "32px",
+                        "md": "16px",
+                        "gutter-mobile": "12px",
+                        "margin-mobile": "16px",
+                        "xs": "4px",
+                        "touch-target-min": "48px",
+                        "lg": "24px",
+                        "sm": "8px"
+                    },
+                    "fontFamily": {
+                        "label-md": ["Inter"],
+                        "body-sm": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "headline-md": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "headline-lg-mobile": ["Inter"],
+                        "button-text": ["Inter"]
+                    },
+                    "fontSize": {
+                        "label-md": ["12px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "600"}],
+                        "body-sm": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                        "body-lg": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                        "headline-md": ["20px", {"lineHeight": "28px", "fontWeight": "600"}],
+                        "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                        "headline-lg-mobile": ["24px", {"lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "700"}],
+                        "button-text": ["16px", {"lineHeight": "24px", "fontWeight": "600"}]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .material-symbols-outlined.fill {
+            font-variation-settings: 'FILL' 1;
+        }
+        .animate-pulse-slow {
+            animation: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+    </style>
+</head>
+<body class="bg-background text-on-background font-body-sm min-h-screen flex flex-col antialiased">
+<!-- Top App Bar -->
+<header class="w-full sticky top-0 z-50 bg-surface dark:bg-surface-dim flat no shadows border-b border-outline-variant flex justify-between items-center h-14 px-margin-mobile">
+<button aria-label="Go back" class="h-touch-target-min w-touch-target-min flex items-center justify-center text-primary dark:text-primary-fixed-dim hover:bg-surface-container-high dark:hover:bg-surface-container-highest transition-colors active:scale-95 duration-100 rounded-full">
+<span class="material-symbols-outlined">arrow_back</span>
+</button>
+<h1 class="font-headline-md text-headline-md text-on-surface">Tracking</h1>
+<button aria-label="Help" class="h-touch-target-min w-touch-target-min flex items-center justify-center text-primary dark:text-primary-fixed-dim hover:bg-surface-container-high dark:hover:bg-surface-container-highest transition-colors active:scale-95 duration-100 rounded-full">
+<span class="material-symbols-outlined">help_outline</span>
+</button>
+</header>
+<!-- Main Content Canvas -->
+<main class="flex-grow relative flex flex-col md:max-w-2xl md:mx-auto w-full pb-32">
+<!-- Map Area -->
+<div class="relative w-full h-[45vh] bg-surface-container-low overflow-hidden">
+<img alt="Map showing delivery route" class="absolute inset-0 w-full h-full object-cover opacity-80" data-alt="A modern, clean top-down map interface showing a city street layout. The style is minimalist and functional, typical of a high-end logistics or ride-hailing app, with subtle grey and white tones for roads and buildings. A bright blue dotted path snakes through the streets indicating a route. The lighting is bright and clear, fitting a dependable and efficient brand aesthetic." data-location="New York City" src="https://lh3.googleusercontent.com/aida-public/AB6AXuD9LA9nre8PWpjj1u86BBVEN1fD98OlkP0134ZaCqa_B1pH7qpRLhgLreaB0j6tT6vbkDpDLfCOfyIrH0oH0RP2wDFyy7mu4ydmiUjGXGmdy0MjNHAjUuq7fUhdqGNAXLopUHy_AE5TcriJ7PUBd7DBTFK17E62QEbDTokvoqykf5Ws-_h5jk0Oo2cKRJ6nf9tolgFynCWSzMJMplLoPF0tmVIZGVstkU7LdbD1lAmNzQlLgX0Rpwamyw"/>
+<!-- Live Tracking Badge -->
+<div class="absolute top-4 left-4 bg-surface rounded-full px-3 py-1.5 flex items-center shadow-[0_4px_12px_0_rgba(0,0,0,0.12)]">
+<span class="w-2 h-2 rounded-full bg-error mr-2 animate-pulse-slow"></span>
+<span class="font-label-md text-label-md text-on-surface uppercase tracking-wider">Live Tracking</span>
+</div>
+<!-- Fake Map UI Elements -->
+<div class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 flex flex-col items-center">
+<div class="bg-primary text-on-primary rounded-full p-2 shadow-lg mb-1 relative z-10">
+<span class="material-symbols-outlined fill text-[20px]">two_wheeler</span>
+</div>
+<div class="w-4 h-4 bg-primary/20 rounded-full animate-ping absolute top-2"></div>
+</div>
+<!-- Recenter Button -->
+<button aria-label="Recenter map" class="absolute bottom-6 right-4 w-touch-target-min h-touch-target-min bg-surface rounded-full shadow-[0_4px_12px_0_rgba(0,0,0,0.12)] flex items-center justify-center text-primary active:scale-95 transition-transform">
+<span class="material-symbols-outlined">my_location</span>
+</button>
+</div>
+<!-- Bottom Sheet Layer -->
+<div class="bg-surface rounded-t-[16px] -mt-4 relative z-20 shadow-[0_-4px_12px_0_rgba(0,0,0,0.05)] px-margin-mobile pt-4 pb-8 flex-grow flex flex-col gap-md">
+<!-- Sheet Handle -->
+<div class="w-10 h-1 bg-outline-variant rounded-full mx-auto mb-2"></div>
+<!-- Status Header -->
+<div class="flex justify-between items-start mb-2">
+<div>
+<h2 class="font-headline-lg-mobile text-headline-lg-mobile text-on-surface">In Transit</h2>
+<p class="font-body-sm text-body-sm text-secondary mt-1">Est. arrival: 14:30 - 14:45</p>
+</div>
+<div class="bg-primary-container/10 text-primary-container px-3 py-1 rounded-full font-label-md text-label-md">
+                    #NAB-8492
+                </div>
+</div>
+<!-- Progress Timeline -->
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-md shadow-[0_4px_12px_0_rgba(0,0,0,0.05)]">
+<div class="relative pl-6 border-l-2 border-primary pb-6">
+<div class="absolute w-3 h-3 bg-primary rounded-full -left-[7px] top-1 border-2 border-surface"></div>
+<p class="font-label-md text-label-md text-secondary uppercase tracking-wider mb-1">13:15</p>
+<h3 class="font-body-lg text-body-lg text-on-surface font-semibold">Parcel Picked Up</h3>
+<p class="font-body-sm text-body-sm text-secondary">Sender location</p>
+</div>
+<div class="relative pl-6">
+<div class="absolute w-3 h-3 bg-surface border-2 border-primary rounded-full -left-[7px] top-1 z-10"></div>
+<div class="absolute w-0.5 h-full bg-outline-variant -left-[1px] top-4 -z-0 border-l-2 border-dotted"></div>
+<p class="font-label-md text-label-md text-primary uppercase tracking-wider mb-1">Current</p>
+<h3 class="font-body-lg text-body-lg text-primary font-semibold">On the way</h3>
+<p class="font-body-sm text-body-sm text-secondary">Approaching destination</p>
+</div>
+</div>
+<!-- Rider Details Card -->
+<div class="flex items-center justify-between bg-surface-container-low rounded-xl p-md">
+<div class="flex items-center gap-sm">
+<div class="w-12 h-12 rounded-full overflow-hidden bg-surface-variant shrink-0 border border-outline-variant">
+<img alt="Rider photo" class="w-full h-full object-cover" data-alt="A close-up portrait of a professional delivery rider wearing a modern, clean uniform helmet in bright lighting. The background is slightly blurred but suggests an urban setting. The style is photographic, clean, and trustworthy, fitting a modern corporate logistics brand." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBuNq9ZtG-XToJkw40gt9KskpTP8FolRYssEsIWIHIIAJnAEvT2SxjGaJE1c_9n3VD0NnaZ9BVlx2Ek-UrkREd45_9H380uteNbboe1vw-9nPvySmrPB6I-oAuzDqQ0vOZj_BO_LyO0m_UHFvb-AJugytZ--hgGVxpBdJOOQogJAE6XrcEjp2tthkcIC1ZYY6sOdzhqQHqOr27j_aM9bIr3BchsfzYMplPtxieLl8iL3pImZgwM_V5gWQ"/>
+</div>
+<div>
+<h4 class="font-body-lg text-body-lg text-on-surface font-semibold">Alex M.</h4>
+<div class="flex items-center text-secondary gap-1">
+<span class="material-symbols-outlined text-[16px] fill text-surface-tint">star</span>
+<span class="font-body-sm text-body-sm">4.9 • Honda Click</span>
+</div>
+</div>
+</div>
+<div class="flex gap-2">
+<button aria-label="Message rider" class="w-10 h-10 rounded-full bg-surface border border-outline-variant flex items-center justify-center text-primary shadow-sm active:scale-95 transition-transform">
+<span class="material-symbols-outlined">chat</span>
+</button>
+<button aria-label="Call rider" class="w-10 h-10 rounded-full bg-primary-container text-on-primary flex items-center justify-center shadow-sm active:scale-95 transition-transform">
+<span class="material-symbols-outlined">call</span>
+</button>
+</div>
+</div>
+<!-- OTP Section -->
+<div class="bg-surface-bright border border-outline-variant rounded-xl p-md flex items-center justify-between">
+<div>
+<h4 class="font-body-lg text-body-lg text-on-surface font-semibold">Delivery OTP</h4>
+<p class="font-body-sm text-body-sm text-secondary">Provide this to rider</p>
+</div>
+<div class="tracking-[0.2em] font-headline-lg-mobile text-headline-lg-mobile text-primary bg-primary/5 px-4 py-2 rounded-lg">
+                    8492
+                </div>
+</div>
+</div>
+</main>
+<!-- Bottom Navigation Shell suppressed as this is a task-focused/transactional screen (tracking a specific order) -->
+</body></html>

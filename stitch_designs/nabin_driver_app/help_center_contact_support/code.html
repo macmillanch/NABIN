@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>NABIN Driver - Raise a Ticket</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "surface-container-highest": "#32343d",
+                      "tertiary-fixed": "#ffdbcd",
+                      "on-surface-variant": "#c3c6d7",
+                      "on-primary": "#002a78",
+                      "surface-dim": "#11131b",
+                      "on-secondary-fixed": "#181c21",
+                      "on-tertiary-fixed": "#360f00",
+                      "surface-container-lowest": "#0c0e16",
+                      "surface-variant": "#32343d",
+                      "on-primary-container": "#eeefff",
+                      "error": "#ffb4ab",
+                      "surface-container": "#1d1f27",
+                      "inverse-on-surface": "#2e3039",
+                      "secondary-fixed-dim": "#c3c6ce",
+                      "outline-variant": "#434655",
+                      "on-secondary-fixed-variant": "#43474d",
+                      "primary-container": "#2563eb",
+                      "on-error": "#690005",
+                      "surface-container-low": "#191b23",
+                      "secondary-fixed": "#e0e2ea",
+                      "secondary": "#c3c6ce",
+                      "primary": "#b4c5ff",
+                      "secondary-container": "#43474d",
+                      "outline": "#8d90a0",
+                      "surface-container-high": "#282a32",
+                      "on-primary-fixed-variant": "#003ea8",
+                      "on-error-container": "#ffdad6",
+                      "surface-bright": "#373942",
+                      "tertiary": "#ffb596",
+                      "background": "#11131b",
+                      "tertiary-fixed-dim": "#ffb596",
+                      "primary-fixed-dim": "#b4c5ff",
+                      "on-primary-fixed": "#00174b",
+                      "on-tertiary-container": "#ffede6",
+                      "on-surface": "#e1e2ed",
+                      "on-tertiary": "#581e00",
+                      "on-secondary-container": "#b2b5bc",
+                      "primary-fixed": "#dbe1ff",
+                      "surface": "#11131b",
+                      "on-background": "#e1e2ed",
+                      "on-tertiary-fixed-variant": "#7d2d00",
+                      "inverse-primary": "#0053db",
+                      "error-container": "#93000a",
+                      "surface-tint": "#b4c5ff",
+                      "tertiary-container": "#bc4800",
+                      "on-secondary": "#2d3136",
+                      "inverse-surface": "#e1e2ed"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.25rem",
+                      "lg": "0.5rem",
+                      "xl": "0.75rem",
+                      "full": "9999px"
+              },
+              "spacing": {
+                      "stack-lg": "24px",
+                      "gutter": "16px",
+                      "margin-desktop": "32px",
+                      "touch-target-min": "48px",
+                      "margin-mobile": "16px",
+                      "stack-sm": "8px",
+                      "base": "4px",
+                      "stack-md": "16px"
+              },
+              "fontFamily": {
+                      "label-md": [
+                              "Inter"
+                      ],
+                      "body-lg": [
+                              "Inter"
+                      ],
+                      "headline-lg-mobile": [
+                              "Inter"
+                      ],
+                      "headline-xl": [
+                              "Inter"
+                      ],
+                      "headline-lg": [
+                              "Inter"
+                      ],
+                      "body-md": [
+                              "Inter"
+                      ],
+                      "data-tabular": [
+                              "Inter"
+                      ]
+              },
+              "fontSize": {
+                      "label-md": [
+                              "14px",
+                              {
+                                      "lineHeight": "20px",
+                                      "letterSpacing": "0.01em",
+                                      "fontWeight": "500"
+                              }
+                      ],
+                      "body-lg": [
+                              "18px",
+                              {
+                                      "lineHeight": "28px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "headline-lg-mobile": [
+                              "20px",
+                              {
+                                      "lineHeight": "28px",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "headline-xl": [
+                              "32px",
+                              {
+                                      "lineHeight": "40px",
+                                      "letterSpacing": "-0.02em",
+                                      "fontWeight": "700"
+                              }
+                      ],
+                      "headline-lg": [
+                              "24px",
+                              {
+                                      "lineHeight": "32px",
+                                      "letterSpacing": "-0.01em",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "body-md": [
+                              "16px",
+                              {
+                                      "lineHeight": "24px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "data-tabular": [
+                              "16px",
+                              {
+                                      "lineHeight": "24px",
+                                      "fontWeight": "600"
+                              }
+                      ]
+              }
+            },
+          }
+        }
+    </script>
+</head>
+<body class="bg-background text-on-background min-h-screen font-body-md">
+<!-- TopAppBar -->
+<header class="fixed top-0 w-full z-50 bg-surface-dim dark:bg-surface-dim bg-surface-container-low border-b border-outline-variant flex items-center justify-between px-margin-mobile h-touch-target-min">
+<button class="text-primary dark:text-primary-fixed-dim hover:bg-surface-variant/50 active:scale-95 transition-transform p-2 rounded-full flex items-center justify-center">
+<span class="material-symbols-outlined" data-icon="arrow_back">arrow_back</span>
+</button>
+<h1 class="font-headline-lg-mobile text-headline-lg-mobile font-bold text-on-surface">Help Center</h1>
+<button class="text-primary dark:text-primary-fixed-dim hover:bg-surface-variant/50 active:scale-95 transition-transform p-2 rounded-full flex items-center justify-center">
+<span class="material-symbols-outlined" data-icon="search">search</span>
+</button>
+</header>
+<!-- Main Content Canvas (Navigation suppressed for transactional screen) -->
+<main class="pt-[80px] pb-stack-lg px-margin-mobile md:px-margin-desktop max-w-2xl mx-auto">
+<div class="mb-stack-lg">
+<h2 class="font-headline-lg text-headline-lg text-on-surface mb-stack-sm">Raise a Ticket</h2>
+<p class="font-body-md text-body-md text-on-surface-variant">Please provide details about your issue below. Our support team will get back to you as soon as possible.</p>
+</div>
+<form class="space-y-stack-md">
+<!-- Issue Category -->
+<div class="flex flex-col gap-base">
+<label class="font-label-md text-label-md text-on-surface-variant ml-1" for="category">Issue Category</label>
+<div class="relative">
+<select class="w-full bg-[#111827] border border-[#1E293B] rounded-lg h-touch-target-min px-4 font-body-md text-body-md text-on-surface appearance-none focus:outline-none focus:border-primary-container focus:ring-1 focus:ring-primary-container transition-colors shadow-inner shadow-white/10" id="category" name="category">
+<option disabled="" selected="" value="">Select an issue...</option>
+<option value="payment">Payment missing</option>
+<option value="app_crash">App crash</option>
+<option value="rider_behavior">Rider behavior</option>
+<option value="vehicle_issue">Vehicle issue</option>
+<option value="other">Other</option>
+</select>
+<div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 text-on-surface-variant">
+<span class="material-symbols-outlined">expand_more</span>
+</div>
+</div>
+</div>
+<!-- Description -->
+<div class="flex flex-col gap-base">
+<label class="font-label-md text-label-md text-on-surface-variant ml-1" for="description">Describe your issue</label>
+<textarea class="w-full bg-[#111827] border border-[#1E293B] rounded-lg p-4 font-body-md text-body-md text-on-surface focus:outline-none focus:border-primary-container focus:ring-1 focus:ring-primary-container transition-colors shadow-inner shadow-white/10 resize-y" id="description" name="description" placeholder="Please provide as much detail as possible..." rows="5"></textarea>
+</div>
+<!-- Attachment -->
+<div class="flex flex-col gap-base">
+<label class="font-label-md text-label-md text-on-surface-variant ml-1">Attach Screenshot (Optional)</label>
+<div class="border-2 border-dashed border-[#1E293B] rounded-lg bg-[#111827] hover:bg-surface-variant/30 transition-colors p-stack-md flex flex-col items-center justify-center cursor-pointer shadow-inner shadow-white/10 group">
+<span class="material-symbols-outlined text-outline-variant group-hover:text-primary transition-colors text-[32px] mb-2">cloud_upload</span>
+<span class="font-body-md text-body-md text-on-surface-variant group-hover:text-primary transition-colors">Tap to upload or drag and drop</span>
+<span class="font-label-md text-label-md text-outline mt-1">PNG, JPG, up to 10MB</span>
+<input accept="image/png, image/jpeg" class="hidden" type="file"/>
+</div>
+</div>
+<!-- Submit Action -->
+<div class="pt-stack-md">
+<button class="w-full bg-primary-container text-white h-[56px] rounded-lg font-label-md text-label-md flex items-center justify-center gap-2 hover:bg-primary-container/90 active:scale-[0.98] transition-all shadow-inner shadow-white/20 shadow-[0_4px_14px_0_rgba(37,99,235,0.39)]" type="button">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">send</span>
+                    Submit Ticket
+                </button>
+<p class="text-center font-label-md text-label-md text-on-surface-variant mt-stack-sm flex items-center justify-center gap-1">
+<span class="material-symbols-outlined text-[16px]">schedule</span>
+                    We usually reply within 2 hours
+                </p>
+</div>
+</form>
+</main>
+</body></html>

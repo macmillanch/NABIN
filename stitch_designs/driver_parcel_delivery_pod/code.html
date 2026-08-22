@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html class="light" lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport"/>
+  <title>NABIN Driver - Parcel Delivery & Proof of Delivery</title>
+  <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"/>
+</head>
+<body class="bg-slate-900 text-slate-900 h-screen w-full overflow-hidden relative font-sans">
+
+<div class="absolute inset-0 w-full h-full z-0">
+  <img alt="Map" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuD7ZMqDKbudMTjfEwU1vOZvTF6sN05ss-Qq0Btf85I03ylGVLvBuB7tzwZVhEIj2lpFLqYT6srdNCO9FJkpkkACIbfR5G9kvkEO-RbS6htvyrA7rCAs39gV1K-8EpE0KZompZyhnNT-RHG1uD2ASmxZzTeNqcI0-W5teFlHebYSBodgkmqPPnrNyTnDPvHV3jnNTrqRmF1QGvQTiC8ieRoal8NoYC8mZjE4iegoz9tFCeuGiTjxraxiPdYLuM-0jw3XE-eCFLp73M-h"/>
+</div>
+
+<div class="relative z-30 fixed top-3 left-3 right-3">
+  <div class="bg-amber-600 text-slate-950 rounded-2xl p-4 shadow-2xl flex items-center justify-between border border-amber-500">
+    <div class="flex items-center gap-3">
+      <div class="w-11 h-11 rounded-xl bg-amber-800 text-white flex items-center justify-center font-bold">
+        <span class="material-symbols-outlined text-3xl">local_shipping</span>
+      </div>
+      <div>
+        <div class="text-base font-black leading-tight">Arrived at Recipient Location</div>
+        <div class="text-xs font-semibold">Karol Bagh Electronics Hub, Delhi</div>
+      </div>
+    </div>
+    <span class="px-2.5 py-1 rounded-full bg-slate-950 text-amber-400 font-bold text-xs">Delivery</span>
+  </div>
+</div>
+
+<div class="absolute bottom-4 left-3 right-3 z-30">
+  <div class="bg-white rounded-3xl p-4 shadow-2xl border border-slate-200 flex flex-col gap-3">
+    
+    <div class="flex items-center justify-between">
+      <span class="px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 text-[10px] font-black uppercase tracking-wider">
+        STEP 2 OF 2: RECIPIENT DELIVERY OTP & POD
+      </span>
+      <span class="text-xs font-black text-slate-900">₹60.00 Guaranteed</span>
+    </div>
+
+    <!-- Recipient OTP -->
+    <div class="bg-slate-50 rounded-2xl p-3 border border-slate-200">
+      <div class="text-xs font-bold text-slate-700 mb-1.5">
+        Enter 4-digit Recipient Delivery OTP (4892):
+      </div>
+      <div class="flex items-center gap-2">
+        <input type="text" maxlength="4" value="4892" class="flex-1 p-2.5 rounded-xl border border-slate-300 font-black text-center text-lg tracking-widest text-amber-900 bg-white outline-none" />
+      </div>
+    </div>
+
+    <!-- Proof of Delivery Photo Simulation -->
+    <div class="p-3 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-between text-xs">
+      <div class="flex items-center gap-2">
+        <span class="material-symbols-outlined text-emerald-600">photo_camera</span>
+        <span class="font-extrabold text-slate-800">Package Handover Photo</span>
+      </div>
+      <span class="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-700 font-black text-[10px]">CAPTURED ✓</span>
+    </div>
+
+    <a href="../driver_ride_complete_payment/code.html" class="w-full h-14 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-black rounded-2xl text-base flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20">
+      <span>COMPLETE DELIVERY & SETTLE FARE</span>
+      <span class="material-symbols-outlined">check_circle</span>
+    </a>
+
+  </div>
+</div>
+
+</body>
+</html>

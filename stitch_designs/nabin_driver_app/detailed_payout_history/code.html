@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Detailed Payout History - NABIN Driver</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-primary-container": "#eeefff",
+                        "on-secondary-fixed": "#181c21",
+                        "secondary-fixed": "#e0e2ea",
+                        "tertiary-container": "#bc4800",
+                        "surface-container-lowest": "#0c0e16",
+                        "on-primary": "#002a78",
+                        "primary-fixed": "#dbe1ff",
+                        "error-container": "#93000a",
+                        "on-tertiary-fixed-variant": "#7d2d00",
+                        "surface-bright": "#373942",
+                        "tertiary-fixed-dim": "#ffb596",
+                        "on-secondary-container": "#b2b5bc",
+                        "primary-fixed-dim": "#b4c5ff",
+                        "outline-variant": "#434655",
+                        "on-secondary": "#2d3136",
+                        "outline": "#8d90a0",
+                        "inverse-surface": "#e1e2ed",
+                        "on-secondary-fixed-variant": "#43474d",
+                        "surface-container-low": "#191b23",
+                        "on-background": "#e1e2ed",
+                        "background": "#11131b",
+                        "inverse-on-surface": "#2e3039",
+                        "secondary-fixed-dim": "#c3c6ce",
+                        "on-error-container": "#ffdad6",
+                        "on-tertiary": "#581e00",
+                        "primary-container": "#2563eb",
+                        "on-surface-variant": "#c3c6d7",
+                        "on-surface": "#e1e2ed",
+                        "primary": "#b4c5ff",
+                        "tertiary-fixed": "#ffdbcd",
+                        "surface": "#11131b",
+                        "surface-variant": "#32343d",
+                        "on-tertiary-fixed": "#360f00",
+                        "surface-container": "#1d1f27",
+                        "surface-container-highest": "#32343d",
+                        "on-tertiary-container": "#ffede6",
+                        "surface-tint": "#b4c5ff",
+                        "on-error": "#690005",
+                        "error": "#ffb4ab",
+                        "secondary-container": "#43474d",
+                        "inverse-primary": "#0053db",
+                        "tertiary": "#ffb596",
+                        "on-primary-fixed": "#00174b",
+                        "surface-container-high": "#282a32",
+                        "surface-dim": "#11131b",
+                        "secondary": "#c3c6ce",
+                        "on-primary-fixed-variant": "#003ea8"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "margin-desktop": "32px",
+                        "stack-sm": "8px",
+                        "base": "4px",
+                        "stack-lg": "24px",
+                        "stack-md": "16px",
+                        "touch-target-min": "48px",
+                        "margin-mobile": "16px",
+                        "gutter": "16px"
+                    },
+                    "fontFamily": {
+                        "headline-lg-mobile": ["Inter"],
+                        "body-md": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "data-tabular": ["Inter"],
+                        "headline-xl": ["Inter"],
+                        "label-md": ["Inter"],
+                        "body-lg": ["Inter"]
+                    },
+                    "fontSize": {
+                        "headline-lg-mobile": ["20px", { "lineHeight": "28px", "fontWeight": "600" }],
+                        "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "headline-lg": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+                        "data-tabular": ["16px", { "lineHeight": "24px", "fontWeight": "600" }],
+                        "headline-xl": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "label-md": ["14px", { "lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "500" }],
+                        "body-lg": ["18px", { "lineHeight": "28px", "fontWeight": "400" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        .glass-edge {
+            box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+        }
+        body {
+            background-color: #0B0F14; /* Enforcing Level 0 Base */
+        }
+    </style>
+</head>
+<body class="text-on-background min-h-screen pb-[80px] pt-[64px] font-body-md antialiased md:pt-0">
+<!-- TopAppBar -->
+<header class="fixed top-0 w-full z-50 bg-surface dark:bg-surface flex items-center justify-between px-margin-mobile h-touch-target-min bg-surface-container dark:bg-surface-container md:hidden">
+<button class="w-[48px] h-[48px] flex items-center justify-center hover:bg-surface-variant dark:hover:bg-surface-variant transition-colors duration-200 text-on-surface-variant dark:text-on-surface-variant rounded-full">
+<span class="material-symbols-outlined" data-icon="arrow_back">arrow_back</span>
+</button>
+<h1 class="font-headline-lg-mobile text-headline-lg-mobile font-bold text-on-surface dark:text-on-surface">Payouts</h1>
+<button class="w-[48px] h-[48px] flex items-center justify-center hover:bg-surface-variant dark:hover:bg-surface-variant transition-colors duration-200 text-on-surface-variant dark:text-on-surface-variant rounded-full">
+<span class="material-symbols-outlined" data-icon="filter_list">filter_list</span>
+</button>
+</header>
+<main class="max-w-[1200px] mx-auto px-margin-mobile md:px-margin-desktop py-stack-lg flex flex-col gap-stack-lg">
+<!-- Summary Section -->
+<section class="grid grid-cols-1 md:grid-cols-2 gap-stack-md">
+<!-- Total Paid Out Card -->
+<div class="bg-[#111827] rounded-xl p-stack-md glass-edge flex flex-col justify-center relative overflow-hidden h-[120px]">
+<div class="absolute -right-4 -top-4 w-24 h-24 bg-primary-container opacity-10 rounded-full blur-xl"></div>
+<p class="font-label-md text-label-md text-on-surface-variant mb-1 z-10">Total Paid Out (This Month)</p>
+<p class="font-headline-xl text-headline-xl text-primary z-10 font-data-tabular">₹ 42,850</p>
+</div>
+<!-- Next Payout Card -->
+<div class="bg-[#111827] rounded-xl p-stack-md glass-edge flex flex-col justify-center relative overflow-hidden h-[120px]">
+<div class="absolute -left-4 -bottom-4 w-24 h-24 bg-[#1E293B] opacity-30 rounded-full blur-xl"></div>
+<p class="font-label-md text-label-md text-on-surface-variant mb-1 z-10">Next Payout</p>
+<div class="flex items-end justify-between z-10">
+<p class="font-headline-lg text-headline-lg text-on-surface font-data-tabular">₹ 3,450</p>
+<p class="font-label-md text-label-md text-secondary">Tomorrow, 9:00 AM</p>
+</div>
+</div>
+</section>
+<!-- Filters -->
+<section class="flex gap-stack-sm overflow-x-auto pb-2 scrollbar-hide">
+<button class="h-touch-target-min px-4 rounded-full bg-primary-container text-on-primary-container font-label-md text-label-md whitespace-nowrap flex-shrink-0 transition-transform active:scale-95">All</button>
+<button class="h-touch-target-min px-4 rounded-full bg-surface-container-high text-on-surface-variant border border-outline-variant font-label-md text-label-md whitespace-nowrap flex-shrink-0 transition-transform active:scale-95">Completed</button>
+<button class="h-touch-target-min px-4 rounded-full bg-surface-container-high text-on-surface-variant border border-outline-variant font-label-md text-label-md whitespace-nowrap flex-shrink-0 transition-transform active:scale-95">Pending</button>
+<button class="h-touch-target-min px-4 rounded-full bg-surface-container-high text-on-surface-variant border border-outline-variant font-label-md text-label-md whitespace-nowrap flex-shrink-0 transition-transform active:scale-95">Failed</button>
+</section>
+<!-- History List -->
+<section class="bg-[#111827] rounded-xl glass-edge overflow-hidden">
+<div class="p-stack-md border-b border-[#1E293B] flex justify-between items-center">
+<h2 class="font-headline-lg-mobile text-headline-lg-mobile text-on-surface">Recent Activity</h2>
+</div>
+<ul class="flex flex-col">
+<!-- Completed Item -->
+<li class="min-h-[64px] px-stack-md py-stack-sm border-b border-[#1E293B] flex items-center justify-between hover:bg-surface-variant transition-colors duration-150 cursor-pointer">
+<div class="flex items-center gap-stack-md">
+<div class="w-10 h-10 rounded-full bg-[rgba(34,197,94,0.15)] flex items-center justify-center text-[#4ade80]">
+<span class="material-symbols-outlined text-[20px]" data-icon="check_circle" data-weight="fill" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+</div>
+<div class="flex flex-col">
+<span class="font-body-md text-body-md text-on-surface">HDFC Bank ....1234</span>
+<span class="font-label-md text-label-md text-on-surface-variant">Today, 10:30 AM</span>
+</div>
+</div>
+<div class="flex flex-col items-end">
+<span class="font-data-tabular text-data-tabular text-on-surface">₹ 1,250</span>
+<span class="font-label-md text-label-md text-[#4ade80]">Completed</span>
+</div>
+</li>
+<!-- Pending Item -->
+<li class="min-h-[64px] px-stack-md py-stack-sm border-b border-[#1E293B] flex items-center justify-between hover:bg-surface-variant transition-colors duration-150 cursor-pointer">
+<div class="flex items-center gap-stack-md">
+<div class="w-10 h-10 rounded-full bg-[rgba(234,179,8,0.15)] flex items-center justify-center text-[#facc15]">
+<span class="material-symbols-outlined text-[20px]" data-icon="schedule" data-weight="fill" style="font-variation-settings: 'FILL' 1;">schedule</span>
+</div>
+<div class="flex flex-col">
+<span class="font-body-md text-body-md text-on-surface">UPI: driver@okaxis</span>
+<span class="font-label-md text-label-md text-on-surface-variant">Yesterday, 6:45 PM</span>
+</div>
+</div>
+<div class="flex flex-col items-end">
+<span class="font-data-tabular text-data-tabular text-on-surface">₹ 850</span>
+<span class="font-label-md text-label-md text-[#facc15]">Pending</span>
+</div>
+</li>
+<!-- Completed Item -->
+<li class="min-h-[64px] px-stack-md py-stack-sm border-b border-[#1E293B] flex items-center justify-between hover:bg-surface-variant transition-colors duration-150 cursor-pointer">
+<div class="flex items-center gap-stack-md">
+<div class="w-10 h-10 rounded-full bg-[rgba(34,197,94,0.15)] flex items-center justify-center text-[#4ade80]">
+<span class="material-symbols-outlined text-[20px]" data-icon="check_circle" data-weight="fill" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+</div>
+<div class="flex flex-col">
+<span class="font-body-md text-body-md text-on-surface">HDFC Bank ....1234</span>
+<span class="font-label-md text-label-md text-on-surface-variant">Oct 12, 11:20 AM</span>
+</div>
+</div>
+<div class="flex flex-col items-end">
+<span class="font-data-tabular text-data-tabular text-on-surface">₹ 2,100</span>
+<span class="font-label-md text-label-md text-[#4ade80]">Completed</span>
+</div>
+</li>
+<!-- Failed Item -->
+<li class="min-h-[64px] px-stack-md py-stack-sm flex items-center justify-between hover:bg-surface-variant transition-colors duration-150 cursor-pointer bg-[rgba(147,0,10,0.05)]">
+<div class="flex items-center gap-stack-md">
+<div class="w-10 h-10 rounded-full bg-error-container bg-opacity-20 flex items-center justify-center text-error">
+<span class="material-symbols-outlined text-[20px]" data-icon="error" data-weight="fill" style="font-variation-settings: 'FILL' 1;">error</span>
+</div>
+<div class="flex flex-col">
+<span class="font-body-md text-body-md text-on-surface">SBI ....9876</span>
+<span class="font-label-md text-label-md text-error">Oct 10, 4:00 PM</span>
+</div>
+</div>
+<div class="flex flex-col items-end">
+<span class="font-data-tabular text-data-tabular text-on-surface">₹ 500</span>
+<span class="font-label-md text-label-md text-error">Failed</span>
+</div>
+</li>
+</ul>
+</section>
+<div class="text-center py-stack-md">
+<button class="font-label-md text-label-md text-primary hover:text-primary-fixed transition-colors">Load More History</button>
+</div>
+</main>
+<!-- BottomNavBar -->
+<nav class="fixed bottom-0 w-full z-50 bg-surface-container dark:bg-surface-container border-t border-outline-variant flex justify-around items-center h-16 px-margin-mobile md:hidden">
+<button class="flex flex-col items-center justify-center text-on-surface-variant hover:bg-secondary-container dark:hover:bg-secondary-container scale-95 active:scale-90 transition-transform w-[64px] h-[64px]">
+<span class="material-symbols-outlined mb-1" data-icon="home">home</span>
+<span class="font-label-md text-[10px] leading-tight">Home</span>
+</button>
+<button class="flex flex-col items-center justify-center text-on-surface-variant hover:bg-secondary-container dark:hover:bg-secondary-container scale-95 active:scale-90 transition-transform w-[64px] h-[64px]">
+<span class="material-symbols-outlined mb-1" data-icon="payments">payments</span>
+<span class="font-label-md text-[10px] leading-tight">Earnings</span>
+</button>
+<button class="flex flex-col items-center justify-center bg-primary-container text-on-primary-container rounded-full px-4 py-1 scale-95 active:scale-90 transition-transform h-auto">
+<span class="material-symbols-outlined mb-1" data-icon="account_balance_wallet" data-weight="fill" style="font-variation-settings: 'FILL' 1;">account_balance_wallet</span>
+<span class="font-label-md text-[10px] leading-tight">Payouts</span>
+</button>
+<button class="flex flex-col items-center justify-center text-on-surface-variant hover:bg-secondary-container dark:hover:bg-secondary-container scale-95 active:scale-90 transition-transform w-[64px] h-[64px]">
+<span class="material-symbols-outlined mb-1" data-icon="person">person</span>
+<span class="font-label-md text-[10px] leading-tight">Profile</span>
+</button>
+</nav>
+<!-- Desktop Navigation (Hidden on mobile, showing intent for wider screens) -->
+<nav class="hidden md:flex fixed top-0 w-full z-50 bg-surface-container-high h-[64px] items-center px-margin-desktop justify-between border-b border-[#1E293B]">
+<div class="flex items-center gap-8">
+<span class="font-headline-xl text-headline-xl font-bold text-primary">NABIN</span>
+<div class="flex gap-4">
+<button class="px-4 h-[40px] text-on-surface-variant font-label-md hover:bg-surface-variant rounded-full transition-colors">Home</button>
+<button class="px-4 h-[40px] text-on-surface-variant font-label-md hover:bg-surface-variant rounded-full transition-colors">Earnings</button>
+<button class="px-4 h-[40px] bg-primary-container text-on-primary-container font-label-md rounded-full transition-colors">Payouts</button>
+</div>
+</div>
+<button class="flex items-center gap-2 text-on-surface-variant hover:text-on-surface transition-colors">
+<span class="material-symbols-outlined" data-icon="person">person</span>
+<span class="font-label-md">Profile</span>
+</button>
+</nav>
+</body></html>

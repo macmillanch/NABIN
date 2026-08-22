@@ -1,0 +1,290 @@
+<!DOCTYPE html><html class="dark" lang="en"><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>NABIN Driver - Partner Stations</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "background": "#11131b",
+                        "on-primary-container": "#eeefff",
+                        "on-primary-fixed-variant": "#003ea8",
+                        "on-tertiary-fixed": "#360f00",
+                        "on-tertiary-fixed-variant": "#7d2d00",
+                        "secondary-fixed": "#e0e2ea",
+                        "secondary-fixed-dim": "#c3c6ce",
+                        "tertiary-fixed": "#ffdbcd",
+                        "surface-container-lowest": "#0c0e16",
+                        "secondary": "#c3c6ce",
+                        "on-tertiary-container": "#ffede6",
+                        "surface-container": "#1d1f27",
+                        "on-tertiary": "#581e00",
+                        "outline-variant": "#434655",
+                        "primary-fixed": "#dbe1ff",
+                        "primary": "#b4c5ff",
+                        "on-secondary-fixed-variant": "#43474d",
+                        "inverse-primary": "#0053db",
+                        "on-secondary": "#2d3136",
+                        "on-primary": "#002a78",
+                        "surface-container-low": "#191b23",
+                        "outline": "#8d90a0",
+                        "surface-bright": "#373942",
+                        "on-secondary-container": "#b2b5bc",
+                        "on-secondary-fixed": "#181c21",
+                        "on-background": "#e1e2ed",
+                        "surface-container-high": "#282a32",
+                        "on-surface-variant": "#c3c6d7",
+                        "tertiary-container": "#bc4800",
+                        "surface": "#11131b",
+                        "secondary-container": "#43474d",
+                        "error-container": "#93000a",
+                        "inverse-surface": "#e1e2ed",
+                        "on-primary-fixed": "#00174b",
+                        "surface-container-highest": "#32343d",
+                        "primary-fixed-dim": "#b4c5ff",
+                        "surface-variant": "#32343d",
+                        "on-error": "#690005",
+                        "on-error-container": "#ffdad6",
+                        "surface-tint": "#b4c5ff",
+                        "on-surface": "#e1e2ed",
+                        "tertiary": "#ffb596",
+                        "surface-dim": "#11131b",
+                        "primary-container": "#2563eb",
+                        "error": "#ffb4ab",
+                        "inverse-on-surface": "#2e3039",
+                        "tertiary-fixed-dim": "#ffb596"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "margin-mobile": "16px",
+                        "stack-sm": "8px",
+                        "stack-md": "16px",
+                        "base": "4px",
+                        "touch-target-min": "48px",
+                        "gutter": "16px",
+                        "stack-lg": "24px",
+                        "margin-desktop": "32px",
+                        "safe": "env(safe-area-inset-bottom)"
+                    },
+                    "fontFamily": {
+                        "headline-lg": ["Inter"],
+                        "label-md": ["Inter"],
+                        "data-tabular": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "headline-lg-mobile": ["Inter"],
+                        "headline-xl": ["Inter"],
+                        "body-md": ["Inter"]
+                    },
+                    "fontSize": {
+                        "headline-lg": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+                        "label-md": ["14px", { "lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "500" }],
+                        "data-tabular": ["16px", { "lineHeight": "24px", "fontWeight": "600" }],
+                        "body-lg": ["18px", { "lineHeight": "28px", "fontWeight": "400" }],
+                        "headline-lg-mobile": ["20px", { "lineHeight": "28px", "fontWeight": "600" }],
+                        "headline-xl": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body {
+            background-color: #0B0F14;
+            color: #e1e2ed;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .glass-edge {
+            box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+        }
+        .hide-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .hide-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+        .card-bg {
+            background-color: #17202B;
+        }
+        .input-bg {
+            background-color: #111827;
+        }
+    </style>
+</head>
+<body class="flex flex-col min-h-screen">
+<!-- TopAppBar -->
+<header class="fixed top-0 w-full z-50 bg-background dark:bg-background border-b border-outline-variant flex items-center justify-between px-margin-mobile h-touch-target-min">
+<button class="w-12 h-12 flex items-center justify-center text-primary dark:text-primary active:scale-95 transition-transform hover:bg-surface-container-high rounded-full">
+<span class="material-symbols-outlined">menu</span>
+</button>
+<h1 class="font-headline-lg-mobile text-headline-lg-mobile font-bold text-primary">Partner Stations</h1>
+<button class="w-12 h-12 flex items-center justify-center text-primary dark:text-primary active:scale-95 transition-transform hover:bg-surface-container-high rounded-full">
+<span class="material-symbols-outlined">search</span>
+</button>
+</header>
+<!-- Main Content -->
+<main class="flex-1 mt-[48px] mb-[80px] px-margin-mobile md:px-margin-desktop py-stack-md flex flex-col gap-stack-md overflow-y-auto">
+<!-- Search Bar -->
+<div class="relative w-full h-[56px]">
+<div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-outline">
+<span class="material-symbols-outlined">search</span>
+</div>
+<input class="w-full h-full input-bg border border-[#1E293B] rounded-lg pl-12 pr-4 text-on-surface focus:border-primary-container focus:ring-1 focus:ring-primary-container transition-colors font-body-md text-body-md placeholder:text-outline outline-none" placeholder="Search stations or locations..." type="text">
+</div>
+<!-- Filter Chips -->
+<div class="flex overflow-x-auto hide-scrollbar gap-stack-sm pb-2">
+<button class="h-touch-target-min px-4 rounded-full bg-primary-container text-white font-label-md text-label-md flex-shrink-0 flex items-center justify-center active:scale-95 transition-transform glass-edge">
+                Nearby
+            </button>
+<button class="h-touch-target-min px-4 rounded-full bg-surface-container-high text-on-surface-variant font-label-md text-label-md flex-shrink-0 flex items-center justify-center active:scale-95 transition-transform glass-edge">
+                Fuel
+            </button>
+<button class="h-touch-target-min px-4 rounded-full bg-surface-container-high text-on-surface-variant font-label-md text-label-md flex-shrink-0 flex items-center justify-center active:scale-95 transition-transform glass-edge">
+                Service
+            </button>
+<button class="h-touch-target-min px-4 rounded-full bg-surface-container-high text-on-surface-variant font-label-md text-label-md flex-shrink-0 flex items-center justify-center active:scale-95 transition-transform glass-edge">
+                Food
+            </button>
+</div>
+<!-- Station List -->
+<div class="flex flex-col gap-stack-md">
+<!-- Card 1 -->
+<div class="card-bg rounded-xl p-4 glass-edge flex flex-col gap-stack-md gap-stack-lg">
+<div class="flex justify-between items-start">
+<div class="flex flex-col gap-base">
+<h2 class="font-headline-lg-mobile text-headline-lg-mobile text-on-surface font-bold">Central Hub Fuel Station</h2>
+<span class="font-data-tabular text-data-tabular text-primary">0.8 km away</span>
+</div>
+<div class="bg-green-900/30 text-green-400 px-3 py-1 rounded-full font-label-md text-label-md flex items-center gap-1">
+<span class="w-2 h-2 rounded-full bg-green-400"></span>
+                        Open
+                    </div>
+</div>
+<div class="flex gap-4 text-outline border-t border-[#1E293B] pt-4 mt-2">
+<div class="flex flex-col items-center gap-1">
+<span class="material-symbols-outlined text-[24px]">local_gas_station</span>
+<span class="font-label-md text-[10px] uppercase tracking-wider">Fuel</span>
+</div>
+<div class="flex flex-col items-center gap-1">
+<span class="material-symbols-outlined text-[24px]">air</span>
+<span class="font-label-md text-[10px] uppercase tracking-wider">Air</span>
+</div>
+<div class="flex flex-col items-center gap-1">
+<span class="material-symbols-outlined text-[24px]">fastfood</span>
+<span class="font-label-md text-[10px] uppercase tracking-wider">Food</span>
+</div>
+</div>
+<div class="flex gap-stack-sm mt-2 border-t border-outline-variant pt-4">
+<button class="flex-1 h-touch-target-min bg-primary-container text-white rounded-lg font-label-md text-label-md active:scale-95 transition-transform flex items-center justify-center gap-2 glass-edge">
+<span class="material-symbols-outlined">navigation</span>
+                        Navigate
+                    </button>
+<button class="w-[48px] h-touch-target-min bg-[#1E293B] text-on-surface rounded-lg active:scale-95 transition-transform flex items-center justify-center glass-edge">
+<span class="material-symbols-outlined">info</span>
+</button>
+</div>
+</div>
+<!-- Card 2 -->
+<div class="card-bg rounded-xl p-4 glass-edge flex flex-col gap-stack-md gap-stack-lg">
+<div class="flex justify-between items-start">
+<div class="flex flex-col gap-base">
+<h2 class="font-headline-lg-mobile text-headline-lg-mobile text-on-surface font-bold">Northside Partner Services</h2>
+<span class="font-data-tabular text-data-tabular text-primary">2.4 km away</span>
+</div>
+<div class="bg-red-900/30 text-red-400 px-3 py-1 rounded-full font-label-md text-label-md flex items-center gap-1">
+<span class="w-2 h-2 rounded-full bg-red-400"></span>
+                        Closed
+                    </div>
+</div>
+<div class="flex gap-4 text-outline border-t border-[#1E293B] pt-4 mt-2">
+<div class="flex flex-col items-center gap-1">
+<span class="material-symbols-outlined text-[24px]">local_gas_station</span>
+<span class="font-label-md text-[10px] uppercase tracking-wider">Fuel</span>
+</div>
+<div class="flex flex-col items-center gap-1">
+<span class="material-symbols-outlined text-[24px]">ev_station</span>
+<span class="font-label-md text-[10px] uppercase tracking-wider">EV Charge</span>
+</div>
+</div>
+<div class="flex gap-stack-sm mt-2 border-t border-outline-variant pt-4">
+<button class="flex-1 h-touch-target-min bg-surface-container-high text-on-surface-variant rounded-lg font-label-md text-label-md flex items-center justify-center gap-2 glass-edge cursor-not-allowed opacity-50" disabled="">
+<span class="material-symbols-outlined">navigation</span>
+                        Navigate
+                    </button>
+<button class="w-[48px] h-touch-target-min bg-[#1E293B] text-on-surface rounded-lg active:scale-95 transition-transform flex items-center justify-center glass-edge">
+<span class="material-symbols-outlined">info</span>
+</button>
+</div>
+</div>
+<!-- Card 3 -->
+<div class="card-bg rounded-xl p-4 glass-edge flex flex-col gap-stack-md gap-stack-lg">
+<div class="flex justify-between items-start">
+<div class="flex flex-col gap-base">
+<h2 class="font-headline-lg-mobile text-headline-lg-mobile text-on-surface font-bold">Highway 42 Rest Stop</h2>
+<span class="font-data-tabular text-data-tabular text-primary">5.1 km away</span>
+</div>
+<div class="bg-green-900/30 text-green-400 px-3 py-1 rounded-full font-label-md text-label-md flex items-center gap-1">
+<span class="w-2 h-2 rounded-full bg-green-400"></span>
+                        Open
+                    </div>
+</div>
+<div class="flex gap-4 text-outline border-t border-[#1E293B] pt-4 mt-2">
+<div class="flex flex-col items-center gap-1">
+<span class="material-symbols-outlined text-[24px]">build</span>
+<span class="font-label-md text-[10px] uppercase tracking-wider">Service</span>
+</div>
+<div class="flex flex-col items-center gap-1">
+<span class="material-symbols-outlined text-[24px]">local_cafe</span>
+<span class="font-label-md text-[10px] uppercase tracking-wider">Coffee</span>
+</div>
+<div class="flex flex-col items-center gap-1">
+<span class="material-symbols-outlined text-[24px]">wc</span>
+<span class="font-label-md text-[10px] uppercase tracking-wider">Restroom</span>
+</div>
+</div>
+<div class="flex gap-stack-sm mt-2 border-t border-outline-variant pt-4">
+<button class="flex-1 h-touch-target-min bg-primary-container text-white rounded-lg font-label-md text-label-md active:scale-95 transition-transform flex items-center justify-center gap-2 glass-edge">
+<span class="material-symbols-outlined">navigation</span>
+                        Navigate
+                    </button>
+<button class="w-[48px] h-touch-target-min bg-[#1E293B] text-on-surface rounded-lg active:scale-95 transition-transform flex items-center justify-center glass-edge">
+<span class="material-symbols-outlined">info</span>
+</button>
+</div>
+</div>
+</div>
+</main>
+<!-- BottomNavBar -->
+<nav class="fixed bottom-0 w-full z-50 bg-surface-container dark:bg-surface-container border-t border-outline-variant flex justify-around items-center h-20 px-2 pb-safe md:hidden">
+<button class="flex flex-col items-center justify-center text-on-surface-variant hover:text-on-surface transition-colors active:scale-90 transition-transform h-full w-16 gap-1">
+<span class="material-symbols-outlined">home</span>
+<span class="font-label-md text-label-md">Home</span>
+</button>
+<button class="flex flex-col items-center justify-center bg-primary-container text-on-primary-container rounded-xl px-4 py-1 hover:text-on-surface transition-colors active:scale-90 transition-transform">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">ev_station</span>
+<span class="font-label-md text-label-md">Stations</span>
+</button>
+<button class="flex flex-col items-center justify-center text-on-surface-variant hover:text-on-surface transition-colors active:scale-90 transition-transform h-full w-16 gap-1">
+<span class="material-symbols-outlined">payments</span>
+<span class="font-label-md text-label-md">Earnings</span>
+</button>
+<button class="flex flex-col items-center justify-center text-on-surface-variant hover:text-on-surface transition-colors active:scale-90 transition-transform h-full w-16 gap-1">
+<span class="material-symbols-outlined">person</span>
+<span class="font-label-md text-label-md">Profile</span>
+</button>
+</nav>
+
+
+</body></html>

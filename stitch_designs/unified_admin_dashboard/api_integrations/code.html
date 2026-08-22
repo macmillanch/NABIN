@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>API &amp; Integrations - NABIN</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@600;700&amp;family=Inter:wght@400&amp;family=Geist:wght@400;500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-surface-variant": "#434654",
+                        "on-tertiary-container": "#f3f8ff",
+                        "on-background": "#191c1e",
+                        "on-primary-fixed": "#00164e",
+                        "on-error-container": "#93000a",
+                        "surface-variant": "#e0e3e5",
+                        "on-tertiary": "#ffffff",
+                        "secondary-container": "#d0e1fb",
+                        "background": "#f7f9fb",
+                        "surface-container": "#eceef0",
+                        "on-tertiary-fixed": "#001e2f",
+                        "outline": "#747685",
+                        "inverse-primary": "#b6c4ff",
+                        "surface-container-high": "#e6e8ea",
+                        "surface-container-lowest": "#ffffff",
+                        "surface-dim": "#d8dadc",
+                        "on-error": "#ffffff",
+                        "tertiary": "#005f89",
+                        "on-primary": "#ffffff",
+                        "tertiary-fixed": "#c9e6ff",
+                        "secondary": "#505f76",
+                        "on-tertiary-fixed-variant": "#004c6e",
+                        "primary-container": "#4169e1",
+                        "primary-fixed": "#dce1ff",
+                        "surface-tint": "#2854cc",
+                        "error": "#ba1a1a",
+                        "secondary-fixed-dim": "#b7c8e1",
+                        "tertiary-fixed-dim": "#89ceff",
+                        "error-container": "#ffdad6",
+                        "tertiary-container": "#0079ad",
+                        "on-secondary-fixed": "#0b1c30",
+                        "on-secondary-container": "#54647a",
+                        "secondary-fixed": "#d3e4fe",
+                        "outline-variant": "#c4c5d6",
+                        "primary": "#214fc7",
+                        "on-primary-fixed-variant": "#003baf",
+                        "surface-container-low": "#f2f4f6",
+                        "surface-container-highest": "#e0e3e5",
+                        "surface": "#f7f9fb",
+                        "inverse-surface": "#2d3133",
+                        "on-primary-container": "#f8f7ff",
+                        "on-surface": "#191c1e",
+                        "primary-fixed-dim": "#b6c4ff",
+                        "on-secondary-fixed-variant": "#38485d",
+                        "inverse-on-surface": "#eff1f3",
+                        "surface-bright": "#f7f9fb",
+                        "on-secondary": "#ffffff"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "gutter": "1.5rem",
+                        "margin-desktop": "2rem",
+                        "stack-xs": "0.25rem",
+                        "container-max": "1440px",
+                        "margin-mobile": "1rem",
+                        "stack-md": "1rem",
+                        "stack-lg": "2rem",
+                        "stack-sm": "0.5rem"
+                    },
+                    "fontFamily": {
+                        "body-md": ["Inter"],
+                        "display-lg": ["Hanken Grotesk"],
+                        "body-sm": ["Inter"],
+                        "mono-sm": ["Geist"],
+                        "headline-sm": ["Hanken Grotesk"],
+                        "label-md": ["Geist"],
+                        "body-lg": ["Inter"],
+                        "headline-md": ["Hanken Grotesk"]
+                    },
+                    "fontSize": {
+                        "body-md": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "display-lg": ["36px", { "lineHeight": "44px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "body-sm": ["12px", { "lineHeight": "16px", "fontWeight": "400" }],
+                        "mono-sm": ["12px", { "lineHeight": "16px", "fontWeight": "400" }],
+                        "headline-sm": ["20px", { "lineHeight": "28px", "fontWeight": "600" }],
+                        "label-md": ["13px", { "lineHeight": "18px", "letterSpacing": "0.05em", "fontWeight": "500" }],
+                        "body-lg": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "headline-md": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body { background-color: #F8FAFC; color: #1E293B; }
+        .card-border { border: 1px solid #E2E8F0; }
+        .table-header { background-color: #F1F5F9; }
+        .row-border { border-bottom: 1px solid #F1F5F9; }
+        .row-hover:hover { background-color: #F8FAFC; }
+        .focus-ring:focus { outline: none; border-color: #4169E1; box-shadow: 0 0 0 2px rgba(65, 105, 225, 0.1); }
+    </style>
+</head>
+<body class="font-body-md text-body-md antialiased flex h-screen overflow-hidden">
+<!-- SideNavBar -->
+<nav class="hidden md:flex flex-col w-[280px] h-screen fixed left-0 top-0 bg-surface dark:bg-inverse-surface border-r border-outline-variant dark:border-outline py-stack-lg z-50">
+<div class="px-gutter mb-stack-lg flex items-center gap-3">
+<div class="w-10 h-10 rounded-full overflow-hidden flex-shrink-0 card-border">
+<img class="w-full h-full object-cover" data-alt="A stylized, high-tech corporate avatar or abstract geometric logo suitable for a mobility administration platform. Clean lines, minimalist aesthetic. Soft, professional lighting." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAfDzkhd736n8AQCvoy0Np14qynMIQN-FgYTDp0w1FewS2Xsu8_LlcwKIjHi3JlFE4DMPt16It7fW-McGRhaHp6Nr_4bweyMzSmm23_mpjKl1lGYZeh2wOGOPXKZYfpbnqf5FgX0HQflRtUV6w62XsAY9akOgTOB1C5ZnKz_HbkfFMwPsWp-XU4Un7YtyeDvUROJY0vlyE6aZzHT3MmilMG7c1B8ECtWoS4fisRzWlQJn_a0gr8frOQUQ"/>
+</div>
+<div>
+<h1 class="font-headline-md text-headline-md font-bold text-primary dark:text-primary-fixed-dim tracking-tight">NABIN</h1>
+<p class="font-label-md text-label-md text-on-surface-variant dark:text-surface-variant">Mobility Admin</p>
+</div>
+</div>
+<div class="px-gutter mb-stack-lg">
+<button class="w-full bg-primary-container text-on-primary py-2 px-4 rounded-lg font-label-md text-label-md hover:opacity-90 transition-opacity flex items-center justify-center gap-2">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">add</span>
+                Quick Dispatch
+            </button>
+</div>
+<div class="flex-1 overflow-y-auto">
+<ul class="flex flex-col gap-1 px-4">
+<li>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg font-label-md text-label-md text-on-secondary-fixed-variant dark:text-surface-variant hover:bg-surface-container dark:hover:bg-surface-container-highest transition-colors group" href="#">
+<span class="material-symbols-outlined group-hover:text-primary transition-colors">dashboard</span>
+                        Dashboard
+                    </a>
+</li>
+<li>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg font-label-md text-label-md text-on-secondary-fixed-variant dark:text-surface-variant hover:bg-surface-container dark:hover:bg-surface-container-highest transition-colors group" href="#">
+<span class="material-symbols-outlined group-hover:text-primary transition-colors">local_shipping</span>
+                        Operations
+                    </a>
+</li>
+<li>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg font-label-md text-label-md text-on-secondary-fixed-variant dark:text-surface-variant hover:bg-surface-container dark:hover:bg-surface-container-highest transition-colors group" href="#">
+<span class="material-symbols-outlined group-hover:text-primary transition-colors">groups</span>
+                        People
+                    </a>
+</li>
+<li>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg font-label-md text-label-md text-on-secondary-fixed-variant dark:text-surface-variant hover:bg-surface-container dark:hover:bg-surface-container-highest transition-colors group" href="#">
+<span class="material-symbols-outlined group-hover:text-primary transition-colors">hub</span>
+                        Platform
+                    </a>
+</li>
+<li>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg font-label-md text-label-md text-on-secondary-fixed-variant dark:text-surface-variant hover:bg-surface-container dark:hover:bg-surface-container-highest transition-colors group" href="#">
+<span class="material-symbols-outlined group-hover:text-primary transition-colors">payments</span>
+                        Finance
+                    </a>
+</li>
+<li>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg font-label-md text-label-md text-on-secondary-fixed-variant dark:text-surface-variant hover:bg-surface-container dark:hover:bg-surface-container-highest transition-colors group" href="#">
+<span class="material-symbols-outlined group-hover:text-primary transition-colors">support_agent</span>
+                        Support
+                    </a>
+</li>
+<li>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg font-label-md text-label-md text-on-secondary-fixed-variant dark:text-surface-variant hover:bg-surface-container dark:hover:bg-surface-container-highest transition-colors group" href="#">
+<span class="material-symbols-outlined group-hover:text-primary transition-colors">analytics</span>
+                        Analytics
+                    </a>
+</li>
+<li>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg bg-secondary-container dark:bg-secondary text-on-secondary-container dark:text-on-secondary font-bold font-label-md text-label-md hover:bg-surface-container transition-colors group transform scale-95 duration-150" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">settings</span>
+                        System
+                    </a>
+</li>
+</ul>
+</div>
+</nav>
+<!-- TopNavBar -->
+<header class="hidden md:flex h-16 fixed top-0 right-0 left-[280px] z-40 bg-surface dark:bg-inverse-surface border-b border-outline-variant dark:border-outline justify-between items-center px-gutter w-[calc(100%-280px)] transition-all duration-200">
+<div class="flex items-center gap-4">
+<!-- Search -->
+<div class="relative">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-[18px]">search</span>
+<input class="pl-9 pr-4 py-1.5 rounded-lg border card-border bg-surface-container-lowest focus-ring font-body-sm text-body-sm w-64 text-on-surface" placeholder="Search resources..." type="text"/>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<button class="bg-surface-container-lowest border card-border text-on-surface py-1.5 px-3 rounded-lg font-label-md text-label-md hover:bg-surface-container-low transition-colors">Export</button>
+<button class="bg-primary-container text-on-primary py-1.5 px-3 rounded-lg font-label-md text-label-md hover:opacity-90 transition-opacity">New Zone</button>
+<div class="flex items-center gap-2 ml-2 border-l card-border pl-4">
+<button class="text-on-surface-variant hover:text-primary transition-colors p-1 rounded-full hover:bg-surface-container-low">
+<span class="material-symbols-outlined text-[20px]">notifications</span>
+</button>
+<button class="text-on-surface-variant hover:text-primary transition-colors p-1 rounded-full hover:bg-surface-container-low">
+<span class="material-symbols-outlined text-[20px]">help</span>
+</button>
+<button class="text-on-surface-variant hover:text-primary transition-colors p-1 rounded-full hover:bg-surface-container-low">
+<span class="material-symbols-outlined text-[24px]">account_circle</span>
+</button>
+</div>
+</div>
+</header>
+<!-- Main Content Canvas -->
+<main class="flex-1 md:ml-[280px] pt-16 overflow-y-auto bg-background h-full">
+<div class="max-w-[1440px] mx-auto p-gutter pb-24">
+<!-- Page Header -->
+<div class="mb-stack-lg">
+<div class="flex items-center gap-2 text-on-surface-variant mb-2">
+<span class="font-label-md text-label-md uppercase tracking-wider">System Settings</span>
+<span class="material-symbols-outlined text-[16px]">chevron_right</span>
+<span class="font-label-md text-label-md text-primary font-semibold">API &amp; Integrations</span>
+</div>
+<h2 class="font-display-lg text-display-lg text-on-surface">API &amp; Integrations</h2>
+<p class="font-body-md text-body-md text-on-surface-variant mt-1 max-w-2xl">Manage your API keys, configure webhooks for real-time event notifications, and connect third-party services to your mobility platform.</p>
+</div>
+<!-- Dashboard Grid -->
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-gutter">
+<!-- Main Column (Left 2/3) -->
+<div class="lg:col-span-2 flex flex-col gap-gutter">
+<!-- API Keys Section -->
+<section class="bg-surface-container-lowest rounded-xl card-border p-6 shadow-sm">
+<div class="flex justify-between items-center mb-6 border-b border-surface-variant pb-4">
+<div>
+<h3 class="font-headline-sm text-headline-sm text-on-surface flex items-center gap-2">
+<span class="material-symbols-outlined text-primary">key</span>
+                                    API Keys
+                                </h3>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-1">Keys used to authenticate requests to the NABIN API.</p>
+</div>
+<button class="bg-surface-container-lowest border card-border text-on-surface py-1.5 px-3 rounded-lg font-label-md text-label-md hover:bg-surface-container-low transition-colors flex items-center gap-1">
+<span class="material-symbols-outlined text-[16px]">add</span>
+                                Create Key
+                            </button>
+</div>
+<div class="overflow-x-auto">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="table-header font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">
+<th class="py-3 px-4 font-medium rounded-tl-lg">Name</th>
+<th class="py-3 px-4 font-medium">Token</th>
+<th class="py-3 px-4 font-medium">Environment</th>
+<th class="py-3 px-4 font-medium">Last Used</th>
+<th class="py-3 px-4 font-medium rounded-tr-lg text-right">Actions</th>
+</tr>
+</thead>
+<tbody class="font-body-sm text-body-sm text-on-surface">
+<tr class="row-border row-hover h-[56px] transition-colors">
+<td class="py-3 px-4 font-medium">Production Dispatch</td>
+<td class="py-3 px-4 font-mono-sm text-mono-sm text-on-surface-variant">pk_live_••••••••8x9q</td>
+<td class="py-3 px-4">
+<span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-[#EFF6FF] text-[#3B82F6]">Production</span>
+</td>
+<td class="py-3 px-4 text-on-surface-variant">10 mins ago</td>
+<td class="py-3 px-4 text-right">
+<button class="text-on-surface-variant hover:text-error transition-colors"><span class="material-symbols-outlined text-[18px]">delete</span></button>
+</td>
+</tr>
+<tr class="row-border row-hover h-[56px] transition-colors">
+<td class="py-3 px-4 font-medium">Staging Mobile App</td>
+<td class="py-3 px-4 font-mono-sm text-mono-sm text-on-surface-variant">pk_test_••••••••2m4z</td>
+<td class="py-3 px-4">
+<span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-surface-container-high text-on-surface-variant">Sandbox</span>
+</td>
+<td class="py-3 px-4 text-on-surface-variant">2 days ago</td>
+<td class="py-3 px-4 text-right">
+<button class="text-on-surface-variant hover:text-error transition-colors"><span class="material-symbols-outlined text-[18px]">delete</span></button>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<!-- Webhooks Section -->
+<section class="bg-surface-container-lowest rounded-xl card-border p-6 shadow-sm">
+<div class="flex justify-between items-center mb-6 border-b border-surface-variant pb-4">
+<div>
+<h3 class="font-headline-sm text-headline-sm text-on-surface flex items-center gap-2">
+<span class="material-symbols-outlined text-primary">webhook</span>
+                                    Webhooks
+                                </h3>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-1">Receive real-time HTTP requests when events occur in your account.</p>
+</div>
+<button class="bg-surface-container-lowest border card-border text-on-surface py-1.5 px-3 rounded-lg font-label-md text-label-md hover:bg-surface-container-low transition-colors flex items-center gap-1">
+<span class="material-symbols-outlined text-[16px]">add</span>
+                                Add Endpoint
+                            </button>
+</div>
+<div class="flex flex-col gap-3">
+<!-- Webhook Card 1 -->
+<div class="border card-border rounded-lg p-4 hover:bg-surface-bright transition-colors group">
+<div class="flex justify-between items-start">
+<div class="flex gap-3">
+<div class="mt-0.5">
+<span class="inline-flex items-center justify-center w-2 h-2 rounded-full bg-[#10B981]"></span>
+</div>
+<div>
+<div class="font-mono-sm text-mono-sm font-medium text-on-surface break-all">https://api.internal-ops.com/v1/nabin/webhooks</div>
+<div class="flex gap-2 mt-2 flex-wrap">
+<span class="bg-surface-container text-on-surface-variant px-2 py-0.5 rounded text-[11px] font-mono-sm">ride.completed</span>
+<span class="bg-surface-container text-on-surface-variant px-2 py-0.5 rounded text-[11px] font-mono-sm">ride.cancelled</span>
+</div>
+</div>
+</div>
+<button class="text-on-surface-variant opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-surface-container rounded"><span class="material-symbols-outlined text-[18px]">more_vert</span></button>
+</div>
+</div>
+<!-- Webhook Card 2 -->
+<div class="border card-border rounded-lg p-4 hover:bg-surface-bright transition-colors group">
+<div class="flex justify-between items-start">
+<div class="flex gap-3">
+<div class="mt-0.5">
+<span class="inline-flex items-center justify-center w-2 h-2 rounded-full bg-[#EF4444] animate-pulse"></span>
+</div>
+<div>
+<div class="font-mono-sm text-mono-sm font-medium text-on-surface break-all">https://crm.logistics-sync.io/webhook/driver-events</div>
+<div class="flex items-center gap-2 mt-1">
+<span class="text-error text-[11px] font-medium">Failing (404 Not Found)</span>
+<span class="text-on-surface-variant text-[11px]">• Last failed 5m ago</span>
+</div>
+<div class="flex gap-2 mt-2 flex-wrap">
+<span class="bg-surface-container text-on-surface-variant px-2 py-0.5 rounded text-[11px] font-mono-sm">driver.verified</span>
+<span class="bg-surface-container text-on-surface-variant px-2 py-0.5 rounded text-[11px] font-mono-sm">driver.status_changed</span>
+</div>
+</div>
+</div>
+<button class="text-on-surface-variant opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-surface-container rounded"><span class="material-symbols-outlined text-[18px]">more_vert</span></button>
+</div>
+</div>
+</div>
+</section>
+</div>
+<!-- Right Column (Right 1/3) -->
+<div class="flex flex-col gap-gutter">
+<!-- Analytics Mini-Widget -->
+<section class="bg-surface-container-lowest rounded-xl card-border p-6 shadow-sm">
+<h3 class="font-headline-sm text-headline-sm text-on-surface mb-4">API Usage (24h)</h3>
+<div class="grid grid-cols-2 gap-4 mb-4">
+<div class="bg-surface p-3 rounded-lg border card-border">
+<div class="font-label-md text-label-md text-on-surface-variant mb-1">Total Calls</div>
+<div class="font-headline-md text-headline-md text-on-surface font-bold">142.5k</div>
+<div class="text-[11px] text-[#10B981] flex items-center gap-0.5 mt-1">
+<span class="material-symbols-outlined text-[12px]">trending_up</span> +12%
+                                </div>
+</div>
+<div class="bg-surface p-3 rounded-lg border card-border">
+<div class="font-label-md text-label-md text-on-surface-variant mb-1">Error Rate</div>
+<div class="font-headline-md text-headline-md text-on-surface font-bold">0.04%</div>
+<div class="text-[11px] text-on-surface-variant mt-1">Normal baseline</div>
+</div>
+</div>
+<!-- Sparkline Placeholder (Conceptual) -->
+<div class="h-16 w-full flex items-end gap-1 opacity-60">
+<!-- Simulated bars -->
+<div class="w-full bg-primary-container rounded-t-sm h-[30%]"></div>
+<div class="w-full bg-primary-container rounded-t-sm h-[40%]"></div>
+<div class="w-full bg-primary-container rounded-t-sm h-[35%]"></div>
+<div class="w-full bg-primary-container rounded-t-sm h-[50%]"></div>
+<div class="w-full bg-primary-container rounded-t-sm h-[45%]"></div>
+<div class="w-full bg-primary-container rounded-t-sm h-[60%]"></div>
+<div class="w-full bg-primary-container rounded-t-sm h-[70%]"></div>
+<div class="w-full bg-primary-container rounded-t-sm h-[65%]"></div>
+<div class="w-full bg-primary-container rounded-t-sm h-[80%]"></div>
+<div class="w-full bg-primary-container rounded-t-sm h-[75%]"></div>
+<div class="w-full bg-primary-container rounded-t-sm h-[90%]"></div>
+<div class="w-full bg-primary-container rounded-t-sm h-[85%]"></div>
+</div>
+</section>
+<!-- Integrations Directory -->
+<section class="bg-surface-container-lowest rounded-xl card-border p-6 shadow-sm">
+<div class="flex justify-between items-center mb-4">
+<h3 class="font-headline-sm text-headline-sm text-on-surface">Integrations</h3>
+<a class="font-label-md text-label-md text-primary hover:underline" href="#">View All</a>
+</div>
+<div class="flex flex-col gap-3">
+<div class="flex items-center justify-between p-3 rounded-lg border card-border bg-surface hover:bg-surface-bright transition-colors">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded bg-white flex items-center justify-center border border-surface-variant shadow-sm text-[#635BFF] font-bold text-lg">S</div>
+<div>
+<div class="font-label-md text-label-md text-on-surface">Stripe</div>
+<div class="font-body-sm text-body-sm text-on-surface-variant">Payments &amp; Invoicing</div>
+</div>
+</div>
+<span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-[#EFF6FF] text-[#3B82F6] border border-[#BFDBFE]">Connected</span>
+</div>
+<div class="flex items-center justify-between p-3 rounded-lg border card-border bg-surface hover:bg-surface-bright transition-colors">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded bg-white flex items-center justify-center border border-surface-variant shadow-sm text-[#F22F46] font-bold text-lg">T</div>
+<div>
+<div class="font-label-md text-label-md text-on-surface">Twilio</div>
+<div class="font-body-sm text-body-sm text-on-surface-variant">SMS &amp; Communications</div>
+</div>
+</div>
+<span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-[#EFF6FF] text-[#3B82F6] border border-[#BFDBFE]">Connected</span>
+</div>
+<div class="flex items-center justify-between p-3 rounded-lg border card-border bg-surface hover:bg-surface-bright transition-colors">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded bg-white flex items-center justify-center border border-surface-variant shadow-sm text-[#4285F4] font-bold text-lg">G</div>
+<div>
+<div class="font-label-md text-label-md text-on-surface">Google Maps</div>
+<div class="font-body-sm text-body-sm text-on-surface-variant">Routing &amp; Distance</div>
+</div>
+</div>
+<button class="text-label-md font-label-md text-on-surface-variant border card-border bg-surface-container-lowest px-2 py-1 rounded hover:bg-surface-container transition-colors">Connect</button>
+</div>
+</div>
+</section>
+<!-- Documentation Links -->
+<section class="bg-surface-container-lowest rounded-xl card-border p-6 shadow-sm">
+<h3 class="font-headline-sm text-headline-sm text-on-surface mb-4">Developer Resources</h3>
+<ul class="flex flex-col gap-2">
+<li>
+<a class="flex items-center justify-between p-2 rounded hover:bg-surface-container transition-colors group" href="#">
+<div class="flex items-center gap-2 text-on-surface-variant group-hover:text-primary transition-colors">
+<span class="material-symbols-outlined text-[18px]">menu_book</span>
+<span class="font-label-md text-label-md">API Reference</span>
+</div>
+<span class="material-symbols-outlined text-[16px] text-surface-variant group-hover:text-primary transition-colors">open_in_new</span>
+</a>
+</li>
+<li>
+<a class="flex items-center justify-between p-2 rounded hover:bg-surface-container transition-colors group" href="#">
+<div class="flex items-center gap-2 text-on-surface-variant group-hover:text-primary transition-colors">
+<span class="material-symbols-outlined text-[18px]">code_blocks</span>
+<span class="font-label-md text-label-md">Official SDKs</span>
+</div>
+<span class="material-symbols-outlined text-[16px] text-surface-variant group-hover:text-primary transition-colors">open_in_new</span>
+</a>
+</li>
+<li>
+<a class="flex items-center justify-between p-2 rounded hover:bg-surface-container transition-colors group" href="#">
+<div class="flex items-center gap-2 text-on-surface-variant group-hover:text-primary transition-colors">
+<span class="material-symbols-outlined text-[18px]">history</span>
+<span class="font-label-md text-label-md">Changelog</span>
+</div>
+</a>
+</li>
+</ul>
+</section>
+</div>
+</div>
+</div>
+</main>
+</body></html>

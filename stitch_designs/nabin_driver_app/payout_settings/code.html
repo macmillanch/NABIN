@@ -1,0 +1,248 @@
+<!DOCTYPE html><html class="dark" lang="en"><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>Payout Settings</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "secondary-fixed-dim": "#c3c6ce",
+                        "on-primary-container": "#eeefff",
+                        "primary": "#b4c5ff",
+                        "on-secondary-container": "#b2b5bc",
+                        "surface-container-high": "#282a32",
+                        "primary-fixed-dim": "#b4c5ff",
+                        "on-secondary-fixed": "#181c21",
+                        "secondary-container": "#43474d",
+                        "on-secondary": "#2d3136",
+                        "on-error": "#690005",
+                        "on-primary-fixed-variant": "#003ea8",
+                        "tertiary-fixed": "#ffdbcd",
+                        "surface-tint": "#b4c5ff",
+                        "inverse-primary": "#0053db",
+                        "on-tertiary-fixed": "#360f00",
+                        "outline": "#8d90a0",
+                        "surface-variant": "#32343d",
+                        "inverse-on-surface": "#2e3039",
+                        "on-tertiary": "#581e00",
+                        "background": "#11131b",
+                        "error": "#ffb4ab",
+                        "surface-container-highest": "#32343d",
+                        "tertiary-container": "#bc4800",
+                        "surface-bright": "#373942",
+                        "surface": "#11131b",
+                        "on-tertiary-fixed-variant": "#7d2d00",
+                        "on-error-container": "#ffdad6",
+                        "surface-container": "#1d1f27",
+                        "on-secondary-fixed-variant": "#43474d",
+                        "on-background": "#e1e2ed",
+                        "on-surface-variant": "#c3c6d7",
+                        "on-surface": "#e1e2ed",
+                        "error-container": "#93000a",
+                        "tertiary": "#ffb596",
+                        "surface-container-lowest": "#0c0e16",
+                        "surface-dim": "#11131b",
+                        "inverse-surface": "#e1e2ed",
+                        "primary-fixed": "#dbe1ff",
+                        "outline-variant": "#434655",
+                        "on-primary-fixed": "#00174b",
+                        "tertiary-fixed-dim": "#ffb596",
+                        "primary-container": "#2563eb",
+                        "on-primary": "#002a78",
+                        "secondary": "#c3c6ce",
+                        "surface-container-low": "#191b23",
+                        "on-tertiary-container": "#ffede6",
+                        "secondary-fixed": "#e0e2ea"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "gutter": "16px",
+                        "stack-md": "16px",
+                        "stack-lg": "24px",
+                        "touch-target-min": "48px",
+                        "margin-mobile": "16px",
+                        "stack-sm": "8px",
+                        "margin-desktop": "32px",
+                        "base": "4px"
+                    },
+                    "fontFamily": {
+                        "label-md": ["Inter"],
+                        "data-tabular": ["Inter"],
+                        "body-md": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "headline-xl": ["Inter"],
+                        "headline-lg-mobile": ["Inter"]
+                    },
+                    "fontSize": {
+                        "label-md": ["14px", { "lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "500" }],
+                        "data-tabular": ["16px", { "lineHeight": "24px", "fontWeight": "600" }],
+                        "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "headline-lg": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+                        "body-lg": ["18px", { "lineHeight": "28px", "fontWeight": "400" }],
+                        "headline-xl": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "headline-lg-mobile": ["20px", { "lineHeight": "28px", "fontWeight": "600" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body { font-family: 'Inter', sans-serif; }
+        .glass-edge {
+            box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+        }
+    </style>
+</head>
+<body class="bg-surface-container-lowest text-on-surface antialiased pb-[72px]">
+<!-- TopAppBar -->
+<header class="fixed top-0 w-full bg-surface dark:bg-surface border-b border-outline-variant/10 z-50 flex items-center h-14 px-margin-mobile">
+<button aria-label="Go back" class="h-touch-target-min w-touch-target-min flex items-center justify-center -ml-2 text-primary dark:text-primary active:scale-95 transition-transform hover:bg-surface-variant/50 rounded-full">
+<span class="material-symbols-outlined text-[24px]">arrow_back</span>
+</button>
+<h1 class="font-headline-lg-mobile text-headline-lg-mobile font-bold text-on-surface ml-2 flex-1 truncate">Payout Settings</h1>
+</header>
+<main class="pt-[72px] px-margin-mobile flex flex-col gap-stack-lg max-w-2xl mx-auto md:px-margin-desktop md:pt-24 pb-8">
+<!-- Current Payout Method -->
+<section class="flex flex-col gap-stack-sm">
+<h2 class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Current Payout Method</h2>
+<div class="flex flex-col gap-[1px] bg-surface-variant/30 rounded-xl overflow-hidden glass-edge">
+<!-- Bank Account -->
+<div class="bg-surface-container-low p-4 flex items-center justify-between min-h-[64px] cursor-pointer hover:bg-surface-container/80 transition-colors">
+<div class="flex items-center gap-4">
+<div class="w-10 h-10 rounded-full bg-primary-container/20 flex items-center justify-center text-primary">
+<span class="material-symbols-outlined">account_balance</span>
+</div>
+<div class="flex flex-col">
+<span class="font-body-md text-body-md text-on-surface">HDFC Bank ****4321</span>
+<div class="flex items-center gap-2 mt-1">
+<span class="px-2 py-0.5 rounded-full bg-primary/10 text-primary font-label-md text-[10px] uppercase tracking-wide border border-primary/20">Verified</span>
+<span class="font-label-md text-label-md text-on-surface-variant text-xs">Primary</span>
+</div>
+</div>
+</div>
+<div class="flex items-center gap-2">
+<div class="w-5 h-5 rounded-full border-2 border-primary-container flex items-center justify-center">
+<div class="w-2.5 h-2.5 rounded-full bg-primary-container"></div>
+</div>
+<button aria-label="Edit Bank Account" class="w-touch-target-min h-touch-target-min flex items-center justify-center text-on-surface-variant hover:text-primary transition-colors ml-2">
+<span class="material-symbols-outlined text-[20px]">edit</span>
+</button>
+</div>
+</div>
+<!-- UPI ID -->
+<div class="bg-surface-container-low p-4 flex items-center justify-between min-h-[64px] cursor-pointer hover:bg-surface-container/80 transition-colors">
+<div class="flex items-center gap-4">
+<div class="w-10 h-10 rounded-full bg-surface-variant flex items-center justify-center text-on-surface-variant">
+<span class="material-symbols-outlined">qr_code_scanner</span>
+</div>
+<div class="flex flex-col">
+<span class="font-body-md text-body-md text-on-surface">alex@upi</span>
+<div class="flex items-center gap-2 mt-1">
+<span class="px-2 py-0.5 rounded-full bg-primary/10 text-primary font-label-md text-[10px] uppercase tracking-wide border border-primary/20">Verified</span>
+</div>
+</div>
+</div>
+<div class="flex items-center gap-2">
+<div class="w-5 h-5 rounded-full border-2 border-outline-variant flex items-center justify-center">
+</div>
+<button aria-label="Edit UPI ID" class="w-touch-target-min h-touch-target-min flex items-center justify-center text-on-surface-variant hover:text-primary transition-colors ml-2">
+<span class="material-symbols-outlined text-[20px]">edit</span>
+</button>
+</div>
+</div>
+</div>
+<button class="mt-2 h-touch-target-min flex items-center justify-center gap-2 bg-surface-container hover:bg-surface-container-high transition-colors rounded-lg font-label-md text-label-md text-primary glass-edge">
+<span class="material-symbols-outlined text-[20px]">add</span>
+                Add Payment Method
+            </button>
+</section>
+<!-- Automatic Payouts -->
+<section class="bg-surface-container-low p-4 rounded-xl flex items-center justify-between min-h-[64px] glass-edge">
+<div class="flex flex-col">
+<span class="font-body-md text-body-md text-on-surface">Automatic Payouts</span>
+<span class="font-label-md text-label-md text-on-surface-variant">Transfer earnings to primary method automatically</span>
+</div>
+<!-- Toggle Switch (On state) -->
+<button aria-label="Toggle Automatic Payouts" aria-pressed="true" class="w-12 h-6 rounded-full bg-primary-container relative shrink-0">
+<span class="absolute right-1 top-1 w-4 h-4 bg-on-primary-container rounded-full transition-all"></span>
+</button>
+</section>
+<!-- Payout Schedule -->
+<section class="flex flex-col gap-stack-sm">
+<h2 class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Payout Schedule</h2>
+<div class="flex flex-col gap-[1px] bg-surface-variant/30 rounded-xl overflow-hidden glass-edge">
+<!-- Daily -->
+<label class="bg-surface-container-low p-4 flex items-center justify-between min-h-[64px] cursor-pointer hover:bg-surface-container/80 transition-colors">
+<div class="flex items-center gap-4">
+<div class="w-10 h-10 rounded-full bg-surface-variant flex items-center justify-center text-on-surface-variant">
+<span class="material-symbols-outlined">today</span>
+</div>
+<div class="flex flex-col">
+<span class="font-body-md text-body-md text-on-surface">Daily</span>
+<span class="font-label-md text-label-md text-on-surface-variant">Standard</span>
+</div>
+</div>
+<div class="w-5 h-5 rounded-full border-2 border-primary-container flex items-center justify-center">
+<div class="w-2.5 h-2.5 rounded-full bg-primary-container"></div>
+</div>
+</label>
+<!-- Weekly -->
+<label class="bg-surface-container-low p-4 flex items-center justify-between min-h-[64px] cursor-pointer hover:bg-surface-container/80 transition-colors">
+<div class="flex items-center gap-4">
+<div class="w-10 h-10 rounded-full bg-surface-variant flex items-center justify-center text-on-surface-variant">
+<span class="material-symbols-outlined">calendar_month</span>
+</div>
+<div class="flex flex-col">
+<span class="font-body-md text-body-md text-on-surface">Weekly</span>
+<span class="font-label-md text-label-md text-on-surface-variant">Every Monday</span>
+</div>
+</div>
+<div class="w-5 h-5 rounded-full border-2 border-outline-variant flex items-center justify-center"></div>
+</label>
+<!-- Instant -->
+<label class="bg-surface-container-low p-4 flex items-center justify-between min-h-[64px] cursor-pointer hover:bg-surface-container/80 transition-colors"><div class="flex items-center gap-4 opacity-50"><div class="w-10 h-10 rounded-full bg-surface-variant flex items-center justify-center text-on-surface-variant"><span class="material-symbols-outlined">bolt</span></div><div class="flex flex-col"><div class="flex items-center gap-2"><span class="font-body-md text-body-md text-on-surface">Instant Payout</span><span class="material-symbols-outlined text-[18px] text-on-surface-variant">lock</span></div><span class="font-label-md text-label-md text-on-surface-variant">Get earnings instantly. Available for Platinum Partners only.</span><button class="text-primary font-label-md text-xs mt-1 text-left hover:underline">View Eligibility</button></div></div><div class="w-5 h-5 rounded-full border-2 border-outline-variant/30 flex items-center justify-center"></div></label>
+</div>
+</section>
+<!-- Security Info -->
+<section class="bg-surface-container/50 p-4 rounded-xl flex items-start gap-4 glass-edge border border-outline-variant/10 mt-4">
+<span class="material-symbols-outlined text-primary shrink-0 mt-0.5">security</span>
+<p class="font-label-md text-label-md text-on-surface-variant">
+                For your security, changes to payout methods or schedules require <strong class="text-on-surface font-medium">24 hours</strong> to take effect.
+            </p>
+</section>
+</main>
+<!-- BottomNavBar (Hidden on Web) -->
+<nav class="fixed bottom-0 left-0 w-full h-[72px] flex justify-around items-center px-margin-mobile pb-safe bg-surface-container dark:bg-surface-container border-t border-outline-variant/10 md:hidden z-50">
+<button class="flex flex-col items-center justify-center text-on-surface-variant hover:text-primary dark:hover:text-primary active:scale-90 transition-all duration-200 w-touch-target-min h-touch-target-min">
+<span class="material-symbols-outlined" data-weight="fill">home</span>
+<span class="font-label-md text-[10px] leading-tight mt-1">Home</span>
+</button>
+<button class="flex flex-col items-center justify-center text-on-surface-variant hover:text-primary dark:hover:text-primary active:scale-90 transition-all duration-200 w-touch-target-min h-touch-target-min">
+<span class="material-symbols-outlined" data-weight="fill">payments</span>
+<span class="font-label-md text-[10px] leading-tight mt-1">Earnings</span>
+</button>
+<button class="flex flex-col items-center justify-center text-on-surface-variant hover:text-primary dark:hover:text-primary active:scale-90 transition-all duration-200 w-touch-target-min h-touch-target-min">
+<span class="material-symbols-outlined" data-weight="fill">history</span>
+<span class="font-label-md text-[10px] leading-tight mt-1">Activity</span>
+</button>
+<!-- Active State: Account -->
+<button class="flex flex-col items-center justify-center bg-primary-container text-on-primary-container rounded-full px-5 py-1 hover:text-primary dark:hover:text-primary active:scale-90 transition-all duration-200 h-touch-target-min">
+<span class="material-symbols-outlined" data-weight="fill">person</span>
+<span class="font-label-md text-[10px] leading-tight mt-1">Account</span>
+</button>
+</nav>
+
+
+</body></html>

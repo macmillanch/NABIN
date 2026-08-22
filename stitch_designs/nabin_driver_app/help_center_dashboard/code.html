@@ -1,0 +1,280 @@
+<!DOCTYPE html><html class="dark" lang="en"><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>NABIN Driver - Help Center</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface-container-highest": "#32343d",
+                        "tertiary-fixed": "#ffdbcd",
+                        "on-surface-variant": "#c3c6d7",
+                        "on-primary": "#002a78",
+                        "surface-dim": "#11131b",
+                        "on-secondary-fixed": "#181c21",
+                        "on-tertiary-fixed": "#360f00",
+                        "surface-container-lowest": "#0c0e16",
+                        "surface-variant": "#32343d",
+                        "on-primary-container": "#eeefff",
+                        "error": "#ffb4ab",
+                        "surface-container": "#1d1f27",
+                        "inverse-on-surface": "#2e3039",
+                        "secondary-fixed-dim": "#c3c6ce",
+                        "outline-variant": "#434655",
+                        "on-secondary-fixed-variant": "#43474d",
+                        "primary-container": "#2563eb",
+                        "on-error": "#690005",
+                        "surface-container-low": "#191b23",
+                        "secondary-fixed": "#e0e2ea",
+                        "secondary": "#c3c6ce",
+                        "primary": "#b4c5ff",
+                        "secondary-container": "#43474d",
+                        "outline": "#8d90a0",
+                        "surface-container-high": "#282a32",
+                        "on-primary-fixed-variant": "#003ea8",
+                        "on-error-container": "#ffdad6",
+                        "surface-bright": "#373942",
+                        "tertiary": "#ffb596",
+                        "background": "#11131b",
+                        "tertiary-fixed-dim": "#ffb596",
+                        "primary-fixed-dim": "#b4c5ff",
+                        "on-primary-fixed": "#00174b",
+                        "on-tertiary-container": "#ffede6",
+                        "on-surface": "#e1e2ed",
+                        "on-tertiary": "#581e00",
+                        "on-secondary-container": "#b2b5bc",
+                        "primary-fixed": "#dbe1ff",
+                        "surface": "#11131b",
+                        "on-background": "#e1e2ed",
+                        "on-tertiary-fixed-variant": "#7d2d00",
+                        "inverse-primary": "#0053db",
+                        "error-container": "#93000a",
+                        "surface-tint": "#b4c5ff",
+                        "tertiary-container": "#bc4800",
+                        "on-secondary": "#2d3136",
+                        "inverse-surface": "#e1e2ed"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "stack-lg": "24px",
+                        "gutter": "16px",
+                        "margin-desktop": "32px",
+                        "touch-target-min": "48px",
+                        "margin-mobile": "16px",
+                        "stack-sm": "8px",
+                        "base": "4px",
+                        "stack-md": "16px"
+                    },
+                    "fontFamily": {
+                        "label-md": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "headline-lg-mobile": ["Inter"],
+                        "headline-xl": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "body-md": ["Inter"],
+                        "data-tabular": ["Inter"]
+                    },
+                    "fontSize": {
+                        "label-md": ["14px", { "lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "500" }],
+                        "body-lg": ["18px", { "lineHeight": "28px", "fontWeight": "400" }],
+                        "headline-lg-mobile": ["20px", { "lineHeight": "28px", "fontWeight": "600" }],
+                        "headline-xl": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "headline-lg": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+                        "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "data-tabular": ["16px", { "lineHeight": "24px", "fontWeight": "600" }]
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-background text-on-background min-h-screen pb-24 md:pb-0 md:pl-80 flex flex-col antialiased selection:bg-primary-container selection:text-on-primary-container">
+<!-- Mobile Top App Bar -->
+<header class="md:hidden bg-surface-dim border-b border-outline-variant fixed top-0 w-full z-50 flex items-center justify-between px-margin-mobile h-touch-target-min flat no shadows">
+<button aria-label="Go back" class="flex items-center justify-center w-10 h-10 rounded-full hover:bg-surface-variant/50 active:scale-95 transition-transform text-primary dark:text-primary-fixed-dim">
+<span class="material-symbols-outlined" data-icon="arrow_back">arrow_back</span>
+</button>
+<h1 class="font-headline-lg-mobile text-headline-lg-mobile font-bold text-on-surface">Help Center</h1>
+<button aria-label="Search" class="flex items-center justify-center w-10 h-10 rounded-full hover:bg-surface-variant/50 active:scale-95 transition-transform text-primary dark:text-primary-fixed-dim hover:bg-surface-variant/20">
+<span class="material-symbols-outlined" data-icon="search">search</span>
+</button>
+</header>
+<!-- Desktop Navigation Drawer (Side Nav) -->
+<aside class="hidden md:flex bg-surface-container-low border-r border-outline-variant fixed left-0 top-0 h-full w-80 rounded-r-xl shadow-xl flex-col gap-stack-sm p-margin-mobile z-40 overflow-y-auto">
+<div class="flex items-center gap-4 mb-stack-lg p-2">
+<div class="w-12 h-12 rounded-full overflow-hidden bg-surface-container-high border border-outline-variant flex-shrink-0">
+<img alt="Driver Profile Picture" class="w-full h-full object-cover" data-alt="Close-up portrait of a professional driver with a headset, lit by cool dashboard instruments in a dark cabin, projecting a serious, reliable mood, modern corporate aesthetic." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDiOJZJeU6HRLWGe5dU4wopBySs22eVUAktLSno7Z12eT8921oCvUtnb0UpGj0S105BW0NEyfC6b4yMbc0djREHJOGAxZtDgEfL7LuAKfZsSebuz4xO8-DJ9olxf1wfyvF3ob6ekXeH-sfR8Ry8M4xE5iTWKsaBaWuZ3iy-hyRGb_NeB2i9_NNMRDvWn5TeUD8jEn7eyBJMJamXozYk6YJ7cij3_JB7KBGNRtVHYr3nvDDcgUJoZZU">
+</div>
+<div class="flex flex-col">
+<span class="font-headline-lg text-headline-lg font-bold text-primary">Support Desk</span>
+<span class="font-label-md text-label-md text-on-surface-variant">Online Help Available</span>
+</div>
+</div>
+<nav class="flex flex-col gap-2 flex-grow">
+<a class="flex items-center gap-3 px-4 py-3 bg-secondary-container text-on-secondary-container font-bold rounded-lg transition-colors duration-150" href="#">
+<span class="material-symbols-outlined" data-icon="library_books" style="font-variation-settings: 'FILL' 1;">library_books</span>
+<span class="font-body-md text-body-md">Knowledge Base</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-surface-variant rounded-lg hover:bg-surface-container-high transition-colors duration-150" href="#">
+<span class="material-symbols-outlined" data-icon="confirmation_number">confirmation_number</span>
+<span class="font-body-md text-body-md">My Tickets</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-surface-variant rounded-lg hover:bg-surface-container-high transition-colors duration-150" href="#">
+<span class="material-symbols-outlined" data-icon="shied_with_heart">check_indeterminate_small</span>
+<span class="font-body-md text-body-md">Safety Center</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-surface-variant rounded-lg hover:bg-surface-container-high transition-colors duration-150" href="#">
+<span class="material-symbols-outlined" data-icon="groups">groups</span>
+<span class="font-body-md text-body-md">Community Forum</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-surface-variant rounded-lg hover:bg-surface-container-high transition-colors duration-150" href="#">
+<span class="material-symbols-outlined" data-icon="policy">policy</span>
+<span class="font-body-md text-body-md">Legal</span>
+</a>
+</nav>
+</aside>
+<!-- Main Content Canvas -->
+<main class="flex-grow flex flex-col pt-[calc(var(--touch-target-min,48px)+env(safe-area-inset-top))] md:pt-0 p-margin-mobile md:p-margin-desktop max-w-5xl mx-auto w-full gap-stack-lg">
+<!-- Desktop Header & Search -->
+<div class="hidden md:flex items-center justify-between gap-stack-lg w-full mb-stack-md">
+<h1 class="font-headline-xl text-headline-xl font-bold text-on-surface tracking-tight">Help Center</h1>
+<div class="relative w-full max-w-md">
+<span class="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant pointer-events-none" data-icon="search">search</span>
+<input class="w-full h-14 pl-12 pr-4 bg-surface-container rounded-xl border border-outline-variant text-on-surface placeholder:text-on-surface-variant focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none transition-colors font-body-md text-body-md shadow-sm" placeholder="Describe your issue..." type="text">
+</div>
+</div>
+<!-- Mobile Search (if desktop hidden) -->
+<div class="md:hidden relative w-full mb-stack-sm">
+<span class="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant pointer-events-none" data-icon="search">search</span>
+<input class="w-full h-touch-target-min pl-12 pr-4 bg-surface-container rounded-xl border border-outline-variant text-on-surface placeholder:text-on-surface-variant focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none transition-colors font-body-md text-body-md shadow-sm" placeholder="Describe your issue..." type="text">
+</div>
+<!-- Active Ticket Status Banner -->
+<section class="bg-surface-container-high rounded-xl p-4 border border-outline-variant/50 shadow-md relative overflow-hidden group hover:border-outline-variant transition-colors cursor-pointer ring-1 ring-white/5">
+<div class="absolute inset-0 bg-gradient-to-r from-primary-container/10 to-transparent pointer-events-none"></div>
+<div class="relative flex items-center justify-between">
+<div class="flex items-center gap-4">
+<div class="w-12 h-12 rounded-full bg-primary-container/20 flex items-center justify-center text-primary border border-primary/30">
+<span class="material-symbols-outlined" data-icon="receipt_long" style="font-variation-settings: 'FILL' 1;">receipt_long</span>
+</div>
+<div>
+<h2 class="font-headline-lg-mobile text-headline-lg-mobile md:font-headline-lg md:text-headline-lg font-bold text-on-surface mb-1">1 Active Ticket</h2>
+<p class="font-body-md text-body-md text-on-surface-variant">Issue #8892 - "Missing Toll Reimbursement"</p>
+</div>
+</div>
+<div class="flex flex-col items-end gap-2">
+<span class="px-3 py-1 bg-tertiary-container/20 text-tertiary rounded-full font-label-md text-label-md border border-tertiary/20">In Progress</span>
+<span class="material-symbols-outlined text-on-surface-variant group-hover:translate-x-1 transition-transform" data-icon="chevron_right">chevron_right</span>
+</div>
+</div>
+</section>
+<!-- Bento Grid Categories -->
+<section class="grid grid-cols-2 md:grid-cols-4 gap-gutter">
+<a class="col-span-2 md:col-span-2 bg-surface-container rounded-xl p-6 border border-outline-variant/30 hover:bg-surface-container-high hover:border-outline-variant transition-all ring-1 ring-white/5 flex flex-col justify-between min-h-[140px] group" href="#">
+<div class="w-10 h-10 rounded-lg bg-surface-bright flex items-center justify-center text-secondary mb-4 group-hover:scale-110 transition-transform">
+<span class="material-symbols-outlined" data-icon="payments">payments</span>
+</div>
+<div>
+<h3 class="font-headline-lg-mobile text-headline-lg-mobile font-semibold text-on-surface mb-1">Earnings &amp; Payouts</h3>
+<p class="font-body-md text-body-md text-on-surface-variant line-clamp-1">Statements, missing fares, bonuses</p>
+</div>
+</a>
+<a class="col-span-1 md:col-span-1 bg-surface-container rounded-xl p-4 border border-outline-variant/30 hover:bg-surface-container-high hover:border-outline-variant transition-all ring-1 ring-white/5 flex flex-col justify-between min-h-[140px] group" href="#">
+<div class="w-10 h-10 rounded-lg bg-surface-bright flex items-center justify-center text-secondary mb-4 group-hover:scale-110 transition-transform">
+<span class="material-symbols-outlined" data-icon="route">route</span>
+</div>
+<div>
+<h3 class="font-body-lg text-body-lg font-semibold text-on-surface mb-1 leading-tight">Trip Issues</h3>
+</div>
+</a>
+<a class="col-span-1 md:col-span-1 bg-surface-container rounded-xl p-4 border border-outline-variant/30 hover:bg-surface-container-high hover:border-outline-variant transition-all ring-1 ring-white/5 flex flex-col justify-between min-h-[140px] group" href="#">
+<div class="w-10 h-10 rounded-lg bg-surface-bright flex items-center justify-center text-secondary mb-4 group-hover:scale-110 transition-transform">
+<span class="material-symbols-outlined" data-icon="car_repair">car_repair</span>
+</div>
+<div>
+<h3 class="font-body-lg text-body-lg font-semibold text-on-surface mb-1 leading-tight">Vehicle &amp; Safety</h3>
+</div>
+</a>
+<a class="col-span-1 md:col-span-2 bg-surface-container rounded-xl p-4 md:p-6 border border-outline-variant/30 hover:bg-surface-container-high hover:border-outline-variant transition-all ring-1 ring-white/5 flex flex-col justify-between min-h-[140px] group" href="#">
+<div class="flex items-center gap-3 mb-4">
+<div class="w-10 h-10 rounded-lg bg-surface-bright flex items-center justify-center text-secondary group-hover:scale-110 transition-transform">
+<span class="material-symbols-outlined" data-icon="manage_accounts">manage_accounts</span>
+</div>
+</div>
+<div>
+<h3 class="font-body-lg text-body-lg md:font-headline-lg-mobile md:text-headline-lg-mobile font-semibold text-on-surface mb-1">Account &amp; App</h3>
+<p class="hidden md:block font-body-md text-body-md text-on-surface-variant line-clamp-1">Profile updates, document uploads</p>
+</div>
+</a>
+<a class="col-span-1 md:col-span-2 bg-surface-container rounded-xl p-4 md:p-6 border border-outline-variant/30 hover:bg-surface-container-high hover:border-outline-variant transition-all ring-1 ring-white/5 flex flex-col justify-between min-h-[140px] group" href="#">
+<div class="flex items-center gap-3 mb-4">
+<div class="w-10 h-10 rounded-lg bg-surface-bright flex items-center justify-center text-secondary group-hover:scale-110 transition-transform">
+<span class="material-symbols-outlined" data-icon="stars">stars</span>
+</div>
+</div>
+<div>
+<h3 class="font-body-lg text-body-lg md:font-headline-lg-mobile md:text-headline-lg-mobile font-semibold text-on-surface mb-1">Promotions</h3>
+<p class="hidden md:block font-body-md text-body-md text-on-surface-variant line-clamp-1">Quests, streaks, and referrals</p>
+</div>
+</a>
+</section>
+<!-- Recent FAQs -->
+<section class="mt-stack-sm">
+<h2 class="font-headline-lg-mobile text-headline-lg-mobile font-bold text-on-surface mb-stack-md px-2">Recent FAQs</h2>
+<div class="bg-surface-container rounded-xl border border-outline-variant/50 ring-1 ring-white/5 overflow-hidden">
+<ul class="divide-y divide-outline-variant/30">
+<li class="min-h-[64px] flex">
+<a class="flex-grow flex items-center justify-between p-4 hover:bg-surface-container-high transition-colors group" href="#">
+<span class="font-body-md text-body-md text-on-surface group-hover:text-primary transition-colors">How do I update my insurance document?</span>
+<span class="material-symbols-outlined text-on-surface-variant group-hover:translate-x-1 transition-transform" data-icon="chevron_right">chevron_right</span>
+</a>
+</li>
+<li class="min-h-[64px] flex">
+<a class="flex-grow flex items-center justify-between p-4 hover:bg-surface-container-high transition-colors group" href="#">
+<span class="font-body-md text-body-md text-on-surface group-hover:text-primary transition-colors">Understanding my weekly statement</span>
+<span class="material-symbols-outlined text-on-surface-variant group-hover:translate-x-1 transition-transform" data-icon="chevron_right">chevron_right</span>
+</a>
+</li>
+<li class="min-h-[64px] flex">
+<a class="flex-grow flex items-center justify-between p-4 hover:bg-surface-container-high transition-colors group" href="#">
+<span class="font-body-md text-body-md text-on-surface group-hover:text-primary transition-colors">Reporting a rider issue</span>
+<span class="material-symbols-outlined text-on-surface-variant group-hover:translate-x-1 transition-transform" data-icon="chevron_right">chevron_right</span>
+</a>
+</li>
+</ul>
+</div>
+</section>
+</main>
+<!-- Mobile Bottom Navigation Bar -->
+<nav class="md:hidden bg-surface-container fixed bottom-0 w-full z-50 rounded-t-xl shadow-lg border-t-0 flex justify-around items-center h-16 px-base dark:bg-surface-container">
+<a class="flex flex-col items-center justify-center text-on-surface-variant hover:text-on-surface transition-colors active:scale-90 transition-all duration-200 w-16" href="#">
+<span class="material-symbols-outlined" data-icon="home">home</span>
+<span class="font-label-md text-label-md mt-1">Home</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant hover:text-on-surface transition-colors active:scale-90 transition-all duration-200 w-16" href="#">
+<span class="material-symbols-outlined" data-icon="payments">payments</span>
+<span class="font-label-md text-label-md mt-1">Earnings</span>
+</a>
+<!-- Active Tab: Support (Help Center maps to Support) -->
+<a class="flex flex-col items-center justify-center bg-primary-container text-on-primary-container rounded-full px-4 py-1 active:scale-90 transition-all duration-200 min-w-[64px]" href="#">
+<span class="material-symbols-outlined" data-icon="support_agent" style="font-variation-settings: 'FILL' 1;">support_agent</span>
+<span class="font-label-md text-label-md mt-1">Support</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant hover:text-on-surface transition-colors active:scale-90 transition-all duration-200 w-16" href="#">
+<span class="material-symbols-outlined" data-icon="person">person</span>
+<span class="font-label-md text-label-md mt-1">Account</span>
+</a>
+</nav>
+
+
+</body></html>

@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>NABIN - Restaurant Menu &amp; Cart</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "outline": "#737685",
+                        "background": "#faf8ff",
+                        "surface-container": "#ededf8",
+                        "secondary-fixed": "#d7e3fb",
+                        "surface-container-highest": "#e1e2ec",
+                        "primary-fixed": "#dae2ff",
+                        "on-error": "#ffffff",
+                        "primary": "#003d9b",
+                        "surface": "#faf8ff",
+                        "surface-dim": "#d9d9e4",
+                        "surface-container-high": "#e7e7f2",
+                        "on-secondary": "#ffffff",
+                        "surface-container-lowest": "#ffffff",
+                        "on-error-container": "#93000a",
+                        "on-primary-container": "#c4d2ff",
+                        "tertiary-fixed": "#ffdbcf",
+                        "on-tertiary-fixed": "#380d00",
+                        "on-secondary-container": "#576377",
+                        "tertiary-container": "#a33500",
+                        "error-container": "#ffdad6",
+                        "secondary-fixed-dim": "#bbc7de",
+                        "on-primary-fixed-variant": "#0040a2",
+                        "primary-fixed-dim": "#b2c5ff",
+                        "on-primary-fixed": "#001848",
+                        "error": "#ba1a1a",
+                        "on-background": "#191b23",
+                        "on-primary": "#ffffff",
+                        "on-tertiary-container": "#ffc6b2",
+                        "on-tertiary": "#ffffff",
+                        "inverse-primary": "#b2c5ff",
+                        "on-surface": "#191b23",
+                        "on-surface-variant": "#434654",
+                        "surface-bright": "#faf8ff",
+                        "surface-container-low": "#f3f3fd",
+                        "secondary": "#535f73",
+                        "on-tertiary-fixed-variant": "#812800",
+                        "inverse-surface": "#2e3038",
+                        "on-secondary-fixed-variant": "#3b475b",
+                        "on-secondary-fixed": "#101c2d",
+                        "surface-tint": "#0c56d0",
+                        "primary-container": "#0052cc",
+                        "outline-variant": "#c3c6d6",
+                        "tertiary-fixed-dim": "#ffb59b",
+                        "surface-variant": "#e1e2ec",
+                        "secondary-container": "#d4e0f8",
+                        "tertiary": "#7b2600",
+                        "inverse-on-surface": "#f0f0fb"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "gutter-mobile": "12px",
+                        "xs": "4px",
+                        "md": "16px",
+                        "touch-target-min": "48px",
+                        "lg": "24px",
+                        "base": "4px",
+                        "xl": "32px",
+                        "margin-mobile": "16px",
+                        "sm": "8px"
+                    },
+                    "fontFamily": {
+                        "body-lg": ["Inter"],
+                        "headline-md": ["Inter"],
+                        "label-md": ["Inter"],
+                        "headline-lg-mobile": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "button-text": ["Inter"],
+                        "body-sm": ["Inter"]
+                    },
+                    "fontSize": {
+                        "body-lg": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "headline-md": ["20px", { "lineHeight": "28px", "fontWeight": "600" }],
+                        "label-md": ["12px", { "lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "600" }],
+                        "headline-lg-mobile": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "700" }],
+                        "headline-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "button-text": ["16px", { "lineHeight": "24px", "fontWeight": "600" }],
+                        "body-sm": ["14px", { "lineHeight": "20px", "fontWeight": "400" }]
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-background text-on-background font-body-lg antialiased pb-[80px]">
+<!-- TopAppBar (Transactional - Hidden or Modified for Back Action) -->
+<header class="w-full sticky top-0 z-50 bg-surface dark:bg-surface-dim flex justify-between items-center h-14 px-margin-mobile">
+<button aria-label="Back" class="w-12 h-12 flex items-center justify-center text-primary dark:text-primary-fixed-dim hover:bg-surface-container-high dark:hover:bg-surface-container-highest transition-colors active:scale-95 duration-100 rounded-full">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">arrow_back</span>
+</button>
+<h1 class="font-headline-lg-mobile text-headline-lg-mobile text-primary dark:text-primary-fixed tracking-tight">NABIN</h1>
+<div class="w-12"></div> <!-- Spacer for alignment -->
+</header>
+<main class="max-w-2xl mx-auto w-full">
+<!-- Restaurant Hero -->
+<section class="w-full h-[250px] md:h-[300px] relative">
+<div class="bg-cover bg-center w-full h-full absolute inset-0" data-alt="A high-quality, appetizing photograph of a modern burger restaurant exterior or interior, featuring warm lighting, clean architectural lines, and a welcoming atmosphere. The image should convey a sense of premium fast-casual dining, fitting a dependable and efficient logistics platform aesthetic." style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuDSe-lWFOgzmQcaIxPb8l2NjxJOtzQlLm8wZoZza_Of6uN-FmK9wmjHsKWdwmaGn3KbA_frwzJ9NpHeTyC54CzzCiuX1DVcQ9-8CfFwj27A356h93WEQIDv9RYVw73GjHFLqBmvqguGjnbdAw5pK2mct79oCOAZDM9-Ftgf3C1u3rS-xqrO_cKQkGPjwNizAi7Wrmp35uDBqf0uvnrXUnErQ0GSGlApIM_9A5_c5WOfkHOeOAOxcAf-8Q')"></div>
+<div class="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent"></div>
+<div class="absolute bottom-0 left-0 p-margin-mobile w-full text-white">
+<h2 class="font-headline-lg-mobile text-headline-lg-mobile text-white mb-xs">Burger Joint Royale</h2>
+<div class="flex items-center space-x-sm text-sm">
+<span class="flex items-center"><span class="material-symbols-outlined text-[16px] mr-1 text-[#FFD700]">star</span> 4.8 (500+)</span>
+<span>•</span>
+<span>Burgers, American</span>
+<span>•</span>
+<span>15-25 min</span>
+</div>
+</div>
+</section>
+<!-- Categories -->
+<div class="sticky top-14 z-40 bg-surface shadow-[0_4px_12px_0_rgba(0,0,0,0.05)] overflow-x-auto whitespace-nowrap py-sm px-margin-mobile flex space-x-sm hide-scrollbar border-b border-outline-variant">
+<button class="px-md py-sm rounded-full bg-primary-container text-on-primary font-button-text text-button-text">Popular</button>
+<button class="px-md py-sm rounded-full bg-surface-container text-on-surface-variant font-button-text text-button-text border border-outline-variant hover:bg-surface-container-high transition-colors">Burgers</button>
+<button class="px-md py-sm rounded-full bg-surface-container text-on-surface-variant font-button-text text-button-text border border-outline-variant hover:bg-surface-container-high transition-colors">Sides</button>
+<button class="px-md py-sm rounded-full bg-surface-container text-on-surface-variant font-button-text text-button-text border border-outline-variant hover:bg-surface-container-high transition-colors">Drinks</button>
+</div>
+<div class="p-margin-mobile space-y-xl">
+<!-- Menu Section -->
+<section>
+<h3 class="font-headline-md text-headline-md text-on-background mb-md">Popular Items</h3>
+<div class="space-y-md">
+<!-- Item Card -->
+<div class="flex bg-surface-container-lowest rounded-lg p-sm shadow-[0_4px_12px_0_rgba(0,0,0,0.05)] border border-outline-variant/30">
+<div class="flex-1 pr-sm flex flex-col justify-between">
+<div>
+<h4 class="font-button-text text-button-text text-on-background">Classic Smash Burger</h4>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-xs line-clamp-2">Double beef patty, American cheese, house sauce, pickles, toasted brioche bun.</p>
+</div>
+<div class="mt-sm font-button-text text-button-text text-on-background">$12.50</div>
+</div>
+<div class="w-[100px] flex flex-col items-end justify-between relative">
+<img class="w-[100px] h-[100px] object-cover rounded-md" data-alt="A mouth-watering, high-resolution close-up of a double smash burger with melting cheese, fresh pickles, and a toasted bun, presented cleanly against a neutral background. The lighting highlights the juicy texture and vibrant colors of the ingredients." src="https://lh3.googleusercontent.com/aida-public/AB6AXuB9BUbfybQHGFGYdsyLSK4wQTikLm_PgcGbooJLR-rxsHZcGOgi45kRthmga6UmxWz5GGCuJRGN5lKFbmgtUuE3MtDSk6mX60Q6CvGBXV65JJ_JETu5ytSFD0wsIVs9Z0htUZ_bviDqI3ohGNDkfs7cfy_U86X9K3CG65gyjTM69K8scC_-goA5M8NtYPy0AhET-JYZxAyR4ycukb2r59-WH4jnw1RSHjyfbtB_hRGhFgQUp0ktsiI2QA"/>
+<button aria-label="Add Classic Smash Burger" class="absolute -bottom-2 right-2 bg-surface-container-lowest shadow-[0_4px_12px_0_rgba(0,0,0,0.12)] rounded-full w-touch-target-min h-[32px] flex items-center justify-center text-primary-container border border-outline-variant hover:bg-surface-container-low transition-colors">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">add</span>
+</button>
+</div>
+</div>
+<!-- Item Card -->
+<div class="flex bg-surface-container-lowest rounded-lg p-sm shadow-[0_4px_12px_0_rgba(0,0,0,0.05)] border border-outline-variant/30">
+<div class="flex-1 pr-sm flex flex-col justify-between">
+<div>
+<h4 class="font-button-text text-button-text text-on-background">Truffle Fries</h4>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-xs line-clamp-2">Crispy shoestring fries tossed in truffle oil, parmesan, and parsley.</p>
+</div>
+<div class="mt-sm font-button-text text-button-text text-on-background">$6.00</div>
+</div>
+<div class="w-[100px] flex flex-col items-end justify-between relative">
+<img class="w-[100px] h-[100px] object-cover rounded-md" data-alt="A delicious overhead shot of golden crispy shoestring fries topped with grated parmesan cheese and parsley, served in a modern, clean paper tray or bowl. High-key lighting emphasizes the crispy texture." src="https://lh3.googleusercontent.com/aida-public/AB6AXuB1TfxUHHQsl800314KOpStCJc2jEJLRCG378UnMEjPKuZ4UzxEVyeQ1IDcggCPwv4SES2TboznbKd2XAQvkFLKee0saIVIicRrQ2I0H_dWSQGSdKzF_Gng0rjN-atw3TGTPOlIPrQWiwrDP60Xpr2BiqWiixsM-5-mPp2JM-4QERDWahBi1jId6fo-FiXq7DlycjdqptgiyJ7LU5Wo9ndS1SVzxj77ryEx2auytXOPMBywqwHrCeZ_jQ"/>
+<button aria-label="Add Truffle Fries" class="absolute -bottom-2 right-2 bg-surface-container-lowest shadow-[0_4px_12px_0_rgba(0,0,0,0.12)] rounded-full w-touch-target-min h-[32px] flex items-center justify-center text-primary-container border border-outline-variant hover:bg-surface-container-low transition-colors">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">add</span>
+</button>
+</div>
+</div>
+</div>
+</section>
+</div>
+</main>
+<!-- Floating Cart / Checkout Bottom Sheet (Fixed) -->
+<div class="fixed bottom-0 left-0 w-full bg-surface-container-lowest shadow-[0_-8px_20px_0_rgba(0,0,0,0.12)] rounded-t-[16px] z-50">
+<!-- Handle -->
+<div class="w-full flex justify-center pt-sm pb-xs">
+<div class="w-[40px] h-[4px] bg-outline-variant rounded-full"></div>
+</div>
+<div class="px-margin-mobile pb-safe pt-xs">
+<div class="flex justify-between items-center mb-sm">
+<div class="flex items-center space-x-sm">
+<div class="bg-primary-container text-on-primary w-8 h-8 rounded-full flex items-center justify-center font-button-text text-button-text">2</div>
+<span class="font-button-text text-button-text text-on-background">View Cart</span>
+</div>
+<span class="font-button-text text-button-text text-on-background">$18.50</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant mb-md">+ $2.99 Delivery Fee</p>
+<button class="w-full bg-primary-container text-on-primary h-[56px] rounded-lg font-button-text text-button-text flex items-center justify-center mb-md hover:opacity-90 active:scale-[0.98] transition-transform">
+                Go to Checkout
+            </button>
+</div>
+</div>
+<style>
+        .hide-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .hide-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+        .pb-safe {
+            padding-bottom: env(safe-area-inset-bottom, 16px);
+        }
+    </style>
+</body></html>

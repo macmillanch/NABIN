@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Vehicle Insurance Upload</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-tertiary-container": "#ffede6",
+                        "primary-fixed": "#dbe1ff",
+                        "on-secondary-fixed-variant": "#43474d",
+                        "outline": "#8d90a0",
+                        "surface-bright": "#373942",
+                        "surface-variant": "#32343d",
+                        "inverse-primary": "#0053db",
+                        "primary-fixed-dim": "#b4c5ff",
+                        "inverse-surface": "#e1e2ed",
+                        "secondary-fixed-dim": "#c3c6ce",
+                        "error-container": "#93000a",
+                        "on-surface-variant": "#c3c6d7",
+                        "tertiary": "#ffb596",
+                        "surface": "#11131b",
+                        "on-primary-fixed-variant": "#003ea8",
+                        "primary-container": "#2563eb",
+                        "secondary-fixed": "#e0e2ea",
+                        "on-secondary": "#2d3136",
+                        "on-primary-container": "#eeefff",
+                        "error": "#ffb4ab",
+                        "on-error": "#690005",
+                        "on-background": "#e1e2ed",
+                        "surface-container": "#1d1f27",
+                        "on-error-container": "#ffdad6",
+                        "outline-variant": "#434655",
+                        "surface-tint": "#b4c5ff",
+                        "tertiary-fixed": "#ffdbcd",
+                        "on-tertiary-fixed": "#360f00",
+                        "secondary": "#c3c6ce",
+                        "surface-container-low": "#191b23",
+                        "tertiary-fixed-dim": "#ffb596",
+                        "on-tertiary-fixed-variant": "#7d2d00",
+                        "background": "#11131b",
+                        "primary": "#b4c5ff",
+                        "on-secondary-container": "#b2b5bc",
+                        "on-tertiary": "#581e00",
+                        "tertiary-container": "#bc4800",
+                        "inverse-on-surface": "#2e3039",
+                        "on-secondary-fixed": "#181c21",
+                        "on-primary": "#002a78",
+                        "surface-dim": "#11131b",
+                        "surface-container-highest": "#32343d",
+                        "on-surface": "#e1e2ed",
+                        "secondary-container": "#43474d",
+                        "surface-container-high": "#282a32",
+                        "surface-container-lowest": "#0c0e16",
+                        "on-primary-fixed": "#00174b"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "stack-lg": "24px",
+                        "touch-target-min": "48px",
+                        "margin-desktop": "32px",
+                        "margin-mobile": "16px",
+                        "gutter": "16px",
+                        "base": "4px",
+                        "stack-md": "16px",
+                        "stack-sm": "8px"
+                    },
+                    "fontFamily": {
+                        "data-tabular": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "label-md": ["Inter"],
+                        "body-md": ["Inter"],
+                        "headline-xl": ["Inter"],
+                        "headline-lg-mobile": ["Inter"]
+                    },
+                    "fontSize": {
+                        "data-tabular": ["16px", { "lineHeight": "24px", "fontWeight": "600" }],
+                        "body-lg": ["18px", { "lineHeight": "28px", "fontWeight": "400" }],
+                        "headline-lg": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+                        "label-md": ["14px", { "lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "500" }],
+                        "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "headline-xl": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "headline-lg-mobile": ["20px", { "lineHeight": "28px", "fontWeight": "600" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body { background-color: #0B0F14; color: #e1e2ed; }
+        .glass-edge { border: 1px solid rgba(255, 255, 255, 0.1); }
+        .focus-ring:focus-within { border-color: #2563EB; box-shadow: 0 0 0 1px #2563EB; outline: none; }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col md:max-w-md md:mx-auto md:border-x md:border-surface-container md:shadow-2xl md:relative">
+<!-- TopAppBar -->
+<header class="fixed top-0 w-full z-50 bg-surface dark:bg-surface border-b border-outline-variant/10 md:absolute md:w-full">
+<div class="flex items-center justify-between px-margin-mobile h-touch-target-min w-full">
+<button class="text-primary dark:text-primary hover:bg-surface-container-high dark:hover:bg-surface-container-high transition-colors active:scale-95 duration-150 rounded-full p-2 flex items-center justify-center">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">arrow_back</span>
+</button>
+<h1 class="text-headline-lg-mobile font-headline-lg-mobile font-bold text-on-surface dark:text-on-surface">Vehicle Insurance</h1>
+<button class="text-primary dark:text-primary hover:bg-surface-container-high dark:hover:bg-surface-container-high transition-colors active:scale-95 duration-150 px-3 py-1 rounded-lg font-label-md text-label-md">
+                Help
+            </button>
+</div>
+<!-- Progress Bar -->
+<div class="w-full bg-surface-container h-1 relative">
+<div class="absolute top-0 left-0 h-full bg-primary-container w-3/4 transition-all duration-500 rounded-r-full"></div>
+</div>
+</header>
+<!-- Main Content Canvas -->
+<main class="flex-1 mt-[52px] px-margin-mobile py-stack-lg flex flex-col gap-stack-lg md:px-margin-desktop">
+<!-- Instructions Context -->
+<div class="flex flex-col gap-stack-sm">
+<span class="font-label-md text-label-md text-primary tracking-widest uppercase">Step 3 of 4</span>
+<p class="font-body-md text-body-md text-on-surface-variant">Upload a clear photo of your valid vehicle insurance policy. Ensure all text is legible and all four corners of the document are visible.</p>
+</div>
+<!-- Upload Area (Glassmorphism Card) -->
+<div class="bg-[#17202B] rounded-xl p-stack-md glass-edge flex flex-col items-center justify-center min-h-[200px] border-dashed border-2 border-outline-variant/50 hover:border-primary-container transition-colors cursor-pointer group active:scale-[0.99]" id="upload-container">
+<div class="w-16 h-16 rounded-full bg-surface-container-high flex items-center justify-center mb-stack-md group-hover:bg-primary-container/20 transition-colors">
+<span class="material-symbols-outlined text-3xl text-on-surface-variant group-hover:text-primary-container transition-colors" style="font-variation-settings: 'FILL' 0;">photo_camera</span>
+</div>
+<h3 class="font-headline-lg-mobile text-headline-lg-mobile text-on-surface mb-1 group-hover:text-primary-container transition-colors">Upload Document</h3>
+<p class="font-label-md text-label-md text-on-surface-variant text-center">Tap to use camera or select from gallery<br/><span class="text-xs opacity-70">JPEG, PNG, or PDF (Max 5MB)</span></p>
+<div class="hidden absolute inset-0 bg-surface/80 flex flex-col items-center justify-center rounded-xl" id="upload-success-indicator"><span class="material-symbols-outlined text-primary text-5xl mb-2">check_circle</span><span class="text-primary font-bold">Document Uploaded</span></div></div>
+<!-- Form Fields -->
+<div class="flex flex-col gap-stack-md mt-stack-sm">
+<!-- Policy Number -->
+<div class="flex flex-col gap-base">
+<label class="font-label-md text-label-md text-on-surface-variant pl-1" for="policy-number">Insurance Policy Number</label>
+<div class="bg-[#111827] border border-[#1E293B] rounded-lg h-[56px] px-4 flex items-center focus-ring transition-colors" id="policy-input-container">
+<span class="material-symbols-outlined text-on-surface-variant mr-3" style="font-variation-settings: 'FILL' 0;">tag</span>
+<input class="bg-transparent border-none w-full h-full text-on-surface font-body-lg text-body-lg placeholder-on-surface-variant/50 focus:ring-0 p-0" id="policy-number" placeholder="e.g. POL-123456789" type="text"/>
+</div>
+</div>
+<!-- Expiry Date -->
+<div class="flex flex-col gap-base">
+<label class="font-label-md text-label-md text-on-surface-variant pl-1" for="expiry-date">Expiry Date</label>
+<div class="bg-[#111827] border border-[#1E293B] rounded-lg h-[56px] px-4 flex items-center focus-ring transition-colors" id="expiry-input-container">
+<span class="material-symbols-outlined text-on-surface-variant mr-3" style="font-variation-settings: 'FILL' 0;">calendar_today</span>
+<input class="bg-transparent border-none w-full h-full text-on-surface font-body-lg text-body-lg placeholder-on-surface-variant/50 focus:ring-0 p-0" id="expiry-date" style="color-scheme: dark;" type="date"/>
+</div>
+</div>
+</div>
+<!-- Info Card -->
+<div class="bg-[#111827] rounded-lg p-stack-sm flex items-start gap-3 mt-auto mb-stack-md glass-edge">
+<span class="material-symbols-outlined text-primary-container mt-1 shrink-0" style="font-variation-settings: 'FILL' 1;">info</span>
+<p class="font-label-md text-label-md text-on-surface-variant leading-relaxed">Your document will be securely stored and only used for verification purposes. Approval usually takes under 5 minutes.</p>
+</div>
+</main>
+<!-- Bottom Action Area (Sticky) -->
+<div class="fixed bottom-0 w-full bg-surface-container-low dark:bg-surface-container-low border-t border-outline-variant/10 shadow-lg px-margin-mobile py-stack-md md:absolute z-40 pb-safe pb-8">
+<button class="w-full h-[56px] bg-[#2563EB] hover:bg-blue-700 text-white rounded-lg font-headline-lg-mobile text-headline-lg-mobile font-bold flex items-center justify-center gap-2 transition-colors active:scale-95 duration-150 glass-edge shadow-lg shadow-blue-900/20 btn-disabled">
+            Submit for Verification
+            <span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">check_circle</span>
+</button>
+</div>
+<!-- Padding for bottom sticky bar to prevent content overlap -->
+<div class="h-[100px] md:hidden"></div>
+</body></html>
