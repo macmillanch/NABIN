@@ -3300,6 +3300,46 @@
 
     const API_BASE = window.location.origin.startsWith('http') ? '' : 'http://localhost:4000';
 
+    // --- ERROR NORMALIZATION HELPER ---
+    function normalizeErrorMessage(err, fallback = 'Invalid administrator credentials.') {
+      if (!err) return fallback;
+      if (typeof err === 'string') {
+        const trimmed = err.trim();
+        if (!trimmed || trimmed === '[object Object]' || trimmed === 'null' || trimmed === 'undefined') {
+          return fallback;
+        }
+        return trimmed;
+      }
+      if (err instanceof Error) {
+        return err.message && typeof err.message === 'string' && err.message !== '[object Object]'
+          ? err.message
+          : fallback;
+      }
+      if (typeof err === 'object') {
+        if (typeof err.error === 'string' && err.error.trim()) {
+          return err.error.trim();
+        }
+        if (err.error && typeof err.error === 'object') {
+          if (typeof err.error.message === 'string' && err.error.message.trim()) {
+            return err.error.message.trim();
+          }
+          if (typeof err.error.error === 'string' && err.error.error.trim()) {
+            return err.error.error.trim();
+          }
+        }
+        if (typeof err.message === 'string' && err.message.trim()) {
+          return err.message.trim();
+        }
+        if (typeof err.detail === 'string' && err.detail.trim()) {
+          return err.detail.trim();
+        }
+        if (typeof err.description === 'string' && err.description.trim()) {
+          return err.description.trim();
+        }
+      }
+      return fallback;
+    }
+
     // --- AUTHENTICATION HANDLERS ---
     function updateAdminProfileUI(admin) {
       if (!admin) return;
@@ -3388,8 +3428,8 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ identifier, newPassword })
         });
-        const data = await res.json();
-        if (data.success) {
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.success) {
           successEl.innerText = data.message || `Password reset successfully for ${identifier}.`;
           successEl.classList.remove('hidden');
           quickFillAdmin(identifier, newPassword);
@@ -3397,11 +3437,11 @@
             toggleForgotPasswordPanel();
           }, 1500);
         } else {
-          errorEl.innerText = data.error || 'Failed to reset password.';
+          errorEl.innerText = normalizeErrorMessage(data, 'Failed to reset password.');
           errorEl.classList.remove('hidden');
         }
       } catch (e) {
-        errorEl.innerText = 'Network error connecting to password reset server.';
+        errorEl.innerText = normalizeErrorMessage(e, 'Network error connecting to password reset server.');
         errorEl.classList.remove('hidden');
       } finally {
         btn.disabled = false;
@@ -3416,6 +3456,12 @@
       const btn = document.getElementById('btnLoginSubmit');
       const errAlert = document.getElementById('loginErrorAlert');
 
+      if (!username || !password) {
+        document.getElementById('loginErrorText').innerText = 'Please enter both username and password.';
+        errAlert.classList.remove('hidden');
+        return;
+      }
+
       btn.disabled = true;
       btn.innerHTML = '<span class="material-symbols-outlined text-sm animate-spin">sync</span> Verifying Credentials...';
       errAlert.classList.add('hidden');
@@ -3426,9 +3472,9 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ username, password })
         });
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
 
-        if (data.success && data.admin) {
+        if (res.ok && data.success && data.admin) {
           currentAdminSession = {
             id: data.admin.id,
             name: data.admin.name,
@@ -3451,11 +3497,11 @@
 
           initDashboardData();
         } else {
-          document.getElementById('loginErrorText').innerText = data.error || 'Invalid administrator credentials.';
+          document.getElementById('loginErrorText').innerText = normalizeErrorMessage(data, 'Invalid administrator credentials. Please check your username and password.');
           errAlert.classList.remove('hidden');
         }
       } catch (e) {
-        document.getElementById('loginErrorText').innerText = 'Network error connecting to authentication server. Please ensure backend is running.';
+        document.getElementById('loginErrorText').innerText = normalizeErrorMessage(e, 'Network error connecting to authentication server. Please ensure backend is running.');
         errAlert.classList.remove('hidden');
       } finally {
         btn.disabled = false;
