@@ -5,6 +5,7 @@ on:
     branches: [ develop, main, beta ]
   pull_request:
     branches: [ develop, main ]
+  workflow_dispatch:
 
 jobs:
   # =========================================================================
@@ -160,12 +161,13 @@ jobs:
       - name: Trigger Beta Cluster Deployment Webhook
         env:
           BETA_DEPLOY_WEBHOOK_URL: ${{ secrets.BETA_DEPLOY_WEBHOOK_URL }}
-          IMAGE_TAG: ghcr.io/${{ github.repository_owner }}/nabin-backend:${{ github.sha }}
-          PREV_SHA: ${{ github.event.before }}
         run: |
-          curl -f -X POST "$BETA_DEPLOY_WEBHOOK_URL" \
-            -H "Content-Type: application/json" \
-            -d "{\"image\":\"$IMAGE_TAG\",\"environment\":\"beta\",\"ref\":\"${{ github.ref }}\",\"sha\":\"${{ github.sha }}\",\"previousSha\":\"$PREV_SHA\"}"
+          if [ -z "$BETA_DEPLOY_WEBHOOK_URL" ]; then
+            echo "❌ BETA_DEPLOY_WEBHOOK_URL secret is not configured in GitHub Repository Secrets."
+            exit 1
+          fi
+          echo "Triggering Beta deployment via Deploy Webhook..."
+          curl -f -s -X POST "$BETA_DEPLOY_WEBHOOK_URL"
 
       - name: Wait for Beta Rolling Deployment & Health Check
         env:
@@ -211,12 +213,13 @@ jobs:
       - name: Trigger Production Deployment Webhook
         env:
           PROD_DEPLOY_WEBHOOK_URL: ${{ secrets.PROD_DEPLOY_WEBHOOK_URL }}
-          IMAGE_TAG: ghcr.io/${{ github.repository_owner }}/nabin-backend:${{ github.sha }}
-          PREV_SHA: ${{ github.event.before }}
         run: |
-          curl -f -X POST "$PROD_DEPLOY_WEBHOOK_URL" \
-            -H "Content-Type: application/json" \
-            -d "{\"image\":\"$IMAGE_TAG\",\"environment\":\"production\",\"ref\":\"main\",\"sha\":\"${{ github.sha }}\",\"previousSha\":\"$PREV_SHA\"}"
+          if [ -z "$PROD_DEPLOY_WEBHOOK_URL" ]; then
+            echo "❌ PROD_DEPLOY_WEBHOOK_URL secret is not configured in GitHub Repository Secrets."
+            exit 1
+          fi
+          echo "Triggering Production deployment via Deploy Webhook..."
+          curl -f -s -X POST "$PROD_DEPLOY_WEBHOOK_URL"
 
       - name: Verify Production Health & Database Readiness
         env:

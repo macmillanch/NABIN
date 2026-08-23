@@ -34,10 +34,10 @@ services:
         generateValue: true
 
   # ---------------------------------------------------------------------------
-  # 2. NABIN Beta Staging Web Service (Optional Isolated Environment)
+  # 2. NABIN Beta Staging Web Service (Isolated Beta Environment)
   # ---------------------------------------------------------------------------
   - type: web
-    name: nabin-backend-beta
+    name: nabin-beta-api
     runtime: docker
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
