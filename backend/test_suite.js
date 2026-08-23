@@ -1,11 +1,12 @@
-// Comprehensive Automated Backend QA Test Suite for Full Multi-App Platform Connectivity & 5 Required Admin Modules
 const http = require('http');
+const { spawn } = require('child_process');
+const path = require('path');
 
 const BASE_URL = 'http://127.0.0.1:4000';
 
-function request(method, path, body = null, headers = {}) {
+function request(method, pathName, body = null, headers = {}) {
   return new Promise((resolve, reject) => {
-    const url = new URL(path, BASE_URL);
+    const url = new URL(pathName, BASE_URL);
     const options = {
       method: method,
       hostname: url.hostname,
@@ -55,18 +56,55 @@ function assert(description, condition, details = '') {
   }
 }
 
+async function ensureServerRunning() {
+  try {
+    const res = await request('GET', '/api/health');
+    if (res.status === 200) return null;
+  } catch (e) {}
+
+  const proc = spawn(process.execPath, [path.join(__dirname, 'src/server.js')], {
+    cwd: __dirname,
+    stdio: 'ignore',
+    detached: true,
+    windowsHide: true
+  });
+  proc.unref();
+
+  for (let i = 0; i < 30; i++) {
+    await new Promise(r => setTimeout(r, 200));
+    try {
+      const res = await request('GET', '/api/health');
+      if (res.status === 200) return proc;
+    } catch (e) {}
+  }
+  return proc;
+}
+
 async function runAllTests() {
   console.log('========================================================================');
   console.log('🚀 RUNNING NABIN FULL-PLATFORM QA TEST SUITE — 5 REQUIRED ADMIN MODULES');
   console.log('========================================================================\n');
 
   try {
+    await ensureServerRunning();
     // --- 1. Health & Server Status ---
     console.log('--- 1. Health & Platform Status ---');
+    const rootRes = await request('GET', '/');
+    assert('Root route (/) returns 200 OK without ENOENT error', rootRes.status === 200);
+    assert('Root route returns API discovery JSON', rootRes.data?.status === 'ONLINE' && rootRes.data?.service);
+
+    const adminRootRes = await request('GET', '/admin');
+    assert('Admin route (/admin) returns 200 OK without ENOENT error', adminRootRes.status === 200);
+    assert('Admin route returns Admin API discovery JSON', adminRootRes.data?.status === 'ONLINE');
+
     const health = await request('GET', '/api/health');
     assert('Health endpoint returns 200 OK', health.status === 200);
     assert('Health status is ONLINE', health.data.status === 'ONLINE');
     assert('Active drivers count is reported', typeof health.data.activeDrivers === 'number');
+
+    const ready = await request('GET', '/api/ready');
+    assert('Ready endpoint returns 200 OK', ready.status === 200);
+    assert('Ready status reports operational platform', ready.data?.ready === true);
 
     // --- 2. Admin Auth & Tokens ---
     console.log('\n--- 2. Admin Authentication & RBAC ---');

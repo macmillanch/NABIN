@@ -1,0 +1,63 @@
+# ==============================================================================
+# Render Blueprint Specification — NABIN Unified Backend
+# Documentation: https://render.com/docs/blueprint-spec
+# ==============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # 1. NABIN Production API Web Service
+  # ---------------------------------------------------------------------------
+  - type: web
+    name: nabin-backend-prod
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    region: singapore # Choose closest region to users (singapore, oregon, frankfurt, etc.)
+    plan: starter
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 4000
+      - key: SUPABASE_URL
+        sync: false # Set in Render Dashboard
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false # Set in Render Dashboard
+      - key: SUPABASE_ANON_KEY
+        sync: false # Set in Render Dashboard
+      - key: REDIS_URL
+        sync: false # Set in Render Dashboard (or connect to managed Redis)
+      - key: JWT_SECRET
+        generateValue: true
+      - key: WEBHOOK_SECRET
+        generateValue: true
+
+  # ---------------------------------------------------------------------------
+  # 2. NABIN Beta Staging Web Service (Optional Isolated Environment)
+  # ---------------------------------------------------------------------------
+  - type: web
+    name: nabin-backend-beta
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    region: singapore
+    plan: starter
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 4000
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: WEBHOOK_SECRET
+        generateValue: true

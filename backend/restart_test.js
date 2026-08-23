@@ -57,12 +57,37 @@ function assert(description, condition, details = '') {
   }
 }
 
+async function ensureServerRunning() {
+  try {
+    const res = await request('GET', '/api/health');
+    if (res.status === 200) return null;
+  } catch (e) {}
+
+  const proc = spawn(process.execPath, [path.join(__dirname, 'src/server.js')], {
+    cwd: __dirname,
+    stdio: 'ignore',
+    detached: true,
+    windowsHide: true
+  });
+  proc.unref();
+
+  for (let i = 0; i < 30; i++) {
+    await new Promise(r => setTimeout(r, 200));
+    try {
+      const res = await request('GET', '/api/health');
+      if (res.status === 200) return proc;
+    } catch (e) {}
+  }
+  return proc;
+}
+
 async function runRestartTest() {
   console.log('========================================================================');
   console.log('🔄 RUNNING NABIN MANDATORY BACKEND PERSISTENCE & RESTART TEST');
   console.log('========================================================================\n');
 
   try {
+    await ensureServerRunning();
     // 1. Initial Health & Readiness Check
     const health = await request('GET', '/api/health');
     assert('Initial backend server is healthy & online', health.status === 200 && health.data.status === 'ONLINE');
@@ -125,10 +150,11 @@ async function runRestartTest() {
 
     // Start a fresh backend instance from scratch
     console.log('🚀 Spawning fresh backend process from cold start...');
-    const serverProcess = spawn('node', [path.join(__dirname, 'src/server.js')], {
+    const serverProcess = spawn(process.execPath, [path.join(__dirname, 'src/server.js')], {
       cwd: path.join(__dirname),
       detached: true,
-      stdio: 'ignore'
+      stdio: 'ignore',
+      windowsHide: true
     });
     serverProcess.unref();
 

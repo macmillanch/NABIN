@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "test": "node test_suite.js && node restart_test.js"
+    "test": "node test_suite.js && node restart_test.js",
+    "smoke": "node smoke_test.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",

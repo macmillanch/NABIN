@@ -50,16 +50,39 @@ app.use((req, res, next) => {
 });
 
 app.use(express.json());
-app.use(express.static(path.join(__dirname, '../../')));
 
-// Root Landing Portal & Direct Dashboard Serving
+// Root API Discovery Endpoint
 app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, '../../admin_dashboard.html'));
+  res.json({
+    status: 'ONLINE',
+    service: 'NABIN Unified Multi-App Backend API',
+    version: '1.1.0',
+    environment: process.env.NODE_ENV || 'development',
+    documentation: 'https://github.com/macmillanch/NABIN/tree/main/docs',
+    adminDashboardUrl: process.env.ADMIN_DASHBOARD_URL || 'https://admin.nabin.in',
+    endpoints: {
+      health: '/api/health',
+      ready: '/api/ready',
+      services: '/api/services/status',
+      auth: '/api/auth',
+      admin: '/api/admin',
+      rides: '/api/rides',
+      food: '/api/food',
+      parcel: '/api/parcel'
+    },
+    timestamp: new Date().toISOString()
+  });
 });
 
-// Admin Dashboard HTML Serving
+// Admin API Discovery Endpoint
 app.get('/admin', (req, res) => {
-  res.sendFile(path.join(__dirname, '../../admin_dashboard.html'));
+  res.json({
+    service: 'NABIN Admin API',
+    status: 'ONLINE',
+    dashboardUrl: process.env.ADMIN_DASHBOARD_URL || 'https://admin.nabin.in',
+    authEndpoint: '/api/admin/login',
+    docs: '/api/admin/audit-logs'
+  });
 });
 
 // Health & Readiness Endpoints
