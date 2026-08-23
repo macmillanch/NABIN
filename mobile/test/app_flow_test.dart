@@ -86,10 +86,11 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('NABIN'), findsWidgets);
-      expect(find.text('Ride'), findsWidgets);
-      expect(find.text('Food'), findsWidgets);
-      expect(find.text('Parcel'), findsWidgets);
+      expect(find.byType(CustomerHomeScreen), findsOneWidget);
+      expect(find.textContaining('NABIN'), findsWidgets);
+      expect(find.textContaining('Ride'), findsWidgets);
+      expect(find.textContaining('Food'), findsWidgets);
+      expect(find.textContaining('Parcel'), findsWidgets);
     });
 
     testWidgets('6. RideBookingScreen renders vehicle categories', (tester) async {

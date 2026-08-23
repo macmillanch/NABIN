@@ -161,7 +161,7 @@ class _RestaurantMainShellState extends State<RestaurantMainShell> {
                           children: [
                             Container(
                               padding: const EdgeInsets.all(8),
-                              decoration: BoxDecoration(color: RestaurantTheme.neonOrangeLight, shape: BoxShape.circle),
+                              decoration: const BoxDecoration(color: RestaurantTheme.neonOrangeLight, shape: BoxShape.circle),
                               child: const Icon(Icons.notifications_active, color: RestaurantTheme.neonOrange, size: 22),
                             ),
                             const SizedBox(width: 10),
@@ -709,10 +709,15 @@ class _RestaurantMainShellState extends State<RestaurantMainShell> {
                     ),
                     onPressed: () {
                       setState(() {
-                        if (status == 'NEW') order['status'] = 'ACCEPTED';
-                        else if (status == 'ACCEPTED') order['status'] = 'PREPARING';
-                        else if (status == 'PREPARING') order['status'] = 'READY';
-                        else if (status == 'READY') order['status'] = 'COMPLETED';
+                        if (status == 'NEW') {
+                          order['status'] = 'ACCEPTED';
+                        } else if (status == 'ACCEPTED') {
+                          order['status'] = 'PREPARING';
+                        } else if (status == 'PREPARING') {
+                          order['status'] = 'READY';
+                        } else if (status == 'READY') {
+                          order['status'] = 'COMPLETED';
+                        }
                       });
                     },
                     child: Text(
@@ -924,7 +929,7 @@ class _RestaurantMainShellState extends State<RestaurantMainShell> {
                                   const SizedBox(width: 6),
                                   Switch(
                                     value: inStock,
-                                    activeColor: RestaurantTheme.neonOrange,
+                                    activeThumbColor: RestaurantTheme.neonOrange,
                                     onChanged: (val) {
                                       setState(() => item['inStock'] = val);
                                     },

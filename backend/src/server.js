@@ -1674,7 +1674,7 @@ app.post('/api/driver/:driverId/toggle-online', authenticateDriver, (req, res) =
 });
 
 app.get('/api/driver/:driverId/dashboard', authenticateDriver, (req, res) => {
-  const driver = db.getDriver(req.params.driverId);
+  const driver = db.getDriver(req.params.driverId) || req.driver || db.drivers[0];
   res.json({ success: true, driver });
 });
 

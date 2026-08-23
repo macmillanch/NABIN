@@ -14,11 +14,11 @@ class FoodCheckoutScreen extends StatefulWidget {
 }
 
 class _FoodCheckoutScreenState extends State<FoodCheckoutScreen> {
-  String _deliveryAddress = 'Flat 402, Civil Lines, Delhi (Home)';
+  final String _deliveryAddress = 'Flat 402, Civil Lines, Delhi (Home)';
   String _selectedPaymentMethod = 'UPI'; // 'UPI', 'WALLET', 'CARD', 'COD'
   final TextEditingController _instructionCtrl = TextEditingController();
   bool _isPlacingOrder = false;
-  int _couponDiscount = 50;
+  final int _couponDiscount = 50;
 
   late List<Map<String, dynamic>> _items;
   late int _itemTotal;
@@ -254,11 +254,11 @@ class _FoodCheckoutScreenState extends State<FoodCheckoutScreen> {
                   borderRadius: BorderRadius.circular(14),
                   border: Border.all(color: RestaurantTheme.neonOrange.withValues(alpha: 0.3)),
                 ),
-                child: Row(
+                child: const Row(
                   children: [
-                    const Icon(Icons.local_offer_rounded, color: RestaurantTheme.neonOrangeDark, size: 18),
-                    const SizedBox(width: 10),
-                    const Expanded(
+                    Icon(Icons.local_offer_rounded, color: RestaurantTheme.neonOrangeDark, size: 18),
+                    SizedBox(width: 10),
+                    Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -267,7 +267,7 @@ class _FoodCheckoutScreenState extends State<FoodCheckoutScreen> {
                         ],
                       ),
                     ),
-                    const Text('✓ APPLIED', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: RestaurantTheme.neonOrangeDark)),
+                    Text('✓ APPLIED', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: RestaurantTheme.neonOrangeDark)),
                   ],
                 ),
               ),

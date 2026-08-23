@@ -622,7 +622,7 @@ class ProfileScreen extends StatelessWidget {
                           const Text('Saturday Schedule:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
                           Switch(
                             value: saturdayOpen,
-                            activeColor: AppTheme.primary,
+                            activeThumbColor: AppTheme.primary,
                             onChanged: (val) => setDlgState(() => saturdayOpen = val),
                           ),
                         ],

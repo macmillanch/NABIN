@@ -13,7 +13,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
   final PageController _pageController = PageController();
   int _currentPage = 0;
 
-  final List<Map<String, dynamic>> _slides = [
+  final List<Map<String, dynamic>> _slides = const [
     {
       'title': 'Fast, Reliable Rides',
       'tag': '2W BIKE • 3W AUTO • 4W CAB',

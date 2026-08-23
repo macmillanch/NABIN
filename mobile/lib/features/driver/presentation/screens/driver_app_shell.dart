@@ -412,11 +412,11 @@ class _DriverAppShellState extends State<DriverAppShell> with SingleTickerProvid
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.96),
+                  color: Colors.white.withValues(alpha: 0.96),
                   borderRadius: BorderRadius.circular(20),
                   border: Border.all(color: DriverTheme.borderLight),
                   boxShadow: [
-                    BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 14, offset: const Offset(0, 4)),
+                    BoxShadow(color: Colors.black.withValues(alpha: 0.08), blurRadius: 14, offset: const Offset(0, 4)),
                   ],
                 ),
                 child: Row(
@@ -466,7 +466,7 @@ class _DriverAppShellState extends State<DriverAppShell> with SingleTickerProvid
                           scale: 0.85,
                           child: Switch(
                             value: _isOnline,
-                            activeColor: const Color(0xFF00C853),
+                            activeThumbColor: const Color(0xFF00C853),
                             onChanged: (val) => setState(() => _isOnline = val),
                           ),
                         ),
@@ -539,11 +539,11 @@ class _DriverAppShellState extends State<DriverAppShell> with SingleTickerProvid
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         decoration: BoxDecoration(
-          color: isEnabled ? activeColor : Colors.white.withOpacity(0.9),
+          color: isEnabled ? activeColor : Colors.white.withValues(alpha: 0.9),
           borderRadius: BorderRadius.circular(14),
           border: Border.all(color: isEnabled ? activeColor : DriverTheme.borderLight),
           boxShadow: [
-            BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 6),
+            BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 6),
           ],
         ),
         child: Text(
@@ -562,11 +562,11 @@ class _DriverAppShellState extends State<DriverAppShell> with SingleTickerProvid
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.98),
+        color: Colors.white.withValues(alpha: 0.98),
         borderRadius: BorderRadius.circular(24),
         border: Border.all(color: DriverTheme.borderLight),
         boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 18, offset: const Offset(0, 4)),
+          BoxShadow(color: Colors.black.withValues(alpha: 0.08), blurRadius: 18, offset: const Offset(0, 4)),
         ],
       ),
       child: Column(
@@ -690,7 +690,7 @@ class _DriverAppShellState extends State<DriverAppShell> with SingleTickerProvid
         borderRadius: BorderRadius.circular(24),
         border: Border.all(color: DriverTheme.borderLight),
         boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.12), blurRadius: 20, offset: const Offset(0, 4)),
+          BoxShadow(color: Colors.black.withValues(alpha: 0.12), blurRadius: 20, offset: const Offset(0, 4)),
         ],
       ),
       child: Column(
@@ -935,7 +935,7 @@ class _DriverAppShellState extends State<DriverAppShell> with SingleTickerProvid
               ),
               borderRadius: BorderRadius.circular(24),
               boxShadow: [
-                BoxShadow(color: DriverTheme.primaryBlue.withOpacity(0.3), blurRadius: 16, offset: const Offset(0, 6)),
+                BoxShadow(color: DriverTheme.primaryBlue.withValues(alpha: 0.3), blurRadius: 16, offset: const Offset(0, 6)),
               ],
             ),
             child: Column(
@@ -1030,7 +1030,7 @@ class _DriverAppShellState extends State<DriverAppShell> with SingleTickerProvid
           decoration: BoxDecoration(
             color: isSelected ? Colors.white : Colors.transparent,
             borderRadius: BorderRadius.circular(12),
-            boxShadow: isSelected ? [BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 4)] : null,
+            boxShadow: isSelected ? [BoxShadow(color: Colors.black.withValues(alpha: 0.06), blurRadius: 4)] : null,
           ),
           child: Center(
             child: Text(

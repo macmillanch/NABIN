@@ -627,12 +627,16 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
           onTap: (idx) async {
             if (idx == 0) return;
             setState(() => _navIndex = idx);
-            if (idx == 1) await context.push('/activity');
-            if (!mounted) return;
-            if (idx == 2) await context.push('/wallet');
-            if (!mounted) return;
-            if (idx == 3) await context.push('/profile');
-            if (mounted) setState(() => _navIndex = 0);
+            if (idx == 1) {
+              await context.push('/activity');
+            } else if (idx == 2) {
+              await context.push('/wallet');
+            } else if (idx == 3) {
+              await context.push('/profile');
+            }
+            if (mounted) {
+              setState(() => _navIndex = 0);
+            }
           },
           backgroundColor: Colors.white,
           selectedItemColor: const Color(0xFF0052CC),

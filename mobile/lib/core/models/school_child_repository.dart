@@ -18,7 +18,7 @@ class SchoolChildRepository extends ChangeNotifier {
   void _initSeeds() {
     // Seed Sample Schools
     _schools.addAll([
-      SavedSchool(
+      const SavedSchool(
         id: 'sch_1',
         name: 'ABC Public School',
         address: 'Kamalanagar, Main Road',
@@ -28,16 +28,16 @@ class SchoolChildRepository extends ChangeNotifier {
         generalTimingSummary: '8:30 AM – 2:30 PM • Mon–Fri',
         instructions: 'Gate 2 pickup zone near security guard cabin',
         customDayTimings: [
-          const SchoolTimingDay(dayName: 'Monday', isOpen: true, startTime: '08:30 AM', endTime: '02:30 PM'),
-          const SchoolTimingDay(dayName: 'Tuesday', isOpen: true, startTime: '08:30 AM', endTime: '02:30 PM'),
-          const SchoolTimingDay(dayName: 'Wednesday', isOpen: true, startTime: '08:30 AM', endTime: '02:30 PM'),
-          const SchoolTimingDay(dayName: 'Thursday', isOpen: true, startTime: '08:30 AM', endTime: '02:30 PM'),
-          const SchoolTimingDay(dayName: 'Friday', isOpen: true, startTime: '08:30 AM', endTime: '02:30 PM'),
-          const SchoolTimingDay(dayName: 'Saturday', isOpen: true, startTime: '08:30 AM', endTime: '12:30 PM'),
-          const SchoolTimingDay(dayName: 'Sunday', isOpen: false, startTime: '', endTime: ''),
+          SchoolTimingDay(dayName: 'Monday', isOpen: true, startTime: '08:30 AM', endTime: '02:30 PM'),
+          SchoolTimingDay(dayName: 'Tuesday', isOpen: true, startTime: '08:30 AM', endTime: '02:30 PM'),
+          SchoolTimingDay(dayName: 'Wednesday', isOpen: true, startTime: '08:30 AM', endTime: '02:30 PM'),
+          SchoolTimingDay(dayName: 'Thursday', isOpen: true, startTime: '08:30 AM', endTime: '02:30 PM'),
+          SchoolTimingDay(dayName: 'Friday', isOpen: true, startTime: '08:30 AM', endTime: '02:30 PM'),
+          SchoolTimingDay(dayName: 'Saturday', isOpen: true, startTime: '08:30 AM', endTime: '12:30 PM'),
+          SchoolTimingDay(dayName: 'Sunday', isOpen: false, startTime: '', endTime: ''),
         ],
       ),
-      SavedSchool(
+      const SavedSchool(
         id: 'sch_2',
         name: 'Government High School',
         address: 'Chawngte, Sector 4',
@@ -47,13 +47,13 @@ class SchoolChildRepository extends ChangeNotifier {
         generalTimingSummary: '9:00 AM – 3:00 PM • Mon–Fri',
         instructions: 'Main school bus turnaround area',
         customDayTimings: [
-          const SchoolTimingDay(dayName: 'Monday', isOpen: true, startTime: '09:00 AM', endTime: '03:00 PM'),
-          const SchoolTimingDay(dayName: 'Tuesday', isOpen: true, startTime: '09:00 AM', endTime: '03:00 PM'),
-          const SchoolTimingDay(dayName: 'Wednesday', isOpen: true, startTime: '09:00 AM', endTime: '03:00 PM'),
-          const SchoolTimingDay(dayName: 'Thursday', isOpen: true, startTime: '09:00 AM', endTime: '03:00 PM'),
-          const SchoolTimingDay(dayName: 'Friday', isOpen: true, startTime: '09:00 AM', endTime: '03:00 PM'),
-          const SchoolTimingDay(dayName: 'Saturday', isOpen: false, startTime: '', endTime: ''),
-          const SchoolTimingDay(dayName: 'Sunday', isOpen: false, startTime: '', endTime: ''),
+          SchoolTimingDay(dayName: 'Monday', isOpen: true, startTime: '09:00 AM', endTime: '03:00 PM'),
+          SchoolTimingDay(dayName: 'Tuesday', isOpen: true, startTime: '09:00 AM', endTime: '03:00 PM'),
+          SchoolTimingDay(dayName: 'Wednesday', isOpen: true, startTime: '09:00 AM', endTime: '03:00 PM'),
+          SchoolTimingDay(dayName: 'Thursday', isOpen: true, startTime: '09:00 AM', endTime: '03:00 PM'),
+          SchoolTimingDay(dayName: 'Friday', isOpen: true, startTime: '09:00 AM', endTime: '03:00 PM'),
+          SchoolTimingDay(dayName: 'Saturday', isOpen: false, startTime: '', endTime: ''),
+          SchoolTimingDay(dayName: 'Sunday', isOpen: false, startTime: '', endTime: ''),
         ],
       ),
     ]);

@@ -67,7 +67,7 @@ class _DriverMapViewState extends State<DriverMapView> {
   ];
 
   // Fleet of nearby active drivers placed on actual road networks around Civil Lines
-  List<Map<String, dynamic>> _nearbyDrivers = [
+  final List<Map<String, dynamic>> _nearbyDrivers = [
     {
       'id': 'd1',
       'name': 'Rajesh Kumar',

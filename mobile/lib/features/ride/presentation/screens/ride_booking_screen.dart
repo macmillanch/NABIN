@@ -40,8 +40,8 @@ class _RideBookingScreenState extends State<RideBookingScreen> {
   String _schoolTimingSummary = '8:30 AM – 2:30 PM • Mon–Fri';
   String _morningPickupTime = '07:45 AM';
   String _schoolArrivalTime = '08:15 AM';
-  String _afternoonPickupTime = '02:30 PM';
-  String _homeArrivalTime = '03:00 PM';
+  final String _afternoonPickupTime = '02:30 PM';
+  final String _homeArrivalTime = '03:00 PM';
 
   final List<Map<String, dynamic>> _vehicles = [
     {

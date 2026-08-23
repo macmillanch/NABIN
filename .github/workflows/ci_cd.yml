@@ -102,20 +102,43 @@ jobs:
         working-directory: mobile
         run: flutter analyze --no-fatal-infos
 
+      - name: Execute Flutter Widget & Flow Test Suite
+        working-directory: mobile
+        run: flutter test
+
   # =========================================================================
-  # 3. DOCKER PRODUCTION IMAGE COMPILATION
+  # 3. DOCKER PRODUCTION IMAGE COMPILATION & REGISTRY PUBLISH
   # =========================================================================
   build-container:
     name: Build & Package Production Container Image
     needs: [ backend-qa, flutter-validation ]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Build NABIN Backend Production Container
-        run: |
-          docker build -t nabin-backend:${{ github.sha }} -f backend/Dockerfile .
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build & Push Container Image
+        uses: docker/build-push-action@v5
+        with:
+          context: backend
+          file: backend/Dockerfile
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/nabin-backend:${{ github.sha }}
+            ghcr.io/${{ github.repository_owner }}/nabin-backend:latest
 
   # =========================================================================
   # 4. BETA ENVIRONMENT DEPLOYMENT & HEALTH VERIFICATION
@@ -130,16 +153,45 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Deploy to Beta Cluster
+      - name: Trigger Beta Cluster Deployment Webhook
+        env:
+          BETA_DEPLOY_WEBHOOK_URL: ${{ secrets.BETA_DEPLOY_WEBHOOK_URL }}
+          IMAGE_TAG: ghcr.io/${{ github.repository_owner }}/nabin-backend:${{ github.sha }}
+        run: |
+          curl -f -X POST "$BETA_DEPLOY_WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -d "{\"image\":\"$IMAGE_TAG\",\"environment\":\"beta\",\"ref\":\"${{ github.ref }}\",\"sha\":\"${{ github.sha }}\"}"
+
+      - name: Wait for Beta Rolling Deployment & Health Check
         env:
           BETA_API_URL: ${{ secrets.BETA_API_URL || 'https://api-beta.nabin.in' }}
-          BETA_DEPLOY_KEY: ${{ secrets.BETA_DEPLOY_KEY }}
         run: |
-          if [ -z "$BETA_DEPLOY_KEY" ]; then
-            echo "ℹ️ BETA_DEPLOY_KEY secret not configured. Pre-flight verification passed."
-          else
-            echo "Deploying container image to beta cluster..."
+          echo "Probing beta cluster health & readiness..."
+          HEALTHY=false
+          for i in {1..15}; do
+            HEALTH_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$BETA_API_URL/api/health")
+            READY_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$BETA_API_URL/api/ready")
+            if [ "$HEALTH_CODE" = "200" ] && [ "$READY_CODE" = "200" ]; then
+              echo "✅ Beta deployment healthy: /api/health (200), /api/ready (200)"
+              HEALTHY=true
+              break
+            fi
+            echo "Waiting for beta deployment (Attempt $i/15: health=$HEALTH_CODE, ready=$READY_CODE)..."
+            sleep 6
+          done
+          if [ "$HEALTHY" != "true" ]; then
+            echo "❌ Beta health checks failed after 90 seconds."
+            exit 1
           fi
+
+      - name: Run Beta Smoke Tests
+        env:
+          BETA_API_URL: ${{ secrets.BETA_API_URL || 'https://api-beta.nabin.in' }}
+        run: |
+          echo "Running post-deploy smoke tests against beta API..."
+          curl -f -s "$BETA_API_URL/api/services/status" > /dev/null
+          curl -f -s "$BETA_API_URL/api/advertisements" > /dev/null
+          echo "✅ Beta smoke tests completed successfully."
 
   # =========================================================================
   # 5. PRODUCTION ZERO-DOWNTIME ROLLING DEPLOYMENT
@@ -154,12 +206,46 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Verify Production Deployment Gate
+      - name: Trigger Production Deployment Webhook
         env:
-          PROD_DEPLOY_KEY: ${{ secrets.PROD_DEPLOY_KEY }}
+          PROD_DEPLOY_WEBHOOK_URL: ${{ secrets.PROD_DEPLOY_WEBHOOK_URL }}
+          IMAGE_TAG: ghcr.io/${{ github.repository_owner }}/nabin-backend:${{ github.sha }}
         run: |
-          if [ -z "$PROD_DEPLOY_KEY" ]; then
-            echo "ℹ️ PROD_DEPLOY_KEY secret not configured in GitHub repository settings. Pre-flight readiness verified."
-          else
-            echo "Deploying production release with zero-downtime rolling update..."
+          curl -f -X POST "$PROD_DEPLOY_WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -d "{\"image\":\"$IMAGE_TAG\",\"environment\":\"production\",\"ref\":\"main\",\"sha\":\"${{ github.sha }}\"}"
+
+      - name: Verify Production Health & Database Readiness
+        env:
+          PROD_API_URL: ${{ secrets.PROD_API_URL || 'https://api.nabin.in' }}
+          PROD_ROLLBACK_WEBHOOK_URL: ${{ secrets.PROD_ROLLBACK_WEBHOOK_URL }}
+        run: |
+          echo "Probing production cluster health & readiness..."
+          HEALTHY=false
+          for i in {1..15}; do
+            HEALTH_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$PROD_API_URL/api/health")
+            READY_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$PROD_API_URL/api/ready")
+            if [ "$HEALTH_CODE" = "200" ] && [ "$READY_CODE" = "200" ]; then
+              echo "✅ Production deployment healthy: /api/health (200), /api/ready (200)"
+              HEALTHY=true
+              break
+            fi
+            echo "Waiting for production rolling update (Attempt $i/15: health=$HEALTH_CODE, ready=$READY_CODE)..."
+            sleep 6
+          done
+          if [ "$HEALTHY" != "true" ]; then
+            echo "❌ Production health check failed! Triggering automatic rollback..."
+            if [ -n "$PROD_ROLLBACK_WEBHOOK_URL" ]; then
+              curl -X POST "$PROD_ROLLBACK_WEBHOOK_URL" -H "Content-Type: application/json" -d "{\"action\":\"rollback\",\"failedSha\":\"${{ github.sha }}\"}"
+            fi
+            exit 1
           fi
+
+      - name: Run Production Smoke Verification
+        env:
+          PROD_API_URL: ${{ secrets.PROD_API_URL || 'https://api.nabin.in' }}
+        run: |
+          echo "Executing production smoke tests..."
+          curl -f -s "$PROD_API_URL/api/services/status" > /dev/null
+          curl -f -s "$PROD_API_URL/api/v1/features" > /dev/null
+          echo "✅ Production smoke tests passed with 100% readiness."
