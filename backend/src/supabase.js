@@ -1,5 +1,11 @@
 require('dotenv').config();
 const { createClient } = require('@supabase/supabase-js');
+const WebSocket = require('ws');
+
+// Guarantee WebSocket global for Supabase Realtime compatibility
+if (typeof globalThis.WebSocket === 'undefined') {
+  globalThis.WebSocket = WebSocket;
+}
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
