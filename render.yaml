@@ -5,14 +5,14 @@
 
 services:
   # ---------------------------------------------------------------------------
-  # 1. NABIN Production API Web Service
+  # 1. NABIN Production API Web Service (LIVE RAIL TIER)
   # ---------------------------------------------------------------------------
   - type: web
     name: nabin-backend-prod
     runtime: docker
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
-    region: singapore # Choose closest region to users (singapore, oregon, frankfurt, etc.)
+    region: singapore
     plan: starter
     healthCheckPath: /api/health
     envVars:
@@ -20,6 +20,14 @@ services:
         value: production
       - key: PORT
         value: 4000
+      - key: PAYMENT_MODE
+        value: live
+      - key: PAYMENT_KEY_ID
+        sync: false # Set in Render Dashboard (rzp_live_...)
+      - key: PAYMENT_KEY_SECRET
+        sync: false # Set in Render Dashboard
+      - key: PAYMENT_WEBHOOK_SECRET
+        sync: false # Set in Render Dashboard
       - key: SUPABASE_URL
         sync: false # Set in Render Dashboard
       - key: SUPABASE_SERVICE_ROLE_KEY
@@ -27,14 +35,14 @@ services:
       - key: SUPABASE_ANON_KEY
         sync: false # Set in Render Dashboard
       - key: REDIS_URL
-        sync: false # Set in Render Dashboard (or connect to managed Redis)
+        sync: false # Set in Render Dashboard
       - key: JWT_SECRET
         generateValue: true
       - key: WEBHOOK_SECRET
         generateValue: true
 
   # ---------------------------------------------------------------------------
-  # 2. NABIN Beta Staging Web Service (Isolated Beta Environment)
+  # 2. NABIN Beta Staging Web Service (ISOLATED SANDBOX TIER)
   # ---------------------------------------------------------------------------
   - type: web
     name: nabin-beta-api
@@ -49,6 +57,14 @@ services:
         value: production
       - key: PORT
         value: 4000
+      - key: PAYMENT_MODE
+        value: sandbox
+      - key: PAYMENT_KEY_ID
+        value: rzp_test_nabin_beta_2026
+      - key: PAYMENT_KEY_SECRET
+        value: rzp_sec_nabin_beta_test_secret_2026
+      - key: PAYMENT_WEBHOOK_SECRET
+        value: whsec_nabin_secure_beta_2026
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
