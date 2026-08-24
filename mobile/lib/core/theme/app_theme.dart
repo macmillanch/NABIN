@@ -56,13 +56,14 @@ class AppTheme {
   static const Color adminCyan = Color(0xFF0284C7);
 
   // Service Specific Chips
-  static const Color serviceRide = Color(0xFF3C4890);
-  static const Color serviceRide2W = Color(0xFF3C4890);
+  static const Color serviceRide = Color(0xFF0052CC);        // Mobility Accent
+  static const Color serviceRide2W = Color(0xFF0052CC);
   static const Color serviceRide3W = Color(0xFFF59E0B);
-  static const Color serviceRide4W = Color(0xFF3C4890);
-  static const Color serviceParcel = Color(0xFFE07315);
-  static const Color serviceFood = Color(0xFFFF9030);
-  static const Color serviceGrocery = Color(0xFF22A447);
+  static const Color serviceRide4W = Color(0xFF0052CC);
+  static const Color serviceParcel = Color(0xFF00897B);      // Parcel & Logistics Accent
+  static const Color serviceFood = Color(0xFFFF9030);        // Food & Dining Accent
+  static const Color serviceGrocery = Color(0xFF22A447);     // Grocery Express Accent
+  static const Color fintechAccent = Color(0xFFF59E0B);      // Fintech & Gold Accent
 
   static ThemeData get customerTheme => ThemeData(
     useMaterial3: true,

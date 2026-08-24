@@ -36,10 +36,10 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                 Container(
                   padding: const EdgeInsets.all(6),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF0052CC).withValues(alpha: 0.1),
+                    color: const Color(0xFF3C4890).withValues(alpha: 0.1),
                     shape: BoxShape.circle,
                   ),
-                  child: const Icon(Icons.location_on_rounded, color: Color(0xFF0052CC), size: 18),
+                  child: const Icon(Icons.location_on_rounded, color: Color(0xFF3C4890), size: 18),
                 ),
                 const SizedBox(width: 6),
                 Expanded(
@@ -47,7 +47,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('LOCATION', style: TextStyle(fontSize: 8.5, fontWeight: FontWeight.w900, color: Color(0xFF0052CC), letterSpacing: 0.5)),
+                      const Text('LOCATION', style: TextStyle(fontSize: 8.5, fontWeight: FontWeight.w900, color: Color(0xFF3C4890), letterSpacing: 0.5)),
                       Text(
                         _currentLocation,
                         style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppTheme.onSurface),
@@ -66,7 +66,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
           style: TextStyle(
             fontWeight: FontWeight.w900,
             fontSize: 20,
-            color: Color(0xFF0052CC),
+            color: Color(0xFF3C4890),
             letterSpacing: 1.0,
           ),
         ),
@@ -80,15 +80,15 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
               margin: const EdgeInsets.symmetric(vertical: 10),
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
               decoration: BoxDecoration(
-                color: const Color(0xFF0052CC).withValues(alpha: 0.08),
+                color: const Color(0xFF3C4890).withValues(alpha: 0.08),
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: const Color(0xFF0052CC).withValues(alpha: 0.2)),
+                border: Border.all(color: const Color(0xFF3C4890).withValues(alpha: 0.2)),
               ),
               child: const Row(
                 children: [
-                  Icon(Icons.account_balance_wallet_rounded, color: Color(0xFF0052CC), size: 15),
+                  Icon(Icons.account_balance_wallet_rounded, color: Color(0xFF3C4890), size: 15),
                   SizedBox(width: 5),
-                  Text('₹1,250', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12, color: Color(0xFF0052CC))),
+                  Text('₹1,250', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12, color: Color(0xFF3C4890))),
                 ],
               ),
             ),
@@ -146,7 +146,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                   ),
                   child: const Row(
                     children: [
-                      Icon(Icons.search_rounded, color: Color(0xFF0052CC), size: 22),
+                      Icon(Icons.search_rounded, color: Color(0xFF3C4890), size: 22),
                       SizedBox(width: 12),
                       Text('Where to? (e.g. Connaught Place, CP)', style: TextStyle(fontSize: 14, color: Color(0xFF94A3B8), fontWeight: FontWeight.w500)),
                       Spacer(),
@@ -523,9 +523,9 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: const Color(0xFF0052CC).withValues(alpha: 0.25)),
+                  border: Border.all(color: const Color(0xFF3C4890).withValues(alpha: 0.25)),
                   boxShadow: [
-                    BoxShadow(color: const Color(0xFF0052CC).withValues(alpha: 0.06), blurRadius: 10, offset: const Offset(0, 3)),
+                    BoxShadow(color: const Color(0xFF3C4890).withValues(alpha: 0.06), blurRadius: 10, offset: const Offset(0, 3)),
                   ],
                 ),
                 child: Row(
@@ -536,7 +536,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                         color: Color(0xFFEFF6FF),
                         shape: BoxShape.circle,
                       ),
-                      child: const Icon(Icons.electric_rickshaw_rounded, color: Color(0xFF0052CC), size: 22),
+                      child: const Icon(Icons.electric_rickshaw_rounded, color: Color(0xFF3C4890), size: 22),
                     ),
                     const SizedBox(width: 14),
                     const Expanded(
@@ -545,14 +545,14 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                         children: [
                           Text('Recent Ride: Connaught Place', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13.5, color: Color(0xFF1E293B))),
                           SizedBox(height: 2),
-                          Text('Driver: Rajesh Kumar • Start OTP: 7729', style: TextStyle(color: Color(0xFF0052CC), fontSize: 11.5, fontWeight: FontWeight.bold)),
+                          Text('Driver: Rajesh Kumar • Start OTP: 7729', style: TextStyle(color: Color(0xFF3C4890), fontSize: 11.5, fontWeight: FontWeight.bold)),
                         ],
                       ),
                     ),
                     ElevatedButton(
                       onPressed: () => context.push('/active-ride'),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF0052CC),
+                        backgroundColor: const Color(0xFF3C4890),
                         foregroundColor: Colors.white,
                         minimumSize: const Size(68, 34),
                         padding: const EdgeInsets.symmetric(horizontal: 10),
@@ -584,8 +584,8 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                         Expanded(
                           child: OutlinedButton.icon(
                             onPressed: () => context.push('/driver-dashboard'),
-                            icon: const Icon(Icons.drive_eta_rounded, size: 16, color: Color(0xFF0052CC)),
-                            label: const Text('Driver Mode', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF0052CC))),
+                            icon: const Icon(Icons.drive_eta_rounded, size: 16, color: Color(0xFF3C4890)),
+                            label: const Text('Driver Mode', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF3C4890))),
                             style: OutlinedButton.styleFrom(
                               backgroundColor: Colors.white,
                               side: const BorderSide(color: Color(0xFFCBD5E1)),
@@ -639,7 +639,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
             }
           },
           backgroundColor: Colors.white,
-          selectedItemColor: const Color(0xFF0052CC),
+          selectedItemColor: const Color(0xFF3C4890),
           unselectedItemColor: const Color(0xFF94A3B8),
           type: BottomNavigationBarType.fixed,
           items: const [
@@ -701,8 +701,8 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
               contentPadding: EdgeInsets.zero,
               leading: Container(
                 padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(color: const Color(0xFF0052CC).withValues(alpha: 0.1), shape: BoxShape.circle),
-                child: const Icon(Icons.location_on, color: Color(0xFF0052CC), size: 18),
+                decoration: BoxDecoration(color: const Color(0xFF3C4890).withValues(alpha: 0.1), shape: BoxShape.circle),
+                child: const Icon(Icons.location_on, color: Color(0xFF3C4890), size: 18),
               ),
               title: Text(loc, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5)),
               trailing: const Icon(Icons.chevron_right, size: 18, color: Colors.grey),
@@ -743,8 +743,8 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
               contentPadding: EdgeInsets.zero,
               leading: Container(
                 padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(color: const Color(0xFF0052CC).withValues(alpha: 0.1), shape: BoxShape.circle),
-                child: const Icon(Icons.electric_rickshaw, color: Color(0xFF0052CC), size: 20),
+                decoration: BoxDecoration(color: const Color(0xFF3C4890).withValues(alpha: 0.1), shape: BoxShape.circle),
+                child: const Icon(Icons.electric_rickshaw, color: Color(0xFF3C4890), size: 20),
               ),
               title: const Text('Driver Rajesh Kumar is 2 mins away', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
               subtitle: const Text('Start OTP: 7729 • DL 1Y AB 1234', style: TextStyle(fontSize: 11)),
