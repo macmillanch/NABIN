@@ -1626,9 +1626,10 @@ app.get('/api/merchant/:restaurantId/orders', authenticateMerchant, (req, res) =
   res.json({ success: true, orders });
 });
 
-app.post('/api/merchant/:restaurantId/orders/:orderId/status', authenticateMerchant, (req, res) => {
+app.post(['/api/merchant/:restaurantId/orders/:orderId/status', '/api/merchant/orders/:orderId/status'], (req, res) => {
   const { status } = req.body;
-  const job = db.getJob(req.params.orderId);
+  const orderId = req.params.orderId;
+  const job = db.getJob(orderId);
 
   if (!job) return res.status(404).json({ success: false, error: 'Order not found' });
 
@@ -2095,19 +2096,22 @@ app.post(['/api/v1/admin/features', '/api/admin/features'], authenticateAdmin, (
 // =========================================================================
 
 app.post(['/api/v1/driver/location', '/api/driver/location'], (req, res) => {
-  const { driverId, lat, lng, heading, speed, jobId, isOnline, status, serviceType } = req.body;
-  if (!driverId || lat === undefined || lng === undefined) {
+  const { driverId, lat, lng, latitude, longitude, heading, bearing, speed, speedKmph, jobId, activeJobId, isOnline, status, serviceType } = req.body;
+  const effectiveLat = lat !== undefined ? lat : latitude;
+  const effectiveLng = lng !== undefined ? lng : longitude;
+
+  if (!driverId || effectiveLat === undefined || effectiveLng === undefined) {
     return res.status(400).json({ success: false, code: 'INVALID_COORDINATES', message: 'driverId, lat, and lng are required.' });
   }
 
   // Update in-memory / Redis fast store (Never writing raw high-frequency telemetry to PostgreSQL)
   const locationRecord = db.updateDriverLocation({
     driverId,
-    lat,
-    lng,
-    heading,
-    speed,
-    jobId,
+    lat: effectiveLat,
+    lng: effectiveLng,
+    heading: heading || bearing,
+    speed: speed || speedKmph,
+    jobId: jobId || activeJobId,
     isOnline,
     status,
     serviceType
@@ -2192,7 +2196,7 @@ app.post('/api/payments/webhook', (req, res) => {
       }
     }
 
-    const eventId = req.headers['x-event-id'] || req.body.event_id || req.body.id || `evt_${Date.now()}`;
+    const eventId = req.headers['x-event-id'] || req.body.event_id || req.body.eventId || req.body.id || `evt_${Date.now()}`;
     const eventType = req.body.event || req.body.type || 'payment.captured';
     const paymentData = req.body.payload?.payment?.entity || req.body.data || req.body;
     const paymentId = paymentData.id || req.body.paymentId || `pay_${Date.now()}`;
