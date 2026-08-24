@@ -89,6 +89,7 @@ class _DriverAppShellState extends State<DriverAppShell> with SingleTickerProvid
   void dispose() {
     _jobOfferSubscription?.cancel();
     _jobCountdownTimer?.cancel();
+    NabinWsService.instance.disconnect();
     _otpVerifyController.dispose();
     super.dispose();
   }

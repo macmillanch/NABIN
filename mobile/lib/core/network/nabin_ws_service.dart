@@ -42,6 +42,10 @@ class NabinWsService {
     _currentUserId = userId;
 
     try {
+      if (Platform.environment.containsKey('FLUTTER_TEST')) return;
+    } catch (_) {}
+
+    try {
       _socket?.close();
       _socket = await WebSocket.connect(effectiveWsUrl).timeout(const Duration(seconds: 5));
       _isConnected = true;

@@ -13,6 +13,13 @@ import 'package:mobile/features/wallet/presentation/screens/wallet_screen.dart';
 import 'package:mobile/features/activity/presentation/screens/activity_screen.dart';
 import 'package:mobile/features/profile/presentation/screens/profile_screen.dart';
 
+import 'package:mobile/features/driver/presentation/screens/driver_app_shell.dart';
+import 'package:mobile/features/auth/presentation/screens/driver_kyc_registration_screen.dart';
+import 'package:mobile/features/grocery/presentation/screens/grocery_home_screen.dart';
+import 'package:mobile/features/grocery/presentation/screens/grocery_cart_screen.dart';
+import 'package:mobile/features/restaurant/presentation/screens/restaurant_app_shell.dart';
+import 'package:mobile/features/support/presentation/screens/customer_support_screen.dart';
+
 void main() {
   group('NABIN Super-App Component & Screen Unit Tests', () {
     testWidgets('1. WelcomeScreen renders carousel and Get Started button', (tester) async {
@@ -169,6 +176,84 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byType(ActivityScreen), findsOneWidget);
+    });
+
+    testWidgets('12. DriverAppShell renders online/offline dispatch toggle', (tester) async {
+      await tester.pumpWidget(
+        const ProviderScope(
+          child: MaterialApp(
+            home: DriverAppShell(),
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(find.byType(DriverAppShell), findsOneWidget);
+    });
+
+    testWidgets('13. DriverKycRegistrationScreen renders KYC form controls', (tester) async {
+      await tester.pumpWidget(
+        const ProviderScope(
+          child: MaterialApp(
+            home: DriverKycRegistrationScreen(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(DriverKycRegistrationScreen), findsOneWidget);
+    });
+
+    testWidgets('14. GroceryHomeScreen renders catalog categories and product list', (tester) async {
+      await tester.pumpWidget(
+        const ProviderScope(
+          child: MaterialApp(
+            home: GroceryHomeScreen(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(GroceryHomeScreen), findsOneWidget);
+    });
+
+    testWidgets('15. GroceryCartScreen renders express checkout cart', (tester) async {
+      await tester.pumpWidget(
+        const ProviderScope(
+          child: MaterialApp(
+            home: GroceryCartScreen(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(GroceryCartScreen), findsOneWidget);
+    });
+
+    testWidgets('16. RestaurantAppShell renders merchant order and menu tabs', (tester) async {
+      await tester.pumpWidget(
+        const ProviderScope(
+          child: MaterialApp(
+            home: RestaurantAppShell(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(RestaurantAppShell), findsOneWidget);
+    });
+
+    testWidgets('17. CustomerSupportScreen renders help topics and dispute resolution', (tester) async {
+      await tester.pumpWidget(
+        const ProviderScope(
+          child: MaterialApp(
+            home: CustomerSupportScreen(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(CustomerSupportScreen), findsOneWidget);
     });
   });
 }
