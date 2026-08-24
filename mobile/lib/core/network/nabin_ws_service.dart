@@ -11,6 +11,9 @@ class NabinWsService {
   String? _currentRole;
   String? _currentUserId;
 
+  String? get currentRole => _currentRole;
+  String? get currentUserId => _currentUserId;
+
   static const String localWsUrl = 'ws://localhost:4000';
   static const String androidWsUrl = 'ws://10.0.2.2:4000';
   static const String productionWssUrl = 'wss://nabin-beta-api.onrender.com';

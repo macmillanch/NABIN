@@ -6,7 +6,6 @@ import 'package:latlong2/latlong.dart' hide Path;
 import '../../../../core/theme/driver_theme.dart';
 
 import '../../../../core/network/nabin_ws_service.dart';
-import '../../../../core/network/nabin_api_service.dart';
 
 class DriverAppShell extends StatefulWidget {
   const DriverAppShell({super.key});
