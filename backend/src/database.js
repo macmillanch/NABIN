@@ -4798,7 +4798,15 @@ class NabinDatabase {
       throw new Error('Valid transaction amount is required to create a payment session.');
     }
 
-    const orderId = `order_rzp_test_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const isLiveMode = process.env.PAYMENT_MODE === 'live';
+    if (isLiveMode && (!process.env.PAYMENT_KEY_ID || !process.env.PAYMENT_KEY_SECRET)) {
+      throw new Error('Live payment gateway is not yet activated on this production instance.');
+    }
+
+    const orderId = isLiveMode 
+      ? `order_rzp_live_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+      : `order_rzp_test_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
     const session = {
       orderId,
       customerId: customerId || 'usr_cust_anon',
@@ -4807,8 +4815,8 @@ class NabinDatabase {
       serviceType,
       jobId,
       status: 'PAYMENT_PENDING',
-      provider: 'RAZORPAY_SANDBOX',
-      keyId: process.env.PAYMENT_KEY_ID || 'rzp_test_nabin_beta_2026',
+      provider: isLiveMode ? 'RAZORPAY_LIVE' : 'RAZORPAY_SANDBOX',
+      keyId: isLiveMode ? process.env.PAYMENT_KEY_ID : (process.env.PAYMENT_KEY_ID || 'rzp_test_nabin_beta_2026'),
       metadata,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
