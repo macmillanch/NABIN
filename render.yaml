@@ -28,6 +28,12 @@ services:
         sync: false # Set in Render Dashboard
       - key: PAYMENT_WEBHOOK_SECRET
         sync: false # Set in Render Dashboard
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false # Set in Render Dashboard
+      - key: CLOUDINARY_API_KEY
+        sync: false # Set in Render Dashboard
+      - key: CLOUDINARY_API_SECRET
+        sync: false # Set in Render Dashboard
       - key: SUPABASE_URL
         sync: false # Set in Render Dashboard
       - key: SUPABASE_SERVICE_ROLE_KEY
@@ -65,6 +71,12 @@ services:
         value: rzp_sec_nabin_beta_test_secret_2026
       - key: PAYMENT_WEBHOOK_SECRET
         value: whsec_nabin_secure_beta_2026
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY

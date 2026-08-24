@@ -7,6 +7,7 @@ const crypto = require('crypto');
 const { WebSocketServer } = require('ws');
 const db = require('./database');
 const supabaseHelper = require('./supabase');
+const cloudinaryService = require('./services/cloudinaryService');
 
 const app = express();
 const server = http.createServer(app);
@@ -2267,6 +2268,285 @@ app.get('/api/admin/finance/ledger-double-entry', authenticateAdmin, requirePerm
   };
   const entries = db.getLedgerEntries(filters);
   res.json({ success: true, entries, total: entries.length });
+});
+
+// =========================================================================
+// CLOUDINARY PUBLIC MEDIA STORAGE & DELIVERY API
+// =========================================================================
+
+// 1. Upload Media Asset (Image / Video)
+app.post('/api/media/upload', async (req, res) => {
+  try {
+    const {
+      fileData,
+      folder = 'nabin/public',
+      publicId = null,
+      tags = [],
+      ownerType = 'PUBLIC',
+      ownerId = 'system',
+      mediaType = 'IMAGE',
+      mimeType = 'image/jpeg',
+      bytes = 0,
+      replacePublicId = null
+    } = req.body;
+
+    if (!fileData) {
+      return res.status(400).json({ success: false, error: 'fileData (Base64 Data URI or URL) is required.' });
+    }
+
+    const isVideo = mediaType === 'VIDEO' || mimeType.startsWith('video/');
+    const uploadResult = isVideo
+      ? await cloudinaryService.uploadVideo({ fileData, folder, publicId, tags, mimeType, bytes })
+      : await cloudinaryService.uploadImage({ fileData, folder, publicId, tags, mimeType, bytes });
+
+    const savedAsset = db.saveMediaAsset({
+      ownerType,
+      ownerId,
+      mediaType: isVideo ? 'VIDEO' : 'IMAGE',
+      public_id: uploadResult.public_id,
+      secure_url: uploadResult.secure_url,
+      optimized_urls: uploadResult.optimized_urls,
+      resource_type: uploadResult.resource_type,
+      format: uploadResult.format,
+      width: uploadResult.width,
+      height: uploadResult.height,
+      bytes: uploadResult.bytes,
+      folder: uploadResult.folder,
+      created_at: uploadResult.created_at
+    });
+
+    // If replacing an existing asset, delete the old one after DB save succeeds
+    if (replacePublicId && replacePublicId !== uploadResult.public_id) {
+      try {
+        await cloudinaryService.deleteAsset(replacePublicId);
+        db.deleteMediaAsset(replacePublicId);
+      } catch (delErr) {
+        console.warn(`⚠️ Could not delete replaced asset [${replacePublicId}]:`, delErr.message);
+      }
+    }
+
+    res.json({ success: true, asset: savedAsset });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+// 2. Delete Media Asset
+app.delete('/api/media/*', async (req, res) => {
+  try {
+    const rawPublicId = req.params[0];
+    if (!rawPublicId) {
+      return res.status(400).json({ success: false, error: 'Cloudinary public_id is required.' });
+    }
+
+    const existing = db.getMediaAsset(rawPublicId);
+    await cloudinaryService.deleteAsset(rawPublicId, existing?.resourceType || 'image');
+    db.deleteMediaAsset(rawPublicId);
+
+    res.json({ success: true, message: `Media asset [${rawPublicId}] deleted successfully.` });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+// 3. Generate Signed Upload Parameters for Client Direct Uploads
+app.get('/api/media/signed-params', (req, res) => {
+  try {
+    const { folder = 'nabin/public', publicId = null, tags = '' } = req.query;
+    const tagList = tags ? tags.split(',').map(t => t.trim()) : [];
+    const params = cloudinaryService.generateSignedUploadParams({ folder, publicId, tags: tagList });
+    res.json({ success: true, params });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// 4. List Media Assets (Admin / Discovery)
+app.get('/api/media', (req, res) => {
+  const { ownerType, ownerId, folder } = req.query;
+  let list = db.mediaAssets || [];
+  if (ownerType) list = list.filter(m => m.ownerType === ownerType);
+  if (ownerId) list = list.filter(m => m.ownerId === ownerId);
+  if (folder) list = list.filter(m => m.folder === folder);
+  res.json({ success: true, media: list, count: list.length });
+});
+
+// 5. Customer Profile Photo Upload
+app.post('/api/customer/profile/photo', async (req, res) => {
+  try {
+    const { customerId = 'usr_1', fileData, mimeType = 'image/jpeg' } = req.body;
+    const user = db.getUser(customerId);
+    if (!user) return res.status(404).json({ success: false, error: 'Customer not found.' });
+
+    const folder = `nabin/users/${user.id}`;
+    const uploadRes = await cloudinaryService.uploadImage({
+      fileData,
+      folder,
+      publicId: `${folder}/profile`,
+      tags: ['customer-avatar', user.id],
+      mimeType
+    });
+
+    const savedAsset = db.saveMediaAsset({
+      ownerType: 'CUSTOMER',
+      ownerId: user.id,
+      mediaType: 'PROFILE_PHOTO',
+      public_id: uploadRes.public_id,
+      secure_url: uploadRes.secure_url,
+      optimized_urls: uploadRes.optimized_urls,
+      resource_type: uploadRes.resource_type,
+      format: uploadRes.format,
+      folder
+    });
+
+    user.avatarUrl = uploadRes.optimized_urls?.thumbnail || uploadRes.secure_url;
+    db.save();
+
+    res.json({ success: true, user, asset: savedAsset });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// 6. Driver Profile & Vehicle Media Upload
+app.post('/api/driver/profile/photo', async (req, res) => {
+  try {
+    const { driverId = 'DRV-101', fileData, mimeType = 'image/jpeg' } = req.body;
+    const driver = db.getDriver(driverId);
+    if (!driver) return res.status(404).json({ success: false, error: 'Driver not found.' });
+
+    const folder = `nabin/drivers/${driver.id}`;
+    const uploadRes = await cloudinaryService.uploadImage({
+      fileData,
+      folder,
+      publicId: `${folder}/profile`,
+      tags: ['driver-avatar', driver.id],
+      mimeType
+    });
+
+    const savedAsset = db.saveMediaAsset({
+      ownerType: 'DRIVER',
+      ownerId: driver.id,
+      mediaType: 'PROFILE_PHOTO',
+      public_id: uploadRes.public_id,
+      secure_url: uploadRes.secure_url,
+      optimized_urls: uploadRes.optimized_urls,
+      folder
+    });
+
+    driver.profilePhotoUrl = uploadRes.optimized_urls?.thumbnail || uploadRes.secure_url;
+    db.save();
+
+    res.json({ success: true, driver, asset: savedAsset });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/driver/vehicle/photo', async (req, res) => {
+  try {
+    const { driverId = 'DRV-101', vehicleId = 'veh_1', fileData, photoType = 'exterior', mimeType = 'image/jpeg' } = req.body;
+    const driver = db.getDriver(driverId);
+    if (!driver) return res.status(404).json({ success: false, error: 'Driver not found.' });
+
+    const folder = `nabin/vehicles/${vehicleId}`;
+    const uploadRes = await cloudinaryService.uploadImage({
+      fileData,
+      folder,
+      publicId: `${folder}/${photoType}`,
+      tags: ['vehicle-photo', driver.id, vehicleId],
+      mimeType
+    });
+
+    const savedAsset = db.saveMediaAsset({
+      ownerType: 'VEHICLE',
+      ownerId: vehicleId,
+      mediaType: 'VEHICLE_PHOTO',
+      public_id: uploadRes.public_id,
+      secure_url: uploadRes.secure_url,
+      optimized_urls: uploadRes.optimized_urls,
+      folder
+    });
+
+    if (!driver.vehiclePhotos) driver.vehiclePhotos = [];
+    driver.vehiclePhotos.push(uploadRes.secure_url);
+    db.save();
+
+    res.json({ success: true, driver, asset: savedAsset });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// 7. Restaurant Logo, Cover, and Menu Item Photo Upload
+app.post(['/api/merchant/:restaurantId/media', '/api/merchant/media'], async (req, res) => {
+  try {
+    const restaurantId = req.params.restaurantId || req.body.restaurantId || 'rest_1';
+    const { fileData, mediaType = 'COVER', mimeType = 'image/jpeg' } = req.body;
+    const rest = db.restaurants.find(r => r.id === restaurantId) || db.restaurants[0];
+
+    const folder = `nabin/restaurants/${rest.id}`;
+    const publicId = `${folder}/${mediaType.toLowerCase()}`;
+
+    const uploadRes = await cloudinaryService.uploadImage({
+      fileData,
+      folder,
+      publicId,
+      tags: ['restaurant-media', rest.id, mediaType],
+      mimeType
+    });
+
+    const savedAsset = db.saveMediaAsset({
+      ownerType: 'RESTAURANT',
+      ownerId: rest.id,
+      mediaType,
+      public_id: uploadRes.public_id,
+      secure_url: uploadRes.secure_url,
+      optimized_urls: uploadRes.optimized_urls,
+      folder
+    });
+
+    if (mediaType === 'LOGO') rest.logoUrl = uploadRes.optimized_urls?.thumbnail || uploadRes.secure_url;
+    if (mediaType === 'COVER') rest.coverUrl = uploadRes.optimized_urls?.large || uploadRes.secure_url;
+    db.save();
+
+    res.json({ success: true, restaurant: rest, asset: savedAsset });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+app.post(['/api/merchant/:restaurantId/menu/:itemId/photo', '/api/merchant/menu/:itemId/photo'], async (req, res) => {
+  try {
+    const restaurantId = req.params.restaurantId || req.body.restaurantId || 'rest_1';
+    const itemId = req.params.itemId || req.body.itemId || 'item_1';
+    const { fileData, mimeType = 'image/jpeg' } = req.body;
+
+    const folder = `nabin/restaurants/${restaurantId}/menu`;
+    const publicId = `${folder}/${itemId}`;
+
+    const uploadRes = await cloudinaryService.uploadImage({
+      fileData,
+      folder,
+      publicId,
+      tags: ['menu-item-photo', restaurantId, itemId],
+      mimeType
+    });
+
+    const savedAsset = db.saveMediaAsset({
+      ownerType: 'MENU_ITEM',
+      ownerId: itemId,
+      mediaType: 'FOOD_PHOTO',
+      public_id: uploadRes.public_id,
+      secure_url: uploadRes.secure_url,
+      optimized_urls: uploadRes.optimized_urls,
+      folder
+    });
+
+    res.json({ success: true, itemId, asset: savedAsset });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
 });
 
 // Centralized Asynchronous Error Handler Middleware

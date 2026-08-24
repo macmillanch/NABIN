@@ -1840,7 +1840,13 @@ class NabinDatabase {
       if (persisted.paymentSessions && Array.isArray(persisted.paymentSessions)) {
         this.paymentSessions = new Map(persisted.paymentSessions);
       }
+      if (persisted.mediaAssets && Array.isArray(persisted.mediaAssets)) {
+        this.mediaAssets = persisted.mediaAssets;
+      }
+    } else {
+      this.mediaAssets = [];
     }
+    if (!this.mediaAssets) this.mediaAssets = [];
 
     // Instantiated Repository Layer
     this.userRepo = new UserRepository(this);
@@ -4947,6 +4953,93 @@ class NabinDatabase {
 
     this.save();
     return { success: true, session, status: 'PAYMENT_SUCCESS' };
+  }
+
+  // =========================================================================
+  // PUBLIC MEDIA ASSETS METADATA STORAGE (CLOUDINARY)
+  // =========================================================================
+
+  saveMediaAsset(asset) {
+    if (!asset || !asset.public_id) {
+      throw new Error('Valid media asset with public_id is required.');
+    }
+
+    if (!this.mediaAssets) this.mediaAssets = [];
+
+    const record = {
+      id: asset.id || `MEDIA-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      ownerType: asset.ownerType || 'PUBLIC',
+      ownerId: asset.ownerId || 'system',
+      mediaType: asset.mediaType || 'IMAGE',
+      cloudinaryPublicId: asset.public_id,
+      secureUrl: asset.secure_url,
+      optimizedUrls: asset.optimized_urls || {},
+      resourceType: asset.resource_type || 'image',
+      format: asset.format || 'jpg',
+      width: asset.width || null,
+      height: asset.height || null,
+      bytes: asset.bytes || 0,
+      folder: asset.folder || 'nabin/public',
+      createdAt: asset.created_at || new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    // Upsert by public_id or id
+    const existingIdx = this.mediaAssets.findIndex(m => m.cloudinaryPublicId === record.cloudinaryPublicId || m.id === record.id);
+    if (existingIdx >= 0) {
+      this.mediaAssets[existingIdx] = { ...this.mediaAssets[existingIdx], ...record, updatedAt: new Date().toISOString() };
+    } else {
+      this.mediaAssets.unshift(record);
+    }
+
+    this.createAuditLog({
+      adminId: asset.ownerId || 'MEDIA_SYSTEM',
+      adminName: `${asset.ownerType || 'MEDIA'} Service`,
+      role: 'SYSTEM',
+      action: 'MEDIA_ASSET_SAVED',
+      module: 'MEDIA',
+      targetEntityType: 'MEDIA_ASSET',
+      targetEntityId: record.id,
+      previousState: 'NONE',
+      newState: 'SAVED',
+      reason: `Saved ${record.mediaType} asset [${record.cloudinaryPublicId}] for ${record.ownerType}:${record.ownerId}`
+    });
+
+    this.save();
+    return record;
+  }
+
+  getMediaAsset(idOrPublicId) {
+    if (!this.mediaAssets) this.mediaAssets = [];
+    return this.mediaAssets.find(m => m.id === idOrPublicId || m.cloudinaryPublicId === idOrPublicId) || null;
+  }
+
+  getMediaByOwner(ownerType, ownerId) {
+    if (!this.mediaAssets) this.mediaAssets = [];
+    return this.mediaAssets.filter(m => m.ownerType === ownerType && m.ownerId === ownerId);
+  }
+
+  deleteMediaAsset(idOrPublicId) {
+    if (!this.mediaAssets) this.mediaAssets = [];
+    const idx = this.mediaAssets.findIndex(m => m.id === idOrPublicId || m.cloudinaryPublicId === idOrPublicId);
+    if (idx >= 0) {
+      const removed = this.mediaAssets.splice(idx, 1)[0];
+      this.createAuditLog({
+        adminId: removed.ownerId || 'MEDIA_SYSTEM',
+        adminName: `${removed.ownerType || 'MEDIA'} Service`,
+        role: 'SYSTEM',
+        action: 'MEDIA_ASSET_DELETED',
+        module: 'MEDIA',
+        targetEntityType: 'MEDIA_ASSET',
+        targetEntityId: removed.id,
+        previousState: 'ACTIVE',
+        newState: 'DELETED',
+        reason: `Deleted media metadata for asset [${removed.cloudinaryPublicId}]`
+      });
+      this.save();
+      return removed;
+    }
+    return null;
   }
 }
 
