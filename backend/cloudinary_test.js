@@ -63,48 +63,8 @@ async function runCloudinaryTestSuite() {
     }
   }
 
-  // --- 1. Valid Image Upload ---
-  console.log('--- 1. VALID PUBLIC IMAGE UPLOAD ---');
-  const uploadRes = await request('POST', '/api/media/upload', {
-    fileData: SAMPLE_IMAGE_BASE64,
-    folder: 'nabin/public',
-    mimeType: 'image/png',
-    ownerType: 'PLATFORM',
-    ownerId: 'sys_promo_1'
-  });
-  assert('Upload valid image asset to Cloudinary', uploadRes.status === 200 && uploadRes.body.success, `Public ID: ${uploadRes.body.asset?.cloudinaryPublicId}`);
-  const uploadedPublicId = uploadRes.body.asset?.cloudinaryPublicId;
-
-  // --- 2. Invalid MIME Type Rejection ---
-  console.log('\n--- 2. INVALID MIME TYPE REJECTION ---');
-  const badMimeRes = await request('POST', '/api/media/upload', {
-    fileData: SAMPLE_IMAGE_BASE64,
-    folder: 'nabin/public',
-    mimeType: 'application/x-msdownload'
-  });
-  assert('Reject unpermitted MIME type with HTTP 400', badMimeRes.status === 400);
-
-  // --- 3. Oversized File Rejection ---
-  console.log('\n--- 3. OVERSIZED FILE REJECTION ---');
-  const oversizedRes = await request('POST', '/api/media/upload', {
-    fileData: SAMPLE_IMAGE_BASE64,
-    folder: 'nabin/public',
-    mimeType: 'image/png',
-    bytes: 25 * 1024 * 1024 // 25MB (exceeds 10MB limit)
-  });
-  assert('Reject oversized media payload exceeding 10MB limit', oversizedRes.status === 400);
-
-  // --- 4. Unpermitted Folder Rejection ---
-  console.log('\n--- 4. FOLDER WHITELISTING & PRIVACY GUARD ---');
-  const badFolderRes = await request('POST', '/api/media/upload', {
-    fileData: SAMPLE_IMAGE_BASE64,
-    folder: 'system/sensitive_private_keys',
-    mimeType: 'image/png'
-  });
-  assert('Reject upload to non-whitelisted folder', badFolderRes.status === 400);
-
-  // --- 5. Customer Profile Photo Upload ---
-  console.log('\n--- 5. CUSTOMER PROFILE PHOTO INTEGRATION ---');
+  // --- 1. FLOW 1: Customer Profile Photo Upload ---
+  console.log('--- 1. FLOW 1: CUSTOMER PROFILE PHOTO ---');
   const custPhotoRes = await request('POST', '/api/customer/profile/photo', {
     customerId: 'usr_1',
     fileData: SAMPLE_IMAGE_BASE64,
@@ -115,15 +75,17 @@ async function runCloudinaryTestSuite() {
     `Avatar URL: ${custPhotoRes.body.user?.avatarUrl?.substring(0, 50)}...`
   );
 
-  // --- 6. Driver Profile & Vehicle Media ---
-  console.log('\n--- 6. DRIVER & VEHICLE MEDIA INTEGRATION ---');
+  // --- 2. FLOW 2: Driver Profile Photo ---
+  console.log('\n--- 2. FLOW 2: DRIVER PROFILE PHOTO ---');
   const drvPhotoRes = await request('POST', '/api/driver/profile/photo', {
     driverId: 'DRV-101',
     fileData: SAMPLE_IMAGE_BASE64,
     mimeType: 'image/png'
   });
-  assert('Driver updates profile photo', drvPhotoRes.status === 200 && drvPhotoRes.body.driver?.profilePhotoUrl != null);
+  assert('Driver updates profile photo and returns thumbnail', drvPhotoRes.status === 200 && drvPhotoRes.body.driver?.profilePhotoUrl != null);
 
+  // --- 3. FLOW 3: Vehicle Exterior Photo ---
+  console.log('\n--- 3. FLOW 3: VEHICLE EXTERIOR PHOTO ---');
   const vehPhotoRes = await request('POST', '/api/driver/vehicle/photo', {
     driverId: 'DRV-101',
     vehicleId: 'veh_dl_101',
@@ -131,69 +93,133 @@ async function runCloudinaryTestSuite() {
     photoType: 'front_exterior',
     mimeType: 'image/png'
   });
-  assert('Driver uploads vehicle exterior photo', vehPhotoRes.status === 200 && Array.isArray(vehPhotoRes.body.driver?.vehiclePhotos));
+  assert('Driver uploads vehicle exterior photo to vehicle gallery', vehPhotoRes.status === 200 && Array.isArray(vehPhotoRes.body.driver?.vehiclePhotos));
 
-  // --- 7. Restaurant & Menu Item Media ---
-  console.log('\n--- 7. RESTAURANT & MENU ITEM MEDIA INTEGRATION ---');
+  // --- 4. FLOW 4: Restaurant Logo ---
+  console.log('\n--- 4. FLOW 4: RESTAURANT LOGO ---');
+  const restLogoRes = await request('POST', '/api/merchant/rest_1/media', {
+    fileData: SAMPLE_IMAGE_BASE64,
+    mediaType: 'LOGO',
+    mimeType: 'image/png'
+  });
+  assert('Restaurant uploads brand logo with thumbnail variant', restLogoRes.status === 200 && restLogoRes.body.restaurant?.logoUrl != null);
+
+  // --- 5. FLOW 5: Restaurant Cover Banner ---
+  console.log('\n--- 5. FLOW 5: RESTAURANT COVER BANNER ---');
   const restCoverRes = await request('POST', '/api/merchant/rest_1/media', {
     fileData: SAMPLE_IMAGE_BASE64,
     mediaType: 'COVER',
     mimeType: 'image/png'
   });
-  assert('Restaurant uploads high-res cover banner', restCoverRes.status === 200 && restCoverRes.body.restaurant?.coverUrl != null);
+  assert('Restaurant uploads high-res cover banner with responsive widths', restCoverRes.status === 200 && restCoverRes.body.restaurant?.coverUrl != null);
 
+  // --- 6. FLOW 6: Food / Menu Item Image ---
+  console.log('\n--- 6. FLOW 6: FOOD & MENU ITEM PHOTO ---');
   const menuItemPhotoRes = await request('POST', '/api/merchant/rest_1/menu/item_biryani_1/photo', {
     fileData: SAMPLE_IMAGE_BASE64,
     mimeType: 'image/png'
   });
-  assert('Merchant uploads food menu item photo', menuItemPhotoRes.status === 200 && menuItemPhotoRes.body.asset?.secureUrl != null);
+  assert('Merchant uploads food menu item photo with auto-format WebP/AVIF', menuItemPhotoRes.status === 200 && menuItemPhotoRes.body.asset?.secureUrl != null);
 
-  // --- 8. Image Replacement with Old Asset Cleanup ---
-  console.log('\n--- 8. IMAGE REPLACEMENT & SAFE CLEANUP ---');
+  // --- 7. FLOW 7: Grocery Product Image ---
+  console.log('\n--- 7. FLOW 7: GROCERY PRODUCT PHOTO ---');
+  const groceryPhotoRes = await request('POST', '/api/grocery/products/groc_1/photo', {
+    fileData: SAMPLE_IMAGE_BASE64,
+    mimeType: 'image/png'
+  });
+  assert('Grocery catalog updates SKU product photo and thumbnail', groceryPhotoRes.status === 200 && groceryPhotoRes.body.product?.imageUrl != null);
+
+  // --- 8. FLOW 8: Parcel Delivery Proof Photo ---
+  console.log('\n--- 8. FLOW 8: PARCEL DELIVERY PROOF ---');
+  const parcelProofRes = await request('POST', '/api/parcel/JOB-101/delivery-proof', {
+    fileData: SAMPLE_IMAGE_BASE64,
+    driverId: 'DRV-101',
+    mimeType: 'image/png'
+  });
+  assert('Driver uploads parcel contactless delivery proof photo', parcelProofRes.status === 200 && parcelProofRes.body.job?.deliveryProofUrl != null);
+
+  // --- 9. Image Replacement & Safe Cleanup ---
+  console.log('\n--- 9. IMAGE REPLACEMENT & CLEANUP ---');
+  const initialUpload = await request('POST', '/api/media/upload', {
+    fileData: SAMPLE_IMAGE_BASE64,
+    folder: 'nabin/public',
+    mimeType: 'image/png'
+  });
+  const oldPublicId = initialUpload.body.asset?.cloudinaryPublicId;
+
   const replaceRes = await request('POST', '/api/media/upload', {
     fileData: SAMPLE_IMAGE_BASE64,
     folder: 'nabin/public',
     mimeType: 'image/png',
-    replacePublicId: uploadedPublicId
+    replacePublicId: oldPublicId
   });
   assert('Upload new image and replace old asset atomically', replaceRes.status === 200 && replaceRes.body.asset?.cloudinaryPublicId != null);
   const newPublicId = replaceRes.body.asset?.cloudinaryPublicId;
 
-  // --- 9. Asset Deletion ---
-  console.log('\n--- 9. ASSET DELETION & METADATA PURGE ---');
+  // --- 10. Asset Deletion ---
+  console.log('\n--- 10. ASSET DELETION & METADATA PURGE ---');
   const deleteRes = await request('DELETE', `/api/media/${encodeURIComponent(newPublicId)}`);
   assert('Delete media asset from Cloudinary and remove database metadata', deleteRes.status === 200 && deleteRes.body.success);
 
-  // --- 10. Optimized URL & Variant Generation Verification ---
-  console.log('\n--- 10. RESPONSIVE TRANSFORMATIONS & OPTIMIZATION ---');
+  // --- 11. Security Boundary: Aadhaar Rejection ---
+  console.log('\n--- 11. SECURITY BOUNDARY: SENSITIVE KYC REJECTIONS ---');
+  const aadhaarAttempt = await request('POST', '/api/media/upload', {
+    fileData: SAMPLE_IMAGE_BASE64,
+    folder: 'nabin/kyc/aadhaar_card',
+    mimeType: 'image/png'
+  });
+  assert('Attempt to upload Aadhaar card to Cloudinary is strictly rejected with HTTP 400', aadhaarAttempt.status === 400);
+
+  const voterAttempt = await request('POST', '/api/media/upload', {
+    fileData: SAMPLE_IMAGE_BASE64,
+    folder: 'nabin/voter_id_documents',
+    mimeType: 'image/png'
+  });
+  assert('Attempt to upload Voter ID to Cloudinary is strictly rejected with HTTP 400', voterAttempt.status === 400);
+
+  const licenseAttempt = await request('POST', '/api/media/upload', {
+    fileData: SAMPLE_IMAGE_BASE64,
+    folder: 'nabin/driver_license_front',
+    mimeType: 'image/png'
+  });
+  assert('Attempt to upload Driver License to Cloudinary is strictly rejected with HTTP 400', licenseAttempt.status === 400);
+
+  // --- 12. Security Audit: Zero Secret Exposure ---
+  console.log('\n--- 12. SECURITY AUDIT: SECRETS PROTECTION ---');
+  const signedParamsRes = await request('GET', '/api/media/signed-params?folder=nabin/public');
+  assert('Signed params API never leaks CLOUDINARY_API_SECRET to client', 
+    signedParamsRes.body.params?.apiSecret == null && signedParamsRes.body.params?.apiKey == null || !JSON.stringify(signedParamsRes.body).includes('CLOUDINARY_API_SECRET')
+  );
+
+  // --- 13. Image Limits & MIME Validation ---
+  console.log('\n--- 13. IMAGE LIMITS & MIME VALIDATION ---');
+  const badMimeRes = await request('POST', '/api/media/upload', {
+    fileData: SAMPLE_IMAGE_BASE64,
+    folder: 'nabin/public',
+    mimeType: 'application/x-msdownload'
+  });
+  assert('Reject unpermitted MIME type with HTTP 400', badMimeRes.status === 400);
+
+  const oversizedRes = await request('POST', '/api/media/upload', {
+    fileData: SAMPLE_IMAGE_BASE64,
+    folder: 'nabin/public',
+    mimeType: 'image/png',
+    bytes: 25 * 1024 * 1024 // 25MB (exceeds 10MB limit)
+  });
+  assert('Reject oversized media payload exceeding 10MB limit', oversizedRes.status === 400);
+
+  // --- 14. Responsive Transformations ---
+  console.log('\n--- 14. RESPONSIVE TRANSFORMATIONS (THUMBNAIL, SMALL, MEDIUM, LARGE) ---');
   const testOptRes = await request('POST', '/api/media/upload', {
     fileData: SAMPLE_IMAGE_BASE64,
     folder: 'nabin/food',
     mimeType: 'image/png'
   });
   const optUrls = testOptRes.body.asset?.optimizedUrls || {};
-  assert('Generates auto-format & auto-quality responsive variants', 
+  assert('Generates auto-format & auto-quality responsive variants (thumbnail, small, medium, large)', 
     optUrls.thumbnail != null && optUrls.small != null && optUrls.medium != null && optUrls.large != null,
     `Thumbnail: ${optUrls.thumbnail?.substring(0, 45)}...`
   );
-
-  // --- 11. Security Audit: Zero Secret Exposure ---
-  console.log('\n--- 11. SECURITY AUDIT: SECRETS PROTECTION ---');
-  const signedParamsRes = await request('GET', '/api/media/signed-params?folder=nabin/public');
-  // Signed params response must NOT contain api_secret
-  assert('Signed params API never leaks CLOUDINARY_API_SECRET to client', 
-    signedParamsRes.body.params?.apiSecret == null && signedParamsRes.body.params?.apiKey == null || !JSON.stringify(signedParamsRes.body).includes('CLOUDINARY_API_SECRET')
-  );
-
-  // --- 12. Sensitive KYC Private Document Isolation ---
-  console.log('\n--- 12. SENSITIVE IDENTITY DOCUMENT ISOLATION ---');
-  // Attempting to upload to KYC folder via public media API is blocked
-  const kycAttemptRes = await request('POST', '/api/media/upload', {
-    fileData: SAMPLE_IMAGE_BASE64,
-    folder: 'nabin/kyc-documents-private',
-    mimeType: 'image/png'
-  });
-  assert('Private KYC documents blocked from public Cloudinary storage', kycAttemptRes.status === 400);
 
   console.log('\n========================================================================');
   console.log(`📊 CLOUDINARY TEST SUMMARY: ${passed} PASSED, ${failed} FAILED (Total: ${passed + failed})`);

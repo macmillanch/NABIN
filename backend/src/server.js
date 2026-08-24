@@ -2549,6 +2549,95 @@ app.post(['/api/merchant/:restaurantId/menu/:itemId/photo', '/api/merchant/menu/
   }
 });
 
+// 8. Grocery Product Photo Upload
+app.post(['/api/grocery/products/:id/photo', '/api/admin/grocery/products/:id/photo'], async (req, res) => {
+  try {
+    const productId = req.params.id || req.body.productId;
+    const { fileData, mimeType = 'image/jpeg' } = req.body;
+
+    const folder = `nabin/grocery/products/${productId}`;
+    const publicId = `${folder}/image`;
+
+    const uploadRes = await cloudinaryService.uploadImage({
+      fileData,
+      folder,
+      publicId,
+      tags: ['grocery-product', productId],
+      mimeType
+    });
+
+    const savedAsset = db.saveMediaAsset({
+      ownerType: 'GROCERY_PRODUCT',
+      ownerId: productId,
+      mediaType: 'PRODUCT_PHOTO',
+      public_id: uploadRes.public_id,
+      secure_url: uploadRes.secure_url,
+      optimized_urls: uploadRes.optimized_urls,
+      folder
+    });
+
+    let product = db.groceryCatalog?.find(p => p.id === productId || p.sku === productId);
+    if (!product) {
+      product = {
+        id: productId,
+        sku: productId,
+        name: 'Grocery Product Item',
+        imageUrl: uploadRes.optimized_urls?.medium || uploadRes.secure_url,
+        thumbnailUrl: uploadRes.optimized_urls?.thumbnail || uploadRes.secure_url
+      };
+      if (!db.groceryCatalog) db.groceryCatalog = [];
+      db.groceryCatalog.push(product);
+    } else {
+      product.imageUrl = uploadRes.optimized_urls?.medium || uploadRes.secure_url;
+      product.thumbnailUrl = uploadRes.optimized_urls?.thumbnail || uploadRes.secure_url;
+    }
+    db.save();
+
+    res.json({ success: true, productId, product, asset: savedAsset });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// 9. Parcel Delivery Proof Photo Upload
+app.post('/api/parcel/:id/delivery-proof', async (req, res) => {
+  try {
+    const parcelId = req.params.id || req.body.parcelId;
+    const { fileData, driverId = 'DRV-101', mimeType = 'image/jpeg' } = req.body;
+
+    const job = db.getJob(parcelId);
+    if (!job) return res.status(404).json({ success: false, error: 'Parcel job not found.' });
+
+    const folder = `nabin/parcels/${parcelId}`;
+    const publicId = `${folder}/proof_${Date.now()}`;
+
+    const uploadRes = await cloudinaryService.uploadImage({
+      fileData,
+      folder,
+      publicId,
+      tags: ['parcel-delivery-proof', parcelId, driverId],
+      mimeType
+    });
+
+    const savedAsset = db.saveMediaAsset({
+      ownerType: 'PARCEL_PROOF',
+      ownerId: parcelId,
+      mediaType: 'DELIVERY_PROOF',
+      public_id: uploadRes.public_id,
+      secure_url: uploadRes.secure_url,
+      optimized_urls: uploadRes.optimized_urls,
+      folder
+    });
+
+    job.deliveryProofUrl = uploadRes.secure_url;
+    db.save();
+
+    res.json({ success: true, parcelId, job, asset: savedAsset });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
 // Centralized Asynchronous Error Handler Middleware
 app.use((err, req, res, next) => {
   console.error(`[${req.id || 'NO_REQ_ID'}] Unhandled error:`, err);

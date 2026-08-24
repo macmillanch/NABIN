@@ -49,6 +49,11 @@ class CloudinaryService {
 
   validateFolder(folder) {
     if (!folder) return 'nabin/public';
+    const lower = folder.toLowerCase();
+    if (lower.includes('kyc') || lower.includes('aadhaar') || lower.includes('voter') || lower.includes('license') || lower.includes('passport') || lower.includes('identity')) {
+      throw new Error('Sensitive identity documents (Aadhaar, Voter ID, Driver License) are strictly prohibited from public Cloudinary storage and must use private encrypted storage.');
+    }
+
     const cleanFolder = folder.replace(/^\/+|\/+$/g, '');
     const isAllowed = this.allowedFolders.some(f => cleanFolder === f || cleanFolder.startsWith(`${f}/`));
     if (!isAllowed) {
