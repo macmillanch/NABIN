@@ -21,7 +21,7 @@ services:
       - key: PORT
         value: 4000
       - key: PAYMENT_MODE
-        value: live
+        value: sandbox
       - key: PAYMENT_KEY_ID
         sync: false # Set in Render Dashboard (rzp_live_...)
       - key: PAYMENT_KEY_SECRET
@@ -46,6 +46,8 @@ services:
         generateValue: true
       - key: WEBHOOK_SECRET
         generateValue: true
+      - key: ADMIN_BOOTSTRAP_SECRET
+        sync: false # Set securely in Render Dashboard
 
   # ---------------------------------------------------------------------------
   # 2. NABIN Beta Staging Web Service (ISOLATED SANDBOX TIER)
