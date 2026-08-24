@@ -33,8 +33,8 @@ Source Repository: https://github.com/msitarzewski/agency-agents
 ### System Architect (`skills/system_architect/SKILL.md`)
 - Owns overall NABIN architecture, backend architecture, API boundaries, database architecture, integration, scalability.
 
-### UI/UX Specialist (`skills/ui_ux_designer/SKILL.md`)
-- Owns NABIN design system, navigation, user flows, Flutter & Web components, accessibility, kinetic UI tokens.
+### UI/UX Specialist (`skills/ui_ux_designer/SKILL.md` & `skills/ui_ux_pro_max/SKILL.md`)
+- Owns NABIN Stitch design system, ultra-advanced UI/UX intelligence, navigation, user flows, Flutter & Web components, accessibility (WCAG 2.1 AAA), and kinetic UI tokens.
 
 ### Backend Specialist (`skills/backend_architect/SKILL.md`)
 - Owns Node.js shared backend, REST APIs, database models, Auth/RBAC, Payments, Ride/Food/Parcel logic, Transactions, Settlements.
