@@ -109,151 +109,8 @@ class NabinDatabase {
     this.activeSessions.set('drv_session_rajesh', { token: 'drv_session_rajesh', role: 'DRIVER', entityId: 'DRV-101', entity: null });
     this.activeSessions.set('mcht_session_dilli', { token: 'mcht_session_dilli', role: 'MERCHANT', entityId: 'rest_1', entity: null });
 
-    // Admin Users with granular permissions
-    this.adminUsers = [
-      {
-        id: 'adm_super',
-        username: 'superadmin',
-        password: 'AdminPassword123!',
-        name: 'Devika Singhania',
-        role: 'SUPER_ADMIN',
-        email: 'devika.superadmin@nabin.in',
-        permissions: [
-          'identity_verification.view',
-          'identity_verification.review',
-          'identity_verification.approve',
-          'identity_verification.reject',
-          'identity_verification.request_resubmission',
-          'identity_documents.view',
-          'identity_documents.download',
-          'fleet.manage',
-          'merchant.manage',
-          'finance.view',
-          'finance.refund',
-          'finance.adjust',
-          'finance.settlement',
-          'pricing.edit',
-          'support.view',
-          'support.respond',
-          'support.resolve',
-          'support.escalate',
-          'promotion.view',
-          'promotion.create',
-          'promotion.edit',
-          'promotion.activate',
-          'geofence.view',
-          'geofence.create',
-          'geofence.edit',
-          'geofence.delete',
-          'surge.view',
-          'surge.create',
-          'surge.edit',
-          'surge.activate',
-          'audit.view',
-          'audit.export',
-          'services.view',
-          'services.pause',
-          'services.resume',
-          'services.emergency_killswitch'
-        ]
-      },
-      {
-        id: 'adm_mukta',
-        username: 'muktachakma',
-        password: 'AdminPassword123!',
-        name: 'Mukta Chakma',
-        role: 'SUPER_ADMIN',
-        email: 'muktachakma@nabin.in',
-        permissions: [
-          'identity_verification.view',
-          'identity_verification.review',
-          'identity_verification.approve',
-          'identity_verification.reject',
-          'identity_verification.request_resubmission',
-          'identity_documents.view',
-          'identity_documents.download',
-          'fleet.manage',
-          'merchant.manage',
-          'finance.view',
-          'finance.refund',
-          'finance.adjust',
-          'finance.settlement',
-          'pricing.edit',
-          'support.view',
-          'support.respond',
-          'support.resolve',
-          'support.escalate',
-          'promotion.view',
-          'promotion.create',
-          'promotion.edit',
-          'promotion.activate',
-          'geofence.view',
-          'geofence.create',
-          'geofence.edit',
-          'geofence.delete',
-          'surge.view',
-          'surge.create',
-          'surge.edit',
-          'surge.activate',
-          'audit.view',
-          'audit.export',
-          'services.view',
-          'services.pause',
-          'services.resume',
-          'services.emergency_killswitch'
-        ]
-      },
-      {
-        id: 'adm_kyc',
-        username: 'kycofficer',
-        password: 'KycPassword123!',
-        name: 'Sunil Rao',
-        role: 'KYC_SPECIALIST',
-        email: 'sunil.kyc@nabin.in',
-        permissions: [
-          'identity_verification.view',
-          'identity_verification.review',
-          'identity_verification.approve',
-          'identity_verification.reject',
-          'identity_verification.request_resubmission',
-          'identity_documents.view',
-          'identity_documents.download',
-          'audit.view'
-        ]
-      },
-      {
-        id: 'adm_ops',
-        username: 'opsagent',
-        password: 'OpsPassword123!',
-        name: 'Karan Patel',
-        role: 'OPERATIONS',
-        email: 'karan.ops@nabin.in',
-        permissions: [
-          'identity_verification.view',
-          'fleet.manage',
-          'merchant.manage',
-          'support.view',
-          'support.respond',
-          'support.resolve',
-          'geofence.view',
-          'surge.view',
-          'services.view',
-          'services.pause',
-          'services.resume'
-        ]
-      }
-    ];
-
-    // Automatically hash initial administrator credentials with cryptographically secure random salts
-    for (const admin of this.adminUsers) {
-      if (admin.password) {
-        const salt = crypto.randomBytes(16).toString('hex');
-        const hash = crypto.scryptSync(admin.password, salt, 64).toString('hex');
-        admin.salt = salt;
-        admin.passwordHash = hash;
-        delete admin.password;
-      }
-    }
+    // Admin Users with granular permissions (Bootstrapped securely on first run)
+    this.adminUsers = [];
 
     // Manual Identity Verification Applications
     this.identityApplications = [
@@ -1826,6 +1683,7 @@ class NabinDatabase {
       if (persisted.geoFences && persisted.geoFences.length) this.geoFences = persisted.geoFences;
       if (persisted.promotions && persisted.promotions.length) this.promotions = persisted.promotions;
       if (persisted.adminAccounts && persisted.adminAccounts.length) this.adminAccounts = persisted.adminAccounts;
+      if (persisted.adminUsers && persisted.adminUsers.length) this.adminUsers = persisted.adminUsers;
       if (persisted.ledgerEntries && persisted.ledgerEntries.length) this.ledgerEntries = persisted.ledgerEntries;
       if (persisted.processedWebhookIds && Array.isArray(persisted.processedWebhookIds)) {
         this.processedWebhookIds = new Set(persisted.processedWebhookIds);

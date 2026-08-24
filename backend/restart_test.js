@@ -104,6 +104,13 @@ async function runRestartTest() {
     const drvOtpVerify = await request('POST', '/api/auth/verify-otp', { phone: '9810122910', otp: drvOtpSend.data.testOtp || '7729', role: 'DRIVER' });
     const driverToken = drvOtpVerify.data.token || 'drv_session_rajesh';
 
+    // Ensure admin is bootstrapped before login
+    await request('POST', '/api/admin/bootstrap', {
+      bootstrapSecret: 'local-secret-for-testing',
+      username: 'superadmin',
+      password: 'AdminPassword123!'
+    });
+
     const adminLogin = await request('POST', '/api/admin/login', { username: 'superadmin', password: 'AdminPassword123!' });
     const adminToken = adminLogin.data.token;
 

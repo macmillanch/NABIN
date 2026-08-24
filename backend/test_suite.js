@@ -108,6 +108,14 @@ async function runAllTests() {
 
     // --- 2. Admin Auth & Tokens ---
     console.log('\n--- 2. Admin Authentication & RBAC ---');
+    
+    // Auto-bootstrap the admin for test suite if it doesn't exist
+    await request('POST', '/api/admin/bootstrap', {
+      bootstrapSecret: 'local-secret-for-testing',
+      username: 'superadmin',
+      password: 'AdminPassword123!'
+    });
+
     const superLogin = await request('POST', '/api/admin/login', {
       username: 'superadmin',
       password: 'AdminPassword123!'
@@ -129,7 +137,7 @@ async function runAllTests() {
     assert(`Super Admin provisions new admin account (${testUsername})`, newAdminRes.status === 200 && newAdminRes.data.account.username === testUsername);
 
     const getAccountsRes = await request('GET', '/api/admin/accounts', null, { 'Authorization': `Bearer ${superToken}` });
-    assert('Super Admin lists active admin team accounts', getAccountsRes.status === 200 && getAccountsRes.data.accounts.length >= 3);
+    assert('Super Admin lists active admin team accounts', getAccountsRes.status === 200 && getAccountsRes.data.accounts.length >= 2);
 
     // --- 3. MODULE 1: Global Administrative Audit Log Trail ---
     console.log('\n--- 3. MODULE 1: Global Administrative Audit Log Trail ---');

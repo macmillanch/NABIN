@@ -67,6 +67,7 @@ class PersistentStore {
       surgeRules: state.surgeRules || [],
       promotions: state.promotions || [],
       adminAccounts: state.adminAccounts || [],
+      adminUsers: state.adminUsers || [],
       ledgerEntries: state.ledgerEntries || [],
       paymentSessions: Array.from((state.paymentSessions || new Map()).entries()),
       mediaAssets: state.mediaAssets || [],
