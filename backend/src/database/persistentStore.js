@@ -68,6 +68,7 @@ class PersistentStore {
       promotions: state.promotions || [],
       adminAccounts: state.adminAccounts || [],
       ledgerEntries: state.ledgerEntries || [],
+      paymentSessions: Array.from((state.paymentSessions || new Map()).entries()),
       processedWebhookIds: Array.from(state.processedWebhookIds || []),
       processedPaymentIds: Array.from(state.processedPaymentIds || []),
       auditLogs: state.auditLogs || [],

@@ -2181,8 +2181,39 @@ app.get(['/api/v1/tracking/:jobId', '/api/tracking/:jobId'], (req, res) => {
 });
 
 // -------------------------------------------------------------
-// PAYMENT GATEWAY WEBHOOK & ESCROW SETTLEMENT ENGINE
+// PAYMENT GATEWAY CHECKOUT & ESCROW SETTLEMENT ENGINE
 // -------------------------------------------------------------
+
+// 1. Create Sandbox/Live Payment Order Session
+app.post('/api/payments/create-order', (req, res) => {
+  try {
+    const { customerId, amount, currency = 'INR', serviceType = 'RIDE', jobId, metadata } = req.body;
+    const session = db.createPaymentSession({ customerId, amount, currency, serviceType, jobId, metadata });
+    res.json({ success: true, session });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+// 2. Verify Payment Checkout & Update Transaction State
+app.post('/api/payments/verify-checkout', (req, res) => {
+  try {
+    const { orderId, paymentId, signature, status = 'SUCCESS', failureReason } = req.body;
+    const result = db.verifyPaymentSession({ orderId, paymentId, signature, status, failureReason });
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+// 3. Query Payment Session
+app.get('/api/payments/session/:orderId', (req, res) => {
+  const session = db.paymentSessions ? db.paymentSessions.get(req.params.orderId) : null;
+  if (!session) return res.status(404).json({ success: false, error: 'Payment session not found' });
+  res.json({ success: true, session });
+});
+
+// 4. Server-to-Server Webhook
 app.post('/api/payments/webhook', (req, res) => {
   try {
     const signature = req.headers['x-razorpay-signature'] || req.headers['x-webhook-signature'] || '';
