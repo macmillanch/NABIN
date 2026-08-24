@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/theme/app_theme.dart';
 
+import '../../../../core/network/nabin_api_service.dart';
+
 class PhoneEntryScreen extends StatefulWidget {
   const PhoneEntryScreen({super.key});
 
@@ -13,20 +15,39 @@ class _PhoneEntryScreenState extends State<PhoneEntryScreen> {
   final TextEditingController _phoneController = TextEditingController(text: '9876543210');
   bool _isLoading = false;
 
-  void _submit() {
-    if (_phoneController.text.length < 10) {
+  Future<void> _submit() async {
+    final phone = _phoneController.text.trim();
+    if (phone.length < 10) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please enter a valid 10-digit mobile number')),
       );
       return;
     }
     setState(() => _isLoading = true);
-    Future.delayed(const Duration(milliseconds: 500), () {
-      if (mounted) {
-        setState(() => _isLoading = false);
-        context.push('/otp-verification', extra: _phoneController.text);
+    try {
+      final res = await NabinApiService.sendOtp(
+        phone: phone,
+        role: 'CUSTOMER',
+        purpose: 'LOGIN',
+      );
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+
+      if (res != null && res['success'] == true) {
+        context.push('/otp-verification', extra: phone);
+      } else {
+        final errorMsg = res?['error'] as String? ?? 'Failed to send OTP. Please check backend connection.';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(errorMsg), backgroundColor: Colors.red.shade700),
+        );
+        // In local development or fallback, permit progression with warning
+        context.push('/otp-verification', extra: phone);
       }
-    });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      context.push('/otp-verification', extra: phone);
+    }
   }
 
   @override

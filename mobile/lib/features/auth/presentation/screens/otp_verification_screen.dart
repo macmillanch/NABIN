@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/network/nabin_api_service.dart';
+import '../../../../core/network/session_manager.dart';
 
 class OtpVerificationScreen extends StatefulWidget {
   final String phoneNumber;
@@ -18,11 +20,6 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
   @override
   void initState() {
     super.initState();
-    // Default demo OTP 7729
-    _controllers[0].text = '7';
-    _controllers[1].text = '7';
-    _controllers[2].text = '2';
-    _controllers[3].text = '9';
   }
 
   @override
@@ -36,14 +33,48 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
     super.dispose();
   }
 
-  void _verifyOtp() {
+  Future<void> _verifyOtp() async {
+    final enteredOtp = _controllers.map((c) => c.text).join().trim();
+    if (enteredOtp.length < 4) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter the complete 4-digit OTP')),
+      );
+      return;
+    }
+
     setState(() => _isLoading = true);
-    Future.delayed(const Duration(milliseconds: 600), () {
-      if (mounted) {
-        setState(() => _isLoading = false);
+    try {
+      final res = await NabinApiService.verifyOtp(
+        phone: widget.phoneNumber,
+        otp: enteredOtp,
+        role: 'CUSTOMER',
+        purpose: 'LOGIN',
+      );
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+
+      if (res != null && res['success'] == true) {
+        final token = res['token'] as String? ?? 'usr_session_${DateTime.now().millisecondsSinceEpoch}';
+        final user = res['user'] as Map<String, dynamic>? ?? {
+          'id': 'usr_cust_${widget.phoneNumber}',
+          'phone': widget.phoneNumber,
+          'role': 'CUSTOMER',
+        };
+        SessionManager.instance.saveSession(token: token, user: user);
         context.push('/personalization');
+      } else {
+        final errorMsg = res?['error'] as String? ?? 'Invalid verification code. Please try again.';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(errorMsg), backgroundColor: Colors.red.shade700),
+        );
       }
-    });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Connection error: $e'), backgroundColor: Colors.red.shade700),
+      );
+    }
   }
 
   @override

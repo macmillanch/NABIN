@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/driver_map_view.dart';
 import '../../../../core/models/passenger_booking_info.dart';
+import '../../../../core/network/nabin_ws_service.dart';
 
 class ActiveRideScreen extends StatefulWidget {
   final String vehicleType;
@@ -27,6 +29,35 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
   // 0: Driver En Route to Pickup, 1: On Trip to Destination, 2: Completed
   int _tripStage = 0;
   int _rating = 5;
+
+  StreamSubscription? _tripSub;
+  StreamSubscription? _locationSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _connectCustomerWs();
+  }
+
+  void _connectCustomerWs() {
+    NabinWsService.instance.connect(role: 'customer', userId: 'cust_active');
+    _tripSub = NabinWsService.instance.onTripUpdate.listen((msg) {
+      if (!mounted) return;
+      final type = msg['type'] as String?;
+      if (type == 'TRIP_STARTED') {
+        setState(() => _tripStage = 1);
+      } else if (type == 'TRIP_COMPLETED') {
+        setState(() => _tripStage = 2);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _tripSub?.cancel();
+    _locationSub?.cancel();
+    super.dispose();
+  }
 
   PassengerBookingInfo get passenger => widget.passengerInfo ?? const PassengerBookingInfo();
 

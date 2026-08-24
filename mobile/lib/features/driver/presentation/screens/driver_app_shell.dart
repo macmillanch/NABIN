@@ -5,6 +5,9 @@ import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart' hide Path;
 import '../../../../core/theme/driver_theme.dart';
 
+import '../../../../core/network/nabin_ws_service.dart';
+import '../../../../core/network/nabin_api_service.dart';
+
 class DriverAppShell extends StatefulWidget {
   const DriverAppShell({super.key});
 
@@ -47,14 +50,45 @@ class _DriverAppShellState extends State<DriverAppShell> with SingleTickerProvid
   final LatLng _driverLocation = const LatLng(28.6853, 77.2185); // Civil Lines Delhi
   final LatLng _dropLocation = const LatLng(28.6315, 77.2167); // Connaught Place Delhi
 
+  StreamSubscription? _jobOfferSubscription;
+
   @override
   void initState() {
     super.initState();
     _mapController = MapController();
+    _connectWebSocket();
+  }
+
+  void _connectWebSocket() {
+    NabinWsService.instance.connect(role: 'driver', userId: 'drv_1');
+    _jobOfferSubscription = NabinWsService.instance.onIncomingJob.listen((msg) {
+      if (!_isOnline || _isJobActive) return;
+      if (mounted) {
+        setState(() {
+          _incomingJob = msg['job'] as Map<String, dynamic>? ?? msg;
+          _hasIncomingJob = true;
+          _jobTimeLeft = 15;
+        });
+        _jobCountdownTimer?.cancel();
+        _jobCountdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+          if (!mounted) return;
+          setState(() {
+            if (_jobTimeLeft > 0) {
+              _jobTimeLeft--;
+            } else {
+              _hasIncomingJob = false;
+              _incomingJob = null;
+              timer.cancel();
+            }
+          });
+        });
+      }
+    });
   }
 
   @override
   void dispose() {
+    _jobOfferSubscription?.cancel();
     _jobCountdownTimer?.cancel();
     _otpVerifyController.dispose();
     super.dispose();
