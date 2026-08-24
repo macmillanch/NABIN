@@ -4761,13 +4761,14 @@ class NabinDatabase {
       payload: payload || {}
     };
 
-    // Record double-entry ledger entry for payment capture
+    // Record double-entry ledger entry for payment capture or refund
+    const isRefund = eventType === 'refund.processed' || eventType === 'refund.created';
     this.recordLedgerEntry({
       transactionId: paymentId || eventId,
-      debitAccount: 'PAYMENT_GATEWAY_ESCROW',
-      creditAccount: 'CUSTOMER_WALLET_LIABILITY',
+      debitAccount: isRefund ? 'CUSTOMER_WALLET_LIABILITY' : 'PAYMENT_GATEWAY_ESCROW',
+      creditAccount: isRefund ? 'PAYMENT_GATEWAY_ESCROW' : 'CUSTOMER_WALLET_LIABILITY',
       amount: Number(amount) || 0,
-      description: `Payment captured via Webhook [${eventType}]: ${paymentId}`,
+      description: `Payment ${isRefund ? 'refund' : 'captured'} via Webhook [${eventType}]: ${paymentId}`,
       referenceId: eventId
     });
 

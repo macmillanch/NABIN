@@ -870,6 +870,15 @@ app.post('/api/admin/finance/refund', authenticateAdmin, requirePermission('fina
 
   db.transactions.unshift(refundTxn);
 
+  db.recordLedgerEntry({
+    transactionId: refundTxn.id,
+    debitAccount: 'CUSTOMER_WALLET_LIABILITY',
+    creditAccount: 'PAYMENT_GATEWAY_ESCROW',
+    amount: amt,
+    description: `Admin Refund for Job ${jobId}: ${reason}`,
+    referenceId: jobId
+  });
+
   db.createAuditLog({
     adminId: req.admin.id,
     adminName: req.admin.name,

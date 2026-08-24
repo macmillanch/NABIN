@@ -200,8 +200,31 @@ async function runProductionReadinessAudit() {
     concurrent1.status === 200 && concurrent2.status === 200
   );
 
-  // --- TEST 8: Admin Double-Entry Ledger Reconciliation ---
-  console.log('\n--- 8. DOUBLE-ENTRY LEDGER RECONCILIATION ---');
+  // --- TEST 8: Refund Webhook & Ledger Reversal Integrity ---
+  console.log('\n--- 8. REFUND WEBHOOK & LEDGER REVERSAL INTEGRITY ---');
+  const refundWebhookPayload = {
+    event: 'refund.processed',
+    eventId: `evt_prod_refund_${Date.now()}`,
+    payload: {
+      refund: {
+        entity: {
+          id: `rfnd_rzp_${Date.now()}`,
+          amount: 35000,
+          currency: 'INR',
+          status: 'processed',
+          payment_id: `pay_rzp_wh_${Date.now()}`
+        }
+      }
+    }
+  };
+  const validRefundSig = generateWebhookSignature(refundWebhookPayload);
+  const refundWebhookRes = await request('POST', '/api/payments/webhook', refundWebhookPayload, {
+    'x-razorpay-signature': validRefundSig
+  });
+  assert('Refund webhook processed and ledger reversal recorded', refundWebhookRes.status === 200 && refundWebhookRes.body.success);
+
+  // --- TEST 9: Admin Double-Entry Ledger Reconciliation ---
+  console.log('\n--- 9. DOUBLE-ENTRY LEDGER RECONCILIATION ---');
   const superLogin = await request('POST', '/api/admin/login', { username: 'superadmin', password: 'AdminPassword123!' });
   const adminToken = superLogin.body.token;
 
