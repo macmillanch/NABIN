@@ -153,8 +153,6 @@ jobs:
     needs: [ build-container ]
     if: github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/beta'
     runs-on: ubuntu-latest
-    environment:
-      name: beta
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -206,8 +204,6 @@ jobs:
     needs: [ build-container ]
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    environment:
-      name: production
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
