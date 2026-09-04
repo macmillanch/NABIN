@@ -37,10 +37,19 @@ async function runTests() {
   console.log('--- RUNNING ADMIN BOOTSTRAP SECURITY TESTS ---');
 
   // Spawn isolated test server instance
-  // First, let's delete the mock db file if it exists so we start fresh
+  // First, let's delete the mock db file and reset admin_accounts if PostgreSQL is active so we start fresh
   const fs = require('fs');
   const dbPath = path.join(__dirname, 'data', 'store.json');
   if (fs.existsSync(dbPath)) fs.unlinkSync(dbPath);
+
+  try {
+    const { supabaseAdmin } = require('./src/supabase');
+    if (supabaseAdmin) {
+      await supabaseAdmin.from('admin_accounts').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    }
+  } catch (e) {
+    // Non-blocking if supabase is unavailable
+  }
 
   const proc = spawn(process.execPath, [path.join(__dirname, 'src/server.js')], {
     cwd: __dirname,
