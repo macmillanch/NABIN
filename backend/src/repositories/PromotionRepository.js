@@ -55,10 +55,6 @@ class PromotionRepository {
     this.db = db;
   }
 
-  mapRowToDTO(row) {
-    return mapRowToDTO(row);
-  }
-
   resolveUserUuid(id) {
     if (!id) return null;
     if (UUID_REGEX.test(id)) return id;

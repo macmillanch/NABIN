@@ -6,8 +6,7 @@ const http = require('http');
 const crypto = require('crypto');
 const { WebSocketServer } = require('ws');
 const db = require('./database');
-const { supabase, supabaseAdmin, isConfigured, isLivePostgres, checkSupabaseConnection } = require('./supabase');
-const supabaseHelper = { supabase, supabaseAdmin, isConfigured, isLivePostgres, checkSupabaseConnection };
+const supabaseHelper = require('./supabase');
 const cloudinaryService = require('./services/cloudinaryService');
 
 const app = express();
@@ -104,11 +103,9 @@ app.get('/api/health', (req, res) => {
 
 app.get('/api/ready', (req, res) => {
   const status = db.getServicesStatus();
-  const pgReady = db.isPostgresReady ? db.isPostgresReady() : true;
-  const ready = status.summary.platformStatus !== 'EMERGENCY_LOCKDOWN' && pgReady;
+  const ready = status.summary.platformStatus !== 'EMERGENCY_LOCKDOWN';
   res.status(ready ? 200 : 503).json({
     ready,
-    postgresReady: pgReady,
     platformStatus: status.summary.platformStatus,
     services: status.summary,
     timestamp: new Date().toISOString()
@@ -252,11 +249,9 @@ function authenticateUser(req, res, next) {
   const token = authHeader.replace(/^Bearer\s+/, '').trim();
   
   if (!token) {
-    return res.status(401).json({
-      success: false,
-      error: 'Unauthorized: Customer authentication token required. Please log in with Bearer token.',
-      requestId: req.id
-    });
+    req.user = null;
+    req.session = null;
+    return next();
   }
 
   const session = db.getSessionByToken(token);
@@ -268,55 +263,9 @@ function authenticateUser(req, res, next) {
     });
   }
 
-  req.user = db.getUser(session.entityId) || session.entity;
+  req.user = session.entity || db.getUser(session.entityId);
   req.session = session;
   next();
-}
-
-function optionalAuthenticateUser(req, res, next) {
-  const authHeader = req.headers['authorization'] || '';
-  const token = authHeader.replace(/^Bearer\s+/, '').trim();
-  if (!token) {
-    req.user = null;
-    req.session = null;
-    return next();
-  }
-  const session = db.getSessionByToken(token);
-  if (session) {
-    req.user = db.getUser(session.entityId) || session.entity;
-    req.session = session;
-  } else {
-    req.user = null;
-    req.session = null;
-  }
-  next();
-}
-
-/**
- * Validates authenticated customer ownership against target customerId.
- * Enforces zero-trust IDOR/BOLA protection.
- */
-function resolveAuthenticatedCustomer(req, res, targetCustomerId) {
-  if (!req.user || !req.user.id) {
-    res.status(401).json({
-      success: false,
-      error: 'Unauthorized: Valid customer authentication token required.',
-      requestId: req.id
-    });
-    return null;
-  }
-
-  // Cross-customer account protection (IDOR / BOLA Prevention)
-  if (targetCustomerId && String(targetCustomerId).trim() !== String(req.user.id).trim()) {
-    res.status(403).json({
-      success: false,
-      error: `Forbidden: Cannot initiate booking for another customer account (${targetCustomerId}).`,
-      requestId: req.id
-    });
-    return null;
-  }
-
-  return req.user;
 }
 
 function authenticateDriver(req, res, next) {
@@ -340,26 +289,8 @@ function authenticateDriver(req, res, next) {
     });
   }
 
-  const driver = db.getDriver(session.entityId) || session.entity;
-  if (!driver) {
-    return res.status(401).json({
-      success: false,
-      error: 'Unauthorized: Driver account not found.',
-      requestId: req.id
-    });
-  }
-
-  // Strict Fail-Closed Check for Unlinked Drivers (Phase 16)
-  if (!driver.userId && !driver.user_id) {
-    return res.status(403).json({
-      success: false,
-      error: 'Forbidden: Driver profile is not linked to an active user account. Account linkage required before Driver App operations.',
-      code: 'UNLINKED_DRIVER_ACCOUNT',
-      requestId: req.id
-    });
-  }
-
-  if (driver.operationalStatus === 'SUSPENDED') {
+  const driver = session.entity || db.getDriver(session.entityId);
+  if (driver && driver.operationalStatus === 'SUSPENDED') {
     return res.status(403).json({
       success: false,
       error: `Driver account is suspended: ${driver.suspensionReason || 'Compliance review'}`,
@@ -877,6 +808,31 @@ app.get('/api/admin/drivers/:id', (req, res) => {
   res.json({ success: true, driver });
 });
 
+app.post('/api/admin/drivers/:id/status', authenticateAdmin, async (req, res) => {
+  const { status, reason } = req.body;
+  const driver = (db.drivers || []).find(d => d.id === req.params.id);
+  if (!driver) return res.status(404).json({ success: false, error: 'Driver not found' });
+  
+  const prev = driver.operationalStatus || 'ACTIVE';
+  driver.operationalStatus = status;
+  driver.driverState = status === 'SUSPENDED' ? 'SUSPENDED' : 'ONLINE';
+  driver.isOnline = status !== 'SUSPENDED';
+
+  await db.createAuditLog({
+    adminId: req.admin.id,
+    adminName: req.admin.name,
+    role: req.admin.role,
+    action: status === 'SUSPENDED' ? 'DRIVER_SUSPENDED' : 'DRIVER_ACTIVATED',
+    module: 'FLEET',
+    targetEntityType: 'DRIVER',
+    targetEntityId: driver.id,
+    previousState: prev,
+    newState: status,
+    reason: reason || `Driver status updated to ${status}`
+  });
+
+  res.json({ success: true, driver });
+});
 
 // -------------------------------------------------------------
 // 2. SUPPORT & DISPUTE RESOLUTION (POSTGRESQL-AUTHORITATIVE)
@@ -1099,8 +1055,7 @@ app.post('/api/admin/finance/settlements/drivers/:id/payout', authenticateAdmin,
   if (!driver) return res.status(404).json({ success: false, error: 'Driver not found' });
   const amount = Number(req.body.amount) || driver.walletBalance;
 
-  const targetUpi = driver.verifiedUpiId || driver.upiId || (db.resolveVerifiedUpiId ? db.resolveVerifiedUpiId(driver.id) : `${driver.id}@okhdfcbank`);
-  const result = await db.recordPayout(driver.id, amount, targetUpi);
+  const result = db.recordPayout(driver.id, amount, driver.upiId);
   if (result.success) {
     await db.createAuditLog({
       adminId: req.admin.id,
@@ -1112,115 +1067,31 @@ app.post('/api/admin/finance/settlements/drivers/:id/payout', authenticateAdmin,
       targetEntityId: driver.id,
       previousState: 'PENDING',
       newState: 'PAID',
-      reason: `Admin payout of ₹${amount} executed to ${targetUpi}`
+      reason: `Admin payout of ₹${amount} executed to ${driver.upiId}`
     });
   }
   res.json(result);
 });
 
-app.post('/api/admin/finance/adjustments', authenticateAdmin, requirePermission('finance.adjust'), async (req, res) => {
+app.post('/api/admin/finance/adjustments', authenticateAdmin, requirePermission('finance.adjust'), (req, res) => {
   const { targetType, targetId, direction, amount, reason } = req.body;
-  const result = await db.processFinancialAdjustment(targetType, targetId, direction, amount, reason, req.admin.id, req.admin.name);
+  const result = db.processFinancialAdjustment(targetType, targetId, direction, amount, reason, req.admin.id, req.admin.name);
   if (!result.success) return res.status(400).json(result);
   res.json(result);
 });
 
 app.post('/api/admin/finance/refund', authenticateAdmin, requirePermission('finance.refund'), async (req, res) => {
-  const { jobId, customerId, amount, reason, paymentId } = req.body;
+  const { jobId, customerId, amount, reason } = req.body;
   const amt = Number(amount);
   if (!amt || amt <= 0) return res.status(400).json({ success: false, error: 'Invalid refund amount.' });
 
-  // Phase 16: Check cumulative refunded amount and terminal state in PostgreSQL
-  let targetPayId = paymentId;
-  const isUuid = (val) => typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
-
-  if (isLivePostgres && supabaseAdmin && (paymentId || jobId)) {
-    let payRow = null;
-    if (paymentId) {
-      const { data } = await supabaseAdmin
-        .from('payments')
-        .select('payment_id, status, amount, refunded_amount')
-        .eq('payment_id', paymentId)
-        .maybeSingle();
-      payRow = data;
-    }
-    if (!payRow && jobId) {
-      const jobUuid = isUuid(jobId) ? jobId : (db.jobRepo?.resolveUuid ? db.jobRepo.resolveUuid(jobId) : null);
-      if (jobUuid) {
-        const { data } = await supabaseAdmin
-          .from('payments')
-          .select('payment_id, status, amount, refunded_amount')
-          .eq('job_id', jobUuid)
-          .maybeSingle();
-        payRow = data;
-      }
-    }
-
-    if (payRow) {
-      targetPayId = payRow.payment_id;
-      if (payRow.status === 'REFUNDED') {
-        return res.status(400).json({ success: false, error: `Payment is already fully refunded for job ${jobId || targetPayId}.` });
-      }
-      const remaining = Number(payRow.amount) - Number(payRow.refunded_amount || 0);
-      if (amt > remaining) {
-        return res.status(400).json({ success: false, error: `Refund amount ₹${amt} exceeds remaining refundable balance of ₹${remaining.toFixed(2)}.` });
-      }
-    }
-  }
-
-  // Check in-memory refund deduplication when no PostgreSQL payment record governs
-  if (!targetPayId) {
-    const existingRefund = db.transactions.find(t => t.type === 'WALLET_REFUND' && t.jobId === jobId);
-    if (existingRefund) {
-      return res.status(400).json({ success: false, error: `Refund already processed for job ${jobId}.` });
-    }
+  const existingRefund = db.transactions.find(t => t.type === 'WALLET_REFUND' && t.jobId === jobId);
+  if (existingRefund) {
+    return res.status(400).json({ success: false, error: `Refund already processed for job ${jobId}.` });
   }
 
   const user = db.getUser(customerId || 'usr_1');
-  if (!user) return res.status(404).json({ success: false, error: 'Customer not found' });
-
-  // Synchronize with PostgreSQL payments table via PaymentRepository
-  if (db.paymentRepo && targetPayId) {
-    try {
-      await db.paymentRepo.refundPayment({
-        orderOrPayment: targetPayId,
-        reason: reason || `Admin dispute resolution refund for job ${jobId}`,
-        authorizedBy: req.admin.name || req.admin.id,
-        declaredAmount: amt
-      });
-    } catch (payErr) {
-      return res.status(400).json({ success: false, error: payErr.message });
-    }
-  }
-
-  // Authoritative PostgreSQL Wallet Adjustment
-  const userUuid = db.userRepo?.resolveUuid(user.id) || user.uuid || null;
-  if (db.ledgerRepo) {
-    if (userUuid) {
-      try {
-        const rpcResult = await db.ledgerRepo.adjustWallet({
-          ownerId: userUuid,
-          ownerType: 'CUSTOMER',
-          amount: amt,
-          category: 'DISPUTE_REFUND',
-          description: `Admin Refund for Job ${jobId}: ${reason}`,
-          referenceId: jobId,
-          debitAccount: 'CUSTOMER_WALLET_LIABILITY',
-          creditAccount: 'PAYMENT_GATEWAY_ESCROW'
-        });
-        if (rpcResult && rpcResult.success) {
-          user.walletBalance = Number(rpcResult.balance);
-        }
-      } catch (err) {
-        console.warn('⚠️ Admin refund persistent adjustment warning:', err.message);
-        user.walletBalance = (user.walletBalance || 0) + amt;
-      }
-    } else {
-      user.walletBalance = (user.walletBalance || 0) + amt;
-    }
-  } else {
-    user.walletBalance = (user.walletBalance || 0) + amt;
-  }
+  user.walletBalance = (user.walletBalance || 0) + amt;
 
   const refundTxn = {
     id: `TXN-REF-${Date.now().toString().slice(-4)}`,
@@ -1242,30 +1113,14 @@ app.post('/api/admin/finance/refund', authenticateAdmin, requirePermission('fina
 
   db.transactions.unshift(refundTxn);
 
-  // Phase 16: Single-Writer Ledger Rule — do not duplicate entries if adjustWallet already persisted to PostgreSQL
-  if (!isLivePostgres || !userUuid) {
-    db.recordLedgerEntry({
-      transactionId: refundTxn.id,
-      debitAccount: 'CUSTOMER_WALLET_LIABILITY',
-      creditAccount: 'PAYMENT_GATEWAY_ESCROW',
-      amount: amt,
-      description: `Admin Refund for Job ${jobId}: ${reason}`,
-      referenceId: jobId
-    });
-  } else {
-    // Mirror in-memory ledger entry without writing duplicate row to PostgreSQL
-    db.ledgerEntries.unshift({
-      id: refundTxn.id,
-      transactionId: refundTxn.id,
-      debitAccount: 'CUSTOMER_WALLET_LIABILITY',
-      creditAccount: 'PAYMENT_GATEWAY_ESCROW',
-      amount: amt,
-      currency: 'INR',
-      description: `Admin Refund for Job ${jobId}: ${reason}`,
-      referenceId: jobId,
-      timestamp: new Date().toISOString()
-    });
-  }
+  db.recordLedgerEntry({
+    transactionId: refundTxn.id,
+    debitAccount: 'CUSTOMER_WALLET_LIABILITY',
+    creditAccount: 'PAYMENT_GATEWAY_ESCROW',
+    amount: amt,
+    description: `Admin Refund for Job ${jobId}: ${reason}`,
+    referenceId: jobId
+  });
 
   await db.createAuditLog({
     adminId: req.admin.id,
@@ -1273,8 +1128,8 @@ app.post('/api/admin/finance/refund', authenticateAdmin, requirePermission('fina
     role: req.admin.role,
     action: 'REFUND_PROCESSED',
     module: 'FINANCE',
-    targetEntityType: 'JOB',
-    targetEntityId: jobId,
+    targetEntityType: 'CUSTOMER_REFUND',
+    targetEntityId: user.id,
     previousState: 'CHARGED',
     newState: `REFUNDED_₹${amt}`,
     reason: reason || `Admin refund of ₹${amt} issued for job ${jobId}`
@@ -1354,7 +1209,7 @@ app.put('/api/admin/promotions/:id', authenticateAdmin, requirePermission('promo
   }
 });
 
-app.post('/api/promotions/apply', optionalAuthenticateUser, async (req, res) => {
+app.post('/api/promotions/apply', authenticateUser, async (req, res) => {
   try {
     const { code, orderAmount, service, vehicleType, areaId, userId } = req.body;
     const effectiveUserId = req.user?.id || userId || null;
@@ -1645,40 +1500,8 @@ app.post('/api/admin/pricing', authenticateAdmin, requirePermission('pricing.edi
 // -------------------------------------------------------------
 // MANUAL IDENTITY VERIFICATION API
 // -------------------------------------------------------------
-app.post('/api/identity/submit', async (req, res) => {
-  const authHeader = req.headers['authorization'] || '';
-  const token = authHeader.replace(/^Bearer\s+/, '').trim();
-
-  if (!token) {
-    return res.status(401).json({
-      success: false,
-      error: 'Unauthorized: Authentication token required to submit identity documents.',
-      requestId: req.id
-    });
-  }
-
-  const session = db.getSessionByToken(token);
-  if (!session) {
-    return res.status(401).json({
-      success: false,
-      error: 'Unauthorized: Invalid or expired session token.',
-      requestId: req.id
-    });
-  }
-
-  const callerUser = session.entity || db.getUser(session.entityId);
-  if (!callerUser && session.role !== 'ADMIN' && session.role !== 'SUPER_ADMIN') {
-    return res.status(401).json({
-      success: false,
-      error: 'Unauthorized: User account not found for session.',
-      requestId: req.id
-    });
-  }
-
-  // IDOR Protection: Bound caller userId strictly to authenticated session
-  const effectiveUserId = callerUser ? callerUser.id : req.body.userId;
-
-  const { name, phone, email, dob, address, aadhaarNumber, aadhaarDocUrl, voterIdNumber, voterIdDocUrl, isResubmission } = req.body;
+app.post('/api/identity/submit', (req, res) => {
+  const { userId, name, phone, email, dob, address, aadhaarNumber, aadhaarDocUrl, voterIdNumber, voterIdDocUrl, isResubmission } = req.body;
 
   if (!aadhaarNumber || aadhaarNumber.toString().replace(/\D/g, '').length < 12) {
     return res.status(400).json({ success: false, error: 'A valid 12-digit Aadhaar number is required.' });
@@ -1687,84 +1510,46 @@ app.post('/api/identity/submit', async (req, res) => {
     return res.status(400).json({ success: false, error: 'A valid Voter ID (EPIC) number is required.' });
   }
 
-  try {
-    const result = await db.submitIdentityApplication({
-      userId: effectiveUserId,
-      name: (callerUser && callerUser.name) || name,
-      phone: (callerUser && callerUser.phone) || phone,
-      email: (callerUser && callerUser.email) || email,
-      dob: (callerUser && callerUser.dob) || dob,
-      address: (callerUser && callerUser.address) || address,
-      aadhaarNumber: aadhaarNumber.toString().trim(),
-      aadhaarDocUrl: aadhaarDocUrl || '/docs/mock_aadhaar_user.png',
-      voterIdNumber: voterIdNumber.toString().trim().toUpperCase(),
-      voterIdDocUrl: voterIdDocUrl || '/docs/mock_voter_user.png',
-      isResubmission: Boolean(isResubmission)
-    });
+  const result = db.submitIdentityApplication({
+    userId,
+    name,
+    phone,
+    email,
+    dob,
+    address,
+    aadhaarNumber: aadhaarNumber.toString().trim(),
+    aadhaarDocUrl: aadhaarDocUrl || '/docs/mock_aadhaar_user.png',
+    voterIdNumber: voterIdNumber.toString().trim().toUpperCase(),
+    voterIdDocUrl: voterIdDocUrl || '/docs/mock_voter_user.png',
+    isResubmission: Boolean(isResubmission)
+  });
 
-    broadcastToAdmins({
-      type: 'NEW_IDENTITY_APPLICATION',
-      applicationId: result.application.id,
+  broadcastToAdmins({
+    type: 'NEW_IDENTITY_APPLICATION',
+    applicationId: result.application.id,
+    userName: result.application.userName,
+    status: result.application.status
+  });
+
+  res.json({
+    success: true,
+    message: 'Your identity documents have been submitted for manual admin verification.',
+    application: {
+      id: result.application.id,
+      userId: result.application.userId,
       userName: result.application.userName,
-      status: result.application.status
-    });
-
-    res.json({
-      success: true,
-      message: 'Your identity documents have been submitted for manual admin verification.',
-      application: {
-        id: result.application.id,
-        userId: result.application.userId,
-        userName: result.application.userName,
-        status: result.application.status,
-        overallDocumentStatus: result.application.overallDocumentStatus,
-        aadhaarNumberMasked: result.application.aadhaarNumberMasked,
-        voterIdNumberMasked: result.application.voterIdNumberMasked,
-        submissionDate: result.application.submissionDate
-      },
-      user: result.user
-    });
-  } catch (err) {
-    console.error('Error submitting identity application:', err);
-    res.status(500).json({ success: false, error: err.message });
-  }
+      status: result.application.status,
+      overallDocumentStatus: result.application.overallDocumentStatus,
+      aadhaarNumberMasked: result.application.aadhaarNumberMasked,
+      voterIdNumberMasked: result.application.voterIdNumberMasked,
+      submissionDate: result.application.submissionDate
+    },
+    user: result.user
+  });
 });
 
 app.get('/api/identity/status/:userId', (req, res) => {
-  const authHeader = req.headers['authorization'] || '';
-  const token = authHeader.replace(/^Bearer\s+/, '').trim();
-
-  if (!token) {
-    return res.status(401).json({
-      success: false,
-      error: 'Unauthorized: Authentication token required.',
-      requestId: req.id
-    });
-  }
-
-  const session = db.getSessionByToken(token);
-  if (!session) {
-    return res.status(401).json({
-      success: false,
-      error: 'Unauthorized: Invalid or expired session token.',
-      requestId: req.id
-    });
-  }
-
-  const requestedUserId = req.params.userId;
-  const isCustomerOwner = (session.entityId === requestedUserId || (session.entity && session.entity.id === requestedUserId));
-  const isAdminWithPermission = (session.role === 'ADMIN' || session.role === 'SUPER_ADMIN') ||
-    (session.entity && session.entity.permissions && session.entity.permissions.includes('identity_verification.view'));
-
-  if (!isCustomerOwner && !isAdminWithPermission) {
-    return res.status(403).json({
-      success: false,
-      error: 'Access Denied: You cannot view another user\'s identity verification details.',
-      requestId: req.id
-    });
-  }
-
-  const user = db.getUser(requestedUserId);
+  const user = db.getUser(req.params.userId);
   if (!user) return res.status(404).json({ success: false, error: 'User record not found.' });
 
   const application = user.currentApplicationId
@@ -1773,7 +1558,6 @@ app.get('/api/identity/status/:userId', (req, res) => {
 
   res.json({
     success: true,
-    identityStatus: user.identityStatus || 'IDENTITY_VERIFICATION_PENDING',
     user: {
       id: user.id,
       name: user.name,
@@ -1846,8 +1630,8 @@ app.get('/api/admin/identity-verifications/:id', authenticateAdmin, requirePermi
   });
 });
 
-app.post('/api/admin/identity-verifications/:id/lock', authenticateAdmin, requirePermission('identity_verification.review'), async (req, res) => {
-  const result = await db.lockIdentityApplication(req.params.id, req.admin.id, req.admin.name);
+app.post('/api/admin/identity-verifications/:id/lock', authenticateAdmin, requirePermission('identity_verification.review'), (req, res) => {
+  const result = db.lockIdentityApplication(req.params.id, req.admin.id, req.admin.name);
   if (!result.success) return res.status(409).json(result);
   res.json(result);
 });
@@ -1858,7 +1642,7 @@ app.post('/api/admin/identity-verifications/:id/unlock', authenticateAdmin, requ
   res.json(result);
 });
 
-app.post('/api/admin/identity-verifications/:id/review', authenticateAdmin, requirePermission('identity_verification.review'), async (req, res) => {
+app.post('/api/admin/identity-verifications/:id/review', authenticateAdmin, requirePermission('identity_verification.review'), (req, res) => {
   const { decision, reason, checklist } = req.body;
 
   if (decision === 'APPROVE' && !req.admin.permissions.includes('identity_verification.approve') && req.admin.role !== 'SUPER_ADMIN') {
@@ -1871,7 +1655,7 @@ app.post('/api/admin/identity-verifications/:id/review', authenticateAdmin, requ
     return res.status(403).json({ success: false, error: 'Permission denied: Cannot request document resubmission.' });
   }
 
-  const result = await db.reviewIdentityApplication(
+  const result = db.reviewIdentityApplication(
     req.params.id,
     decision,
     reason,
@@ -1920,8 +1704,7 @@ app.post('/api/customer/book-ride', authenticateUser, async (req, res) => {
     }
   }
 
-  const user = resolveAuthenticatedCustomer(req, res, customerId);
-  if (!user) return;
+  const user = (customerId ? db.getUser(customerId) : req.user) || db.getUser('usr_1');
 
   if (user && user.identityStatus !== 'VERIFIED') {
     return res.status(403).json({
@@ -2019,8 +1802,7 @@ app.post('/api/customer/book-parcel', authenticateUser, async (req, res) => {
     }
   }
 
-  const user = resolveAuthenticatedCustomer(req, res, customerId);
-  if (!user) return;
+  const user = req.user || db.getUser(customerId || 'usr_2');
   
   // Authoritative server-side pricing
   const pricing = db.calculateFareEstimate({
@@ -2099,8 +1881,7 @@ app.post('/api/customer/book-food', authenticateUser, async (req, res) => {
     });
   }
 
-  const user = resolveAuthenticatedCustomer(req, res, customerId);
-  if (!user) return;
+  const user = req.user || db.getUser(customerId || 'usr_2');
   const deliveryPricing = db.calculateFareEstimate({ serviceType: 'FOOD', distanceKm: 3.0, durationMins: 12, promoCode });
   
   // Calculate exact item total based on menu
@@ -2155,301 +1936,6 @@ app.post('/api/customer/book-food', authenticateUser, async (req, res) => {
   });
 
   res.json({ success: true, job });
-});
-
-// -------------------------------------------------------------
-// RIDE CANCELLATION LIFECYCLE & RECOVERY (CUSTOMER APP)
-// -------------------------------------------------------------
-app.post('/api/customer/cancel-ride', authenticateUser, async (req, res) => {
-  try {
-    const { jobId, reason } = req.body;
-    if (!jobId) {
-      return res.status(400).json({ success: false, error: 'Trip/jobId is required for cancellation.', requestId: req.id });
-    }
-
-    const job = db.getJob(jobId) || (await db.jobRepo.findByIdAsync(jobId));
-    if (!job) {
-      return res.status(404).json({ success: false, error: `Job ${jobId} not found.`, requestId: req.id });
-    }
-
-    // Ownership check (IDOR / BOLA Prevention)
-    const isOwner = job.customerId === req.user.id ||
-      job.customerUuid === req.user.id ||
-      (req.user.uuid && job.customerUuid === req.user.uuid);
-
-    if (!isOwner) {
-      return res.status(403).json({
-        success: false,
-        error: 'Forbidden: You cannot cancel a trip booked by another customer.',
-        requestId: req.id
-      });
-    }
-
-    // Terminal State Idempotency: Already cancelled
-    if (job.status === 'CANCELLED') {
-      return res.json({
-        success: true,
-        job,
-        alreadyCancelled: true,
-        message: 'Trip is already cancelled.'
-      });
-    }
-
-    // Terminal State Protection: Completed trips cannot be cancelled
-    if (job.status === 'COMPLETED') {
-      return res.status(400).json({
-        success: false,
-        error: 'Cannot cancel a trip that has already been completed.',
-        requestId: req.id
-      });
-    }
-
-    // Allowed prior states for cancellation: REQUESTED, SEARCHING, ASSIGNED, ACCEPTED, DRIVER_ARRIVING, DRIVER_ARRIVED
-    const cancellableStates = ['REQUESTED', 'SEARCHING', 'ASSIGNED', 'ACCEPTED', 'DRIVER_ARRIVING', 'DRIVER_ARRIVED'];
-    if (!cancellableStates.includes(job.status)) {
-      return res.status(400).json({
-        success: false,
-        error: `Trip cannot be cancelled in state ${job.status}.`,
-        requestId: req.id
-      });
-    }
-
-    const cancellationReason = reason || 'Customer requested cancellation';
-
-    // Phase 16: PostgreSQL Atomic Ride Cancellation Engine (Single Transaction)
-    const jobUuid = db.jobRepo?.resolveJobUuid(job.id) || job.uuid;
-    const customerUuid = db.userRepo?.resolveUuid(req.user.id) || req.user.uuid || (job.customerUuid || null);
-
-    if (isLivePostgres && supabaseAdmin && jobUuid && customerUuid) {
-      try {
-        const rpcResult = await db.jobRepo.cancelRideAtomic({
-          jobId: jobUuid,
-          requesterId: customerUuid,
-          requesterRole: 'CUSTOMER',
-          reason: cancellationReason,
-          isDelayedOverride: Boolean(req.body.isDelayedCancellation)
-        });
-
-        if (rpcResult && rpcResult.duplicate) {
-          job.status = 'CANCELLED';
-          return res.json({
-            success: true,
-            job,
-            alreadyCancelled: true,
-            message: 'Trip is already cancelled.'
-          });
-        }
-
-        if (rpcResult && rpcResult.success) {
-          // Synchronize in-memory job model from PostgreSQL authoritative result
-          job.status = 'CANCELLED';
-          job.cancellationFee = Number(rpcResult.cancellationFee || 0);
-          job.driverCompensation = Number(rpcResult.driverCompensation || 0);
-          job.refundAmount = Number(rpcResult.refundAmount || 0);
-          job.refundStatus = rpcResult.refundStatus;
-          job.cancelledAt = new Date().toISOString();
-
-          // Free driver and sync driver wallet balance
-          if (job.driverId) {
-            const driver = db.getDriver(job.driverId);
-            if (driver) {
-              if (driver.activeJobId === job.id) driver.activeJobId = null;
-              if (rpcResult.driverWalletBalance !== undefined) {
-                driver.walletBalance = Number(rpcResult.driverWalletBalance);
-              }
-              driver.status = 'AVAILABLE';
-            }
-            broadcastToDrivers({
-              type: 'JOB_CANCELLED',
-              jobId: job.id,
-              driverId: job.driverId,
-              reason: cancellationReason
-            });
-          }
-
-          broadcastToCustomer(req.user.id, {
-            type: 'TRIP_CANCELLED',
-            jobId: job.id,
-            reason: cancellationReason
-          });
-
-          // Sync customer in-memory wallet
-          if (req.user && rpcResult.customerWalletBalance !== undefined) {
-            req.user.walletBalance = Number(rpcResult.customerWalletBalance);
-          }
-
-          // Sync promotion cache count
-          if (job.promoCode) {
-            const promo = db.promotions?.find(p => p.code === job.promoCode);
-            if (promo && promo.usageCount > 0) promo.usageCount -= 1;
-          }
-
-          return res.json({
-            success: true,
-            job,
-            cancellationFeeCharged: job.cancellationFee,
-            driverCompensation: job.driverCompensation,
-            refundStatus: job.refundStatus,
-            refundAmount: job.refundAmount,
-            message: 'Trip cancelled successfully.'
-          });
-        }
-      } catch (atomicErr) {
-        if (atomicErr.code === 'FORBIDDEN_NOT_OWNER') {
-          return res.status(403).json({ success: false, error: 'Forbidden: You cannot cancel a trip booked by another customer.', requestId: req.id });
-        }
-        if (atomicErr.code === 'JOB_ALREADY_COMPLETED') {
-          return res.status(400).json({ success: false, error: 'Cannot cancel a trip that has already been completed.', requestId: req.id });
-        }
-        console.warn('⚠️ Atomic cancel_ride_atomic failed, falling back to safe local execution:', atomicErr.message);
-      }
-    }
-
-    // In-memory fallback (when running without PostgreSQL connection)
-    const updatedJob = await db.updateJobStatus(job.id, 'CANCELLED', null, {
-      cancellationReason,
-      cancelledAt: new Date().toISOString()
-    });
-
-    // Free driver if one was assigned
-    if (job.driverId) {
-      const driver = db.getDriver(job.driverId);
-      if (driver && driver.activeJobId === job.id) {
-        driver.activeJobId = null;
-      }
-      broadcastToDrivers({
-        type: 'JOB_CANCELLED',
-        jobId: job.id,
-        driverId: job.driverId,
-        reason: cancellationReason
-      });
-    }
-
-    broadcastToCustomer(req.user.id, {
-      type: 'TRIP_CANCELLED',
-      jobId: job.id,
-      reason: cancellationReason
-    });
-
-    // Assess payment, cancellation fee schedule, and automated refund
-    const isPaid = job.paymentStatus === 'PAID' || job.paid === true || job.isPrepaid === true;
-    const paymentAmount = Number(job.fare || 0);
-
-    const isAssigned = Boolean(job.driverId) || ['ASSIGNED', 'ACCEPTED', 'DRIVER_ARRIVING', 'DRIVER_ARRIVED'].includes(job.status);
-    const assignedTime = job.assignedAt || job.acceptedAt || job.createdAt;
-    const elapsedMinutes = (Date.now() - new Date(assignedTime).getTime()) / (1000 * 60);
-    const feeApplies = isAssigned && (Boolean(req.body.isDelayedCancellation) || elapsedMinutes > 2);
-
-    const cancellationFeeCharged = feeApplies ? 50.0 : 0.0;
-    const driverCompensation = feeApplies ? 40.0 : 0.0;
-    const refundAmount = isPaid ? Math.max(0, paymentAmount - cancellationFeeCharged) : 0.0;
-    const refundStatus = isPaid ? (refundAmount > 0 ? 'REFUNDED' : 'FEE_OFFSET') : 'NOT_APPLICABLE';
-
-    // 1. Customer Wallet Refund via PostgreSQL RPC
-    if (isPaid && refundAmount > 0 && db.ledgerRepo) {
-      const customerUuid = db.userRepo?.resolveUuid(req.user.id) || req.user.uuid || null;
-      if (customerUuid) {
-        try {
-          await db.ledgerRepo.adjustWallet({
-            ownerId: customerUuid,
-            ownerType: 'CUSTOMER',
-            amount: refundAmount,
-            category: 'DISPUTE_REFUND',
-            description: `Automated Refund for Cancelled Trip ${job.id}`,
-            referenceId: `REF-${job.id}`,
-            debitAccount: 'CUSTOMER_WALLET_LIABILITY',
-            creditAccount: 'PAYMENT_GATEWAY_ESCROW'
-          });
-        } catch (refErr) {
-          console.warn('⚠️ Cancel automated refund adjustment notice:', refErr.message);
-        }
-      }
-      if (req.user) {
-        req.user.walletBalance = (req.user.walletBalance || 0) + refundAmount;
-      }
-      if (job.paymentId && db.paymentRepo) {
-        try {
-          await db.paymentRepo.refundPayment({
-            orderOrPayment: job.paymentId,
-            reason: `Customer cancelled trip ${job.id}`,
-            declaredAmount: refundAmount
-          });
-        } catch (payRefErr) {
-          console.warn('⚠️ Cancel payment state flip notice:', payRefErr.message);
-        }
-      }
-    }
-
-    // 2. Driver Cancellation Compensation via PostgreSQL RPC
-    if (driverCompensation > 0 && job.driverId && db.ledgerRepo) {
-      const driver = db.getDriver(job.driverId);
-      const driverUuid = db.driverRepo?.resolveUuid(job.driverId) || driver?.uuid || null;
-      if (driverUuid) {
-        try {
-          await db.ledgerRepo.adjustWallet({
-            ownerId: driverUuid,
-            ownerType: 'DRIVER',
-            amount: driverCompensation,
-            category: 'RIDE_SETTLEMENT',
-            description: `Cancellation Fee Compensation for Trip ${job.id}`,
-            referenceId: `CMP-${job.id}`,
-            debitAccount: 'PLATFORM_REVENUE',
-            creditAccount: 'DRIVER_EARNINGS_PAYABLE'
-          });
-        } catch (cmpErr) {
-          console.warn('⚠️ Driver cancellation compensation notice:', cmpErr.message);
-        }
-      }
-      if (driver) {
-        driver.walletBalance = (driver.walletBalance || 0) + driverCompensation;
-      }
-    }
-
-    // 3. Promotional Usage Count Reversal
-    if (job.promoCode) {
-      const promo = db.promotions?.find(p => p.code === job.promoCode);
-      if (promo && promo.usageCount > 0) {
-        promo.usageCount -= 1;
-        if (isLivePostgres && supabaseAdmin) {
-          try {
-            await supabaseAdmin.from('promotions').update({ usage_count: promo.usageCount }).eq('code', job.promoCode);
-          } catch (pErr) {}
-        }
-      }
-    }
-
-    // Persist cancellation details in job metadata
-    if (updatedJob) {
-      updatedJob.cancellationFee = cancellationFeeCharged;
-      updatedJob.driverCompensation = driverCompensation;
-      updatedJob.refundAmount = refundAmount;
-      updatedJob.refundStatus = refundStatus;
-    }
-
-    await db.createAuditLog({
-      adminId: req.user.id,
-      adminName: req.user.name || 'Customer',
-      role: 'CUSTOMER',
-      action: 'RIDE_CANCELLED',
-      module: 'DISPATCH',
-      targetEntityType: 'JOB',
-      targetEntityId: job.id,
-      reason: cancellationReason,
-      metadata: { cancellationFeeCharged, driverCompensation, refundStatus, refundAmount }
-    });
-
-    res.json({
-      success: true,
-      job: updatedJob,
-      cancellationFeeCharged,
-      driverCompensation,
-      refundStatus,
-      refundAmount,
-      message: 'Trip cancelled successfully.'
-    });
-  } catch (err) {
-    res.status(400).json({ success: false, error: err.message, requestId: req.id });
-  }
 });
 
 // RESTAURANT / MERCHANT API ENDPOINTS
@@ -2521,138 +2007,15 @@ app.post('/api/admin/restaurants/:id/status', authenticateAdmin, requirePermissi
 });
 
 // DRIVER FLEET GOVERNANCE & TELEMETRY
-app.post('/api/admin/drivers/:id/status', authenticateAdmin, requirePermission('fleet.manage'), async (req, res) => {
-  const { status, reason, kycStatus } = req.body;
-  const result = await db.setDriverStatus(req.params.id, status, reason, req.admin.id, req.admin.name, kycStatus);
+app.post('/api/admin/drivers/:id/status', authenticateAdmin, requirePermission('fleet.manage'), (req, res) => {
+  const { status, reason } = req.body;
+  const result = db.setDriverStatus(req.params.id, status, reason, req.admin.id, req.admin.name);
   if (!result.success) return res.status(400).json(result);
   res.json(result);
 });
 
-app.post('/api/driver/payout-destination', authenticateDriver, async (req, res) => {
-  try {
-    const { upiId } = req.body;
-    if (!upiId || typeof upiId !== 'string' || !upiId.includes('@')) {
-      return res.status(400).json({ success: false, error: 'Valid UPI ID is required (e.g. name@bank).' });
-    }
-    const updated = await db.driverRepo.updatePayoutDestination(req.driver.id, upiId);
-    res.json({ success: true, message: 'Payout destination submitted. Pending administrative review.', driver: updated });
-  } catch (err) {
-    res.status(400).json({ success: false, error: err.message });
-  }
-});
-
-app.post('/api/admin/drivers/:id/verify-payout-destination', authenticateAdmin, requirePermission('fleet.manage'), async (req, res) => {
-  try {
-    const { upiId, method = 'ADMIN_MANUAL' } = req.body;
-    const updated = await db.driverRepo.verifyPayoutDestination(req.params.id, { method, targetUpi: upiId });
-    await db.createAuditLog({
-      adminId: req.admin.id,
-      adminName: req.admin.name,
-      role: req.admin.role,
-      action: 'DRIVER_VPA_VERIFIED',
-      module: 'FLEET',
-      targetEntityType: 'DRIVER',
-      targetEntityId: req.params.id,
-      reason: `Admin verified payout destination: ${updated.verifiedUpiId} (Method: ${method})`
-    });
-    res.json({ success: true, message: 'Payout destination verified.', driver: updated });
-  } catch (err) {
-    res.status(400).json({ success: false, error: err.message });
-  }
-});
-
-app.post('/api/admin/drivers/:id/link-user', authenticateAdmin, requirePermission('fleet.manage'), async (req, res) => {
-  try {
-    const { userId } = req.body;
-    if (!userId) {
-      return res.status(400).json({ success: false, error: 'User ID is required for account linkage.' });
-    }
-    const resolvedUserUuid = db.userRepo?.resolveUuid(userId) || userId;
-    const linked = await db.driverRepo.linkUserAccount(req.params.id, resolvedUserUuid);
-    if (!linked) {
-      return res.status(404).json({ success: false, error: 'Driver not found' });
-    }
-    await db.createAuditLog({
-      adminId: req.admin.id,
-      adminName: req.admin.name,
-      role: req.admin.role,
-      action: 'DRIVER_ACCOUNT_LINKED',
-      module: 'FLEET',
-      targetEntityType: 'DRIVER',
-      targetEntityId: req.params.id,
-      reason: req.body.reason || 'Admin driver-user identity link',
-      metadata: { userId: resolvedUserUuid }
-    });
-    res.json({ success: true, message: 'Driver account linked to user profile.', driver: linked });
-  } catch (err) {
-    res.status(400).json({ success: false, error: err.message });
-  }
-});
-
-app.post('/api/admin/drivers/:id/unlink-user', authenticateAdmin, requirePermission('fleet.manage'), async (req, res) => {
-  try {
-    const unlinked = await db.driverRepo.linkUserAccount(req.params.id, null);
-    if (!unlinked) {
-      return res.status(404).json({ success: false, error: 'Driver not found' });
-    }
-    if (req.body.resetKyc) {
-      if (db.driverRepo) {
-        await db.driverRepo.updateDriverStatus(req.params.id, { operationalStatus: 'AVAILABLE', kycStatus: 'PENDING', reason: 'Admin reset state' });
-      }
-      unlinked.kycStatus = 'PENDING';
-      unlinked.verifiedUpiId = null;
-      unlinked.payoutUpiVerified = false;
-      unlinked.pendingUpiId = null;
-      unlinked.upiId = null;
-      if (db.drivers) {
-        for (const d of db.drivers) {
-          if (d.id === req.params.id || (req.params.id === 'DRV-101' && d.id === 'drv_1') || (req.params.id === 'drv_1' && d.id === 'DRV-101')) {
-            d.kycStatus = 'PENDING';
-            d.verifiedUpiId = null;
-            d.payoutUpiVerified = false;
-            d.pendingUpiId = null;
-            d.upiId = null;
-          }
-        }
-      }
-      if (isLivePostgres && supabaseAdmin) {
-        const targetUuid = db.driverRepo?.resolveUuid(req.params.id) || req.params.id;
-        await supabaseAdmin.from('drivers').update({
-          kyc_status: 'PENDING',
-          verified_upi_id: null,
-          payout_upi_verified: false,
-          pending_upi_id: null
-        }).eq('id', targetUuid);
-      }
-    }
-    await db.createAuditLog({
-      adminId: req.admin.id,
-      adminName: req.admin.name,
-      role: req.admin.role,
-      action: 'DRIVER_ACCOUNT_UNLINKED',
-      module: 'FLEET',
-      targetEntityType: 'DRIVER',
-      targetEntityId: req.params.id,
-      reason: req.body.reason || 'Admin driver account unlinked',
-      metadata: { resetKyc: Boolean(req.body.resetKyc) }
-    });
-    res.json({ success: true, message: 'Driver account unlinked successfully.', driver: unlinked });
-  } catch (err) {
-    res.status(400).json({ success: false, error: err.message });
-  }
-});
-
-
 app.post('/api/driver/:driverId/toggle-online', authenticateDriver, (req, res) => {
-  if (req.driver.id !== req.params.driverId) {
-    return res.status(403).json({
-      success: false,
-      error: `Forbidden: Cannot toggle online status for another driver account (${req.params.driverId}).`,
-      requestId: req.id
-    });
-  }
-
-  const driver = req.driver;
+  const driver = db.getDriver(req.params.driverId);
 
   if (driver.operationalStatus === 'SUSPENDED') {
     return res.status(403).json({
@@ -2666,61 +2029,36 @@ app.post('/api/driver/:driverId/toggle-online', authenticateDriver, (req, res) =
 });
 
 app.get('/api/driver/:driverId/dashboard', authenticateDriver, (req, res) => {
-  if (req.driver.id !== req.params.driverId) {
-    return res.status(403).json({
-      success: false,
-      error: `Forbidden: Cannot access dashboard for another driver account (${req.params.driverId}).`,
-      requestId: req.id
-    });
-  }
-
-  const driver = db.getDriver(req.params.driverId) || req.driver;
+  const driver = db.getDriver(req.params.driverId) || req.driver || db.drivers[0];
   res.json({ success: true, driver });
 });
 
-app.get('/api/jobs/:jobId', async (req, res) => {
-  const job = db.getJob(req.params.jobId) || (db.jobRepo ? await db.jobRepo.findByIdAsync(req.params.jobId) : null);
-  if (!job) {
-    return res.status(404).json({ success: false, error: 'Job not found' });
-  }
-  return res.json({ success: true, job });
-});
-
 app.post('/api/driver/accept-job', authenticateDriver, async (req, res) => {
-  try {
-    const { jobId, driverId } = req.body;
-    const effectiveDriverId = req.driver?.id || driverId || 'drv_1';
-    const driver = db.getDriver(effectiveDriverId);
+  const { jobId, driverId } = req.body;
+  const effectiveDriverId = req.driver?.id || driverId || 'drv_1';
+  const driver = db.getDriver(effectiveDriverId);
 
-    if (driver && driver.operationalStatus === 'SUSPENDED') {
-      return res.status(403).json({ success: false, error: 'Suspended driver cannot accept trips.' });
-    }
+  if (driver.operationalStatus === 'SUSPENDED') {
+    return res.status(403).json({ success: false, error: 'Suspended driver cannot accept trips.' });
+  }
 
-    const currentJob = db.getJob(jobId);
-    if (currentJob && (currentJob.status === 'CANCELLED' || currentJob.status === 'COMPLETED')) {
-      return res.status(400).json({ success: false, error: `Job is already ${currentJob.status}. Cannot accept.` });
-    }
-
-    const job = await db.updateJobStatus(jobId, 'ASSIGNED', driver ? driver.id : effectiveDriverId);
-    if (job) {
-      if (driver) driver.activeJobId = job.id;
-      broadcastToCustomer(job.customerId, {
-        type: 'DRIVER_ASSIGNED',
-        jobId: job.id,
-        driver: driver ? {
-          name: driver.name,
-          vehicleName: driver.vehicleName,
-          vehiclePlate: driver.vehiclePlate,
-          rating: driver.rating,
-          startOtp: job.startOtp
-        } : {}
-      });
-      res.json({ success: true, job, driver });
-    } else {
-      res.status(404).json({ success: false, error: 'Job not found' });
-    }
-  } catch (err) {
-    res.status(400).json({ success: false, error: err.message });
+  const job = await db.updateJobStatus(jobId, 'ASSIGNED', driver.id);
+  if (job) {
+    driver.activeJobId = job.id;
+    broadcastToCustomer(job.customerId, {
+      type: 'DRIVER_ASSIGNED',
+      jobId: job.id,
+      driver: {
+        name: driver.name,
+        vehicleName: driver.vehicleName,
+        vehiclePlate: driver.vehiclePlate,
+        rating: driver.rating,
+        startOtp: job.startOtp
+      }
+    });
+    res.json({ success: true, job, driver });
+  } else {
+    res.status(404).json({ success: false, error: 'Job not found' });
   }
 });
 
@@ -2765,93 +2103,14 @@ app.post('/api/driver/complete-trip', authenticateDriver, async (req, res) => {
   }
 });
 
-app.post('/api/driver/payout', authenticateDriver, async (req, res) => {
-  try {
-    const { driverId, amount, upiId } = req.body;
-    const effectiveDriverId = req.driver.id;
-
-    // Cross-driver IDOR / BOLA Prevention
-    if (driverId && String(driverId).trim() !== String(effectiveDriverId).trim()) {
-      return res.status(403).json({
-        success: false,
-        error: `Forbidden: Driver cannot initiate payout for another driver account (${driverId}).`,
-        requestId: req.id
-      });
-    }
-
-    // 1. Account Linkage Gate
-    if (!req.driver.userId && !req.driver.user_id) {
-      return res.status(403).json({
-        success: false,
-        error: 'Forbidden: Driver profile is not linked to an active user account.',
-        code: 'UNLINKED_DRIVER_ACCOUNT',
-        requestId: req.id
-      });
-    }
-
-    // 2. Driver KYC Verification Gate (Strict fail-closed: must be VERIFIED)
-    if (req.driver.kycStatus !== 'VERIFIED') {
-      return res.status(403).json({
-        success: false,
-        error: `Forbidden: Driver KYC verification required prior to wallet disbursement. Current status: ${req.driver.kycStatus || 'PENDING'}`,
-        code: 'KYC_NOT_VERIFIED',
-        requestId: req.id
-      });
-    }
-
-    const payoutAmount = Number(amount);
-    if (!payoutAmount || payoutAmount <= 0) {
-      return res.status(400).json({
-        success: false,
-        error: 'Valid payout amount greater than zero is required.',
-        requestId: req.id
-      });
-    }
-
-    // 3. Server-Authoritative Verified Destination Gate
-    // Ignore client-supplied arbitrary upiId to prevent redirection theft; bind strictly to driver's verified VPA
-    const verifiedUpi = db.resolveVerifiedUpiId ? db.resolveVerifiedUpiId(effectiveDriverId) : (req.driver.payoutUpiVerified ? req.driver.verifiedUpiId : null);
-    if (!verifiedUpi) {
-      return res.status(403).json({
-        success: false,
-        error: 'Forbidden: No verified payout destination on file. Please submit and verify a payout UPI ID before requesting disbursement.',
-        code: 'VPA_NOT_VERIFIED',
-        requestId: req.id
-      });
-    }
-
-    if (req.driver.upiCoolingUntil && new Date(req.driver.upiCoolingUntil).getTime() > Date.now()) {
-      return res.status(403).json({
-        success: false,
-        error: `Forbidden: Payout destination is in a 24-hour cooling-off period until ${req.driver.upiCoolingUntil}.`,
-        code: 'VPA_COOLING_PERIOD',
-        requestId: req.id
-      });
-    }
-
-    const effectiveUpiId = verifiedUpi;
-    const idempotencyKey = req.headers['idempotency-key'] || req.headers['x-idempotency-key'] || req.body.idempotencyKey || null;
-
-    const result = await db.recordPayout(effectiveDriverId, payoutAmount, effectiveUpiId, idempotencyKey);
-    res.json(result);
-  } catch (err) {
-    res.status(400).json({ success: false, error: err.message, requestId: req.id });
-  }
+app.post('/api/driver/payout', (req, res) => {
+  const { driverId, amount, upiId } = req.body;
+  const result = db.recordPayout(driverId || 'drv_1', Number(amount) || 500, upiId);
+  res.json(result);
 });
 
-app.get('/api/driver/:driverId/earnings', authenticateDriver, (req, res) => {
-  const targetDriverId = req.params.driverId;
-  if (req.driver.id !== targetDriverId) {
-    return res.status(403).json({
-      success: false,
-      error: `Forbidden: Cannot view earnings for another driver account (${targetDriverId}).`,
-      requestId: req.id
-    });
-  }
-
-  const driver = req.driver;
-  const driverTxns = db.transactions.filter(t => t.driverId === driver.id || t.userId === driver.id);
-
+app.get('/api/driver/:driverId/earnings', (req, res) => {
+  const driver = db.getDriver(req.params.driverId);
   res.json({
     success: true,
     todayEarnings: driver.todayEarnings,
@@ -2862,7 +2121,7 @@ app.get('/api/driver/:driverId/earnings', authenticateDriver, (req, res) => {
     commissionPaidToday: driver.commissionPaidToday,
     cashCollectedToday: driver.cashCollectedToday,
     onlinePaidToday: driver.onlinePaidToday,
-    transactions: driverTxns
+    transactions: db.transactions
   });
 });
 
@@ -3356,38 +2615,10 @@ app.get(['/api/v1/tracking/:jobId', '/api/tracking/:jobId'], (req, res) => {
 // -------------------------------------------------------------
 
 // 1. Create Sandbox/Live Payment Order Session
-app.post('/api/payments/create-order', async (req, res) => {
+app.post('/api/payments/create-order', (req, res) => {
   try {
-    const authHeader = req.headers['authorization'] || '';
-    const token = authHeader.replace(/^Bearer\s+/, '').trim();
-    let authenticatedUser = null;
-    if (token) {
-      const session = db.getSessionByToken(token);
-      if (session) {
-        authenticatedUser = session.entity || db.getUser(session.entityId);
-      }
-    }
-
     const { customerId, amount, currency = 'INR', serviceType = 'RIDE', jobId, metadata } = req.body;
-
-    // Cross-customer account protection (IDOR / BOLA Prevention)
-    if (authenticatedUser && customerId && String(customerId).trim() !== String(authenticatedUser.id).trim()) {
-      return res.status(403).json({
-        success: false,
-        error: `Forbidden: Cannot initiate payment session for another customer (${customerId}).`,
-        requestId: req.id
-      });
-    }
-
-    const effectiveCustomerId = authenticatedUser?.id || customerId || 'usr_1';
-    const session = await db.createPaymentSession({
-      customerId: effectiveCustomerId,
-      amount,
-      currency,
-      serviceType,
-      jobId,
-      metadata
-    });
+    const session = db.createPaymentSession({ customerId, amount, currency, serviceType, jobId, metadata });
     res.json({ success: true, session });
   } catch (err) {
     res.status(400).json({ success: false, error: err.message, requestId: req.id });
@@ -3397,44 +2628,19 @@ app.post('/api/payments/create-order', async (req, res) => {
 // 2. Verify Payment Checkout & Update Transaction State
 app.post('/api/payments/verify-checkout', async (req, res) => {
   try {
-    const authHeader = req.headers['authorization'] || '';
-    const token = authHeader.replace(/^Bearer\s+/, '').trim();
-    let authenticatedUser = null;
-    if (token) {
-      const session = db.getSessionByToken(token);
-      if (session) {
-        authenticatedUser = session.entity || db.getUser(session.entityId);
-      }
-    }
-
-    const { orderId, paymentId, signature, amount, customerId, status = 'SUCCESS', failureReason } = req.body;
-    const effectiveCustomerId = authenticatedUser?.id || customerId || null;
-
-    const result = await db.verifyPaymentSession({
-      orderId,
-      paymentId,
-      signature,
-      amount,
-      status,
-      failureReason,
-      customerId: effectiveCustomerId
-    });
+    const { orderId, paymentId, signature, status = 'SUCCESS', failureReason } = req.body;
+    const result = await db.verifyPaymentSession({ orderId, paymentId, signature, status, failureReason });
     res.json(result);
   } catch (err) {
-    const statusCode = err.statusCode || (err.message && (err.message.includes('Forbidden') || err.message.includes('another customer')) ? 403 : 400);
-    res.status(statusCode).json({ success: false, error: err.message, requestId: req.id });
+    res.status(400).json({ success: false, error: err.message, requestId: req.id });
   }
 });
 
 // 3. Query Payment Session
-app.get('/api/payments/session/:orderId', async (req, res) => {
-  try {
-    const session = await db.getPaymentSession(req.params.orderId);
-    if (!session) return res.status(404).json({ success: false, error: 'Payment session not found' });
-    res.json({ success: true, session });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
+app.get('/api/payments/session/:orderId', (req, res) => {
+  const session = db.paymentSessions ? db.paymentSessions.get(req.params.orderId) : null;
+  if (!session) return res.status(404).json({ success: false, error: 'Payment session not found' });
+  res.json({ success: true, session });
 });
 
 // 4. Server-to-Server Webhook
