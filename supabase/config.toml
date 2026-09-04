@@ -1,10 +1,10 @@
-﻿project_id = nabin
+project_id = "nabin"
 
 [api]
 enabled = true
 port = 54321
-schemas = [public, storage, graphql_public]
-extra_search_path = [public, extensions]
+schemas = ["public", "storage", "graphql_public"]
+extra_search_path = ["public", "extensions"]
 max_rows = 1000
 
 [db]
@@ -15,7 +15,7 @@ major_version = 15
 [studio]
 enabled = true
 port = 54323
-api_role = anon
+api_role = "anon"
 
 [inbucket]
 enabled = true
@@ -25,12 +25,12 @@ pop3_port = 54326
 
 [storage]
 enabled = true
-file_size_limit = 50MiB
+file_size_limit = "50MiB"
 
 [auth]
 enabled = true
-site_url = http://127.0.0.1:3000
-additional_redirect_urls = [https://127.0.0.1:3000]
+site_url = "http://127.0.0.1:3000"
+additional_redirect_urls = ["https://127.0.0.1:3000"]
 jwt_expiry = 3600
 enable_signup = true
 

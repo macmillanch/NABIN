@@ -44,3 +44,5 @@ desktop.ini
 *.swp
 *.swo
 .vercel
+supabase/.branches/
+supabase/.temp/
