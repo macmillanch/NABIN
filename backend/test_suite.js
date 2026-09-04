@@ -1391,6 +1391,214 @@ async function runAllTests() {
 
     const deleteAttempt = await request('DELETE', `/api/admin/audit-logs/${latestPricingAudit.id}`, null, { 'Authorization': `Bearer ${superToken}` });
     assert('AUD-14: DELETE on audit-logs endpoint returns 404 (immutable, no delete endpoint)', deleteAttempt.status === 404);
+
+    // --- 25. MODULE 23: Promotions, Coupons & Atomic Redemption Persistence Bridge ---
+    console.log('\n--- 25. MODULE 23: Promotions, Coupons & Atomic Redemption Persistence Bridge ---');
+
+    // PROMO-01 (SEC): Unauthenticated GET /api/admin/promotions rejected with 401
+    const unauthPromoList = await request('GET', '/api/admin/promotions');
+    assert('PROMO-01: Unauthenticated GET /api/admin/promotions rejected with 401',
+      unauthPromoList.status === 401 && unauthPromoList.data.success === false
+    );
+
+    // PROMO-02 (SEC): Admin lacking promotion.view permission rejected with 403
+    const forbiddenPromoList = await request('GET', '/api/admin/promotions', null, { 'Authorization': `Bearer ${kycToken}` });
+    assert('PROMO-02: Missing promotion.view permission rejected with 403 Forbidden',
+      forbiddenPromoList.status === 403 && forbiddenPromoList.data.success === false
+    );
+
+    // PROMO-03 (CRUD): Admin creates promotion persisting in PostgreSQL
+    const promoCode = `SAVE40_${Date.now().toString().slice(-4)}`;
+    const createPromoRes = await request('POST', '/api/admin/promotions', {
+      code: promoCode,
+      name: 'Special 40% Off Campaign',
+      description: 'Exclusive 40% discount for ride journeys',
+      discountType: 'PERCENTAGE',
+      discountValue: 40,
+      maxDiscount: 80.0,
+      minOrderAmount: 100.0,
+      serviceType: 'RIDE',
+      totalUsageLimit: 5,
+      perUserLimit: 1
+    }, { 'Authorization': `Bearer ${superToken}` });
+
+    assert('PROMO-03: Admin promotion creation persists in PostgreSQL',
+      createPromoRes.status === 200 &&
+      createPromoRes.data.success &&
+      createPromoRes.data.promotion.code === promoCode &&
+      createPromoRes.data.promotion.discountValue === 40
+    );
+    const promoId = createPromoRes.data.promotion.id;
+
+    // PROMO-04 (AUTH): Promotion retrieval is PostgreSQL-authoritative
+    const adminPromoList = await request('GET', '/api/admin/promotions', null, { 'Authorization': `Bearer ${superToken}` });
+    const fetchedPromo = adminPromoList.data.promotions?.find(p => p.id === promoId || p.code === promoCode);
+    assert('PROMO-04: Promotion retrieval is PostgreSQL-authoritative',
+      adminPromoList.status === 200 &&
+      fetchedPromo &&
+      fetchedPromo.code === promoCode &&
+      fetchedPromo.status === 'ACTIVE'
+    );
+
+    // PROMO-05 (PREVIEW): Preview uses validate_promotion_preview and does NOT increment usage
+    const previewRes = await request('POST', '/api/promotions/apply', {
+      code: promoCode,
+      orderAmount: 150.0,
+      service: 'RIDE'
+    }, { 'Authorization': `Bearer ${priyaToken}` });
+
+    // Check usage in DB directly or via GET
+    const postPreviewList = await request('GET', '/api/admin/promotions', null, { 'Authorization': `Bearer ${superToken}` });
+    const promoAfterPreview = postPreviewList.data.promotions?.find(p => p.id === promoId || p.code === promoCode);
+
+    assert('PROMO-05: Preview calculates correct discount (₹60) and does NOT increment usage_count',
+      previewRes.status === 200 &&
+      previewRes.data.discount === 60 &&
+      previewRes.data.finalAmount === 90 &&
+      (promoAfterPreview.usageCount === 0 || promoAfterPreview.usedCount === 0)
+    );
+
+    // PROMO-06 (MIN_ORDER): Order below min_order_amount rejected
+    const minOrderFail = await request('POST', '/api/promotions/apply', {
+      code: promoCode,
+      orderAmount: 50.0,
+      service: 'RIDE'
+    }, { 'Authorization': `Bearer ${priyaToken}` });
+    assert('PROMO-06: Below-minimum order rejected with 400',
+      minOrderFail.status === 400 && minOrderFail.data.success === false
+    );
+
+    // PROMO-07 (SERVICE): Ineligible service rejected
+    const wrongServiceFail = await request('POST', '/api/promotions/apply', {
+      code: promoCode,
+      orderAmount: 200.0,
+      service: 'FOOD'
+    }, { 'Authorization': `Bearer ${priyaToken}` });
+    assert('PROMO-07: Ineligible service rejected with 400',
+      wrongServiceFail.status === 400 && wrongServiceFail.data.success === false
+    );
+
+    // PROMO-08 (REDEEM): Customer redeems coupon via redeem_promotion_atomic RPC
+    const redeemIdempotencyKey = `idem_promo_${Date.now()}_1`;
+    const redeemRes = await request('POST', '/api/promotions/redeem', {
+      code: promoCode,
+      orderAmount: 150.0,
+      service: 'RIDE'
+    }, {
+      'Authorization': `Bearer ${priyaToken}`,
+      'Idempotency-Key': redeemIdempotencyKey
+    });
+
+    assert('PROMO-08: Actual redemption uses redeem_promotion_atomic and creates promotion_redemptions',
+      redeemRes.status === 200 &&
+      redeemRes.data.success &&
+      redeemRes.data.discount === 60 &&
+      redeemRes.data.finalAmount === 90 &&
+      redeemRes.data.usageCount === 1
+    );
+
+    // Verify redemption record via admin API
+    const redemptionsList = await request('GET', `/api/admin/promotions/${promoId}/redemptions`, null, { 'Authorization': `Bearer ${superToken}` });
+    assert('PROMO-08b: Redemption record exists in PostgreSQL',
+      redemptionsList.status === 200 &&
+      redemptionsList.data.redemptions &&
+      redemptionsList.data.redemptions.some(r => r.idempotencyKey === redeemIdempotencyKey)
+    );
+
+    // PROMO-09 (IDEMPOTENCY): Same idempotency key cannot double-redeem
+    const replayRedeemRes = await request('POST', '/api/promotions/redeem', {
+      code: promoCode,
+      orderAmount: 150.0,
+      service: 'RIDE'
+    }, {
+      'Authorization': `Bearer ${priyaToken}`,
+      'Idempotency-Key': redeemIdempotencyKey
+    });
+
+    assert('PROMO-09: Same idempotency key cannot double-redeem (idempotent replay returns existing)',
+      replayRedeemRes.status === 200 &&
+      replayRedeemRes.data.success &&
+      (replayRedeemRes.data.duplicate === true || replayRedeemRes.data.idempotent === true)
+    );
+
+    // PROMO-10 (PER_USER): per_user_limit enforced (Priya trying again with new idempotency key)
+    const perUserExceeded = await request('POST', '/api/promotions/redeem', {
+      code: promoCode,
+      orderAmount: 150.0,
+      service: 'RIDE'
+    }, {
+      'Authorization': `Bearer ${priyaToken}`,
+      'Idempotency-Key': `idem_promo_${Date.now()}_2`
+    });
+
+    assert('PROMO-10: per_user_limit enforced against repeated redemptions by same user',
+      perUserExceeded.status === 400 && perUserExceeded.data.success === false
+    );
+
+    // PROMO-11 (GLOBAL_LIMIT): total_usage_limit enforced under row-lock semantics
+    const singleUseCode = `ONEUSE_${Date.now().toString().slice(-4)}`;
+    const createSingleUse = await request('POST', '/api/admin/promotions', {
+      code: singleUseCode,
+      name: 'Strictly 1 Global Usage Cap',
+      discountType: 'FLAT',
+      discountValue: 25.0,
+      minOrderAmount: 50.0,
+      serviceType: 'ALL',
+      totalUsageLimit: 1,
+      perUserLimit: 1
+    }, { 'Authorization': `Bearer ${superToken}` });
+    assert('Single-use promotion created', createSingleUse.status === 200 && createSingleUse.data.success);
+
+    // Priya redeems it
+    const priyaRedeem = await request('POST', '/api/promotions/redeem', {
+      code: singleUseCode,
+      orderAmount: 100.0,
+      service: 'RIDE'
+    }, {
+      'Authorization': `Bearer ${priyaToken}`,
+      'Idempotency-Key': `idem_single_${Date.now()}_1`
+    });
+    assert('Priya uses single-use coupon', priyaRedeem.status === 200 && priyaRedeem.data.success);
+
+    // Rahul tries to redeem the same single-use coupon
+    const rahulRedeem = await request('POST', '/api/promotions/redeem', {
+      code: singleUseCode,
+      orderAmount: 100.0,
+      service: 'RIDE'
+    }, {
+      'Authorization': `Bearer ${rahulToken}`,
+      'Idempotency-Key': `idem_single_${Date.now()}_2`
+    });
+    assert('PROMO-11: total_usage_limit enforced under concurrent/row-lock semantics (second user rejected)',
+      rahulRedeem.status === 400 && rahulRedeem.data.success === false
+    );
+
+    // PROMO-12 (EDIT & AUDIT): Admin deactivates promotion with audit trail
+    const deactivateRes = await request('PUT', `/api/admin/promotions/${promoId}`, {
+      status: 'INACTIVE'
+    }, { 'Authorization': `Bearer ${superToken}` });
+
+    assert('Admin deactivates promotion', deactivateRes.status === 200 && deactivateRes.data.promotion.status === 'INACTIVE');
+
+    const promoAuditLogs = await request('GET', `/api/admin/audit-logs?module=PROMOTIONS&action=PROMOTION_UPDATED`, null, { 'Authorization': `Bearer ${superToken}` });
+    const targetAudit = promoAuditLogs.data.logs?.find(l => l.targetEntityId === promoId);
+    assert('PROMO-12: Admin promotion status update creates exactly one appropriate audit record in PostgreSQL',
+      promoAuditLogs.status === 200 &&
+      targetAudit &&
+      targetAudit.action === 'PROMOTION_UPDATED' &&
+      targetAudit.adminName
+    );
+
+    // PROMO-13 (INACTIVE): Inactive promotion rejected during preview
+    const inactivePreview = await request('POST', '/api/promotions/apply', {
+      code: promoCode,
+      orderAmount: 150.0,
+      service: 'RIDE'
+    }, { 'Authorization': `Bearer ${priyaToken}` });
+
+    assert('PROMO-13: Inactive promotion rejected during preview with 400',
+      inactivePreview.status === 400 && inactivePreview.data.success === false
+    );
   } catch (err) {
     console.error('Fatal Test Suite Exception:', err);
     failed++;

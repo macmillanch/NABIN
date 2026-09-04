@@ -1163,44 +1163,106 @@ app.post('/api/admin/accounts', authenticateAdmin, (req, res) => {
 // -------------------------------------------------------------
 // 4. PROMOTIONS & COUPONS
 // -------------------------------------------------------------
-app.get('/api/admin/promotions', (req, res) => {
-  res.json({ success: true, promotions: db.promotions });
+app.get('/api/admin/promotions', authenticateAdmin, requirePermission('promotion.view'), async (req, res) => {
+  try {
+    const promotions = await db.promotionRepo.list(req.query);
+    res.json({ success: true, promotions });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message, requestId: req.id });
+  }
 });
 
-app.post('/api/admin/promotions', authenticateAdmin, requirePermission('promotion.create'), (req, res) => {
-  const promo = db.createPromotion(req.body, req.admin.id, req.admin.name);
-  res.json({ success: true, promotion: promo });
+app.post('/api/admin/promotions', authenticateAdmin, requirePermission('promotion.create'), async (req, res) => {
+  try {
+    const promo = await db.createPromotion(req.body, req.admin.id, req.admin.name);
+    res.json({ success: true, promotion: promo });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message, requestId: req.id });
+  }
 });
 
 app.put('/api/admin/promotions/:id', authenticateAdmin, requirePermission('promotion.edit'), async (req, res) => {
-  const promo = db.promotions.find(p => p.id === req.params.id);
-  if (!promo) return res.status(404).json({ success: false, error: 'Promotion not found' });
+  try {
+    const existing = await db.promotionRepo.getById(req.params.id);
+    if (!existing) return res.status(404).json({ success: false, error: 'Promotion not found' });
 
-  const prevStatus = promo.status;
-  if (req.body.status !== undefined) promo.status = req.body.status;
-  if (req.body.discountValue !== undefined) promo.discountValue = Number(req.body.discountValue);
+    const prevStatus = existing.status;
+    const updated = await db.promotionRepo.update(req.params.id, req.body);
+    if (!updated) return res.status(404).json({ success: false, error: 'Promotion not found' });
 
-  await db.createAuditLog({
-    adminId: req.admin.id,
-    adminName: req.admin.name,
-    role: req.admin.role,
-    action: 'PROMOTION_UPDATED',
-    module: 'PROMOTIONS',
-    targetEntityType: 'PROMOTION',
-    targetEntityId: promo.id,
-    previousState: prevStatus,
-    newState: promo.status,
-    reason: `Promotion ${promo.code} updated.`
-  });
+    await db.createAuditLog({
+      adminId: req.admin.id,
+      adminName: req.admin.name,
+      role: req.admin.role,
+      action: 'PROMOTION_UPDATED',
+      module: 'PROMOTIONS',
+      targetEntityType: 'PROMOTION',
+      targetEntityId: updated.id,
+      previousState: prevStatus,
+      newState: updated.status,
+      reason: `Promotion ${updated.code} updated.`
+    });
 
-  res.json({ success: true, promotion: promo });
+    res.json({ success: true, promotion: updated });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message, requestId: req.id });
+  }
 });
 
-app.post('/api/promotions/apply', (req, res) => {
-  const { code, orderAmount, service } = req.body;
-  const result = db.validateAndApplyCoupon(code, orderAmount, service);
-  if (!result.success) return res.status(400).json(result);
-  res.json(result);
+app.post('/api/promotions/apply', authenticateUser, async (req, res) => {
+  try {
+    const { code, orderAmount, service, vehicleType, areaId, userId } = req.body;
+    const effectiveUserId = req.user?.id || userId || null;
+    const result = await db.promotionRepo.preview({
+      code,
+      userId: effectiveUserId,
+      orderAmount,
+      service,
+      vehicleType,
+      areaId
+    });
+    if (!result.success) return res.status(400).json(result);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+app.post('/api/promotions/redeem', authenticateUser, async (req, res) => {
+  try {
+    const { code, orderAmount, service, jobId, vehicleType, areaId } = req.body;
+    const effectiveUserId = req.user?.id || req.body.userId;
+    if (!effectiveUserId) {
+      return res.status(401).json({ success: false, error: 'Authentication required for promotion redemption', requestId: req.id });
+    }
+
+    const idempotencyKey = req.headers['idempotency-key'] || req.headers['x-idempotency-key'] || req.body.idempotencyKey || `red_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+    const result = await db.promotionRepo.redeem({
+      code,
+      userId: effectiveUserId,
+      orderAmount,
+      service,
+      jobId,
+      idempotencyKey,
+      vehicleType,
+      areaId
+    });
+
+    if (!result.success) return res.status(400).json(result);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+app.get('/api/admin/promotions/:id/redemptions', authenticateAdmin, requirePermission('promotion.view'), async (req, res) => {
+  try {
+    const redemptions = await db.promotionRepo.listRedemptions({ promotionId: req.params.id, ...req.query });
+    res.json({ success: true, redemptions });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message, requestId: req.id });
+  }
 });
 
 // -------------------------------------------------------------

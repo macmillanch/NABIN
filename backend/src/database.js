@@ -8,6 +8,7 @@ const LedgerRepository = require('./repositories/LedgerRepository');
 const SchoolChildRepository = require('./repositories/SchoolChildRepository');
 const SupportTicketRepository = require('./repositories/SupportTicketRepository');
 const AuditLogRepository = require('./repositories/AuditLogRepository');
+const PromotionRepository = require('./repositories/PromotionRepository');
 
 // Shared relational store with durable persistence, crash recovery & double-entry accounting
 class NabinDatabase {
@@ -1715,6 +1716,7 @@ class NabinDatabase {
     this.schoolChildRepo = new SchoolChildRepository(this);
     this.supportTicketRepo = new SupportTicketRepository(this);
     this.auditLogRepo = new AuditLogRepository(this);
+    this.promotionRepo = new PromotionRepository(this);
   }
 
   save() {
@@ -2030,7 +2032,25 @@ class NabinDatabase {
         }
       }
 
-      console.log(`✅ Authoritative PostgreSQL state synchronized (${this.users.length} users, ${this.drivers.length} drivers, ${this.jobs.length} jobs, ${this.ledgerEntries.length} ledger entries, ${this.adminUsers.length} admin accounts, ${this.supportTickets.length} support tickets, ${this.auditLogs.length} audit logs).`);
+      // 8. Hydrate Promotions from PostgreSQL
+      const { data: dbPromos, error: pErr } = await supabaseAdmin
+        .from('promotions')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (!pErr && dbPromos && dbPromos.length > 0) {
+        for (const row of dbPromos) {
+          const mapped = this.promotionRepo ? this.promotionRepo.mapRowToDTO(row) : row;
+          const existingIdx = this.promotions.findIndex(p => p.id === row.id || (p.code && row.code && p.code.toUpperCase() === row.code.toUpperCase()));
+          if (existingIdx !== -1) {
+            this.promotions[existingIdx] = { ...this.promotions[existingIdx], ...mapped };
+          } else {
+            this.promotions.push(mapped);
+          }
+        }
+      }
+
+      console.log(`✅ Authoritative PostgreSQL state synchronized (${this.users.length} users, ${this.drivers.length} drivers, ${this.jobs.length} jobs, ${this.ledgerEntries.length} ledger entries, ${this.adminUsers.length} admin accounts, ${this.supportTickets.length} support tickets, ${this.auditLogs.length} audit logs, ${this.promotions.length} promotions).`);
     } catch (err) {
       console.warn('⚠️ initPostgres notice:', err.message);
     }
@@ -2862,7 +2882,7 @@ class NabinDatabase {
   validateAndApplyCoupon(code, orderAmount, service) {
     if (!code) return { success: false, error: 'Coupon code required' };
 
-    const promo = this.promotions.find(p => p.code.toUpperCase() === code.trim().toUpperCase() && p.status === 'ACTIVE');
+    const promo = this.promotions.find(p => p.code.toUpperCase() === code.trim().toUpperCase() && (p.status === 'ACTIVE' || p.isActive === true));
     if (!promo) return { success: false, error: 'Invalid or expired promo code.' };
 
     if (promo.eligibleService && promo.eligibleService !== 'ALL' && promo.eligibleService !== service) {
@@ -2876,12 +2896,12 @@ class NabinDatabase {
 
     let discount = 0;
     if (promo.discountType === 'PERCENTAGE') {
-      discount = Math.min(promo.maxDiscount, Math.round((amt * promo.discountValue) / 100));
+      discount = Math.min(promo.maxDiscount || Infinity, Math.round((amt * promo.discountValue) / 100));
     } else {
-      discount = Math.min(promo.maxDiscount, promo.discountValue);
+      discount = Math.min(promo.maxDiscount || Infinity, promo.discountValue);
     }
 
-    promo.usedCount = (promo.usedCount || 0) + 1;
+    // Read-only validation: usage_count is only incremented during authoritative redemption
     return {
       success: true,
       code: promo.code,
@@ -2891,7 +2911,24 @@ class NabinDatabase {
     };
   }
 
-  createPromotion(payload, adminId, adminName) {
+  async createPromotion(payload, adminId, adminName) {
+    if (this.promotionRepo) {
+      const promo = await this.promotionRepo.create(payload, adminId, adminName);
+      await this.createAuditLog({
+        adminId,
+        adminName,
+        role: 'ADMIN',
+        action: 'PROMOTION_CREATED',
+        module: 'PROMOTIONS',
+        targetEntityType: 'PROMOTION',
+        targetEntityId: promo.id,
+        previousState: 'NONE',
+        newState: promo.code,
+        reason: `Coupon code ${promo.code} created.`
+      });
+      return promo;
+    }
+
     const promo = {
       id: `prm_${Date.now()}`,
       code: payload.code.toUpperCase().trim(),
@@ -2918,7 +2955,7 @@ class NabinDatabase {
 
     this.promotions.unshift(promo);
 
-    this.createAuditLog({
+    await this.createAuditLog({
       adminId,
       adminName,
       role: 'ADMIN',

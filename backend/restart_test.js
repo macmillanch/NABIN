@@ -147,6 +147,32 @@ async function runRestartTest() {
       payload: { payment: { entity: { id: `pay_restart_${Date.now()}`, amount: 9900 } } }
     });
 
+    // 6b. Create a persistent promotion and redeem it before restart
+    const restartPromoCode = `RESTART_${Date.now().toString().slice(-4)}`;
+    const createRestartPromo = await request('POST', '/api/admin/promotions', {
+      code: restartPromoCode,
+      name: 'Cold-start Persistence Test Coupon',
+      discountType: 'FLAT',
+      discountValue: 35.0,
+      minOrderAmount: 50.0,
+      serviceType: 'RIDE',
+      totalUsageLimit: 10,
+      perUserLimit: 2
+    }, { 'Authorization': `Bearer ${adminToken}` });
+    assert('Persistent promotion created before restart', createRestartPromo.status === 200 && createRestartPromo.data.success);
+    const restartPromoId = createRestartPromo.data.promotion.id;
+
+    const restartPromoRedeemKey = `idem_restart_promo_${Date.now()}`;
+    const redeemPreRestart = await request('POST', '/api/promotions/redeem', {
+      code: restartPromoCode,
+      orderAmount: 100.0,
+      service: 'RIDE'
+    }, {
+      'Authorization': `Bearer ${customerToken}`,
+      'Idempotency-Key': restartPromoRedeemKey
+    });
+    assert('Promotion redeemed before restart (usageCount = 1)', redeemPreRestart.status === 200 && redeemPreRestart.data.usageCount === 1);
+
     console.log('\n--- 🛑 SIMULATING BACKEND TERMINATION & RESTART ---');
     // Terminate existing server listening on port 4000 (do not kill test runner itself)
     try {
@@ -202,6 +228,34 @@ async function runRestartTest() {
       event: 'payment.captured'
     });
     assert('Payment webhook idempotency memory survived server restart and rejected replay', postDuplicateWebhook.status === 200 && postDuplicateWebhook.data.duplicate === true);
+
+    // 12b. Verify Promotion and Redemption STILL EXIST after restart
+    const postPromosRes = await request('GET', '/api/admin/promotions', null, { 'Authorization': `Bearer ${postAdminToken}` });
+    const postRestartPromo = postPromosRes.data.promotions?.find(p => p.id === restartPromoId || p.code === restartPromoCode);
+    assert(`Promotion ${restartPromoCode} survived server restart with usage_count = 1`,
+      postRestartPromo &&
+      postRestartPromo.code === restartPromoCode &&
+      (postRestartPromo.usageCount === 1 || postRestartPromo.usedCount === 1)
+    );
+
+    // Re-authenticate customer after restart
+    const postCustOtpSend = await request('POST', '/api/auth/send-otp', { phone: '9845011982', role: 'CUSTOMER', purpose: 'LOGIN' });
+    const postCustOtpVerify = await request('POST', '/api/auth/verify-otp', { phone: '9845011982', otp: postCustOtpSend.data.testOtp || '7729', role: 'CUSTOMER' });
+    const postCustomerToken = postCustOtpVerify.data.token || 'usr_session_priya';
+
+    // Verify redemption idempotency survived restart
+    const postDuplicatePromoRedeem = await request('POST', '/api/promotions/redeem', {
+      code: restartPromoCode,
+      orderAmount: 100.0,
+      service: 'RIDE'
+    }, {
+      'Authorization': `Bearer ${postCustomerToken}`,
+      'Idempotency-Key': restartPromoRedeemKey
+    });
+    assert('Promotion redemption idempotency survived server restart and returned existing redemption',
+      postDuplicatePromoRedeem.status === 200 &&
+      (postDuplicatePromoRedeem.data.duplicate === true || postDuplicatePromoRedeem.data.idempotent === true)
+    );
 
     // 13. Test Production Fail-Closed Security Guard
     console.log('\n--- 🛡️ VERIFYING PRODUCTION FAIL-CLOSED SECURITY GUARD ---');
