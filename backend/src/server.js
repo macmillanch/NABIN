@@ -1,8 +1,8 @@
-require('dotenv').config();
+const path = require('path');
+require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 const express = require('express');
 const cors = require('cors');
 const http = require('http');
-const path = require('path');
 const crypto = require('crypto');
 const { WebSocketServer } = require('ws');
 const db = require('./database');
@@ -144,6 +144,11 @@ wss.on('connection', (ws, req) => {
         if (token) {
           const session = db.getSessionByToken(token);
           if (session) {
+            // Check if client role specified matches session role
+            if (data.role && session.role && data.role.toUpperCase() !== session.role.toUpperCase()) {
+              ws.send(JSON.stringify({ type: 'AUTH_ERROR', error: 'WebSocket role mismatch.' }));
+              return;
+            }
             ws.isAuthenticated = true;
             ws.authInfo = { role: session.role.toLowerCase(), id: session.entityId, entity: session.entity };
             clients.set(ws, ws.authInfo);
@@ -152,11 +157,21 @@ wss.on('connection', (ws, req) => {
           }
         }
         ws.send(JSON.stringify({ type: 'AUTH_ERROR', error: 'WebSocket authentication rejected: Valid session token required.' }));
-      } else if (data.type === 'DRIVER_LOCATION_UPDATE') {
-        const driverId = (ws.authInfo && ws.authInfo.role === 'driver') ? ws.authInfo.id : (data.driverId || 'DRV-101');
-        const driver = db.getDriver(driverId);
-        if (driver && data.location) {
-          driver.location = data.location;
+      } else {
+        if (!ws.isAuthenticated) {
+          ws.send(JSON.stringify({ type: 'AUTH_ERROR', error: 'Unauthorized: Session authentication required.' }));
+          return;
+        }
+        if (data.type === 'DRIVER_LOCATION_UPDATE') {
+          if (ws.authInfo.role !== 'driver') {
+            ws.send(JSON.stringify({ type: 'ERROR', error: 'Only drivers can update driver location.' }));
+            return;
+          }
+          const driverId = ws.authInfo.id;
+          const driver = db.getDriver(driverId);
+          if (driver && data.location) {
+            driver.location = data.location;
+          }
         }
       }
     } catch (e) {
@@ -562,7 +577,7 @@ app.post('/api/admin/services/emergency-killswitch', authenticateAdmin, requireP
   const bootstrapAttempts = new Map();
 
   // Secure First Admin Bootstrap Mechanism
-  app.post('/api/admin/bootstrap', (req, res) => {
+  app.post('/api/admin/bootstrap', async (req, res) => {
     const ip = req.ip || req.connection?.remoteAddress || 'unknown';
     const now = Date.now();
     const attempt = bootstrapAttempts.get(ip) || { count: 0, lockedUntil: 0 };
@@ -632,6 +647,24 @@ app.post('/api/admin/services/emergency-killswitch', authenticateAdmin, requireP
     db.adminUsers = [firstAdmin];
     db.createAuditLog({ action: 'ADMIN_BOOTSTRAP', module: 'SECURITY', adminId: 'SYSTEM', details: 'First SUPER_ADMIN account securely bootstrapped.', ip });
     
+    // Save to PostgreSQL if configured
+    if (supabaseHelper.isLivePostgres && supabaseHelper.supabaseAdmin) {
+      try {
+        await supabaseHelper.supabaseAdmin.from('admin_accounts').upsert([{
+          username: firstAdmin.username,
+          name: firstAdmin.name,
+          email: firstAdmin.email,
+          role: firstAdmin.role,
+          department: 'Operations',
+          password_hash: firstAdmin.passwordHash,
+          password_salt: firstAdmin.salt,
+          is_active: true
+        }], { onConflict: 'username' });
+      } catch (e) {
+        console.warn('⚠️ Admin PG sync notice:', e.message);
+      }
+    }
+
     // Save to persistent storage if available
     const persistentStore = require('./database/persistentStore');
     persistentStore.saveStateSync(db);
@@ -1442,7 +1475,7 @@ app.post('/api/admin/identity-verifications/:id/review', authenticateAdmin, requ
 // -------------------------------------------------------------
 // DISPATCH & COMMUTE SERVICES (CUSTOMER APP)
 // -------------------------------------------------------------
-app.post('/api/customer/book-ride', authenticateUser, (req, res) => {
+app.post('/api/customer/book-ride', authenticateUser, async (req, res) => {
   if (db.isServicePaused('rides')) {
     const s = db.getService('rides');
     return res.status(423).json({
@@ -1490,7 +1523,7 @@ app.post('/api/customer/book-ride', authenticateUser, (req, res) => {
   const isSomeoneElse = bookingType === 'FOR_SOMEONE_ELSE';
   const isSchoolChild = isSomeoneElse && passengerCategory === 'SCHOOL_CHILD';
 
-  const job = db.createJob({
+  const job = await db.createJob({
     type: 'RIDE',
     idempotencyKey: idempotencyKey || null,
     customerId: user.id,
@@ -1540,7 +1573,7 @@ app.post('/api/customer/book-ride', authenticateUser, (req, res) => {
   res.json({ success: true, job });
 });
 
-app.post('/api/customer/book-parcel', authenticateUser, (req, res) => {
+app.post('/api/customer/book-parcel', authenticateUser, async (req, res) => {
   if (db.isServicePaused('parcel')) {
     const s = db.getService('parcel');
     return res.status(423).json({
@@ -1572,7 +1605,7 @@ app.post('/api/customer/book-parcel', authenticateUser, (req, res) => {
     promoCode
   });
 
-  const job = db.createJob({
+  const job = await db.createJob({
     type: 'PARCEL',
     idempotencyKey: idempotencyKey || null,
     customerId: user.id,
@@ -1610,7 +1643,7 @@ app.post('/api/customer/book-parcel', authenticateUser, (req, res) => {
   res.json({ success: true, job });
 });
 
-app.post('/api/customer/book-food', authenticateUser, (req, res) => {
+app.post('/api/customer/book-food', authenticateUser, async (req, res) => {
   if (db.isServicePaused('food')) {
     const s = db.getService('food');
     return res.status(423).json({
@@ -1658,7 +1691,7 @@ app.post('/api/customer/book-food', authenticateUser, (req, res) => {
   const gst = Math.round((foodTotal + deliveryPricing.customerCharge) * 0.05);
   const finalTotal = foodTotal + deliveryPricing.customerCharge + packagingFee + gst;
 
-  const job = db.createJob({
+  const job = await db.createJob({
     type: 'FOOD',
     idempotencyKey: idempotencyKey || null,
     restaurantId: rest.id,
@@ -1793,7 +1826,7 @@ app.get('/api/driver/:driverId/dashboard', authenticateDriver, (req, res) => {
   res.json({ success: true, driver });
 });
 
-app.post('/api/driver/accept-job', authenticateDriver, (req, res) => {
+app.post('/api/driver/accept-job', authenticateDriver, async (req, res) => {
   const { jobId, driverId } = req.body;
   const effectiveDriverId = req.driver?.id || driverId || 'drv_1';
   const driver = db.getDriver(effectiveDriverId);
@@ -1802,7 +1835,7 @@ app.post('/api/driver/accept-job', authenticateDriver, (req, res) => {
     return res.status(403).json({ success: false, error: 'Suspended driver cannot accept trips.' });
   }
 
-  const job = db.updateJobStatus(jobId, 'ASSIGNED', driver.id);
+  const job = await db.updateJobStatus(jobId, 'ASSIGNED', driver.id);
   if (job) {
     driver.activeJobId = job.id;
     broadcastToCustomer(job.customerId, {
@@ -1823,14 +1856,14 @@ app.post('/api/driver/accept-job', authenticateDriver, (req, res) => {
 });
 
 // Authoritative Driver Trip / Delivery OTP Verification
-app.post('/api/driver/verify-otp', authenticateDriver, (req, res) => {
+app.post('/api/driver/verify-otp', authenticateDriver, async (req, res) => {
   try {
     const jobId = req.body.jobId;
     const otp = req.body.otp || req.body.enteredOtp;
     const otpType = req.body.otpType || 'START';
     const effectiveDriverId = req.driver?.id || req.body.driverId || 'drv_1';
     
-    const result = db.validateAuthoritativeJobOtp({
+    const result = await db.validateAuthoritativeJobOtp({
       jobId,
       otp,
       otpType,
@@ -1852,9 +1885,9 @@ app.post('/api/driver/verify-otp', authenticateDriver, (req, res) => {
   }
 });
 
-app.post('/api/driver/complete-trip', authenticateDriver, (req, res) => {
+app.post('/api/driver/complete-trip', authenticateDriver, async (req, res) => {
   const { jobId, rating } = req.body;
-  const job = db.updateJobStatus(jobId, 'COMPLETED');
+  const job = await db.updateJobStatus(jobId, 'COMPLETED');
   if (job) {
     broadcastToCustomer(job.customerId, { type: 'TRIP_COMPLETED', jobId: job.id, fare: job.fare, rating });
     res.json({ success: true, job, driver: db.getDriver() });
@@ -2286,10 +2319,10 @@ app.post('/api/payments/create-order', (req, res) => {
 });
 
 // 2. Verify Payment Checkout & Update Transaction State
-app.post('/api/payments/verify-checkout', (req, res) => {
+app.post('/api/payments/verify-checkout', async (req, res) => {
   try {
     const { orderId, paymentId, signature, status = 'SUCCESS', failureReason } = req.body;
-    const result = db.verifyPaymentSession({ orderId, paymentId, signature, status, failureReason });
+    const result = await db.verifyPaymentSession({ orderId, paymentId, signature, status, failureReason });
     res.json(result);
   } catch (err) {
     res.status(400).json({ success: false, error: err.message, requestId: req.id });
@@ -2304,7 +2337,7 @@ app.get('/api/payments/session/:orderId', (req, res) => {
 });
 
 // 4. Server-to-Server Webhook
-app.post('/api/payments/webhook', (req, res) => {
+app.post('/api/payments/webhook', async (req, res) => {
   try {
     const signature = req.headers['x-razorpay-signature'] || req.headers['x-webhook-signature'] || '';
     const secret = process.env.PAYMENT_WEBHOOK_SECRET || 'whsec_nabin_secure_beta_2026';
@@ -2324,7 +2357,7 @@ app.post('/api/payments/webhook', (req, res) => {
     const amount = (paymentData.amount ? paymentData.amount / 100 : req.body.amount) || 0;
     const status = paymentData.status || req.body.status || 'CAPTURED';
 
-    const result = db.recordPaymentWebhook({
+    const result = await db.recordPaymentWebhook({
       eventId,
       eventType,
       paymentId,
@@ -2732,7 +2765,8 @@ app.use((err, req, res, next) => {
 });
 
 const PORT = process.env.PORT || 4000;
-server.listen(PORT, () => {
+server.listen(PORT, async () => {
   console.log(`NABIN Unified Backend running on http://localhost:${PORT}`);
   console.log(`WebSocket Dispatch Server listening on ws://localhost:${PORT}`);
+  await db.initPostgres().catch(e => console.warn('⚠️ PostgreSQL init error:', e.message));
 });

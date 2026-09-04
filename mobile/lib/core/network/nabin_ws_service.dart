@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'session_manager.dart';
+import 'nabin_api_service.dart';
 
 class NabinWsService {
   NabinWsService._();
@@ -37,7 +39,7 @@ class NabinWsService {
 
   bool get isConnected => _isConnected;
 
-  Future<void> connect({required String role, required String userId}) async {
+  Future<void> connect({required String role, required String userId, String? token}) async {
     _currentRole = role;
     _currentUserId = userId;
 
@@ -47,15 +49,24 @@ class NabinWsService {
 
     try {
       _socket?.close();
-      _socket = await WebSocket.connect(effectiveWsUrl).timeout(const Duration(seconds: 5));
+      final effectiveToken = token ?? SessionManager.instance.token ?? NabinApiService.authToken;
+      final uri = effectiveToken != null && effectiveToken.isNotEmpty
+          ? '$effectiveWsUrl?token=$effectiveToken'
+          : effectiveWsUrl;
+
+      _socket = await WebSocket.connect(uri).timeout(const Duration(seconds: 5));
       _isConnected = true;
 
-      // Register client role and identity with server
-      _socket!.add(jsonEncode({
+      // Register client role and identity with server with authentication token
+      final registrationPayload = <String, dynamic>{
         'type': 'REGISTER',
         'role': role,
         'id': userId,
-      }));
+      };
+      if (effectiveToken != null && effectiveToken.isNotEmpty) {
+        registrationPayload['token'] = effectiveToken;
+      }
+      _socket!.add(jsonEncode(registrationPayload));
 
       _socket!.listen(
         (data) {

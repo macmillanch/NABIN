@@ -1,4 +1,5 @@
-require('dotenv').config();
+const path = require('path');
+require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 const { createClient } = require('@supabase/supabase-js');
 const WebSocket = require('ws');
 
@@ -17,6 +18,8 @@ const isConfigured = Boolean(
   !supabaseUrl.includes('your-project-id') && 
   !supabaseAnonKey.includes('your-supabase')
 );
+
+const isLivePostgres = Boolean(isConfigured && (process.env.SUPABASE_POSTGRES_LIVE === 'true' || process.env.NODE_ENV === 'production'));
 
 // PRODUCTION FAIL-CLOSED GUARD
 if (process.env.NODE_ENV === 'production' && !isConfigured) {
@@ -68,5 +71,6 @@ module.exports = {
   supabase,
   supabaseAdmin,
   isConfigured,
+  isLivePostgres,
   checkSupabaseConnection
 };

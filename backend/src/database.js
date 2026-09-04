@@ -1722,6 +1722,260 @@ class NabinDatabase {
     persistentStore.saveStateSync(this);
   }
 
+  async initPostgres() {
+    const { isLivePostgres, supabaseAdmin, checkSupabaseConnection } = require('./supabase');
+    if (!isLivePostgres || !supabaseAdmin) {
+      return;
+    }
+
+    try {
+      const health = await checkSupabaseConnection();
+      if (!health.connected) {
+        console.warn('⚠️ Supabase connection health check not connected:', health.error || health.mode);
+        return;
+      }
+
+      console.log('⚡ Synchronizing authoritative PostgreSQL state...');
+
+      // 1. Hydrate Users
+      const { data: dbUsers, error: uErr } = await supabaseAdmin.from('users').select('*');
+      if (!uErr && dbUsers && dbUsers.length > 0) {
+        for (const row of dbUsers) {
+          let legacyId = null;
+          if (row.id === '00000000-0000-0000-0000-000000000001') legacyId = 'usr_1';
+          else if (row.id === '00000000-0000-0000-0000-000000000002') legacyId = 'usr_2';
+          else if (row.id === '00000000-0000-0000-0000-000000000003') legacyId = 'usr_3';
+
+          const existingIdx = this.users.findIndex(u => (legacyId && u.id === legacyId) || u.id === row.id || u.uuid === row.id);
+          const mapped = {
+            id: legacyId || row.id,
+            uuid: row.id,
+            name: row.name,
+            phone: row.phone,
+            email: row.email,
+            dob: row.dob,
+            address: row.address,
+            rating: parseFloat(row.rating || 5.0),
+            walletBalance: parseFloat(row.wallet_balance !== undefined ? row.wallet_balance : 0.0),
+            identityStatus: row.identity_status === 'PENDING' ? 'IDENTITY_VERIFICATION_PENDING' : row.identity_status,
+            accountStatus: row.account_status || 'ACTIVE',
+            currentApplicationId: row.current_application_id || null,
+            createdAt: row.created_at || new Date().toISOString()
+          };
+          if (existingIdx !== -1) {
+            this.users[existingIdx] = { ...this.users[existingIdx], ...mapped };
+          } else {
+            this.users.push(mapped);
+          }
+        }
+      }
+
+      // 2. Hydrate Drivers
+      const { data: dbDrivers, error: dErr } = await supabaseAdmin.from('drivers').select('*');
+      if (!dErr && dbDrivers && dbDrivers.length > 0) {
+        for (const row of dbDrivers) {
+          let legacyId = null;
+          if (row.id === '00000000-0000-0000-0000-000000000101') legacyId = 'DRV-101';
+          else if (row.id === '00000000-0000-0000-0000-000000000102') legacyId = 'DRV-102';
+          else if (row.id === '00000000-0000-0000-0000-000000000103') legacyId = 'DRV-103';
+
+          const existingIdx = this.drivers.findIndex(d => (legacyId && d.id === legacyId) || d.id === row.id || d.uuid === row.id);
+          const mapped = {
+            id: legacyId || row.id,
+            uuid: row.id,
+            name: row.name,
+            phone: row.phone,
+            category: row.vehicle_type,
+            categoryName: row.vehicle_type === '4W' ? 'Cab Comfort (4W)' : (row.vehicle_type === '3W' ? 'Auto Rickshaw (3W)' : 'Bike Taxi (2W)'),
+            vehicle: row.vehicle_number,
+            vehicleModel: row.vehicle_number,
+            vehiclePlate: row.vehicle_number,
+            dl: row.license_number,
+            rating: parseFloat(row.rating || 5.0),
+            status: 'VERIFIED',
+            kycStatus: 'VERIFIED',
+            driverState: row.is_online ? 'ONLINE' : 'OFFLINE',
+            isOnline: Boolean(row.is_online),
+            operationalStatus: row.operational_status || 'AVAILABLE',
+            todayTrips: 0,
+            todayEarnings: 0.0,
+            walletBalance: parseFloat(row.wallet_balance !== undefined ? row.wallet_balance : 0.0),
+            currentLocation: {
+              lat: parseFloat(row.current_lat || 28.6139),
+              lng: parseFloat(row.current_lng || 77.2090),
+              area: 'Delhi Operations Zone'
+            },
+            activities: [],
+            tripHistory: [],
+            createdAt: row.created_at || new Date().toISOString()
+          };
+          if (existingIdx !== -1) {
+            this.drivers[existingIdx] = { ...this.drivers[existingIdx], ...mapped };
+          } else {
+            this.drivers.push(mapped);
+          }
+        }
+      }
+
+      // 3. Hydrate Jobs from PostgreSQL
+      const { data: dbJobs, error: jErr } = await supabaseAdmin
+        .from('jobs')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(200);
+
+      if (!jErr && dbJobs && dbJobs.length > 0) {
+        for (const row of dbJobs) {
+          const mapped = {
+            id: row.job_number || row.id,
+            uuid: row.id,
+            jobNumber: row.job_number,
+            type: row.service_type,
+            serviceType: row.service_type,
+            customerId: row.metadata?.customerId || (row.customer_id === '00000000-0000-0000-0000-000000000001' ? 'usr_1' : (row.customer_id === '00000000-0000-0000-0000-000000000002' ? 'usr_2' : row.customer_id)),
+            customerUuid: row.customer_id,
+            customerName: row.metadata?.customerName || 'Customer',
+            customerPhone: row.metadata?.customerPhone || null,
+            customerRating: row.metadata?.customerRating || 5.0,
+            driverId: row.metadata?.driverId || (row.driver_id === '00000000-0000-0000-0000-000000000101' ? 'DRV-101' : row.driver_id),
+            driverUuid: row.driver_id,
+            merchantId: row.merchant_id,
+            status: row.status,
+            pickup: {
+              address: row.pickup_address,
+              lat: parseFloat(row.pickup_lat || 28.6139),
+              lng: parseFloat(row.pickup_lng || 77.2090)
+            },
+            drop: {
+              address: row.drop_address,
+              lat: parseFloat(row.drop_lat || 28.6250),
+              lng: parseFloat(row.drop_lng || 77.2150)
+            },
+            distance: `${parseFloat(row.distance_km || 0)} km`,
+            distanceKm: parseFloat(row.distance_km || 0.0),
+            fare: parseFloat(row.final_total || 0.0),
+            fareSubtotal: parseFloat(row.fare_subtotal || row.final_total || 0.0),
+            discountAmount: parseFloat(row.discount_amount || 0.0),
+            surgeMultiplier: parseFloat(row.surge_multiplier || 1.0),
+            packagingFee: parseFloat(row.packaging_fee || 0.0),
+            driverEarnings: parseFloat(row.driver_earnings || 0.0),
+            platformFee: parseFloat(row.platform_commission || 0.0),
+            startOtp: row.start_otp,
+            pickupOtp: row.pickup_otp,
+            deliveryOtp: row.delivery_otp,
+            paymentMethod: row.payment_method || 'WALLET',
+            paymentStatus: row.payment_status || 'PENDING',
+            createdAt: row.created_at || new Date().toISOString(),
+            updatedAt: row.updated_at || new Date().toISOString(),
+            ...(row.metadata || {})
+          };
+          const existingIdx = this.jobs.findIndex(j => j.id === mapped.id || j.jobNumber === mapped.jobNumber || j.uuid === row.id);
+          if (existingIdx !== -1) {
+            this.jobs[existingIdx] = { ...this.jobs[existingIdx], ...mapped };
+          } else {
+            this.jobs.unshift(mapped);
+          }
+        }
+      }
+
+      // 4. Hydrate Ledger Entries & Webhook Idempotency Registry
+      const { data: dbTxns, error: txErr } = await supabaseAdmin
+        .from('journal_transactions')
+        .select('*, journal_lines(*)')
+        .order('created_at', { ascending: false })
+        .limit(500);
+
+      if (!txErr && dbTxns && dbTxns.length > 0) {
+        for (const txn of dbTxns) {
+          if (txn.reference_id) this.processedWebhookIds.add(txn.reference_id);
+          if (txn.idempotency_key) this.processedWebhookIds.add(txn.idempotency_key);
+          if (txn.transaction_id) this.processedWebhookIds.add(txn.transaction_id);
+
+          const lines = txn.journal_lines || [];
+          const debitLine = lines.find(l => l.entry_type === 'DEBIT');
+          const creditLine = lines.find(l => l.entry_type === 'CREDIT');
+          const entry = {
+            id: txn.transaction_id || txn.id,
+            transactionId: txn.transaction_id || txn.id,
+            debitAccount: debitLine ? debitLine.account_code : 'CUSTOMER_RECEIVABLE',
+            creditAccount: creditLine ? creditLine.account_code : 'DRIVER_PAYABLE',
+            amount: parseFloat(txn.total_debit || 0),
+            currency: 'INR',
+            description: txn.description,
+            referenceId: txn.reference_id,
+            timestamp: txn.created_at
+          };
+          const existingIdx = this.ledgerEntries.findIndex(e => e.transactionId === entry.transactionId || e.id === entry.id);
+          if (existingIdx !== -1) {
+            this.ledgerEntries[existingIdx] = { ...this.ledgerEntries[existingIdx], ...entry };
+          } else {
+            this.ledgerEntries.push(entry);
+          }
+        }
+      }
+
+      // 5. Hydrate Admin Accounts from PostgreSQL
+      const { data: dbAdmins, error: admErr } = await supabaseAdmin
+        .from('admin_accounts')
+        .select('*');
+
+      if (!admErr && dbAdmins && dbAdmins.length > 0) {
+        for (const adm of dbAdmins) {
+          const defaultPermissionsMap = {
+            SUPER_ADMIN: [
+              'identity_verification.view', 'identity_verification.review', 'identity_verification.approve', 'identity_verification.reject',
+              'identity_verification.request_resubmission', 'identity_documents.view', 'identity_documents.download',
+              'fleet.manage', 'merchant.manage', 'finance.view', 'finance.refund', 'finance.adjust', 'finance.settlement', 'pricing.edit',
+              'support.view', 'support.respond', 'support.resolve', 'support.escalate', 'promotion.view',
+              'promotion.create', 'promotion.edit', 'promotion.activate', 'geofence.view', 'geofence.create',
+              'geofence.edit', 'geofence.delete', 'surge.view', 'surge.create', 'surge.edit', 'surge.activate',
+              'audit.view', 'audit.export', 'services.view', 'services.pause', 'services.resume', 'services.emergency_killswitch',
+              'admin_accounts.create', 'admin_accounts.manage'
+            ],
+            KYC_SPECIALIST: [
+              'identity_verification.view', 'identity_verification.review', 'identity_verification.approve', 'identity_verification.reject',
+              'identity_verification.request_resubmission', 'identity_documents.view', 'audit.view'
+            ],
+            OPERATIONS: [
+              'identity_verification.view', 'fleet.manage', 'merchant.manage', 'support.view', 'support.respond', 'geofence.view', 'surge.view'
+            ],
+            FINANCE_AUDITOR: [
+              'finance.view', 'finance.refund', 'finance.adjust', 'finance.settlement', 'audit.view'
+            ],
+            SUPPORT_AGENT: [
+              'support.view', 'support.respond', 'support.resolve', 'audit.view'
+            ]
+          };
+
+          const mappedAdmin = {
+            id: adm.id,
+            username: adm.username,
+            name: adm.name,
+            role: adm.role,
+            email: adm.email,
+            phone: adm.phone,
+            department: adm.department,
+            salt: adm.password_salt,
+            passwordHash: adm.password_hash,
+            permissions: defaultPermissionsMap[adm.role] || defaultPermissionsMap.OPERATIONS,
+            status: adm.is_active ? 'ACTIVE' : 'INACTIVE',
+            createdAt: adm.created_at
+          };
+          const existingIdx = this.adminUsers.findIndex(a => a.username.toLowerCase() === adm.username.toLowerCase());
+          if (existingIdx !== -1) {
+            this.adminUsers[existingIdx] = { ...this.adminUsers[existingIdx], ...mappedAdmin };
+          } else {
+            this.adminUsers.push(mappedAdmin);
+          }
+        }
+      }
+
+      console.log(`✅ Authoritative PostgreSQL state synchronized (${this.users.length} users, ${this.drivers.length} drivers, ${this.jobs.length} jobs, ${this.ledgerEntries.length} ledger entries, ${this.adminUsers.length} admin accounts).`);
+    } catch (err) {
+      console.warn('⚠️ initPostgres notice:', err.message);
+    }
+  }
+
   // --- Platform Service Controls & Emergency Killswitch ---
   getServicesStatus() {
     const now = new Date();
@@ -3111,6 +3365,8 @@ class NabinDatabase {
   // --- General Helper Methods ---
   getDriver(id = 'drv_1') {
     if (!id) return this.drivers[0];
+    const found = this.driverRepo ? this.driverRepo.findById(id) : null;
+    if (found) return found;
     const match = this.drivers.find(d => 
       d.id === id || 
       d.id.toLowerCase() === id.toLowerCase() ||
@@ -3123,23 +3379,35 @@ class NabinDatabase {
   }
 
   getUser(id = 'usr_1') {
-    return this.users.find(u => u.id === id) || this.users[0];
+    if (!id) return this.users[0];
+    const found = this.userRepo ? this.userRepo.findById(id) : null;
+    return found || this.users.find(u => u.id === id) || this.users[0];
   }
 
   getJob(id) {
-    return this.jobs.find(j => j.id === id);
+    if (!id) return null;
+    const found = this.jobRepo ? this.jobRepo.findById(id) : null;
+    return found || this.jobs.find(j => j.id === id || j.jobNumber === id);
   }
 
-  createJob(jobData) {
+  async createJob(jobData) {
     const newJob = {
-      id: `JOB-${Date.now().toString().slice(-4)}`,
-      status: 'SEARCHING',
-      driverId: null,
+      id: jobData.id || `JOB-${Date.now().toString().slice(-4)}`,
+      status: jobData.status || 'SEARCHING',
+      driverId: jobData.driverId || null,
       startOtp: Math.floor(1000 + Math.random() * 9000).toString(),
       deliveryOtp: jobData.deliveryOtp || Math.floor(1000 + Math.random() * 9000).toString(),
       createdAt: new Date().toISOString(),
       ...jobData
     };
+    if (this.jobRepo) {
+      try {
+        const created = await this.jobRepo.create(newJob);
+        if (created) Object.assign(newJob, created);
+      } catch (e) {
+        console.warn('⚠️ JobRepository.create async notice:', e.message);
+      }
+    }
     this.jobs.unshift(newJob);
     this.save();
     return newJob;
@@ -3216,7 +3484,7 @@ class NabinDatabase {
     return null;
   }
 
-  updateJobStatus(jobId, status, driverId = null) {
+  async updateJobStatus(jobId, status, driverId = null) {
     const job = this.getJob(jobId);
     if (!job) return null;
 
@@ -3236,6 +3504,14 @@ class NabinDatabase {
 
     if (job.status === 'COMPLETED' || job.status === 'CANCELLED') {
       throw new Error(`Invalid state transition: Cannot transition terminal job [${job.id}] from ${job.status} to ${status}.`);
+    }
+
+    if (this.jobRepo) {
+      try {
+        await this.jobRepo.updateStatus(job.id, status, driverId);
+      } catch (e) {
+        console.warn('⚠️ jobRepo.updateStatus notice:', e.message);
+      }
     }
 
     job.status = status;
@@ -3258,6 +3534,14 @@ class NabinDatabase {
         }
         driver.activeJobId = null;
 
+        if (this.driverRepo) {
+          try {
+            await this.driverRepo.updateEarnings(driver.id, netEarnings, job.id);
+          } catch (e) {
+            console.warn('⚠️ driverRepo.updateEarnings notice:', e.message);
+          }
+        }
+
         const txnId = `TXN-${Date.now().toString().slice(-4)}`;
         this.transactions.unshift({
           id: txnId,
@@ -3278,17 +3562,17 @@ class NabinDatabase {
           time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ' Today'
         });
 
-        this.recordLedgerEntry({
+        await this.recordLedgerEntry({
           transactionId: txnId,
-          debitAccount: 'CUSTOMER_RECEIVABLE',
-          creditAccount: 'DRIVER_PAYABLE',
+          debitAccount: 'CUSTOMER_WALLET_LIABILITY',
+          creditAccount: 'DRIVER_EARNINGS_PAYABLE',
           amount: netEarnings,
           description: `Driver net earnings for ${job.type} job ${job.id}`,
           referenceId: job.id
         });
-        this.recordLedgerEntry({
+        await this.recordLedgerEntry({
           transactionId: txnId,
-          debitAccount: 'CUSTOMER_RECEIVABLE',
+          debitAccount: 'CUSTOMER_WALLET_LIABILITY',
           creditAccount: 'PLATFORM_COMMISSION_REVENUE',
           amount: comm,
           description: `Platform 15% commission fee for job ${job.id}`,
@@ -4294,7 +4578,7 @@ class NabinDatabase {
   }
 
   // Authoritative OTP Verification for Job Lifecycle Progression (Rides, Parcels, Food, Grocery)
-  validateAuthoritativeJobOtp({ jobId, otp, otpType = 'START', driverId = null }) {
+  async validateAuthoritativeJobOtp({ jobId, otp, otpType = 'START', driverId = null }) {
     if (!jobId || !otp) {
       throw new Error('Job ID and verification OTP code are required.');
     }
@@ -4343,7 +4627,7 @@ class NabinDatabase {
       nextStatus = 'IN_TRANSIT';
     }
 
-    const updated = this.updateJobStatus(job.id, nextStatus, driverId);
+    const updated = await this.updateJobStatus(job.id, nextStatus, driverId);
 
     this.createAuditLog({
       adminId: driverId || 'DRIVER_AUTO',
@@ -4566,10 +4850,10 @@ class NabinDatabase {
   // DOUBLE-ENTRY FINANCIAL LEDGER & RECONCILIATION
   // =========================================================================
 
-  recordLedgerEntry({ transactionId, debitAccount, creditAccount, amount, currency = 'INR', description = '', referenceId = null }) {
+  async recordLedgerEntry({ transactionId, debitAccount, creditAccount, amount, currency = 'INR', description = '', referenceId = null }) {
     const entry = {
-      id: `LEDGER-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-      transactionId,
+      id: transactionId || `LEDGER-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      transactionId: transactionId || `TXN-${Date.now()}`,
       debitAccount,
       creditAccount,
       amount: Number(amount) || 0,
@@ -4578,6 +4862,25 @@ class NabinDatabase {
       referenceId,
       timestamp: new Date().toISOString()
     };
+    if (this.ledgerRepo) {
+      try {
+        const repoEntry = await this.ledgerRepo.recordDoubleEntry({
+          category: 'RIDE_SETTLEMENT',
+          debitAccount,
+          creditAccount,
+          amount,
+          description,
+          referenceId,
+          transactionId: entry.transactionId
+        });
+        if (repoEntry) {
+          this.save();
+          return repoEntry;
+        }
+      } catch (e) {
+        console.warn('⚠️ ledgerRepo.recordDoubleEntry notice:', e.message);
+      }
+    }
     this.ledgerEntries.unshift(entry);
     this.save();
     return entry;
@@ -4600,14 +4903,19 @@ class NabinDatabase {
 
   isWebhookProcessed(eventId) {
     if (!eventId) return false;
-    return this.processedWebhookIds.has(eventId);
+    if (this.processedWebhookIds.has(eventId)) return true;
+    if (this.ledgerEntries && this.ledgerEntries.some(e => e.referenceId === eventId || e.transactionId === eventId || e.id === eventId)) {
+      this.processedWebhookIds.add(eventId);
+      return true;
+    }
+    return false;
   }
 
-  recordPaymentWebhook({ eventId, eventType, paymentId, amount, status, signature, payload }) {
+  async recordPaymentWebhook({ eventId, eventType, paymentId, amount, status, signature, payload }) {
     if (!eventId) {
       throw new Error('Event ID is required for idempotent webhook processing.');
     }
-    if (this.processedWebhookIds.has(eventId)) {
+    if (this.isWebhookProcessed(eventId)) {
       return { success: true, message: 'Webhook already processed (Idempotent bypass)', duplicate: true };
     }
 
@@ -4627,7 +4935,7 @@ class NabinDatabase {
 
     // Record double-entry ledger entry for payment capture or refund
     const isRefund = eventType === 'refund.processed' || eventType === 'refund.created';
-    this.recordLedgerEntry({
+    await this.recordLedgerEntry({
       transactionId: paymentId || eventId,
       debitAccount: isRefund ? 'CUSTOMER_WALLET_LIABILITY' : 'PAYMENT_GATEWAY_ESCROW',
       creditAccount: isRefund ? 'PAYMENT_GATEWAY_ESCROW' : 'CUSTOMER_WALLET_LIABILITY',
@@ -4706,7 +5014,7 @@ class NabinDatabase {
     return session;
   }
 
-  verifyPaymentSession({ orderId, paymentId, signature, status = 'SUCCESS', failureReason = null }) {
+  async verifyPaymentSession({ orderId, paymentId, signature, status = 'SUCCESS', failureReason = null }) {
     if (!this.paymentSessions) this.paymentSessions = new Map();
     const session = this.paymentSessions.get(orderId);
 
@@ -4787,7 +5095,7 @@ class NabinDatabase {
     }
 
     // Record Double-Entry Ledger Entry
-    this.recordLedgerEntry({
+    await this.recordLedgerEntry({
       transactionId: session.paymentId,
       debitAccount: 'PAYMENT_GATEWAY_ESCROW',
       creditAccount: session.serviceType === 'FOOD' ? 'RESTAURANT_SETTLEMENT_ESCROW' : 'CUSTOMER_WALLET_LIABILITY',

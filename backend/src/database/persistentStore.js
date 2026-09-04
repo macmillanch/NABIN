@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { supabaseAdmin, isConfigured } = require('../supabase');
+const { supabaseAdmin, isConfigured, isLivePostgres } = require('../supabase');
 
 const DATA_DIR = path.join(__dirname, '../../data');
 const STORE_PATH = path.join(DATA_DIR, 'store.json');
@@ -8,10 +8,10 @@ const STORE_PATH = path.join(DATA_DIR, 'store.json');
 class PersistentStore {
   constructor() {
     this.isProduction = process.env.NODE_ENV === 'production';
-    if (!this.isProduction) {
+    this.writeDebounceTimer = null;
+    if (!this.isProduction && !isLivePostgres) {
       this.ensureDataDir();
     }
-    this.writeDebounceTimer = null;
   }
 
   ensureDataDir() {
@@ -25,15 +25,16 @@ class PersistentStore {
   }
 
   loadState() {
-    // 1. In production, PostgreSQL is mandatory
-    if (this.isProduction) {
-      if (!isConfigured || !supabaseAdmin) {
+    // 1. In production or when SUPABASE_POSTGRES_LIVE=true, PostgreSQL is authoritative
+    if (this.isProduction || isLivePostgres) {
+      if (this.isProduction && (!isConfigured || !supabaseAdmin)) {
         throw new Error('FATAL DATABASE ERROR: Production requires active PostgreSQL / Supabase connection.');
       }
+      // PostgreSQL is authoritative; do not load competing JSON state
       return null;
     }
 
-    // 2. In development / test, load from local storage
+    // 2. Only in isolated offline development without PostgreSQL, load from store.json
     if (fs.existsSync(STORE_PATH)) {
       try {
         const raw = fs.readFileSync(STORE_PATH, 'utf8');
@@ -48,9 +49,8 @@ class PersistentStore {
   }
 
   saveStateSync(state) {
-    // In production, enforce database persistence; do not write local json
-    if (this.isProduction) {
-      this.syncToPostgres(state);
+    // When PostgreSQL is authoritative, never write competing authoritative JSON state
+    if (this.isProduction || isLivePostgres) {
       return;
     }
 
@@ -87,31 +87,10 @@ class PersistentStore {
     }
   }
 
-  async syncToPostgres(state) {
-    if (!isConfigured || !supabaseAdmin) return;
-    try {
-      // Async sync of critical business entities to Supabase
-      if (state.jobs && state.jobs.length) {
-        const latestJob = state.jobs[0];
-        if (latestJob) {
-          await supabaseAdmin.from('jobs').upsert([{
-            job_number: latestJob.id,
-            service_type: latestJob.type || 'RIDE',
-            status: latestJob.status,
-            pickup_address: latestJob.pickup?.address || 'Pickup',
-            drop_address: latestJob.drop?.address || 'Drop',
-            final_total: latestJob.fare || 0,
-            driver_earnings: latestJob.driverEarnings || 0,
-            platform_commission: latestJob.platformFee || 0
-          }], { onConflict: 'job_number' }).catch(() => {});
-        }
-      }
-    } catch (e) {
-      console.warn('⚠️ Supabase background sync notice:', e.message);
-    }
-  }
-
   scheduleSave(state) {
+    if (this.isProduction || isLivePostgres) {
+      return;
+    }
     if (this.writeDebounceTimer) {
       clearTimeout(this.writeDebounceTimer);
     }
