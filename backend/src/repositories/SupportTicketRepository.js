@@ -592,39 +592,25 @@ class SupportTicketRepository {
         throw new Error(`Failed to assign ticket in PostgreSQL: ${updateErr.message}`);
       }
 
-      // Write durable audit record to public.audit_logs
-      try {
-        await supabaseAdmin.from('audit_logs').insert([{
-          admin_id: String(adminId),
-          admin_name: String(adminName || 'Admin'),
-          role: 'ADMIN',
-          action: 'TICKET_ASSIGNED',
-          module: 'SUPPORT_DISPUTES',
-          target_entity_type: 'TICKET',
-          target_entity_id: String(row.ticket_number || row.id),
-          previous_state: prevAdmin || 'UNASSIGNED',
-          new_state: String(adminName || adminId),
-          reason: `Ticket assigned to admin ${adminName}`,
-          details: `Ticket ${row.ticket_number} assigned to ${adminName} (${adminId})`
-        }]);
-      } catch (logErr) {
-        console.error('Audit log write error (non-fatal):', logErr.message);
-      }
-
-      // Maintain in-memory audit log for legacy test suites
-      if (typeof this.db.createAuditLog === 'function') {
-        this.db.createAuditLog({
-          adminId,
-          adminName,
-          role: 'ADMIN',
-          action: 'TICKET_ASSIGNED',
-          module: 'SUPPORT_DISPUTES',
-          targetEntityType: 'TICKET',
-          targetEntityId: row.ticket_number || row.id,
-          previousState: prevAdmin || 'UNASSIGNED',
-          newState: adminName,
-          reason: `Ticket assigned to admin ${adminName}`
-        });
+      // Step 4: Write durable audit record via AuditLogRepository (single unified path)
+      if (this.db.auditLogRepo && typeof this.db.auditLogRepo.create === 'function') {
+        try {
+          await this.db.auditLogRepo.create({
+            adminId: String(adminId),
+            adminName: String(adminName || 'Admin'),
+            role: 'ADMIN',
+            action: 'TICKET_ASSIGNED',
+            module: 'SUPPORT_DISPUTES',
+            targetEntityType: 'TICKET',
+            targetEntityId: String(row.ticket_number || row.id),
+            previousState: prevAdmin || 'UNASSIGNED',
+            newState: String(adminName || adminId),
+            reason: `Ticket assigned to admin ${adminName}`,
+            details: `Ticket ${row.ticket_number} assigned to ${adminName} (${adminId})`
+          });
+        } catch (logErr) {
+          console.error('Audit log write error (non-fatal):', logErr.message);
+        }
       }
 
       const mapped = mapRowToTicket(updatedRow);
@@ -806,44 +792,30 @@ class SupportTicketRepository {
         throw new Error(`Failed to update ticket resolution in PostgreSQL: ${updateErr.message}`);
       }
 
-      // STEP 4: Record Privileged Audit Log
-      try {
-        await supabaseAdmin.from('audit_logs').insert([{
-          admin_id: String(adminId),
-          admin_name: String(adminName || 'Admin'),
-          role: adminRole || 'ADMIN',
-          action: 'TICKET_RESOLVED',
-          module: 'SUPPORT_DISPUTES',
-          target_entity_type: 'TICKET',
-          target_entity_id: String(row.ticket_number || row.id),
-          previous_state: row.status,
-          new_state: 'RESOLVED',
-          reason: `[${row.category}] Dispute resolved by ${adminName}. Type: ${specializedData.resolutionType || 'RESOLVED'}. Refund: ₹${amt}. Notes: ${notes}`,
-          metadata: {
-            ticketNumber: row.ticket_number,
-            refundAmount: amt,
-            resolutionType: specializedData.resolutionType || `${row.category}_RESOLVED`,
-            specializedData
-          }
-        }]);
-      } catch (logErr) {
-        console.error('Audit log write error (non-fatal):', logErr.message);
-      }
-
-      // In-memory reflection for legacy tests
-      if (typeof this.db.createAuditLog === 'function') {
-        this.db.createAuditLog({
-          adminId,
-          adminName,
-          role: adminRole || 'ADMIN',
-          action: 'TICKET_RESOLVED',
-          module: 'SUPPORT_DISPUTES',
-          targetEntityType: 'TICKET',
-          targetEntityId: row.ticket_number || row.id,
-          previousState: row.status,
-          newState: 'RESOLVED',
-          reason: `[${row.category}] Dispute resolved by ${adminName}. Refund: ₹${amt}. Notes: ${notes}`
-        });
+      // STEP 4: Record Privileged Audit Log via AuditLogRepository (single unified path)
+      if (this.db.auditLogRepo && typeof this.db.auditLogRepo.create === 'function') {
+        try {
+          await this.db.auditLogRepo.create({
+            adminId: String(adminId),
+            adminName: String(adminName || 'Admin'),
+            role: adminRole || 'ADMIN',
+            action: 'TICKET_RESOLVED',
+            module: 'SUPPORT_DISPUTES',
+            targetEntityType: 'TICKET',
+            targetEntityId: String(row.ticket_number || row.id),
+            previousState: row.status,
+            newState: 'RESOLVED',
+            reason: `[${row.category}] Dispute resolved by ${adminName}. Type: ${specializedData.resolutionType || 'RESOLVED'}. Refund: ₹${amt}. Notes: ${notes}`,
+            metadata: {
+              ticketNumber: row.ticket_number,
+              refundAmount: amt,
+              resolutionType: specializedData.resolutionType || `${row.category}_RESOLVED`,
+              specializedData
+            }
+          });
+        } catch (logErr) {
+          console.error('Audit log write error (non-fatal):', logErr.message);
+        }
       }
 
       const mapped = mapRowToTicket(updatedRow);

@@ -7,6 +7,7 @@ const PaymentRepository = require('./repositories/PaymentRepository');
 const LedgerRepository = require('./repositories/LedgerRepository');
 const SchoolChildRepository = require('./repositories/SchoolChildRepository');
 const SupportTicketRepository = require('./repositories/SupportTicketRepository');
+const AuditLogRepository = require('./repositories/AuditLogRepository');
 
 // Shared relational store with durable persistence, crash recovery & double-entry accounting
 class NabinDatabase {
@@ -1713,6 +1714,7 @@ class NabinDatabase {
     this.ledgerRepo = new LedgerRepository(this);
     this.schoolChildRepo = new SchoolChildRepository(this);
     this.supportTicketRepo = new SupportTicketRepository(this);
+    this.auditLogRepo = new AuditLogRepository(this);
   }
 
   save() {
@@ -2009,7 +2011,26 @@ class NabinDatabase {
         await supabaseAdmin.from('support_tickets').insert(rowsToInsert);
       }
 
-      console.log(`✅ Authoritative PostgreSQL state synchronized (${this.users.length} users, ${this.drivers.length} drivers, ${this.jobs.length} jobs, ${this.ledgerEntries.length} ledger entries, ${this.adminUsers.length} admin accounts, ${this.supportTickets.length} support tickets).`);
+      // 7. Hydrate Audit Logs from PostgreSQL
+      const { data: dbAudit, error: audErr } = await supabaseAdmin
+        .from('audit_logs')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(200);
+
+      if (!audErr && dbAudit && dbAudit.length > 0) {
+        for (const row of dbAudit) {
+          const mapped = this.auditLogRepo ? this.auditLogRepo.mapRowToDTO ? this.auditLogRepo.mapRowToDTO(row) : row : row;
+          const existingIdx = this.auditLogs.findIndex(a => a.id === row.id);
+          if (existingIdx !== -1) {
+            this.auditLogs[existingIdx] = { ...this.auditLogs[existingIdx], ...mapped };
+          } else {
+            this.auditLogs.push(mapped);
+          }
+        }
+      }
+
+      console.log(`✅ Authoritative PostgreSQL state synchronized (${this.users.length} users, ${this.drivers.length} drivers, ${this.jobs.length} jobs, ${this.ledgerEntries.length} ledger entries, ${this.adminUsers.length} admin accounts, ${this.supportTickets.length} support tickets, ${this.auditLogs.length} audit logs).`);
     } catch (err) {
       console.warn('⚠️ initPostgres notice:', err.message);
     }
@@ -2426,12 +2447,17 @@ class NabinDatabase {
 
   // --- Audit Log Methods ---
   createAuditLog(entry) {
+    if (this.auditLogRepo && typeof this.auditLogRepo.create === 'function') {
+      return this.auditLogRepo.create(entry);
+    }
     const log = {
       id: `AUD-${Date.now().toString().slice(-4)}${Math.floor(Math.random() * 90)}`,
       timestamp: new Date().toISOString(),
       ipAddress: entry.ipAddress || '127.0.0.1',
       userAgent: entry.userAgent || 'NABIN Control Center API',
-      ...entry
+      ...entry,
+      previousStatus: entry.previousState || entry.previousStatus || null,
+      newStatus: entry.newState || entry.newStatus || null
     };
     this.auditLogs.unshift(log);
     return log;
@@ -2447,19 +2473,20 @@ class NabinDatabase {
       logs = logs.filter(l => l.action === filters.action);
     }
     if (filters.adminId && filters.adminId !== 'ALL') {
-      logs = logs.filter(l => l.adminId === filters.adminId);
+      logs = logs.filter(l => (l.adminId || l.admin_id) === filters.adminId);
     }
     if (filters.search) {
       const q = filters.search.toLowerCase();
       logs = logs.filter(l =>
-        l.id.toLowerCase().includes(q) ||
+        (l.id && l.id.toLowerCase().includes(q)) ||
         (l.adminName && l.adminName.toLowerCase().includes(q)) ||
         (l.reason && l.reason.toLowerCase().includes(q)) ||
+        (l.action && l.action.toLowerCase().includes(q)) ||
         (l.targetEntityId && l.targetEntityId.toLowerCase().includes(q))
       );
     }
     if (filters.applicationId) {
-      logs = logs.filter(l => l.targetEntityId === filters.applicationId || l.id === filters.applicationId);
+      logs = logs.filter(l => (l.targetEntityId || l.id) === filters.applicationId);
     }
 
     logs.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));

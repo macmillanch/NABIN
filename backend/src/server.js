@@ -645,7 +645,7 @@ app.post('/api/admin/services/emergency-killswitch', authenticateAdmin, requireP
     };
 
     db.adminUsers = [firstAdmin];
-    db.createAuditLog({ action: 'ADMIN_BOOTSTRAP', module: 'SECURITY', adminId: 'SYSTEM', details: 'First SUPER_ADMIN account securely bootstrapped.', ip });
+    await db.createAuditLog({ action: 'ADMIN_BOOTSTRAP', module: 'SECURITY', adminId: 'SYSTEM', details: 'First SUPER_ADMIN account securely bootstrapped.', ip });
     
     // Save to PostgreSQL if configured
     if (supabaseHelper.isLivePostgres && supabaseHelper.supabaseAdmin) {
@@ -673,7 +673,7 @@ app.post('/api/admin/services/emergency-killswitch', authenticateAdmin, requireP
   });
 
 // Admin Login with Brute-Force Protection & Password Hashing Verification
-app.post('/api/admin/login', (req, res) => {
+app.post('/api/admin/login', async (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) {
     return res.status(400).json({ success: false, error: 'Username and password are required.', requestId: req.id });
@@ -681,8 +681,8 @@ app.post('/api/admin/login', (req, res) => {
 
   const authResult = db.verifyAdminCredentials(username, password);
   if (!authResult.success) {
-    db.createAuditLog({
-      adminId: 'UNKNOWN',
+    await db.createAuditLog({
+      adminId: 'GUEST',
       adminName: username || 'Unknown',
       role: 'GUEST',
       action: 'LOGIN_FAILED',
@@ -691,7 +691,8 @@ app.post('/api/admin/login', (req, res) => {
       targetEntityId: 'LOGIN',
       previousState: 'UNAUTHENTICATED',
       newState: 'FAILED',
-      reason: `Failed login attempt for username: ${username}. Detail: ${authResult.error}`
+      reason: `Failed login attempt for username: ${username}. Detail: ${authResult.error}`,
+      ipAddress: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1'
     });
 
     return res.status(authResult.locked ? 429 : 401).json({
@@ -715,7 +716,7 @@ app.post('/api/admin/login', (req, res) => {
   activeAdminSessions.set(token, admin);
   db.activeSessions.set(token, session);
 
-  db.createAuditLog({
+  await db.createAuditLog({
     adminId: admin.id,
     adminName: admin.name,
     role: admin.role,
@@ -725,7 +726,8 @@ app.post('/api/admin/login', (req, res) => {
     targetEntityId: admin.id,
     previousState: 'OFFLINE',
     newState: 'ONLINE',
-    reason: `Admin login successful. Role: ${admin.role}`
+    reason: `Admin login successful. Role: ${admin.role}`,
+    ipAddress: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1'
   });
 
   res.json({
@@ -759,18 +761,33 @@ app.get('/api/admin/me', authenticateAdmin, (req, res) => {
 });
 
 // -------------------------------------------------------------
-// 1. GLOBAL ADMINISTRATIVE AUDIT LOG TRAIL
+// 1. GLOBAL ADMINISTRATIVE AUDIT LOG TRAIL (POSTGRES AUTHORITATIVE)
 // -------------------------------------------------------------
-app.get('/api/admin/audit-logs', authenticateAdmin, requirePermission('audit.view'), (req, res) => {
-  const filters = {
-    module: req.query.module || 'ALL',
-    action: req.query.action || 'ALL',
-    adminId: req.query.adminId || 'ALL',
-    search: req.query.search || '',
-    applicationId: req.query.applicationId || null
-  };
-  const logs = db.getAuditLogs(filters);
-  res.json({ success: true, logs, total: logs.length });
+app.get('/api/admin/audit-logs', authenticateAdmin, requirePermission('audit.view'), async (req, res) => {
+  try {
+    const filters = {
+      module: req.query.module || 'ALL',
+      action: req.query.action || 'ALL',
+      adminId: req.query.adminId || 'ALL',
+      search: req.query.search || '',
+      applicationId: req.query.applicationId || null,
+      targetEntityType: req.query.targetEntityType || null,
+      targetEntityId: req.query.targetEntityId || null,
+      limit: req.query.limit || 100,
+      offset: req.query.offset || 0
+    };
+
+    if (db.auditLogRepo && typeof db.auditLogRepo.list === 'function') {
+      const result = await db.auditLogRepo.list(filters);
+      return res.json({ success: true, logs: result.logs, total: result.total });
+    }
+
+    const logs = db.getAuditLogs(filters);
+    res.json({ success: true, logs, total: logs.length });
+  } catch (err) {
+    console.error('Failed to fetch audit logs:', err.message);
+    res.status(500).json({ success: false, error: 'Failed to retrieve administrative audit logs.' });
+  }
 });
 
 // -------------------------------------------------------------
@@ -791,7 +808,7 @@ app.get('/api/admin/drivers/:id', (req, res) => {
   res.json({ success: true, driver });
 });
 
-app.post('/api/admin/drivers/:id/status', authenticateAdmin, (req, res) => {
+app.post('/api/admin/drivers/:id/status', authenticateAdmin, async (req, res) => {
   const { status, reason } = req.body;
   const driver = (db.drivers || []).find(d => d.id === req.params.id);
   if (!driver) return res.status(404).json({ success: false, error: 'Driver not found' });
@@ -801,7 +818,7 @@ app.post('/api/admin/drivers/:id/status', authenticateAdmin, (req, res) => {
   driver.driverState = status === 'SUSPENDED' ? 'SUSPENDED' : 'ONLINE';
   driver.isOnline = status !== 'SUSPENDED';
 
-  db.createAuditLog({
+  await db.createAuditLog({
     adminId: req.admin.id,
     adminName: req.admin.name,
     role: req.admin.role,
@@ -1033,14 +1050,14 @@ app.get('/api/admin/finance/settlements/drivers', authenticateAdmin, requirePerm
   res.json({ success: true, driverSettlements });
 });
 
-app.post('/api/admin/finance/settlements/drivers/:id/payout', authenticateAdmin, requirePermission('finance.settlement'), (req, res) => {
+app.post('/api/admin/finance/settlements/drivers/:id/payout', authenticateAdmin, requirePermission('finance.settlement'), async (req, res) => {
   const driver = db.getDriver(req.params.id);
   if (!driver) return res.status(404).json({ success: false, error: 'Driver not found' });
   const amount = Number(req.body.amount) || driver.walletBalance;
 
   const result = db.recordPayout(driver.id, amount, driver.upiId);
   if (result.success) {
-    db.createAuditLog({
+    await db.createAuditLog({
       adminId: req.admin.id,
       adminName: req.admin.name,
       role: req.admin.role,
@@ -1063,7 +1080,7 @@ app.post('/api/admin/finance/adjustments', authenticateAdmin, requirePermission(
   res.json(result);
 });
 
-app.post('/api/admin/finance/refund', authenticateAdmin, requirePermission('finance.refund'), (req, res) => {
+app.post('/api/admin/finance/refund', authenticateAdmin, requirePermission('finance.refund'), async (req, res) => {
   const { jobId, customerId, amount, reason } = req.body;
   const amt = Number(amount);
   if (!amt || amt <= 0) return res.status(400).json({ success: false, error: 'Invalid refund amount.' });
@@ -1105,7 +1122,7 @@ app.post('/api/admin/finance/refund', authenticateAdmin, requirePermission('fina
     referenceId: jobId
   });
 
-  db.createAuditLog({
+  await db.createAuditLog({
     adminId: req.admin.id,
     adminName: req.admin.name,
     role: req.admin.role,
@@ -1155,7 +1172,7 @@ app.post('/api/admin/promotions', authenticateAdmin, requirePermission('promotio
   res.json({ success: true, promotion: promo });
 });
 
-app.put('/api/admin/promotions/:id', authenticateAdmin, requirePermission('promotion.edit'), (req, res) => {
+app.put('/api/admin/promotions/:id', authenticateAdmin, requirePermission('promotion.edit'), async (req, res) => {
   const promo = db.promotions.find(p => p.id === req.params.id);
   if (!promo) return res.status(404).json({ success: false, error: 'Promotion not found' });
 
@@ -1163,7 +1180,7 @@ app.put('/api/admin/promotions/:id', authenticateAdmin, requirePermission('promo
   if (req.body.status !== undefined) promo.status = req.body.status;
   if (req.body.discountValue !== undefined) promo.discountValue = Number(req.body.discountValue);
 
-  db.createAuditLog({
+  await db.createAuditLog({
     adminId: req.admin.id,
     adminName: req.admin.name,
     role: req.admin.role,
@@ -1264,12 +1281,12 @@ app.post('/api/admin/geofences', authenticateAdmin, requirePermission('geofence.
   res.json({ success: true, geoFence: fence });
 });
 
-app.delete('/api/admin/geofences/:id', authenticateAdmin, requirePermission('geofence.delete'), (req, res) => {
+app.delete('/api/admin/geofences/:id', authenticateAdmin, requirePermission('geofence.delete'), async (req, res) => {
   const idx = db.geoFences.findIndex(g => g.id === req.params.id);
   if (idx === -1) return res.status(404).json({ success: false, error: 'Geo-fence not found' });
   const deleted = db.geoFences.splice(idx, 1)[0];
 
-  db.createAuditLog({
+  await db.createAuditLog({
     adminId: req.admin.id,
     adminName: req.admin.name,
     role: req.admin.role,
@@ -1382,7 +1399,7 @@ app.get('/api/admin/pricing', authenticateAdmin, (req, res) => {
   res.json({ success: true, pricingConfig: db.pricingConfig });
 });
 
-app.post('/api/admin/pricing', authenticateAdmin, requirePermission('pricing.edit'), (req, res) => {
+app.post('/api/admin/pricing', authenticateAdmin, requirePermission('pricing.edit'), async (req, res) => {
   const { globalSurgeMultiplier, activeSurgeZone, serviceType, baseFare, perKmRate, commissionPercent } = req.body;
 
   if (globalSurgeMultiplier !== undefined) db.pricingConfig.globalSurgeMultiplier = Number(globalSurgeMultiplier);
@@ -1394,7 +1411,7 @@ app.post('/api/admin/pricing', authenticateAdmin, requirePermission('pricing.edi
     if (commissionPercent !== undefined) db.pricingConfig[serviceType].commissionPercent = Number(commissionPercent);
   }
 
-  db.createAuditLog({
+  await db.createAuditLog({
     adminId: req.admin.id,
     adminName: req.admin.name,
     role: req.admin.role,
@@ -1517,12 +1534,20 @@ app.get('/api/admin/identity-verifications', authenticateAdmin, requirePermissio
   });
 });
 
-app.get('/api/admin/identity-verifications/:id', authenticateAdmin, requirePermission('identity_verification.view'), (req, res) => {
+app.get('/api/admin/identity-verifications/:id', authenticateAdmin, requirePermission('identity_verification.view'), async (req, res) => {
   const appRecord = db.getIdentityApplicationById(req.params.id);
   if (!appRecord) return res.status(404).json({ success: false, error: 'Application not found' });
 
   const canViewUnmasked = req.admin.role === 'SUPER_ADMIN' ||
     (req.admin.permissions && req.admin.permissions.includes('identity_documents.view'));
+
+  let auditLogs = [];
+  if (db.auditLogRepo && typeof db.auditLogRepo.list === 'function') {
+    const audRes = await db.auditLogRepo.list({ applicationId: appRecord.id });
+    auditLogs = audRes.logs;
+  } else {
+    auditLogs = db.getAuditLogs({ applicationId: appRecord.id });
+  }
 
   res.json({
     success: true,
@@ -1531,7 +1556,7 @@ app.get('/api/admin/identity-verifications/:id', authenticateAdmin, requirePermi
       aadhaarNumberRaw: canViewUnmasked ? appRecord.aadhaarNumberRaw : undefined,
       voterIdNumberRaw: canViewUnmasked ? appRecord.voterIdNumberRaw : undefined
     },
-    auditLogs: db.getAuditLogs({ applicationId: appRecord.id })
+    auditLogs
   });
 });
 

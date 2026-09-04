@@ -1248,6 +1248,149 @@ async function runAllTests() {
         .update({ operational_status: 'AVAILABLE', is_online: true })
         .in('id', ['00000000-0000-0000-0000-000000000101', '00000000-0000-0000-0000-000000000102', '00000000-0000-0000-0000-000000000103']);
     }
+
+    // --- 24. MODULE 22: Administrative Audit Trail (audit_logs) Persistence Bridge ---
+    console.log('\n--- 24. MODULE 22: Administrative Audit Trail (audit_logs) Persistence Bridge ---');
+
+    // AUD-01 (SEC): Unauthenticated GET /api/admin/audit-logs rejected with 401
+    const unauthAuditGet = await request('GET', '/api/admin/audit-logs');
+    assert('AUD-01: Unauthenticated GET /api/admin/audit-logs rejected with 401', unauthAuditGet.status === 401);
+
+    // AUD-02 (SEC): Customer or Driver token rejected with 401/403
+    const custAuditGet = await request('GET', '/api/admin/audit-logs', null, { 'Authorization': `Bearer ${priyaToken}` });
+    assert('AUD-02: Customer token rejected from audit logs with 401 or 403', custAuditGet.status === 401 || custAuditGet.status === 403);
+
+    // AUD-03 (SEC): Admin lacking audit.view permission rejected with 403
+    // Create an admin without audit.view permission
+    const opUsername = `ops_${Date.now().toString().slice(-4)}`;
+    await request('POST', '/api/admin/accounts', {
+      name: 'Ops Admin',
+      username: opUsername,
+      email: `${opUsername}@nabin.in`,
+      role: 'OPERATIONS',
+      department: 'Fleet Ops',
+      password: 'AdminPassword123!'
+    }, { 'Authorization': `Bearer ${superToken}` });
+
+    const opLogin = await request('POST', '/api/admin/login', {
+      username: opUsername,
+      password: 'AdminPassword123!'
+    });
+    const opToken = opLogin.data.token;
+
+    const opAuditGet = await request('GET', '/api/admin/audit-logs', null, { 'Authorization': `Bearer ${opToken}` });
+    assert('AUD-03: Admin lacking audit.view rejected with 403 Forbidden', opAuditGet.status === 403);
+
+    // AUD-04 (PERSIST): Admin action persists directly into PostgreSQL public.audit_logs
+    const auditActionMarker = `MARKER_AUDIT_${Date.now()}`;
+    const pricingAuditRes = await request('POST', '/api/admin/pricing', {
+      globalSurgeMultiplier: 1.15,
+      serviceType: 'rides',
+      baseFare: 55
+    }, { 'Authorization': `Bearer ${superToken}` });
+    assert('Pricing updated by Super Admin', pricingAuditRes.status === 200 && pricingAuditRes.data.success);
+
+    // AUD-05 (PERSIST): GET audit logs reads PostgreSQL
+    const pricingAudits = await request('GET', '/api/admin/audit-logs?module=PRICING_ENGINE', null, { 'Authorization': `Bearer ${superToken}` });
+    assert('AUD-05: GET /api/admin/audit-logs?module=PRICING_ENGINE returns 200 and array of logs',
+      pricingAudits.status === 200 && Array.isArray(pricingAudits.data.logs) && pricingAudits.data.logs.length > 0
+    );
+    const latestPricingAudit = pricingAudits.data.logs[0];
+    assert('AUD-04: Persisted audit record reflects action PRICING_UPDATED and module PRICING_ENGINE',
+      latestPricingAudit.action === 'PRICING_UPDATED' && latestPricingAudit.module === 'PRICING_ENGINE'
+    );
+
+    // AUD-06 (ATTRIB): Actor attribution matches authenticated admin session
+    assert('AUD-06: Actor attribution matches authenticated Super Admin session identity',
+      latestPricingAudit.adminName && latestPricingAudit.role === 'SUPER_ADMIN'
+    );
+
+    // AUD-07 (ATTRIB): Client actor spoofing is ignored/rejected
+    const spoofAttempt = await request('POST', '/api/admin/pricing', {
+      globalSurgeMultiplier: 1.05,
+      adminId: 'FAKE_SPOOFED_ADMIN_ID',
+      adminName: 'Hacker Admin',
+      role: 'SUPER_HACKER'
+    }, { 'Authorization': `Bearer ${superToken}` });
+    assert('Pricing update succeeds', spoofAttempt.status === 200 && spoofAttempt.data.success);
+
+    const postSpoofAudits = await request('GET', '/api/admin/audit-logs?module=PRICING_ENGINE', null, { 'Authorization': `Bearer ${superToken}` });
+    const postSpoofLatest = postSpoofAudits.data.logs[0];
+    assert('AUD-07: Server binds authenticated admin identity, ignoring client-supplied actor fields',
+      postSpoofLatest.adminId !== 'FAKE_SPOOFED_ADMIN_ID' && postSpoofLatest.role === 'SUPER_ADMIN'
+    );
+
+    // AUD-08 & AUD-09 (INTEG): Support ticket assignment and resolution produce exactly ONE audit row each
+    const testSupportTicketRes = await request('POST', '/api/support/ticket', {
+      title: 'Audit Deduplication Test Dispute',
+      description: 'Testing audit single-write enforcement',
+      category: 'FARE_DISPUTE',
+      priority: 'NORMAL'
+    }, { 'Authorization': `Bearer ${priyaToken}` });
+    assert('Audit test support ticket created', testSupportTicketRes.status === 200 && testSupportTicketRes.data.success);
+    const testTicketId = testSupportTicketRes.data.ticket.id;
+
+    // Count audits for this ticket before assignment
+    const beforeAssignAudits = await request('GET', `/api/admin/audit-logs?search=${testTicketId}`, null, { 'Authorization': `Bearer ${superToken}` });
+    const assignAuditCountPre = beforeAssignAudits.data.logs.filter(l => l.targetEntityId === testTicketId && l.action === 'TICKET_ASSIGNED').length;
+
+    // Assign ticket
+    await request('POST', `/api/admin/support/${testTicketId}/assign`, {}, { 'Authorization': `Bearer ${superToken}` });
+
+    const afterAssignAudits = await request('GET', `/api/admin/audit-logs?search=${testTicketId}`, null, { 'Authorization': `Bearer ${superToken}` });
+    const assignAuditCountPost = afterAssignAudits.data.logs.filter(l => l.targetEntityId === testTicketId && l.action === 'TICKET_ASSIGNED').length;
+    assert('AUD-08: Support assignment creates exactly ONE audit row (no dual-write duplication)',
+      assignAuditCountPost === assignAuditCountPre + 1
+    );
+
+    // Resolve ticket
+    const resolveAuditCountPre = afterAssignAudits.data.logs.filter(l => l.targetEntityId === testTicketId && l.action === 'TICKET_RESOLVED').length;
+    await request('POST', `/api/admin/support/${testTicketId}/resolve`, {
+      resolutionNotes: 'Verified audit log deduplication test pass.',
+      refundAmount: 0.0,
+      specializedData: {
+        resolutionType: 'GENERAL_INQUIRY_ANSWERED'
+      }
+    }, { 'Authorization': `Bearer ${superToken}` });
+
+    const afterResolveAudits = await request('GET', `/api/admin/audit-logs?search=${testTicketId}`, null, { 'Authorization': `Bearer ${superToken}` });
+    const resolveAuditCountPost = afterResolveAudits.data.logs.filter(l => l.targetEntityId === testTicketId && l.action === 'TICKET_RESOLVED').length;
+    assert('AUD-09: Support resolution creates exactly ONE audit row (no dual-write duplication)',
+      resolveAuditCountPost === resolveAuditCountPre + 1
+    );
+
+    // AUD-10 (INTEG): Duplicate/retry resolution does not create duplicate audit records
+    const retryResolveRes = await request('POST', `/api/admin/support/${testTicketId}/resolve`, {
+      resolutionNotes: 'Duplicate resolution attempt.',
+      refundAmount: 0.0
+    }, { 'Authorization': `Bearer ${superToken}` });
+    assert('Duplicate resolution rejected with 400', retryResolveRes.status === 400);
+
+    const afterRetryAudits = await request('GET', `/api/admin/audit-logs?search=${testTicketId}`, null, { 'Authorization': `Bearer ${superToken}` });
+    const resolveAuditCountFinal = afterRetryAudits.data.logs.filter(l => l.targetEntityId === testTicketId && l.action === 'TICKET_RESOLVED').length;
+    assert('AUD-10: Rejected duplicate resolution does NOT create additional audit rows',
+      resolveAuditCountFinal === resolveAuditCountPost
+    );
+
+    // AUD-11 (QUERY): Filtering by module and action works as expected
+    const filteredQuery = await request('GET', '/api/admin/audit-logs?module=SUPPORT_DISPUTES&action=TICKET_RESOLVED', null, { 'Authorization': `Bearer ${superToken}` });
+    assert('AUD-11: Multi-field filtering (module + action) on PostgreSQL returns 200 with matching records',
+      filteredQuery.status === 200 &&
+      filteredQuery.data.logs.every(l => l.module === 'SUPPORT_DISPUTES' && l.action === 'TICKET_RESOLVED')
+    );
+
+    // AUD-12 (QUERY): Pagination with limit works as expected
+    const paginatedQuery = await request('GET', '/api/admin/audit-logs?limit=5', null, { 'Authorization': `Bearer ${superToken}` });
+    assert('AUD-12: Pagination parameter limit=5 restricts returned rows correctly',
+      paginatedQuery.status === 200 && paginatedQuery.data.logs.length <= 5
+    );
+
+    // AUD-13 (IMMUTABLE): UPDATE / DELETE endpoints are not exposed
+    const putAttempt = await request('PUT', `/api/admin/audit-logs/${latestPricingAudit.id}`, { reason: 'Tampered' }, { 'Authorization': `Bearer ${superToken}` });
+    assert('AUD-13: PUT on audit-logs endpoint returns 404 (immutable, no update endpoint)', putAttempt.status === 404);
+
+    const deleteAttempt = await request('DELETE', `/api/admin/audit-logs/${latestPricingAudit.id}`, null, { 'Authorization': `Bearer ${superToken}` });
+    assert('AUD-14: DELETE on audit-logs endpoint returns 404 (immutable, no delete endpoint)', deleteAttempt.status === 404);
   } catch (err) {
     console.error('Fatal Test Suite Exception:', err);
     failed++;
