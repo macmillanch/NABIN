@@ -1332,45 +1332,53 @@ app.delete('/api/admin/advertisements/:id', authenticateAdmin, (req, res) => {
 });
 
 // -------------------------------------------------------------
+// -------------------------------------------------------------
 // 5. GEO-FENCING & DYNAMIC SURGE ZONES
 // -------------------------------------------------------------
-app.get('/api/admin/geofences', (req, res) => {
-  res.json({ success: true, geoFences: db.geoFences });
+app.get('/api/admin/geofences', authenticateAdmin, requirePermission('geofence.view'), async (req, res) => {
+  try {
+    const geoFences = await db.pricingRepo.listGeoFences(req.query);
+    res.json({ success: true, geoFences });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
-app.post('/api/admin/geofences', authenticateAdmin, requirePermission('geofence.create'), (req, res) => {
-  const fence = db.addGeoFence(req.body, req.admin.id, req.admin.name);
-  res.json({ success: true, geoFence: fence });
+app.post('/api/admin/geofences', authenticateAdmin, requirePermission('geofence.create'), async (req, res) => {
+  try {
+    const fence = await db.addGeoFence(req.body, req.admin.id, req.admin.name);
+    res.json({ success: true, geoFence: fence });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
 });
 
 app.delete('/api/admin/geofences/:id', authenticateAdmin, requirePermission('geofence.delete'), async (req, res) => {
-  const idx = db.geoFences.findIndex(g => g.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ success: false, error: 'Geo-fence not found' });
-  const deleted = db.geoFences.splice(idx, 1)[0];
-
-  await db.createAuditLog({
-    adminId: req.admin.id,
-    adminName: req.admin.name,
-    role: req.admin.role,
-    action: 'GEOFENCE_DELETED',
-    module: 'GEOFENCING',
-    targetEntityType: 'GEOFENCE',
-    targetEntityId: deleted.id,
-    previousState: 'ACTIVE',
-    newState: 'DELETED',
-    reason: `Geo-fence zone ${deleted.name} deleted.`
-  });
-
-  res.json({ success: true, deleted });
+  try {
+    const deleted = await db.deleteGeoFence(req.params.id, req.admin.id, req.admin.name);
+    if (!deleted) return res.status(404).json({ success: false, error: 'Geo-fence not found' });
+    res.json({ success: true, deleted });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
 });
 
-app.get('/api/admin/surgezones', (req, res) => {
-  res.json({ success: true, surgeZones: db.surgeZones });
+app.get('/api/admin/surgezones', authenticateAdmin, requirePermission('surge.view'), async (req, res) => {
+  try {
+    const surgeZones = await db.pricingRepo.listSurgeZones(req.query);
+    res.json({ success: true, surgeZones });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
-app.post('/api/admin/surgezones', authenticateAdmin, requirePermission('surge.create'), (req, res) => {
-  const surge = db.addSurgeZone(req.body, req.admin.id, req.admin.name);
-  res.json({ success: true, surgeZone: surge });
+app.post('/api/admin/surgezones', authenticateAdmin, requirePermission('surge.create'), async (req, res) => {
+  try {
+    const surge = await db.addSurgeZone(req.body, req.admin.id, req.admin.name);
+    res.json({ success: true, surgeZone: surge });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
 });
 
 // Centralized Geofence Live Evaluation Endpoint
@@ -1457,36 +1465,36 @@ app.post('/api/pricing/estimate', (req, res) => {
   res.json({ success: true, estimate });
 });
 
-app.get('/api/admin/pricing', authenticateAdmin, (req, res) => {
-  res.json({ success: true, pricingConfig: db.pricingConfig });
+app.get('/api/admin/pricing', authenticateAdmin, requirePermission('pricing.edit'), async (req, res) => {
+  try {
+    const pricingConfig = await db.pricingRepo.getPricingMatrix();
+    res.json({ success: true, pricingConfig });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 app.post('/api/admin/pricing', authenticateAdmin, requirePermission('pricing.edit'), async (req, res) => {
-  const { globalSurgeMultiplier, activeSurgeZone, serviceType, baseFare, perKmRate, commissionPercent } = req.body;
+  try {
+    const pricingConfig = await db.pricingRepo.updatePricingConfig(req.body, { id: req.admin.id, name: req.admin.name, role: req.admin.role });
 
-  if (globalSurgeMultiplier !== undefined) db.pricingConfig.globalSurgeMultiplier = Number(globalSurgeMultiplier);
-  if (activeSurgeZone !== undefined) db.pricingConfig.activeSurgeZone = activeSurgeZone;
+    await db.createAuditLog({
+      adminId: req.admin.id,
+      adminName: req.admin.name,
+      role: req.admin.role,
+      action: 'PRICING_UPDATED',
+      module: 'PRICING_ENGINE',
+      targetEntityType: 'PRICING_CONFIG',
+      targetEntityId: 'PRICING_GLOBAL',
+      previousState: 'CONFIGURED',
+      newState: 'UPDATED',
+      reason: `Pricing adjusted by ${req.admin.name}. Global Surge: ${db.pricingConfig.globalSurgeMultiplier}x`
+    });
 
-  if (serviceType && db.pricingConfig[serviceType]) {
-    if (baseFare !== undefined) db.pricingConfig[serviceType].baseFare = Number(baseFare);
-    if (perKmRate !== undefined) db.pricingConfig[serviceType].perKmRate = Number(perKmRate);
-    if (commissionPercent !== undefined) db.pricingConfig[serviceType].commissionPercent = Number(commissionPercent);
+    res.json({ success: true, pricingConfig, message: 'Platform pricing updated.' });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
   }
-
-  await db.createAuditLog({
-    adminId: req.admin.id,
-    adminName: req.admin.name,
-    role: req.admin.role,
-    action: 'PRICING_UPDATED',
-    module: 'PRICING_ENGINE',
-    targetEntityType: 'PRICING_CONFIG',
-    targetEntityId: 'PRICING_GLOBAL',
-    previousState: 'CONFIGURED',
-    newState: 'UPDATED',
-    reason: `Pricing adjusted by ${req.admin.name}. Global Surge: ${db.pricingConfig.globalSurgeMultiplier}x`
-  });
-
-  res.json({ success: true, pricingConfig: db.pricingConfig, message: 'Platform pricing updated.' });
 });
 
 // -------------------------------------------------------------

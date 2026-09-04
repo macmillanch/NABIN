@@ -9,6 +9,7 @@ const SchoolChildRepository = require('./repositories/SchoolChildRepository');
 const SupportTicketRepository = require('./repositories/SupportTicketRepository');
 const AuditLogRepository = require('./repositories/AuditLogRepository');
 const PromotionRepository = require('./repositories/PromotionRepository');
+const PricingRepository = require('./repositories/PricingRepository');
 
 // Shared relational store with durable persistence, crash recovery & double-entry accounting
 class NabinDatabase {
@@ -1717,6 +1718,7 @@ class NabinDatabase {
     this.supportTicketRepo = new SupportTicketRepository(this);
     this.auditLogRepo = new AuditLogRepository(this);
     this.promotionRepo = new PromotionRepository(this);
+    this.pricingRepo = new PricingRepository(this);
   }
 
   save() {
@@ -2050,7 +2052,52 @@ class NabinDatabase {
         }
       }
 
-      console.log(`✅ Authoritative PostgreSQL state synchronized (${this.users.length} users, ${this.drivers.length} drivers, ${this.jobs.length} jobs, ${this.ledgerEntries.length} ledger entries, ${this.adminUsers.length} admin accounts, ${this.supportTickets.length} support tickets, ${this.auditLogs.length} audit logs, ${this.promotions.length} promotions).`);
+      // 9. Hydrate Pricing Configurations from PostgreSQL
+      const { data: dbPricing, error: prErr } = await supabaseAdmin
+        .from('pricing_configurations')
+        .select('*');
+
+      if (!prErr && dbPricing && dbPricing.length > 0) {
+        for (const row of dbPricing) {
+          const dto = this.pricingRepo ? this.pricingRepo.mapPricingRowToDTO(row) : row;
+          if (dto.id === 'GLOBAL') {
+            this.pricingConfig.globalSurgeMultiplier = dto.globalSurgeMultiplier;
+            this.pricingConfig.activeSurgeZone = dto.activeSurgeZone;
+          } else {
+            this.pricingConfig[dto.id] = {
+              name: dto.name,
+              baseFare: dto.baseFare,
+              perKmRate: dto.perKmRate,
+              perMinRate: dto.perMinRate,
+              minFare: dto.minFare,
+              bookingFee: dto.bookingFee,
+              commissionPercent: dto.commissionPercent
+            };
+          }
+        }
+      }
+
+      // 10. Hydrate Geo-Fences from PostgreSQL
+      const { data: dbFences, error: gfErr } = await supabaseAdmin
+        .from('geo_fences')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (!gfErr && dbFences && dbFences.length > 0) {
+        this.geoFences = dbFences.map(r => this.pricingRepo ? this.pricingRepo.mapGeoFenceRowToDTO(r) : r);
+      }
+
+      // 11. Hydrate Surge Zones from PostgreSQL
+      const { data: dbSurge, error: szErr } = await supabaseAdmin
+        .from('surge_zones')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (!szErr && dbSurge && dbSurge.length > 0) {
+        this.surgeZones = dbSurge.map(r => this.pricingRepo ? this.pricingRepo.mapSurgeZoneRowToDTO(r) : r);
+      }
+
+      console.log(`✅ Authoritative PostgreSQL state synchronized (${this.users.length} users, ${this.drivers.length} drivers, ${this.jobs.length} jobs, ${this.ledgerEntries.length} ledger entries, ${this.adminUsers.length} admin accounts, ${this.supportTickets.length} support tickets, ${this.auditLogs.length} audit logs, ${this.promotions.length} promotions, ${Object.keys(this.pricingConfig).length} pricing configs, ${this.geoFences.length} geofences, ${this.surgeZones.length} surge zones).`);
     } catch (err) {
       console.warn('⚠️ initPostgres notice:', err.message);
     }
@@ -2972,27 +3019,31 @@ class NabinDatabase {
   }
 
   // --- Geo-Fences & Surge Zone Methods ---
-  addGeoFence(payload, adminId, adminName) {
-    const fence = {
-      id: `zone_${Date.now()}`,
-      name: payload.name || 'New Operational Zone',
-      type: payload.type || 'POLYGON',
-      category: payload.category || 'HIGH_DEMAND',
-      coordinates: payload.coordinates || [],
-      surcharge: Number(payload.surcharge) || 0,
-      surgeMultiplier: Number(payload.surgeMultiplier) || 1.0,
-      status: 'ACTIVE',
-      allowedServices: payload.allowedServices || ['RIDE', 'PARCEL', 'FOOD'],
-      allowedVehicles: payload.allowedVehicles || ['2W', '3W', '4W'],
-      operatingHours: payload.operatingHours || '24x7 Open',
-      description: payload.description || '',
-      createdBy: adminName,
-      createdAt: new Date().toISOString()
-    };
+  async addGeoFence(payload, adminId, adminName) {
+    let fence;
+    if (this.pricingRepo && typeof this.pricingRepo.createGeoFence === 'function') {
+      fence = await this.pricingRepo.createGeoFence(payload, { id: adminId, name: adminName });
+    } else {
+      fence = {
+        id: `zone_${Date.now()}`,
+        name: payload.name || 'New Operational Zone',
+        type: payload.type || 'POLYGON',
+        category: payload.category || 'HIGH_DEMAND',
+        coordinates: payload.coordinates || [],
+        surcharge: Number(payload.surcharge) || 0,
+        surgeMultiplier: Number(payload.surgeMultiplier) || 1.0,
+        status: 'ACTIVE',
+        allowedServices: payload.allowedServices || ['RIDE', 'PARCEL', 'FOOD'],
+        allowedVehicles: payload.allowedVehicles || ['2W', '3W', '4W'],
+        operatingHours: payload.operatingHours || '24x7 Open',
+        description: payload.description || '',
+        createdBy: adminName,
+        createdAt: new Date().toISOString()
+      };
+      this.geoFences.unshift(fence);
+    }
 
-    this.geoFences.unshift(fence);
-
-    this.createAuditLog({
+    await this.createAuditLog({
       adminId,
       adminName,
       role: 'ADMIN',
@@ -3008,26 +3059,59 @@ class NabinDatabase {
     return fence;
   }
 
-  addSurgeZone(payload, adminId, adminName) {
-    const surge = {
-      id: `surge_${Date.now()}`,
-      zoneId: payload.zoneId || 'zone_connaught',
-      zoneName: payload.zoneName || 'High Demand Zone',
-      service: payload.service || 'RIDE',
-      vehicleType: payload.vehicleType || 'ALL',
-      surgeMultiplier: Number(payload.surgeMultiplier) || 1.25,
-      maxMultiplier: Number(payload.maxMultiplier) || 2.5,
-      startTime: payload.startTime || '17:00',
-      endTime: payload.endTime || '21:00',
-      priority: payload.priority || 'HIGH',
-      status: 'ACTIVE',
-      reason: payload.reason || 'Peak hour surge deployment',
-      createdAt: new Date().toISOString()
-    };
+  async deleteGeoFence(id, adminId, adminName) {
+    let deleted;
+    if (this.pricingRepo && typeof this.pricingRepo.deleteGeoFence === 'function') {
+      deleted = await this.pricingRepo.deleteGeoFence(id, { id: adminId, name: adminName });
+    } else {
+      const idx = this.geoFences.findIndex(g => g.id === id || g.code === id || g.zoneCode === id);
+      if (idx !== -1) {
+        deleted = this.geoFences.splice(idx, 1)[0];
+      }
+    }
 
-    this.surgeZones.unshift(surge);
+    if (deleted) {
+      await this.createAuditLog({
+        adminId,
+        adminName,
+        role: 'ADMIN',
+        action: 'GEOFENCE_DELETED',
+        module: 'GEOFENCING',
+        targetEntityType: 'GEOFENCE',
+        targetEntityId: deleted.id,
+        previousState: 'ACTIVE',
+        newState: 'DELETED',
+        reason: `Geo-fence zone ${deleted.name} deleted.`
+      });
+    }
 
-    this.createAuditLog({
+    return deleted;
+  }
+
+  async addSurgeZone(payload, adminId, adminName) {
+    let surge;
+    if (this.pricingRepo && typeof this.pricingRepo.createSurgeZone === 'function') {
+      surge = await this.pricingRepo.createSurgeZone(payload, { id: adminId, name: adminName });
+    } else {
+      surge = {
+        id: `surge_${Date.now()}`,
+        zoneId: payload.zoneId || 'zone_connaught',
+        zoneName: payload.zoneName || 'High Demand Zone',
+        service: payload.service || 'RIDE',
+        vehicleType: payload.vehicleType || 'ALL',
+        surgeMultiplier: Number(payload.surgeMultiplier) || 1.25,
+        maxMultiplier: Number(payload.maxMultiplier) || 2.5,
+        startTime: payload.startTime || '17:00',
+        endTime: payload.endTime || '21:00',
+        priority: payload.priority || 'HIGH',
+        status: 'ACTIVE',
+        reason: payload.reason || 'Peak hour surge deployment',
+        createdAt: new Date().toISOString()
+      };
+      this.surgeZones.unshift(surge);
+    }
+
+    await this.createAuditLog({
       adminId,
       adminName,
       role: 'ADMIN',

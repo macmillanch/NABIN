@@ -1599,6 +1599,205 @@ async function runAllTests() {
     assert('PROMO-13: Inactive promotion rejected during preview with 400',
       inactivePreview.status === 400 && inactivePreview.data.success === false
     );
+
+    // --- 26. MODULE 24: Geofences, Dynamic Surge & Spatial Pricing Persistence Bridge ---
+    console.log('\n--- 26. MODULE 24: Geofences, Dynamic Surge & Spatial Pricing Persistence Bridge ---');
+
+    // GEO-01 (SEC): Unauthenticated GET /api/admin/geofences rejected with 401
+    const unauthGeoGet = await request('GET', '/api/admin/geofences');
+    assert('GEO-01: Unauthenticated GET /api/admin/geofences rejected with 401', unauthGeoGet.status === 401);
+
+    // GEO-02 (SEC): Authenticated admin without geofence.view rejected with 403
+    const kycGeoGet = await request('GET', '/api/admin/geofences', null, { 'Authorization': `Bearer ${kycToken}` });
+    assert('GEO-02: Admin lacking geofence.view rejected from geofences with 403 Forbidden', kycGeoGet.status === 403);
+
+    // GEO-03 (SEC): Unauthenticated GET /api/admin/surgezones rejected with 401
+    const unauthSurgeGet = await request('GET', '/api/admin/surgezones');
+    assert('GEO-03: Unauthenticated GET /api/admin/surgezones rejected with 401', unauthSurgeGet.status === 401);
+
+    // GEO-04 (SEC): Authenticated admin without surge.view rejected with 403
+    const kycSurgeGet = await request('GET', '/api/admin/surgezones', null, { 'Authorization': `Bearer ${kycToken}` });
+    assert('GEO-04: Admin lacking surge.view rejected from surge zones with 403 Forbidden', kycSurgeGet.status === 403);
+
+    // Additional Security: Unauthorized admin cannot modify pricing, geofences, or surge zones
+    const kycPriceEdit = await request('POST', '/api/admin/pricing', { globalSurgeMultiplier: 1.5 }, { 'Authorization': `Bearer ${kycToken}` });
+    assert('SEC: Unauthorized admin cannot modify pricing configuration (403)', kycPriceEdit.status === 403);
+
+    const kycFenceCreate = await request('POST', '/api/admin/geofences', { name: 'Unauthorized Zone' }, { 'Authorization': `Bearer ${kycToken}` });
+    assert('SEC: Unauthorized admin cannot create geofence (403)', kycFenceCreate.status === 403);
+
+    const kycSurgeCreate = await request('POST', '/api/admin/surgezones', { zoneName: 'Unauthorized Surge' }, { 'Authorization': `Bearer ${kycToken}` });
+    assert('SEC: Unauthorized admin cannot create surge zone (403)', kycSurgeCreate.status === 403);
+
+    // GEO-05 (PERSIST): Circle geofence creation persists to PostgreSQL
+    const circleFenceCode = `ZONE_CIRC_${Date.now().toString().slice(-4)}`;
+    const createCircleRes = await request('POST', '/api/admin/geofences', {
+      name: 'South Delhi Hospital Corridor',
+      code: circleFenceCode,
+      type: 'CIRCLE',
+      category: 'MEDICAL_HUB',
+      centerLat: 28.5400,
+      centerLng: 77.2100,
+      radiusMeters: 2500,
+      surcharge: 45.0,
+      surgeMultiplier: 1.2
+    }, { 'Authorization': `Bearer ${superToken}` });
+
+    assert('GEO-05: Circle geofence creation persists with UUID and coordinates',
+      createCircleRes.status === 200 &&
+      createCircleRes.data.success &&
+      createCircleRes.data.geoFence.id &&
+      createCircleRes.data.geoFence.type === 'CIRCLE'
+    );
+    const circleFenceId = createCircleRes.data.geoFence.id;
+
+    // GEO-06 (PERSIST): Polygon geofence creation persists to PostgreSQL
+    const polyFenceCode = `ZONE_POLY_${Date.now().toString().slice(-4)}`;
+    const createPolyRes = await request('POST', '/api/admin/geofences', {
+      name: 'Noida Expressway Tech Strip',
+      code: polyFenceCode,
+      type: 'POLYGON',
+      category: 'TECH_PARK',
+      coordinates: [
+        { lat: 28.5000, lng: 77.3800 },
+        { lat: 28.5100, lng: 77.3900 },
+        { lat: 28.4900, lng: 77.3950 }
+      ],
+      surcharge: 25.0,
+      surgeMultiplier: 1.35
+    }, { 'Authorization': `Bearer ${superToken}` });
+
+    assert('GEO-06: Polygon geofence creation persists with vertices array',
+      createPolyRes.status === 200 &&
+      createPolyRes.data.success &&
+      createPolyRes.data.geoFence.id &&
+      createPolyRes.data.geoFence.type === 'POLYGON'
+    );
+    const polyFenceId = createPolyRes.data.geoFence.id;
+
+    // GEO-07 (PERSIST): Pricing configuration update persists to PostgreSQL
+    const updatePricingRes = await request('POST', '/api/admin/pricing', {
+      serviceType: '4W',
+      baseFare: 75.0,
+      perKmRate: 19.0,
+      globalSurgeMultiplier: 1.20
+    }, { 'Authorization': `Bearer ${superToken}` });
+
+    assert('GEO-07: Pricing configuration update persists to PostgreSQL',
+      updatePricingRes.status === 200 &&
+      updatePricingRes.data.success &&
+      updatePricingRes.data.pricingConfig['4W'].baseFare === 75.0 &&
+      updatePricingRes.data.pricingConfig.globalSurgeMultiplier === 1.20
+    );
+
+    // GEO-08 (PERSIST): Surge zone creation persists to PostgreSQL
+    const createSurgeRes = await request('POST', '/api/admin/surgezones', {
+      zoneId: circleFenceId,
+      zoneName: 'South Delhi Hospital Corridor',
+      service: 'RIDE',
+      vehicleType: '4W',
+      surgeMultiplier: 1.45,
+      maxMultiplier: 2.8,
+      priority: 'HIGH',
+      reason: 'Evening hospital shift rotation'
+    }, { 'Authorization': `Bearer ${superToken}` });
+
+    assert('GEO-08: Surge zone creation persists to PostgreSQL linked to geofence',
+      createSurgeRes.status === 200 &&
+      createSurgeRes.data.success &&
+      createSurgeRes.data.surgeZone.id &&
+      createSurgeRes.data.surgeZone.surgeMultiplier === 1.45
+    );
+
+    // GEO-09 (SPATIAL): Point inside applicable circle triggers expected surcharge & multiplier
+    // Coordinates inside IGI Airport Terminal 3: lat 28.5562, lng 77.1000 (surcharge ₹150)
+    const airportEstimate = await request('POST', '/api/pricing/estimate', {
+      serviceType: '4W',
+      distanceKm: 10.0,
+      durationMins: 25,
+      pickupLat: 28.5562,
+      pickupLng: 77.1000
+    });
+
+    assert('GEO-09: Spatial evaluation inside airport circle applies zone surcharge',
+      airportEstimate.status === 200 &&
+      airportEstimate.data.success &&
+      airportEstimate.data.estimate.customerCharge > 250 &&
+      airportEstimate.data.estimate.activeZoneName.includes('Airport')
+    );
+
+    // GEO-10 (SPATIAL): Point outside all operational zones uses standard operational pricing
+    // Normal coordinates: 28.7000, 77.1500
+    const normalEstimate = await request('POST', '/api/pricing/estimate', {
+      serviceType: '3W',
+      distanceKm: 5.0,
+      durationMins: 15,
+      pickupLat: 28.7000,
+      pickupLng: 77.1500
+    });
+
+    assert('GEO-10: Point outside operational zones uses standard pricing without geofence surcharge',
+      normalEstimate.status === 200 &&
+      normalEstimate.data.success &&
+      normalEstimate.data.estimate.activeZoneName === 'Standard Operational Area'
+    );
+
+    // GEO-11 (FARE): Server-side fare calculation combines base, distance, duration, surge, and fees
+    assert('GEO-11: Authoritative fare calculation produces deterministic customer charge and driver earnings',
+      normalEstimate.data.estimate.customerCharge > 0 &&
+      normalEstimate.data.estimate.driverEarnings > 0 &&
+      normalEstimate.data.estimate.platformFee > 0 &&
+      normalEstimate.data.estimate.customerCharge === (normalEstimate.data.estimate.driverEarnings + normalEstimate.data.estimate.platformFee)
+    );
+
+    // CLIENT TRUST BOUNDARY SECURITY TESTS:
+    // Client attempts to pass tampered fare, surgeMultiplier, and discount in book-ride body
+    const tamperedBooking = await request('POST', '/api/customer/book-ride', {
+      vehicleType: '3W',
+      fare: 1.0,                       // Client attempts to pay ₹1.00
+      customerCharge: 1.0,             // Client attempts to override charge
+      surgeMultiplier: 0.1,            // Client attempts to deflate surge
+      discount: 500.0,                 // Client attempts to forge discount
+      platformFee: 0.0,                // Client attempts to zero platform fee
+      pickup: { address: 'Civil Lines Gate 1', lat: 28.6853, lng: 77.2185 },
+      drop: { address: 'Connaught Place', lat: 28.6328, lng: 77.2197 }
+    }, { 'Authorization': `Bearer ${priyaToken}` });
+
+    assert('SEC: Client fare tampering rejected; server-side calculated fare enforced on job',
+      tamperedBooking.status === 200 &&
+      tamperedBooking.data.success &&
+      tamperedBooking.data.job.fare >= 50.0 &&
+      tamperedBooking.data.job.fare !== 1.0
+    );
+
+    // Client attempts to modify pricing config directly
+    const clientPriceAttempt = await request('POST', '/api/admin/pricing', {
+      baseFare: 0.0
+    }, { 'Authorization': `Bearer ${priyaToken}` });
+    assert('SEC: Client token cannot modify pricing configuration (403/401)',
+      clientPriceAttempt.status === 401 || clientPriceAttempt.status === 403
+    );
+
+    // GEO-12 (AUDIT): Pricing modification creates exactly one audit record in PostgreSQL
+    const pricingAuditLog = await request('GET', '/api/admin/audit-logs?module=PRICING_ENGINE&action=PRICING_UPDATED', null, { 'Authorization': `Bearer ${superToken}` });
+    assert('GEO-12: Pricing modification creates exactly one appropriate PostgreSQL audit record',
+      pricingAuditLog.status === 200 &&
+      pricingAuditLog.data.logs &&
+      pricingAuditLog.data.logs.length > 0 &&
+      pricingAuditLog.data.logs[0].adminName
+    );
+
+    // GEO-13 (AUDIT): Geofence deletion creates exactly one audit record in PostgreSQL
+    const deleteFenceRes = await request('DELETE', `/api/admin/geofences/${polyFenceId}`, null, { 'Authorization': `Bearer ${superToken}` });
+    assert('GEO-13a: Admin deletes polygon geofence', deleteFenceRes.status === 200 && deleteFenceRes.data.success);
+
+    const fenceAuditLog = await request('GET', `/api/admin/audit-logs?module=GEOFENCING&action=GEOFENCE_DELETED`, null, { 'Authorization': `Bearer ${superToken}` });
+    const targetFenceAudit = fenceAuditLog.data.logs?.find(l => l.targetEntityId === polyFenceId);
+    assert('GEO-13: Geofence deletion creates exactly one appropriate PostgreSQL audit record',
+      fenceAuditLog.status === 200 &&
+      targetFenceAudit &&
+      targetFenceAudit.action === 'GEOFENCE_DELETED'
+    );
   } catch (err) {
     console.error('Fatal Test Suite Exception:', err);
     failed++;

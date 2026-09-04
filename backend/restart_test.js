@@ -173,6 +173,38 @@ async function runRestartTest() {
     });
     assert('Promotion redeemed before restart (usageCount = 1)', redeemPreRestart.status === 200 && redeemPreRestart.data.usageCount === 1);
 
+    // 6c. Create persistent pricing config, geofence, and surge zone before restart
+    const preRestartPricing = await request('POST', '/api/admin/pricing', {
+      serviceType: '2W',
+      baseFare: 28.0,
+      perKmRate: 9.5,
+      globalSurgeMultiplier: 1.18
+    }, { 'Authorization': `Bearer ${adminToken}` });
+    assert('Custom 2W pricing configured before restart (baseFare = 28.0)', preRestartPricing.status === 200 && preRestartPricing.data.pricingConfig['2W'].baseFare === 28.0);
+
+    const restartFenceCode = `ZONE_RST_${Date.now().toString().slice(-4)}`;
+    const preRestartFence = await request('POST', '/api/admin/geofences', {
+      name: 'Restart Test Aero City Zone',
+      code: restartFenceCode,
+      type: 'CIRCLE',
+      centerLat: 28.5500,
+      centerLng: 77.1200,
+      radiusMeters: 2000,
+      surcharge: 65.0,
+      surgeMultiplier: 1.25
+    }, { 'Authorization': `Bearer ${adminToken}` });
+    assert('Geofence created before restart', preRestartFence.status === 200 && preRestartFence.data.geoFence.id);
+    const restartFenceId = preRestartFence.data.geoFence.id;
+
+    const preRestartSurge = await request('POST', '/api/admin/surgezones', {
+      zoneId: restartFenceId,
+      zoneName: 'Restart Test Aero City Zone',
+      service: 'RIDE',
+      surgeMultiplier: 1.35,
+      maxMultiplier: 2.5
+    }, { 'Authorization': `Bearer ${adminToken}` });
+    assert('Surge zone created before restart', preRestartSurge.status === 200 && preRestartSurge.data.surgeZone.id);
+
     console.log('\n--- 🛑 SIMULATING BACKEND TERMINATION & RESTART ---');
     // Terminate existing server listening on port 4000 (do not kill test runner itself)
     try {
@@ -255,6 +287,41 @@ async function runRestartTest() {
     assert('Promotion redemption idempotency survived server restart and returned existing redemption',
       postDuplicatePromoRedeem.status === 200 &&
       (postDuplicatePromoRedeem.data.duplicate === true || postDuplicatePromoRedeem.data.idempotent === true)
+    );
+
+    // 12c. Verify Pricing Configuration, Geofence, and Surge Zone SURVIVED restart
+    const postPricingRes = await request('GET', '/api/admin/pricing', null, { 'Authorization': `Bearer ${postAdminToken}` });
+    assert('Custom 2W pricing survived server restart in PostgreSQL (baseFare = 28.0)',
+      postPricingRes.status === 200 &&
+      postPricingRes.data.pricingConfig['2W'].baseFare === 28.0 &&
+      postPricingRes.data.pricingConfig.globalSurgeMultiplier === 1.18
+    );
+
+    const postFencesRes = await request('GET', '/api/admin/geofences', null, { 'Authorization': `Bearer ${postAdminToken}` });
+    const persistedFence = postFencesRes.data.geoFences?.find(g => g.id === restartFenceId || g.code === restartFenceCode);
+    assert('Geofence zone survived server restart in PostgreSQL',
+      persistedFence &&
+      persistedFence.surcharge === 65.0
+    );
+
+    const postSurgeRes = await request('GET', '/api/admin/surgezones', null, { 'Authorization': `Bearer ${postAdminToken}` });
+    const persistedSurge = postSurgeRes.data.surgeZones?.find(s => s.zoneId === restartFenceId || s.zoneName === 'Restart Test Aero City Zone');
+    assert('Surge zone survived server restart in PostgreSQL',
+      persistedSurge &&
+      persistedSurge.surgeMultiplier === 1.35
+    );
+
+    const postEstimate = await request('POST', '/api/pricing/estimate', {
+      serviceType: '2W',
+      distanceKm: 4.0,
+      durationMins: 10,
+      pickupLat: 28.5500,
+      pickupLng: 77.1200
+    });
+    assert('Post-restart spatial fare calculation correctly integrates persisted geofence surcharge',
+      postEstimate.status === 200 &&
+      postEstimate.data.success &&
+      postEstimate.data.estimate.customerCharge > 100
     );
 
     // 13. Test Production Fail-Closed Security Guard
