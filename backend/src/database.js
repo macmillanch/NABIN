@@ -10,6 +10,7 @@ const SupportTicketRepository = require('./repositories/SupportTicketRepository'
 const AuditLogRepository = require('./repositories/AuditLogRepository');
 const PromotionRepository = require('./repositories/PromotionRepository');
 const PricingRepository = require('./repositories/PricingRepository');
+const IdentityRepository = require('./repositories/IdentityRepository');
 
 // Shared relational store with durable persistence, crash recovery & double-entry accounting
 class NabinDatabase {
@@ -222,8 +223,11 @@ class NabinDatabase {
         vehiclePlate: 'DL 1RA 4892',
         dl: 'DL-04201992019',
         rating: 4.92,
-        status: 'VERIFIED',
-        kycStatus: 'VERIFIED',
+        status: 'AVAILABLE',
+        kycStatus: 'PENDING',
+        verifiedUpiId: null,
+        upiId: null,
+        payoutUpiVerified: false,
         driverState: 'ONLINE',
         isOnline: true,
         operationalStatus: 'ACTIVE',
@@ -1719,6 +1723,7 @@ class NabinDatabase {
     this.auditLogRepo = new AuditLogRepository(this);
     this.promotionRepo = new PromotionRepository(this);
     this.pricingRepo = new PricingRepository(this);
+    this.identityRepo = new IdentityRepository(this);
   }
 
   save() {
@@ -1799,8 +1804,14 @@ class NabinDatabase {
             vehiclePlate: row.vehicle_number,
             dl: row.license_number,
             rating: parseFloat(row.rating || 5.0),
-            status: 'VERIFIED',
-            kycStatus: 'VERIFIED',
+            userId: row.user_id || null,
+            user_id: row.user_id || null,
+            kycStatus: row.kyc_status || 'PENDING',
+            status: row.operational_status || 'AVAILABLE',
+            verifiedUpiId: row.verified_upi_id || null,
+            pendingUpiId: row.pending_upi_id || null,
+            payoutUpiVerified: Boolean(row.payout_upi_verified),
+            vpaVerificationMethod: row.vpa_verification_method || null,
             driverState: row.is_online ? 'ONLINE' : 'OFFLINE',
             isOnline: Boolean(row.is_online),
             operationalStatus: row.operational_status || 'AVAILABLE',
@@ -2097,10 +2108,119 @@ class NabinDatabase {
         this.surgeZones = dbSurge.map(r => this.pricingRepo ? this.pricingRepo.mapSurgeZoneRowToDTO(r) : r);
       }
 
-      console.log(`✅ Authoritative PostgreSQL state synchronized (${this.users.length} users, ${this.drivers.length} drivers, ${this.jobs.length} jobs, ${this.ledgerEntries.length} ledger entries, ${this.adminUsers.length} admin accounts, ${this.supportTickets.length} support tickets, ${this.auditLogs.length} audit logs, ${this.promotions.length} promotions, ${Object.keys(this.pricingConfig).length} pricing configs, ${this.geoFences.length} geofences, ${this.surgeZones.length} surge zones).`);
+      // 12. Hydrate or Seed Identity Applications from PostgreSQL
+      const { data: dbDocs, error: idErr } = await supabaseAdmin
+        .from('identity_documents')
+        .select('*')
+        .order('submitted_at', { ascending: false });
+
+      if (!idErr && dbDocs && dbDocs.length > 0) {
+        for (const row of dbDocs) {
+          let legacyUserId = null;
+          if (row.user_id === '00000000-0000-0000-0000-000000000001') legacyUserId = 'usr_1';
+          else if (row.user_id === '00000000-0000-0000-0000-000000000002') legacyUserId = 'usr_2';
+          else if (row.user_id === '00000000-0000-0000-0000-000000000003') legacyUserId = 'usr_3';
+
+          const user = this.getUser(legacyUserId || row.user_id);
+          const mapped = this.identityRepo ? this.identityRepo.mapRowToDTO(row, user) : row;
+          const existingIdx = this.identityApplications.findIndex(a => a.id === mapped.id || a.uuid === row.id);
+          if (existingIdx !== -1) {
+            this.identityApplications[existingIdx] = { ...this.identityApplications[existingIdx], ...mapped };
+          } else {
+            this.identityApplications.push(mapped);
+          }
+        }
+      } else if (!idErr && (!dbDocs || dbDocs.length === 0) && this.identityApplications.length > 0) {
+        const rowsToInsert = this.identityApplications.map(app => {
+          const userUuid = this.userRepo ? this.userRepo.resolveUuid(app.userId) : null;
+          const appUuid = this.identityRepo ? this.identityRepo.resolveAppUuid(app.id) : null;
+          const row = {
+            user_id: userUuid,
+            aadhaar_number_raw: app.aadhaarNumberRaw,
+            aadhaar_number_masked: app.aadhaarNumberMasked,
+            aadhaar_doc_url: app.aadhaarDocUrl,
+            voter_id_number_raw: app.voterIdNumberRaw,
+            voter_id_number_masked: app.voterIdNumberMasked,
+            voter_id_doc_url: app.voterIdDocUrl,
+            review_status: app.status === 'IDENTITY_VERIFICATION_PENDING' ? 'SUBMITTED' : app.status,
+            reviewed_by_admin_id: app.assignedReviewerId || null,
+            rejection_reason: app.rejectionReason || null,
+            resubmission_reason: app.resubmissionReason || null,
+            submitted_at: app.submissionDate || new Date().toISOString(),
+            verified_at: app.status === 'VERIFIED' ? (app.updatedAt || new Date().toISOString()) : null
+          };
+          if (appUuid) row.id = appUuid;
+          return row;
+        }).filter(r => r.user_id);
+
+        if (rowsToInsert.length > 0) {
+          await supabaseAdmin.from('identity_documents').insert(rowsToInsert);
+        }
+      }
+
+      // 13. Hydrate Payment Sessions from PostgreSQL
+      const { data: dbSessions, error: sErr } = await supabaseAdmin
+        .from('payment_sessions')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(200);
+
+      if (!sErr && dbSessions && dbSessions.length > 0) {
+        if (!this.paymentSessions) this.paymentSessions = new Map();
+        for (const row of dbSessions) {
+          const dto = this.paymentRepo ? this.paymentRepo.mapSessionRowToDTO(row) : row;
+          this.paymentSessions.set(row.order_id, dto);
+        }
+      }
+
+      // 14. Hydrate Driver Payouts from PostgreSQL
+      const { data: dbPayouts, error: poErr } = await supabaseAdmin
+        .from('driver_payouts')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(200);
+
+      if (!poErr && dbPayouts && dbPayouts.length > 0) {
+        for (const po of dbPayouts) {
+          let legacyDriverId = null;
+          if (po.driver_id === '00000000-0000-0000-0000-000000000101') legacyDriverId = 'DRV-101';
+          else if (po.driver_id === '00000000-0000-0000-0000-000000000102') legacyDriverId = 'DRV-102';
+          else if (po.driver_id === '00000000-0000-0000-0000-000000000103') legacyDriverId = 'DRV-103';
+
+          if (!this.transactions.some(t => t.id === po.payout_id)) {
+            this.transactions.unshift({
+              id: po.payout_id,
+              type: 'PAYOUT',
+              jobId: null,
+              userId: legacyDriverId || po.driver_id,
+              userRole: 'DRIVER',
+              driverId: legacyDriverId || po.driver_id,
+              title: `Instant UPI Payout to ${po.upi_id}`,
+              amount: -parseFloat(po.amount),
+              platformFee: 0,
+              commission: 0,
+              deliveryFee: 0,
+              net: -parseFloat(po.amount),
+              paymentMode: 'UPI_DIRECT',
+              paymentStatus: po.status === 'SETTLED' ? 'SUCCESS' : po.status,
+              settlementStatus: 'COMPLETED',
+              time: po.created_at
+            });
+          }
+        }
+      }
+
+      this.postgresReady = true;
+      console.log(`✅ Authoritative PostgreSQL state synchronized (${this.users.length} users, ${this.drivers.length} drivers, ${this.jobs.length} jobs, ${this.ledgerEntries.length} ledger entries, ${this.adminUsers.length} admin accounts, ${this.supportTickets.length} support tickets, ${this.auditLogs.length} audit logs, ${this.promotions.length} promotions, ${Object.keys(this.pricingConfig).length} pricing configs, ${this.geoFences.length} geofences, ${this.surgeZones.length} surge zones, ${this.identityApplications.length} identity applications, ${this.paymentSessions ? this.paymentSessions.size : 0} payment sessions).`);
     } catch (err) {
       console.warn('⚠️ initPostgres notice:', err.message);
     }
+  }
+
+  isPostgresReady() {
+    const { isLivePostgres, supabaseAdmin } = require('./supabase');
+    if (!isLivePostgres || !supabaseAdmin) return true;
+    return Boolean(this.postgresReady);
   }
 
   // --- Platform Service Controls & Emergency Killswitch ---
@@ -2869,38 +2989,61 @@ class NabinDatabase {
     };
   }
 
-  processFinancialAdjustment(targetType, targetId, direction, amount, reason, adminId, adminName) {
+  async processFinancialAdjustment(targetType, targetId, direction, amount, reason, adminId, adminName) {
     const amt = Number(amount);
     if (!amt || amt <= 0) return { success: false, error: 'Invalid adjustment amount' };
 
+    const isCredit = direction === 'CREDIT';
+    const deltaAmount = isCredit ? amt : -amt;
+
     let targetEntity = null;
+    let ownerUuid = null;
     if (targetType === 'DRIVER') {
       targetEntity = this.getDriver(targetId);
-      if (targetEntity) {
-        if (direction === 'CREDIT') targetEntity.walletBalance += amt;
-        else targetEntity.walletBalance -= amt;
-      }
+      ownerUuid = this.driverRepo?.resolveUuid(targetId) || targetEntity?.uuid || null;
     } else if (targetType === 'CUSTOMER') {
       targetEntity = this.getUser(targetId);
-      if (targetEntity) {
-        if (direction === 'CREDIT') targetEntity.walletBalance += amt;
-        else targetEntity.walletBalance -= amt;
-      }
+      ownerUuid = this.userRepo?.resolveUuid(targetId) || targetEntity?.uuid || null;
     }
 
     if (!targetEntity) return { success: false, error: `${targetType} record not found` };
 
+    const adjId = `TXN-ADJ-${Date.now().toString().slice(-4)}`;
+
+    if (this.ledgerRepo && ownerUuid) {
+      try {
+        const rpcResult = await this.ledgerRepo.adjustWallet({
+          ownerId: ownerUuid,
+          ownerType: targetType,
+          amount: deltaAmount,
+          category: 'WALLET_TOPUP',
+          description: `Financial Adjustment (${direction}): ${reason || 'Admin adjustment'}`,
+          referenceId: adjId,
+          debitAccount: isCredit ? 'PAYMENT_GATEWAY_ESCROW' : (targetType === 'DRIVER' ? 'DRIVER_EARNINGS_PAYABLE' : 'CUSTOMER_WALLET_LIABILITY'),
+          creditAccount: isCredit ? (targetType === 'DRIVER' ? 'DRIVER_EARNINGS_PAYABLE' : 'CUSTOMER_WALLET_LIABILITY') : 'PAYMENT_GATEWAY_ESCROW'
+        });
+        if (rpcResult && rpcResult.success) {
+          targetEntity.walletBalance = Number(rpcResult.balance);
+        }
+      } catch (err) {
+        return { success: false, error: `Persistent adjustment failed: ${err.message}` };
+      }
+    } else {
+      if (direction === 'CREDIT') targetEntity.walletBalance += amt;
+      else targetEntity.walletBalance -= amt;
+    }
+
     const txn = {
-      id: `TXN-ADJ-${Date.now().toString().slice(-4)}`,
+      id: adjId,
       type: 'FINANCIAL_ADJUSTMENT',
       userId: targetId,
       userRole: targetType,
       title: `Financial Adjustment (${direction}): ${reason}`,
-      amount: direction === 'CREDIT' ? amt : -amt,
+      amount: deltaAmount,
       platformFee: 0,
       commission: 0,
       deliveryFee: 0,
-      net: direction === 'CREDIT' ? amt : -amt,
+      net: deltaAmount,
       paymentMode: 'ADMIN_ADJUSTMENT',
       paymentStatus: 'SUCCESS',
       settlementStatus: 'SETTLED',
@@ -2909,7 +3052,7 @@ class NabinDatabase {
 
     this.transactions.unshift(txn);
 
-    this.createAuditLog({
+    await this.createAuditLog({
       adminId,
       adminName,
       role: 'ADMIN',
@@ -2922,6 +3065,7 @@ class NabinDatabase {
       reason: reason || `Admin financial adjustment of ₹${amt}`
     });
 
+    this.save();
     return { success: true, transaction: txn, updatedBalance: targetEntity.walletBalance };
   }
 
@@ -3128,7 +3272,11 @@ class NabinDatabase {
   }
 
   // --- Identity Verification Methods ---
-  submitIdentityApplication(payload) {
+  async submitIdentityApplication(payload) {
+    if (this.identityRepo && typeof this.identityRepo.submitApplication === 'function') {
+      return await this.identityRepo.submitApplication(payload);
+    }
+
     const {
       userId,
       name,
@@ -3292,10 +3440,11 @@ class NabinDatabase {
   }
 
   getIdentityApplicationById(id) {
-    return this.identityApplications.find(a => a.id === id);
+    if (!id) return null;
+    return this.identityApplications.find(a => a.id === id || a.uuid === id);
   }
 
-  lockIdentityApplication(id, adminId, adminName) {
+  async lockIdentityApplication(id, adminId, adminName) {
     const app = this.getIdentityApplicationById(id);
     if (!app) return { success: false, error: 'Application not found' };
 
@@ -3324,7 +3473,7 @@ class NabinDatabase {
     }
     app.updatedAt = new Date().toISOString();
 
-    this.createAuditLog({
+    await this.createAuditLog({
       adminId,
       adminName,
       role: 'ADMIN',
@@ -3356,7 +3505,11 @@ class NabinDatabase {
     return { success: true, application: app };
   }
 
-  reviewIdentityApplication(id, decision, reason, checklist, adminId, adminName) {
+  async reviewIdentityApplication(id, decision, reason, checklist, adminId, adminName) {
+    if (this.identityRepo && typeof this.identityRepo.reviewApplication === 'function') {
+      return await this.identityRepo.reviewApplication(id, decision, reason, checklist, adminId, adminName);
+    }
+
     const app = this.getIdentityApplicationById(id);
     if (!app) return { success: false, error: 'Application not found' };
 
@@ -3364,7 +3517,7 @@ class NabinDatabase {
     const previousStatus = app.status;
 
     if (decision === 'APPROVE') {
-      if (checklist && (!checklist.infoMatches || !checklist.aadhaarValid || !checklist.voterIdValid)) {
+      if (!checklist || !checklist.infoMatches || !checklist.aadhaarValid || !checklist.voterIdValid) {
         return {
           success: false,
           error: 'Cannot approve application without verifying that all documents and personal details match.'
@@ -3492,28 +3645,45 @@ class NabinDatabase {
   }
 
   // --- Driver Operational Status Control ---
-  setDriverStatus(driverId, operationalStatus, reason, adminId, adminName) {
+  async setDriverStatus(driverId, operationalStatus, reason, adminId, adminName, kycStatus = null) {
     const driver = this.getDriver(driverId);
     if (!driver) return { success: false, error: 'Driver not found' };
 
     const prev = driver.operationalStatus || 'APPROVED';
-    driver.operationalStatus = operationalStatus;
-    driver.suspensionReason = reason || '';
-
-    if (operationalStatus === 'SUSPENDED') {
-      driver.isOnline = false;
+    if (operationalStatus) {
+      driver.operationalStatus = operationalStatus;
+      driver.suspensionReason = reason || '';
+      if (operationalStatus === 'SUSPENDED') {
+        driver.isOnline = false;
+        driver.driverState = 'SUSPENDED';
+      }
+    }
+    if (kycStatus) {
+      driver.kycStatus = kycStatus;
     }
 
-    this.createAuditLog({
+    if (this.driverRepo) {
+      try {
+        await this.driverRepo.updateDriverStatus(driver.id, {
+          operationalStatus,
+          kycStatus,
+          reason
+        });
+      } catch (dbErr) {
+        console.warn('⚠️ Driver status DB update notice:', dbErr.message);
+      }
+    }
+
+    await this.createAuditLog({
       adminId,
       adminName,
       role: 'ADMIN',
-      action: operationalStatus === 'SUSPENDED' ? 'DRIVER_SUSPENDED' : 'DRIVER_ACTIVATED',
+      action: kycStatus ? `DRIVER_KYC_${kycStatus}` : (operationalStatus === 'SUSPENDED' ? 'DRIVER_SUSPENDED' : 'DRIVER_ACTIVATED'),
       module: 'DRIVER_FLEET',
       targetEntityType: 'DRIVER',
       targetEntityId: driver.id,
       previousState: prev,
-      newState: operationalStatus,
+      newState: operationalStatus || kycStatus,
       reason: reason || `Driver operational status set to ${operationalStatus}`
     });
 
@@ -3565,6 +3735,15 @@ class NabinDatabase {
     return match || this.drivers[0];
   }
 
+  resolveVerifiedUpiId(driverId) {
+    const driver = this.getDriver(driverId);
+    if (!driver) return null;
+    if (driver.payoutUpiVerified && driver.verifiedUpiId) {
+      return driver.verifiedUpiId;
+    }
+    return null;
+  }
+
   getUser(id = 'usr_1') {
     if (!id) return this.users[0];
     const found = this.userRepo ? this.userRepo.findById(id) : null;
@@ -3579,7 +3758,7 @@ class NabinDatabase {
 
   async createJob(jobData) {
     const newJob = {
-      id: jobData.id || `JOB-${Date.now().toString().slice(-4)}`,
+      id: jobData.id || `JOB-${Date.now().toString().slice(-6)}-${Math.floor(100 + Math.random() * 900)}`,
       status: jobData.status || 'SEARCHING',
       driverId: jobData.driverId || null,
       startOtp: Math.floor(1000 + Math.random() * 9000).toString(),
@@ -3774,7 +3953,10 @@ class NabinDatabase {
     return job;
   }
 
-  recordPayout(driverId, amount, upiId) {
+  async recordPayout(driverId, amount, upiId, idempotencyKey = null) {
+    if (this.paymentRepo) {
+      return await this.paymentRepo.recordDriverPayout({ driverId, amount, upiId, idempotencyKey });
+    }
     const driver = this.getDriver(driverId);
     if (driver && driver.walletBalance >= amount) {
       driver.walletBalance -= amount;
@@ -5152,7 +5334,12 @@ class NabinDatabase {
   // PROVIDER CHECKOUT ORDER & VERIFICATION ENGINE (SANDBOX / LIVE)
   // =========================================================================
 
-  createPaymentSession({ customerId, amount, currency = 'INR', serviceType = 'RIDE', jobId = null, metadata = {} }) {
+  async createPaymentSession(args) {
+    if (this.paymentRepo) {
+      return await this.paymentRepo.createPaymentSession(args);
+    }
+
+    const { customerId, amount, currency = 'INR', serviceType = 'RIDE', jobId = null, metadata = {} } = args;
     if (!amount || amount <= 0) {
       throw new Error('Valid transaction amount is required to create a payment session.');
     }
@@ -5201,7 +5388,19 @@ class NabinDatabase {
     return session;
   }
 
-  async verifyPaymentSession({ orderId, paymentId, signature, status = 'SUCCESS', failureReason = null }) {
+  async getPaymentSession(orderId) {
+    if (this.paymentRepo) {
+      return await this.paymentRepo.getPaymentSession(orderId);
+    }
+    return this.paymentSessions ? this.paymentSessions.get(orderId) : null;
+  }
+
+  async verifyPaymentSession(args) {
+    if (this.paymentRepo) {
+      return await this.paymentRepo.verifyPaymentSession(args);
+    }
+
+    const { orderId, paymentId, signature, status = 'SUCCESS', failureReason = null } = args;
     if (!this.paymentSessions) this.paymentSessions = new Map();
     const session = this.paymentSessions.get(orderId);
 

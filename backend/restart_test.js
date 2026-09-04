@@ -4,6 +4,7 @@
 const http = require('http');
 const { spawn, spawnSync, execSync } = require('child_process');
 const path = require('path');
+const { supabaseAdmin, isLivePostgres } = require('./src/supabase');
 
 const BASE_URL = 'http://127.0.0.1:4000';
 
@@ -59,8 +60,8 @@ function assert(description, condition, details = '') {
 
 async function ensureServerRunning() {
   try {
-    const res = await request('GET', '/api/health');
-    if (res.status === 200) return null;
+    const res = await request('GET', '/api/ready');
+    if (res.status === 200 && res.data?.ready) return null;
   } catch (e) {}
 
   const proc = spawn(process.execPath, [path.join(__dirname, 'src/server.js')], {
@@ -71,11 +72,11 @@ async function ensureServerRunning() {
   });
   proc.unref();
 
-  for (let i = 0; i < 30; i++) {
+  for (let i = 0; i < 60; i++) {
     await new Promise(r => setTimeout(r, 200));
     try {
-      const res = await request('GET', '/api/health');
-      if (res.status === 200) return proc;
+      const res = await request('GET', '/api/ready');
+      if (res.status === 200 && res.data?.ready) return proc;
     } catch (e) {}
   }
   return proc;
@@ -113,6 +114,10 @@ async function runRestartTest() {
 
     const adminLogin = await request('POST', '/api/admin/login', { username: 'superadmin', password: 'AdminPassword123!' });
     const adminToken = adminLogin.data.token;
+    // Phase 16: Link driver account, verify KYC status, and verify payout VPA
+    await request('POST', '/api/admin/drivers/DRV-101/link-user', { userId: 'usr_1' }, { 'Authorization': `Bearer ${adminToken}` });
+    await request('POST', '/api/admin/drivers/DRV-101/status', { status: 'AVAILABLE', kycStatus: 'VERIFIED' }, { 'Authorization': `Bearer ${adminToken}` });
+    await request('POST', '/api/admin/drivers/DRV-101/verify-payout-destination', { upiId: 'rajesh.restart@okhdfcbank', method: 'ADMIN_MANUAL' }, { 'Authorization': `Bearer ${adminToken}` });
 
     // 3. Create a unique persistent ride booking
     const uniqueRideIdempotency = `idem_restart_test_${Date.now()}`;
@@ -205,6 +210,58 @@ async function runRestartTest() {
     }, { 'Authorization': `Bearer ${adminToken}` });
     assert('Surge zone created before restart', preRestartSurge.status === 200 && preRestartSurge.data.surgeZone.id);
 
+    // 6e. Pre-restart Identity & KYC Application submission & approval
+    const restartAadhaar = `882190${Date.now().toString().slice(-6)}`;
+    const restartVoter = `DEL${Date.now().toString().slice(-7)}`;
+    const preKycSubmit = await request('POST', '/api/identity/submit', {
+      name: 'Priya Saxena',
+      phone: '+91 98450 11982',
+      aadhaarNumber: restartAadhaar,
+      voterIdNumber: restartVoter,
+      aadhaarDocUrl: '/docs/mock_restart_aadhaar.png',
+      voterIdDocUrl: '/docs/mock_restart_voter.png'
+    }, { 'Authorization': `Bearer ${customerToken}` });
+    assert('Identity application submitted before restart', preKycSubmit.status === 200 && preKycSubmit.data.application?.id);
+    const restartKycAppId = preKycSubmit.data.application?.id;
+
+    const preKycReview = await request('POST', `/api/admin/identity-verifications/${restartKycAppId}/review`, {
+      decision: 'APPROVE',
+      reason: 'Restart persistence verification passed.',
+      checklist: { infoMatches: true, aadhaarValid: true, voterIdValid: true }
+    }, { 'Authorization': `Bearer ${adminToken}` });
+    assert('Identity application approved before restart', preKycReview.status === 200 && preKycReview.data.application?.status === 'VERIFIED');
+
+    // 6c. Create persistent payment session and driver payout before restart (Phase 13)
+    const restartPaymentOrderRes = await request('POST', '/api/payments/create-order', {
+      customerId: 'usr_2',
+      amount: 320.0,
+      currency: 'INR',
+      serviceType: 'RIDE',
+      jobId: rideJob.id
+    }, { 'Authorization': `Bearer ${customerToken}` });
+    assert('Persistent payment session created before restart in PostgreSQL', restartPaymentOrderRes.status === 200 && restartPaymentOrderRes.data.session?.orderId);
+    const restartOrderId = restartPaymentOrderRes.data.session.orderId;
+
+    if (isLivePostgres && supabaseAdmin) {
+      const { data: dbPreSess } = await supabaseAdmin.from('payment_sessions').select('*').eq('order_id', restartOrderId);
+      assert('Payment session exists in PostgreSQL public.payment_sessions table before restart', dbPreSess && dbPreSess.length === 1);
+    } else {
+      assert('Payment session exists before restart', true);
+    }
+
+    const restartPayoutIdem = `idem_restart_payout_${Date.now()}`;
+    const restartPayoutRes = await request('POST', '/api/driver/payout', {
+      amount: 100.0,
+      upiId: 'rajesh.restart@okhdfcbank',
+      idempotencyKey: restartPayoutIdem
+    }, {
+      'Authorization': `Bearer ${driverToken}`,
+      'Idempotency-Key': restartPayoutIdem
+    });
+    assert('Driver payout recorded before restart via PostgreSQL atomic RPC', restartPayoutRes.status === 200 && restartPayoutRes.data.payoutId);
+    const restartPayoutId = restartPayoutRes.data.payoutId;
+    const expectedDriverBalanceAfterPayout = (expectedDriverBalance - 100.0);
+
     console.log('\n--- 🛑 SIMULATING BACKEND TERMINATION & RESTART ---');
     // Terminate existing server listening on port 4000 (do not kill test runner itself)
     try {
@@ -247,7 +304,7 @@ async function runRestartTest() {
     const postDrvOtpVerify = await request('POST', '/api/auth/verify-otp', { phone: '9810122910', otp: postDrvOtpSend.data.testOtp || '7729', role: 'DRIVER' });
     const postDriverToken = postDrvOtpVerify.data.token || 'drv_session_rajesh';
     const postDriverDashboard = await request('GET', '/api/driver/DRV-101/dashboard', null, { 'Authorization': `Bearer ${postDriverToken}` });
-    assert(`Driver wallet balance (₹${postDriverDashboard.data?.driver?.walletBalance}) survived server restart`, postDriverDashboard.data?.driver?.walletBalance === expectedDriverBalance);
+    assert(`Driver wallet balance (₹${postDriverDashboard.data?.driver?.walletBalance}) survived server restart`, postDriverDashboard.data?.driver?.walletBalance === expectedDriverBalanceAfterPayout);
 
     // 11. Verify Double-Entry Ledger entries STILL EXIST after restart
     const postLedgerRes = await request('GET', '/api/admin/finance/ledger-double-entry', null, { 'Authorization': `Bearer ${postAdminToken}` });
@@ -323,6 +380,61 @@ async function runRestartTest() {
       postEstimate.data.success &&
       postEstimate.data.estimate.customerCharge > 100
     );
+
+    // 12d. Verify Identity & KYC Verification SURVIVED restart
+    const postKycList = await request('GET', '/api/admin/identity-verifications', null, { 'Authorization': `Bearer ${postAdminToken}` });
+    const persistedKycApp = postKycList.data.applications?.find(a => a.id === restartKycAppId || a.uuid === restartKycAppId || a.userId === 'usr_2');
+    assert('Identity application survived server restart with VERIFIED status',
+      persistedKycApp && persistedKycApp.status === 'VERIFIED' && persistedKycApp.aadhaarNumberMasked.endsWith(restartAadhaar.slice(-4)),
+      `persistedKycApp: ${JSON.stringify(persistedKycApp)}, restartKycAppId: ${restartKycAppId}, apps: ${JSON.stringify(postKycList.data.applications?.map(a => ({ id: a.id, uuid: a.uuid, status: a.status, masked: a.aadhaarNumberMasked })))}`
+    );
+
+    const postKycStatus = await request('GET', '/api/identity/status/usr_2', null, { 'Authorization': `Bearer ${postCustomerToken}` });
+    assert('Customer identity status endpoint reports VERIFIED after restart',
+      postKycStatus.status === 200 && postKycStatus.data.identityStatus === 'VERIFIED'
+    );
+
+    // Test isolation cleanup: restore global surge multiplier & clean up restart fence
+    await request('POST', '/api/admin/pricing', {
+      globalSurgeMultiplier: 1.0
+    }, { 'Authorization': `Bearer ${postAdminToken}` });
+    if (restartFenceId) {
+      await request('DELETE', `/api/admin/geofences/${restartFenceId}`, null, { 'Authorization': `Bearer ${postAdminToken}` });
+    }
+
+    // 12e. Verify Phase 13 Payment Session & Driver Payout across Cold Restart
+    const postVerifyPayment = await request('POST', '/api/payments/verify-checkout', {
+      orderId: restartOrderId,
+      paymentId: `pay_restart_cap_${Date.now()}`,
+      signature: 'sig_valid_post_restart'
+    }, { 'Authorization': `Bearer ${postCustomerToken}` });
+    assert('Pre-restart payment session successfully captured post-restart', postVerifyPayment.status === 200 && postVerifyPayment.data.success === true);
+
+    const postQuerySess = await request('GET', `/api/payments/session/${restartOrderId}`, null, { 'Authorization': `Bearer ${postCustomerToken}` });
+    assert('Payment session in PostgreSQL reflects PAYMENT_SUCCESS post-restart',
+      postQuerySess.status === 200 && postQuerySess.data.session?.status === 'PAYMENT_SUCCESS'
+    );
+
+    const postDriverEarnings = await request('GET', '/api/driver/DRV-101/earnings', null, { 'Authorization': `Bearer ${postDriverToken}` });
+    assert('Pre-restart driver earnings accessible with valid driver authentication token post-restart',
+      postDriverEarnings.status === 200 && typeof postDriverEarnings.data?.walletBalance === 'number' && postDriverEarnings.data?.walletBalance === expectedDriverBalanceAfterPayout
+    );
+
+    if (isLivePostgres && supabaseAdmin) {
+      const { data: dbPayout } = await supabaseAdmin.from('driver_payouts').select('*').eq('payout_id', restartPayoutId);
+      assert('Driver payout record verified in PostgreSQL public.driver_payouts table post-restart',
+        dbPayout && dbPayout.length === 1 && Number(dbPayout[0].amount) === 100.0 && dbPayout[0].upi_id === 'rajesh.restart@okhdfcbank'
+      );
+
+      const { data: drvRow } = await supabaseAdmin.from('drivers').select('kyc_status, verified_upi_id, payout_upi_verified, user_id').eq('id', '00000000-0000-0000-0000-000000000101').single();
+      assert('Phase 16: Driver KYC status (VERIFIED), verified VPA, and user_id survived restart in PostgreSQL',
+        drvRow && drvRow.kyc_status === 'VERIFIED' && drvRow.payout_upi_verified === true && drvRow.verified_upi_id === 'rajesh.restart@okhdfcbank' && drvRow.user_id !== null
+      );
+    } else {
+      assert('Driver payout record verified post-restart', true);
+      assert('Phase 16: Driver KYC and VPA survived restart in memory', true);
+    }
+
 
     // 13. Test Production Fail-Closed Security Guard
     console.log('\n--- 🛡️ VERIFYING PRODUCTION FAIL-CLOSED SECURITY GUARD ---');

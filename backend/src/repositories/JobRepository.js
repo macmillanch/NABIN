@@ -1,5 +1,7 @@
 const { supabaseAdmin, isLivePostgres } = require('../supabase');
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 const VALID_JOB_TRANSITIONS = {
   'REQUESTED': [],
   'SEARCHING': ['REQUESTED'],
@@ -114,7 +116,7 @@ class JobRepository {
    * Authoritative Job Creation in PostgreSQL
    */
   async create(jobData) {
-    const jobNumber = jobData.id || `JOB-${Date.now().toString().slice(-4)}`;
+    const jobNumber = jobData.id || `JOB-${Date.now().toString().slice(-6)}-${Math.floor(100 + Math.random() * 900)}`;
     const serviceType = normalizeServiceType(jobData.type || jobData.serviceType);
     const status = jobData.status || 'REQUESTED';
 
@@ -288,6 +290,64 @@ class JobRepository {
       j.status !== 'COMPLETED' &&
       j.status !== 'CANCELLED'
     );
+  }
+
+  resolveJobUuid(jobId) {
+    if (!jobId) return null;
+    if (UUID_REGEX.test(jobId)) return jobId;
+    if (this.db?.jobs) {
+      const j = this.db.jobs.find(x => x.id === jobId || x.jobNumber === jobId || x.uuid === jobId);
+      if (j && j.uuid && UUID_REGEX.test(j.uuid)) return j.uuid;
+    }
+    return null;
+  }
+
+  /**
+   * Phase 16: Atomic Ride Cancellation Engine via PostgreSQL RPC
+   */
+  async cancelRideAtomic({
+    jobId,
+    requesterId,
+    requesterRole = 'CUSTOMER',
+    reason = 'Customer requested cancellation',
+    isDelayedOverride = false
+  }) {
+    if (!jobId) throw new Error('Job ID is required.');
+
+    const targetJobUuid = this.resolveJobUuid(jobId) || jobId;
+    const targetUserUuid = this.db?.userRepo?.resolveUuid(requesterId) || requesterId;
+
+    if (isLivePostgres && supabaseAdmin && UUID_REGEX.test(targetJobUuid)) {
+      const { data: rpcData, error: rpcErr } = await supabaseAdmin.rpc('cancel_ride_atomic', {
+        p_job_id: targetJobUuid,
+        p_requester_id: UUID_REGEX.test(targetUserUuid) ? targetUserUuid : '00000000-0000-0000-0000-000000000001',
+        p_requester_role: requesterRole,
+        p_reason: reason,
+        p_is_delayed_override: Boolean(isDelayedOverride)
+      });
+
+      if (rpcErr) {
+        throw new Error(`cancel_ride_atomic RPC failed: ${rpcErr.message}`);
+      }
+
+      if (!rpcData) {
+        throw new Error('cancel_ride_atomic returned empty response.');
+      }
+
+      if (rpcData.duplicate) {
+        return rpcData;
+      }
+
+      if (!rpcData.success) {
+        const err = new Error(`Cancellation failed: ${rpcData.code || 'UNKNOWN'}`);
+        err.code = rpcData.code;
+        throw err;
+      }
+
+      return rpcData;
+    }
+
+    return null;
   }
 }
 
