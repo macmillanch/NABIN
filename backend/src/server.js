@@ -818,76 +818,188 @@ app.post('/api/admin/drivers/:id/status', authenticateAdmin, (req, res) => {
 });
 
 // -------------------------------------------------------------
-// 2. SUPPORT & DISPUTE RESOLUTION
+// 2. SUPPORT & DISPUTE RESOLUTION (POSTGRESQL-AUTHORITATIVE)
 // -------------------------------------------------------------
-app.post('/api/support/ticket', (req, res) => {
-  const ticket = db.createSupportTicket(req.body);
-  broadcastToAdmins({ type: 'NEW_SUPPORT_TICKET', ticket });
-  res.json({ success: true, ticket });
-});
+function requireSupportCallerAuth(req, res, next) {
+  const authHeader = req.headers['authorization'] || '';
+  const token = authHeader.replace(/^Bearer\s+/, '').trim();
 
-app.get('/api/support/user/:userId', (req, res) => {
-  const tickets = db.supportTickets.filter(t => t.userId === req.params.userId);
-  res.json({ success: true, tickets });
-});
-
-app.post('/api/support/ticket/:id/message', (req, res) => {
-  const { senderRole, senderName, text, attachments } = req.body;
-  const result = db.addTicketMessage(req.params.id, senderRole || 'CUSTOMER', senderName || 'User', text, attachments);
-  if (!result.success) return res.status(400).json(result);
-  
-  broadcastToAdmins({ type: 'TICKET_THREAD_UPDATED', ticketId: req.params.id });
-  res.json(result);
-});
-
-app.get('/api/admin/support', authenticateAdmin, requirePermission('support.view'), (req, res) => {
-  const filters = {
-    status: req.query.status || 'ALL',
-    category: req.query.category || 'ALL',
-    priority: req.query.priority || 'ALL',
-    search: req.query.search || ''
-  };
-  const tickets = db.getSupportTickets(filters);
-  res.json({ success: true, tickets, total: tickets.length });
-});
-
-app.post('/api/admin/support/:id/assign', authenticateAdmin, requirePermission('support.respond'), (req, res) => {
-  const result = db.assignSupportTicket(req.params.id, req.admin.id, req.admin.name);
-  if (!result.success) return res.status(400).json(result);
-  res.json(result);
-});
-
-app.post('/api/admin/support/:id/resolve', authenticateAdmin, requirePermission('support.resolve'), (req, res) => {
-  const { resolutionNotes, refundAmount, specializedData } = req.body;
-  const result = db.resolveSupportTicket(
-    req.params.id,
-    resolutionNotes,
-    refundAmount,
-    req.admin.id,
-    req.admin.name,
-    specializedData || req.body
-  );
-  if (!result.success) return res.status(400).json(result);
-  
-  broadcastToCustomer(result.ticket.userId, {
-    type: 'SUPPORT_TICKET_RESOLVED',
-    ticketId: result.ticket.id,
-    category: result.ticket.category,
-    resolutionType: result.ticket.resolutionType,
-    refundAmount: result.ticket.refundAmount
-  });
-
-  if (result.ticket.driverId) {
-    broadcastToDrivers({
-      type: 'DRIVER_DISPUTE_SETTLED',
-      ticketId: result.ticket.id,
-      driverId: result.ticket.driverId,
-      resolutionType: result.ticket.resolutionType,
-      driverAdjusted: Boolean(result.driver)
+  if (!token) {
+    return res.status(401).json({
+      success: false,
+      error: 'Unauthorized: Authentication token required. Please log in with Bearer token.',
+      requestId: req.id
     });
   }
 
-  res.json(result);
+  // 1. Check admin sessions
+  let admin = activeAdminSessions.get(token);
+  if (!admin) {
+    const session = db.getSessionByToken(token);
+    if (session && (session.role === 'ADMIN' || session.role === 'SUPER_ADMIN')) {
+      admin = session.entity || { id: session.entityId, name: 'Admin', role: session.role };
+    }
+  }
+  if (admin) {
+    req.admin = admin;
+    req.caller = {
+      id: admin.id || 'admin',
+      name: admin.name || 'Admin',
+      role: 'ADMIN',
+      type: 'ADMIN'
+    };
+    return next();
+  }
+
+  // 2. Check user/driver/merchant session
+  const session = db.getSessionByToken(token);
+  if (!session) {
+    return res.status(401).json({
+      success: false,
+      error: 'Unauthorized: Invalid or expired session token.',
+      requestId: req.id
+    });
+  }
+
+  if (session.role === 'DRIVER') {
+    const driver = session.entity || db.getDriver(session.entityId);
+    req.driver = driver;
+    req.caller = {
+      id: session.entityId,
+      name: driver ? driver.name : 'Driver',
+      role: 'DRIVER',
+      type: 'DRIVER'
+    };
+    return next();
+  }
+
+  if (session.role === 'MERCHANT') {
+    const merchant = session.entity || (db.restaurants && db.restaurants[0]);
+    req.merchant = merchant;
+    req.caller = {
+      id: session.entityId,
+      name: merchant ? merchant.name : 'Merchant',
+      role: 'MERCHANT',
+      type: 'MERCHANT'
+    };
+    return next();
+  }
+
+  const user = session.entity || db.getUser(session.entityId);
+  req.user = user;
+  req.caller = {
+    id: session.entityId,
+    name: user ? user.name : 'Customer',
+    role: 'CUSTOMER',
+    type: 'CUSTOMER'
+  };
+  next();
+}
+
+app.post('/api/support/ticket', requireSupportCallerAuth, async (req, res) => {
+  try {
+    const ticket = await db.supportTicketRepo.createTicket(req.caller, req.body);
+    broadcastToAdmins({ type: 'NEW_SUPPORT_TICKET', ticket });
+    res.json({ success: true, ticket });
+  } catch (err) {
+    const status = err.statusCode || 400;
+    res.status(status).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+app.get('/api/support/user/:userId', requireSupportCallerAuth, async (req, res) => {
+  try {
+    if (req.caller.role !== 'ADMIN' && req.caller.id !== req.params.userId) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied: You can only view your own support tickets.',
+        requestId: req.id
+      });
+    }
+    const tickets = await db.supportTicketRepo.getTicketsByUser(req.params.userId, req.caller);
+    res.json({ success: true, tickets });
+  } catch (err) {
+    const status = err.statusCode || 500;
+    res.status(status).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+app.post('/api/support/ticket/:id/message', requireSupportCallerAuth, async (req, res) => {
+  try {
+    const result = await db.supportTicketRepo.addMessage(req.params.id, req.body, req.caller);
+    if (!result.success) return res.status(400).json(result);
+
+    broadcastToAdmins({ type: 'TICKET_THREAD_UPDATED', ticketId: req.params.id });
+    res.json(result);
+  } catch (err) {
+    const status = err.statusCode || 400;
+    res.status(status).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+app.get('/api/admin/support', authenticateAdmin, requirePermission('support.view'), async (req, res) => {
+  try {
+    const filters = {
+      status: req.query.status || 'ALL',
+      category: req.query.category || 'ALL',
+      priority: req.query.priority || 'ALL',
+      search: req.query.search || ''
+    };
+    const tickets = await db.supportTicketRepo.getTicketsAdmin(filters);
+    res.json({ success: true, tickets, total: tickets.length });
+  } catch (err) {
+    res.status(err.statusCode || 500).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+app.post('/api/admin/support/:id/assign', authenticateAdmin, requirePermission('support.respond'), async (req, res) => {
+  try {
+    const result = await db.supportTicketRepo.assignTicket(req.params.id, req.admin.id, req.admin.name);
+    if (!result.success) return res.status(400).json(result);
+    res.json(result);
+  } catch (err) {
+    res.status(err.statusCode || 400).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+app.post('/api/admin/support/:id/resolve', authenticateAdmin, requirePermission('support.resolve'), async (req, res) => {
+  try {
+    const { resolutionNotes, refundAmount, specializedData } = req.body;
+    const result = await db.supportTicketRepo.resolveTicket(
+      req.params.id,
+      {
+        resolutionNotes,
+        refundAmount,
+        specializedData: specializedData || req.body
+      },
+      req.admin.id,
+      req.admin.name,
+      req.admin.role
+    );
+    if (!result.success) return res.status(400).json(result);
+
+    broadcastToCustomer(result.ticket.userId, {
+      type: 'SUPPORT_TICKET_RESOLVED',
+      ticketId: result.ticket.id,
+      category: result.ticket.category,
+      resolutionType: result.ticket.resolutionType,
+      refundAmount: result.ticket.refundAmount
+    });
+
+    if (result.ticket.driverId) {
+      broadcastToDrivers({
+        type: 'DRIVER_DISPUTE_SETTLED',
+        ticketId: result.ticket.id,
+        driverId: result.ticket.driverId,
+        resolutionType: result.ticket.resolutionType,
+        driverAdjusted: Boolean(result.driver)
+      });
+    }
+
+    res.json(result);
+  } catch (err) {
+    res.status(err.statusCode || 400).json({ success: false, error: err.message, requestId: req.id });
+  }
 });
 
 // -------------------------------------------------------------

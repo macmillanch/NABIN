@@ -1,6 +1,7 @@
 const http = require('http');
 const { spawn } = require('child_process');
 const path = require('path');
+const { supabaseAdmin, isLivePostgres } = require('./src/supabase');
 
 const BASE_URL = 'http://127.0.0.1:4000';
 
@@ -149,6 +150,7 @@ async function runAllTests() {
 
     // --- 4. MODULE 2: Support & Dispute Resolution ---
     console.log('\n--- 4. MODULE 2: Support & Dispute Resolution ---');
+    const priyaToken = 'usr_session_priya';
     const createTicket = await request('POST', '/api/support/ticket', {
       category: 'FARE_DISPUTE',
       userId: 'usr_2',
@@ -157,7 +159,7 @@ async function runAllTests() {
       jobId: 'JOB-101',
       title: 'Double payment charged at metro drop',
       description: 'UPI transaction deducted twice'
-    });
+    }, { 'Authorization': `Bearer ${priyaToken}` });
     assert('Customer creates support ticket', createTicket.status === 200 && createTicket.data.success);
     const ticketId = createTicket.data.ticket.id;
 
@@ -166,7 +168,7 @@ async function runAllTests() {
       senderRole: 'CUSTOMER',
       senderName: 'Priya Saxena',
       text: 'Attaching bank screenshot evidence.'
-    });
+    }, { 'Authorization': `Bearer ${priyaToken}` });
     assert('Append message thread to support ticket', addMsg.status === 200 && addMsg.data.ticket.messages.length >= 2);
 
     // Admin resolves ticket with wallet refund
@@ -182,6 +184,13 @@ async function runAllTests() {
     assert('Admin resolves dispute & automatically credits user wallet balance', 
       resolveTicket.status === 200 && resolveTicket.data.ticket.status === 'RESOLVED' && resolveTicket.data.user.walletBalance >= 85.0
     );
+
+    // Reset seed tickets to OPEN for test suite repeatability
+    if (isLivePostgres && supabaseAdmin) {
+      await supabaseAdmin.from('support_tickets')
+        .update({ status: 'OPEN', resolution_notes: null, resolved_at: null })
+        .in('ticket_number', ['TCK-9481', 'TCK-9479']);
+    }
 
     // Test Specialized LOST_ITEM Resolution (TCK-9481)
     const resolveLostItem = await request('POST', '/api/admin/support/TCK-9481/resolve', {
@@ -1090,6 +1099,155 @@ async function runAllTests() {
       finalRahulChildren.status === 200 &&
       !finalRahulChildren.data.children.some(c => c.id === rahulChildId || c.id === standaloneChildId)
     );
+    // --- 23. MODULE 21: Customer Support & Dispute Resolution Persistence Bridge ---
+    console.log('\n--- 23. MODULE 21: Customer Support & Dispute Resolution Persistence Bridge ---');
+
+    // 1. SEC: Unauthenticated requests rejected with HTTP 401
+    const noAuthTicket = await request('POST', '/api/support/ticket', {
+      title: 'Unauthenticated Ticket',
+      description: 'Should fail with 401'
+    });
+    assert('POST /api/support/ticket rejects unauthenticated request with 401', noAuthTicket.status === 401 && noAuthTicket.data.success === false);
+
+    const noAuthUserTickets = await request('GET', '/api/support/user/usr_1');
+    assert('GET /api/support/user/:userId rejects unauthenticated request with 401', noAuthUserTickets.status === 401 && noAuthUserTickets.data.success === false);
+
+    const noAuthMsg = await request('POST', '/api/support/ticket/TCK-9480/message', {
+      text: 'Unauthenticated message'
+    });
+    assert('POST /api/support/ticket/:id/message rejects unauthenticated request with 401', noAuthMsg.status === 401 && noAuthMsg.data.success === false);
+
+    // 2. SEC: Tenant isolation: User A cannot read User B tickets (HTTP 403)
+    const crossUserRead = await request('GET', '/api/support/user/usr_2', null, { 'Authorization': `Bearer ${rahulToken}` });
+    assert('User A cannot read User B support tickets (HTTP 403 Forbidden)', crossUserRead.status === 403 && crossUserRead.data.success === false);
+
+    // 3. SEC: Cross-user message append rejected with 404 (ID enumeration protection)
+    const crossUserMsg = await request('POST', `/api/support/ticket/${ticketId}/message`, {
+      text: 'Rahul trying to inject into Priya ticket'
+    }, { 'Authorization': `Bearer ${rahulToken}` });
+    assert('User A cannot append message to User B support ticket (HTTP 404 Not Found)', crossUserMsg.status === 404);
+
+    // 4. SEC: Anti-spoofing: Server enforces identity, ignores client-forged senderRole/userId
+    const spoofedTicketRes = await request('POST', '/api/support/ticket', {
+      userId: 'usr_2',
+      userRole: 'ADMIN',
+      userName: 'Devika Singhania',
+      title: 'Spoofed identity ticket',
+      description: 'Attempting to claim admin identity',
+      category: 'GENERAL',
+      priority: 'CRITICAL'
+    }, { 'Authorization': `Bearer ${rahulToken}` });
+    assert('POST /api/support/ticket creates ticket binding authenticated identity (ignoring spoofed userId/userRole)',
+      spoofedTicketRes.status === 200 &&
+      spoofedTicketRes.data.success &&
+      spoofedTicketRes.data.ticket.userId !== 'usr_2' &&
+      spoofedTicketRes.data.ticket.userRole === 'CUSTOMER'
+    );
+    const rahulDisputeId = spoofedTicketRes.data.ticket.id;
+
+    // 5. SEC: Job Dispute Authorization: Customer cannot dispute a job they did not book
+    const invalidJobDispute = await request('POST', '/api/support/ticket', {
+      title: 'Dispute for unbooked trip',
+      description: 'Trying to dispute someone else trip',
+      jobId: 'JOB-101' // Belongs to Priya (usr_2), not Rahul (usr_1)
+    }, { 'Authorization': `Bearer ${rahulToken}` });
+    assert('Dispute on unparticipated job rejected with 403 Forbidden', invalidJobDispute.status === 403 && invalidJobDispute.data.success === false);
+
+    // 6. PERSISTENCE: Append message thread with attachments and server-side senderRole
+    const appendMsgRes = await request('POST', `/api/support/ticket/${rahulDisputeId}/message`, {
+      text: 'Adding more information about the issue.',
+      senderRole: 'SUPER_ADMIN', // Forged senderRole must be overridden by server
+      attachments: ['https://storage.nabin.in/evidence1.jpg']
+    }, { 'Authorization': `Bearer ${rahulToken}` });
+    assert('Append message thread enforces server-determined senderRole (CUSTOMER)',
+      appendMsgRes.status === 200 &&
+      appendMsgRes.data.success &&
+      appendMsgRes.data.message.senderRole === 'CUSTOMER' &&
+      appendMsgRes.data.message.attachments.length === 1
+    );
+
+    // 7. ADMIN RBAC: KYC Specialist cannot resolve dispute (requires support.resolve)
+    const unauthorizedResolve = await request('POST', `/api/admin/support/${rahulDisputeId}/resolve`, {
+      resolutionNotes: 'Unauthorized attempt by KYC',
+      refundAmount: 50.0
+    }, { 'Authorization': `Bearer ${kycToken}` });
+    assert('Admin without support.resolve permission rejected with 403 Forbidden', unauthorizedResolve.status === 403);
+
+    // 8. ADMIN: Assign ticket to admin
+    const assignRes = await request('POST', `/api/admin/support/${rahulDisputeId}/assign`, {}, {
+      'Authorization': `Bearer ${superToken}`
+    });
+    assert('POST /api/admin/support/:id/assign updates ticket assignment and status',
+      assignRes.status === 200 && assignRes.data.success && assignRes.data.ticket.status === 'IN_PROGRESS'
+    );
+
+    // 9. FINANCIAL: Authorized admin resolves dispute with refund via adjust_wallet_atomic
+    const rahulUserBefore = await request('GET', '/api/auth/me', null, { 'Authorization': `Bearer ${rahulToken}` });
+    const prevBalance = rahulUserBefore.data.user.walletBalance || 0.0;
+
+    const resolveWithRefund = await request('POST', `/api/admin/support/${rahulDisputeId}/resolve`, {
+      resolutionNotes: 'Dispute verified. Crediting ₹120 to user wallet.',
+      refundAmount: 120.0,
+      specializedData: {
+        resolutionType: 'DISPUTE_REFUND_GRANTED'
+      }
+    }, { 'Authorization': `Bearer ${superToken}` });
+
+    assert('Authorized admin resolves ticket with atomic double-entry refund',
+      resolveWithRefund.status === 200 &&
+      resolveWithRefund.data.success &&
+      resolveWithRefund.data.ticket.status === 'RESOLVED' &&
+      resolveWithRefund.data.ticket.refundAmount === 120.0
+    );
+
+    const rahulUserAfter = await request('GET', '/api/auth/me', null, { 'Authorization': `Bearer ${rahulToken}` });
+    assert('Customer wallet balance authoritatively incremented by refund amount',
+      rahulUserAfter.status === 200 && rahulUserAfter.data.user.walletBalance >= prevBalance + 120.0
+    );
+
+    // 10. FINANCIAL IDEMPOTENCY: Repeated resolve request on resolved ticket rejected with 400
+    const duplicateResolve = await request('POST', `/api/admin/support/${rahulDisputeId}/resolve`, {
+      resolutionNotes: 'Duplicate refund attempt',
+      refundAmount: 120.0
+    }, { 'Authorization': `Bearer ${superToken}` });
+    assert('Duplicate resolution request on resolved ticket is rejected with 400 (no double refund)',
+      duplicateResolve.status === 400 && duplicateResolve.data.success === false
+    );
+
+    // 11. DRIVER SANCTIONS: Authorized admin resolves SAFETY_INCIDENT with SUSPEND_48H
+    const safetyTicketRes = await request('POST', '/api/support/ticket', {
+      title: 'Dangerous driving incident',
+      description: 'Driver ran multiple red lights and refused to slow down.',
+      category: 'SAFETY_INCIDENT',
+      priority: 'CRITICAL',
+      driverId: 'DRV-101'
+    }, { 'Authorization': `Bearer ${priyaToken}` });
+    assert('Safety Incident ticket created', safetyTicketRes.status === 200 && safetyTicketRes.data.success);
+    const safetyTicketId = safetyTicketRes.data.ticket.id;
+
+    const sanctionResolveRes = await request('POST', `/api/admin/support/${safetyTicketId}/resolve`, {
+      resolutionNotes: 'GPS and dashcam confirm dangerous driving. Driver suspended for 48 hours.',
+      refundAmount: 0.0,
+      specializedData: {
+        driverSanction: 'SUSPEND_48H',
+        resolutionType: 'SAFETY_INCIDENT_RESOLVED'
+      }
+    }, { 'Authorization': `Bearer ${superToken}` });
+
+    assert('Admin resolves safety incident and suspends driver (operationalStatus = SUSPENDED)',
+      sanctionResolveRes.status === 200 &&
+      sanctionResolveRes.data.success &&
+      sanctionResolveRes.data.ticket.status === 'RESOLVED' &&
+      sanctionResolveRes.data.driver &&
+      sanctionResolveRes.data.driver.operationalStatus === 'SUSPENDED'
+    );
+
+    // Test isolation cleanup: ensure drivers are restored to AVAILABLE
+    if (isLivePostgres && supabaseAdmin) {
+      await supabaseAdmin.from('drivers')
+        .update({ operational_status: 'AVAILABLE', is_online: true })
+        .in('id', ['00000000-0000-0000-0000-000000000101', '00000000-0000-0000-0000-000000000102', '00000000-0000-0000-0000-000000000103']);
+    }
   } catch (err) {
     console.error('Fatal Test Suite Exception:', err);
     failed++;

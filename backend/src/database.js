@@ -6,6 +6,7 @@ const JobRepository = require('./repositories/JobRepository');
 const PaymentRepository = require('./repositories/PaymentRepository');
 const LedgerRepository = require('./repositories/LedgerRepository');
 const SchoolChildRepository = require('./repositories/SchoolChildRepository');
+const SupportTicketRepository = require('./repositories/SupportTicketRepository');
 
 // Shared relational store with durable persistence, crash recovery & double-entry accounting
 class NabinDatabase {
@@ -1711,6 +1712,7 @@ class NabinDatabase {
     this.paymentRepo = new PaymentRepository(this);
     this.ledgerRepo = new LedgerRepository(this);
     this.schoolChildRepo = new SchoolChildRepository(this);
+    this.supportTicketRepo = new SupportTicketRepository(this);
   }
 
   save() {
@@ -1969,7 +1971,45 @@ class NabinDatabase {
         }
       }
 
-      console.log(`✅ Authoritative PostgreSQL state synchronized (${this.users.length} users, ${this.drivers.length} drivers, ${this.jobs.length} jobs, ${this.ledgerEntries.length} ledger entries, ${this.adminUsers.length} admin accounts).`);
+      // 6. Hydrate or Seed Support Tickets from PostgreSQL
+      const { data: dbTickets, error: stErr } = await supabaseAdmin
+        .from('support_tickets')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(200);
+
+      if (!stErr && dbTickets && dbTickets.length > 0) {
+        for (const row of dbTickets) {
+          const mapped = this.supportTicketRepo ? this.supportTicketRepo.mapRowToTicket(row) : row;
+          const existingIdx = this.supportTickets.findIndex(t => t.id === row.ticket_number || t.uuid === row.id || t.id === row.id);
+          if (existingIdx !== -1) {
+            this.supportTickets[existingIdx] = { ...this.supportTickets[existingIdx], ...mapped };
+          } else {
+            this.supportTickets.push(mapped);
+          }
+        }
+      } else if (!stErr && (!dbTickets || dbTickets.length === 0) && this.supportTickets.length > 0) {
+        const rowsToInsert = this.supportTickets.map(t => {
+          const userUuid = this.userRepo ? this.userRepo.resolveUuid(t.userId) : null;
+          return {
+            ticket_number: t.id,
+            user_type: t.userRole || 'CUSTOMER',
+            user_id: userUuid || '00000000-0000-0000-0000-000000000002',
+            job_id: null,
+            category: t.category || 'GENERAL',
+            priority: ['LOW', 'NORMAL', 'HIGH', 'CRITICAL'].includes(t.priority) ? t.priority : 'NORMAL',
+            status: ['OPEN', 'IN_PROGRESS', 'RESOLVED', 'CLOSED'].includes(t.status) ? t.status : 'OPEN',
+            subject: t.title || 'Support Ticket',
+            description: t.description || 'Support Description',
+            messages: t.messages || [],
+            created_at: t.createdAt || new Date().toISOString(),
+            updated_at: t.updatedAt || new Date().toISOString()
+          };
+        });
+        await supabaseAdmin.from('support_tickets').insert(rowsToInsert);
+      }
+
+      console.log(`✅ Authoritative PostgreSQL state synchronized (${this.users.length} users, ${this.drivers.length} drivers, ${this.jobs.length} jobs, ${this.ledgerEntries.length} ledger entries, ${this.adminUsers.length} admin accounts, ${this.supportTickets.length} support tickets).`);
     } catch (err) {
       console.warn('⚠️ initPostgres notice:', err.message);
     }
