@@ -1918,29 +1918,129 @@ app.get('/api/driver/:driverId/earnings', (req, res) => {
   });
 });
 
-// SAVED SCHOOLS & CHILDREN CRUD
-app.get('/api/schools', (req, res) => res.json({ success: true, schools: db.getSchools() }));
-app.post('/api/schools', (req, res) => res.json({ success: true, school: db.addSchool(req.body) }));
-app.put('/api/schools/:id', (req, res) => {
-  const school = db.updateSchool(req.params.id, req.body);
-  if (!school) return res.status(404).json({ success: false, error: 'School not found' });
-  res.json({ success: true, school });
-});
-app.delete('/api/schools/:id', (req, res) => {
-  const deleted = db.deleteSchool(req.params.id);
-  res.json({ success: true, deleted });
+// SAVED SCHOOLS & CHILDREN CRUD (POSTGRESQL-AUTHORITATIVE VIA MIGRATION 015)
+function requireCustomerAuth(req, res, next) {
+  authenticateUser(req, res, () => {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        error: 'Unauthorized: Customer authentication token required. Please log in with Bearer token.',
+        requestId: req.id
+      });
+    }
+    next();
+  });
+}
+
+app.get('/api/schools', requireCustomerAuth, async (req, res) => {
+  try {
+    const schools = await db.schoolChildRepo.getSchoolsByUser(req.user.id);
+    res.json({ success: true, schools });
+  } catch (err) {
+    res.status(err.statusCode || 500).json({ success: false, error: err.message, requestId: req.id });
+  }
 });
 
-app.get('/api/children', (req, res) => res.json({ success: true, children: db.getChildren() }));
-app.post('/api/children', (req, res) => res.json({ success: true, child: db.addChild(req.body) }));
-app.put('/api/children/:id', (req, res) => {
-  const child = db.updateChild(req.params.id, req.body);
-  if (!child) return res.status(404).json({ success: false, error: 'Child not found' });
-  res.json({ success: true, child });
+app.post('/api/schools', requireCustomerAuth, async (req, res) => {
+  try {
+    const { name, address, latitude, longitude } = req.body || {};
+    if (!name || typeof name !== 'string' || !name.trim()) {
+      return res.status(400).json({ success: false, error: 'Missing required field: name', requestId: req.id });
+    }
+    if (!address || typeof address !== 'string' || !address.trim()) {
+      return res.status(400).json({ success: false, error: 'Missing required field: address', requestId: req.id });
+    }
+    if (latitude === undefined || latitude === null || isNaN(Number(latitude))) {
+      return res.status(400).json({ success: false, error: 'Missing or invalid required field: latitude', requestId: req.id });
+    }
+    if (longitude === undefined || longitude === null || isNaN(Number(longitude))) {
+      return res.status(400).json({ success: false, error: 'Missing or invalid required field: longitude', requestId: req.id });
+    }
+    const school = await db.schoolChildRepo.createSchool(req.user.id, req.body);
+    res.json({ success: true, school });
+  } catch (err) {
+    res.status(err.statusCode || 500).json({ success: false, error: err.message, requestId: req.id });
+  }
 });
-app.delete('/api/children/:id', (req, res) => {
-  const deleted = db.deleteChild(req.params.id);
-  res.json({ success: true, deleted });
+
+app.put('/api/schools/:id', requireCustomerAuth, async (req, res) => {
+  try {
+    const school = await db.schoolChildRepo.updateSchool(req.params.id, req.user.id, req.body);
+    if (!school) return res.status(404).json({ success: false, error: 'School not found', requestId: req.id });
+    res.json({ success: true, school });
+  } catch (err) {
+    res.status(err.statusCode || 500).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+app.delete('/api/schools/:id', requireCustomerAuth, async (req, res) => {
+  try {
+    const deleted = await db.schoolChildRepo.deleteSchool(req.params.id, req.user.id);
+    if (!deleted) return res.status(404).json({ success: false, error: 'School not found', requestId: req.id });
+    res.json({ success: true, deleted });
+  } catch (err) {
+    res.status(err.statusCode || 500).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+app.get('/api/children', requireCustomerAuth, async (req, res) => {
+  try {
+    const children = await db.schoolChildRepo.getChildrenByUser(req.user.id);
+    res.json({ success: true, children });
+  } catch (err) {
+    res.status(err.statusCode || 500).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+app.post('/api/children', requireCustomerAuth, async (req, res) => {
+  try {
+    const { fullName, gradeClass, guardianName, guardianPhone, defaultPickupAddress, pickupLat, pickupLng } = req.body || {};
+    if (!fullName || typeof fullName !== 'string' || !fullName.trim()) {
+      return res.status(400).json({ success: false, error: 'Missing required field: fullName', requestId: req.id });
+    }
+    if (!gradeClass || typeof gradeClass !== 'string' || !gradeClass.trim()) {
+      return res.status(400).json({ success: false, error: 'Missing required field: gradeClass', requestId: req.id });
+    }
+    if (!guardianName || typeof guardianName !== 'string' || !guardianName.trim()) {
+      return res.status(400).json({ success: false, error: 'Missing required field: guardianName', requestId: req.id });
+    }
+    if (!guardianPhone || typeof guardianPhone !== 'string' || !guardianPhone.trim()) {
+      return res.status(400).json({ success: false, error: 'Missing required field: guardianPhone', requestId: req.id });
+    }
+    if (!defaultPickupAddress || typeof defaultPickupAddress !== 'string' || !defaultPickupAddress.trim()) {
+      return res.status(400).json({ success: false, error: 'Missing required field: defaultPickupAddress', requestId: req.id });
+    }
+    if (pickupLat === undefined || pickupLat === null || isNaN(Number(pickupLat))) {
+      return res.status(400).json({ success: false, error: 'Missing or invalid required field: pickupLat', requestId: req.id });
+    }
+    if (pickupLng === undefined || pickupLng === null || isNaN(Number(pickupLng))) {
+      return res.status(400).json({ success: false, error: 'Missing or invalid required field: pickupLng', requestId: req.id });
+    }
+    const child = await db.schoolChildRepo.createChild(req.user.id, req.body);
+    res.json({ success: true, child });
+  } catch (err) {
+    res.status(err.statusCode || 500).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+app.put('/api/children/:id', requireCustomerAuth, async (req, res) => {
+  try {
+    const child = await db.schoolChildRepo.updateChild(req.params.id, req.user.id, req.body);
+    if (!child) return res.status(404).json({ success: false, error: 'Child not found', requestId: req.id });
+    res.json({ success: true, child });
+  } catch (err) {
+    res.status(err.statusCode || 500).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+app.delete('/api/children/:id', requireCustomerAuth, async (req, res) => {
+  try {
+    const deleted = await db.schoolChildRepo.deleteChild(req.params.id, req.user.id);
+    if (!deleted) return res.status(404).json({ success: false, error: 'Child not found', requestId: req.id });
+    res.json({ success: true, deleted });
+  } catch (err) {
+    res.status(err.statusCode || 500).json({ success: false, error: err.message, requestId: req.id });
+  }
 });
 
 // MASTER ADMIN METRICS & HEALTH

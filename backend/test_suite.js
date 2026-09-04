@@ -845,6 +845,251 @@ async function runAllTests() {
 
     const readyRes = await request('GET', '/api/ready');
     assert('GET /api/ready returns 200 with operational status', readyRes.status === 200 && readyRes.data.ready === true);
+
+    // --- 22. MODULE 20: School & Child Safe Commute Persistence Bridge ---
+    console.log('\n--- 22. MODULE 20: School & Child Safe Commute Persistence Bridge ---');
+
+    // 1. Unauthenticated Security: Missing/Invalid token rejected with HTTP 401
+    const noAuthSchoolRes = await request('GET', '/api/schools');
+    assert('GET /api/schools rejects unauthenticated request with 401', noAuthSchoolRes.status === 401 && noAuthSchoolRes.data.success === false);
+
+    const noAuthChildRes = await request('GET', '/api/children');
+    assert('GET /api/children rejects unauthenticated request with 401', noAuthChildRes.status === 401 && noAuthChildRes.data.success === false);
+
+    const badAuthSchoolRes = await request('GET', '/api/schools', null, { 'Authorization': 'Bearer invalid_bogus_token' });
+    assert('GET /api/schools rejects invalid session token with 401', badAuthSchoolRes.status === 401 && badAuthSchoolRes.data.success === false);
+
+    // 2. Validation: School required fields & coordinate bounds
+    const missingNameSchool = await request('POST', '/api/schools', {
+      address: 'Main Gate, Civil Lines',
+      latitude: 28.6850,
+      longitude: 77.2180
+    }, { 'Authorization': `Bearer ${rahulToken}` });
+    assert('POST /api/schools rejects missing school name with 400', missingNameSchool.status === 400 && missingNameSchool.data.success === false);
+
+    const badLatSchool = await request('POST', '/api/schools', {
+      name: 'Test School',
+      address: 'Main Gate, Civil Lines',
+      latitude: 110.5,
+      longitude: 77.2180
+    }, { 'Authorization': `Bearer ${rahulToken}` });
+    assert('POST /api/schools rejects invalid latitude (>90) with 400', badLatSchool.status === 400 && badLatSchool.data.success === false);
+
+    // 3. User 1 (Rahul) creates a Saved School
+    const createSchoolRes = await request('POST', '/api/schools', {
+      name: 'St. Xavier Public School',
+      address: 'Civil Lines Road, Delhi',
+      latitude: 28.6850,
+      longitude: 77.2180,
+      isFavorite: true,
+      instructions: 'Pickup at Gate 2',
+      generalTimingSummary: '8:00 AM – 2:00 PM • Mon–Fri'
+    }, { 'Authorization': `Bearer ${rahulToken}` });
+    assert('POST /api/schools creates school with authoritative coordinates and UUID',
+      createSchoolRes.status === 200 &&
+      createSchoolRes.data.success &&
+      createSchoolRes.data.school.id &&
+      createSchoolRes.data.school.name === 'St. Xavier Public School' &&
+      createSchoolRes.data.school.latitude === 28.685
+    );
+    const rahulSchoolId = createSchoolRes.data.school ? createSchoolRes.data.school.id : null;
+
+    // 4. User 1 lists their schools
+    const rahulSchoolsList = await request('GET', '/api/schools', null, { 'Authorization': `Bearer ${rahulToken}` });
+    assert('GET /api/schools returns User 1 saved schools list',
+      rahulSchoolsList.status === 200 &&
+      rahulSchoolsList.data.success &&
+      Array.isArray(rahulSchoolsList.data.schools) &&
+      rahulSchoolsList.data.schools.some(s => s.id === rahulSchoolId)
+    );
+
+    // 5. User 1 updates their school
+    const updateSchoolRes = await request('PUT', `/api/schools/${rahulSchoolId}`, {
+      address: 'Civil Lines Gate 3, Delhi',
+      instructions: 'Security guard verified pickup'
+    }, { 'Authorization': `Bearer ${rahulToken}` });
+    assert('PUT /api/schools/:id updates User 1 school record',
+      updateSchoolRes.status === 200 &&
+      updateSchoolRes.data.success &&
+      updateSchoolRes.data.school.address === 'Civil Lines Gate 3, Delhi'
+    );
+
+    // 6. User 2 (Priya) CANNOT read User 1\'s school
+    const priyaSchoolsList = await request('GET', '/api/schools', null, { 'Authorization': `Bearer ${customerToken}` });
+    assert('User A cannot read User B schools (tenant isolation)',
+      priyaSchoolsList.status === 200 &&
+      priyaSchoolsList.data.success &&
+      !priyaSchoolsList.data.schools.some(s => s.id === rahulSchoolId)
+    );
+
+    // 7. User 2 CANNOT update User 1\'s school (Returns 404)
+    const priyaUpdateSchool = await request('PUT', `/api/schools/${rahulSchoolId}`, {
+      name: 'Malicious Rename'
+    }, { 'Authorization': `Bearer ${customerToken}` });
+    assert('User A cannot update User B school (returns 404)', priyaUpdateSchool.status === 404);
+
+    // 8. User 2 CANNOT delete User 1\'s school (Returns 404)
+    const priyaDeleteSchool = await request('DELETE', `/api/schools/${rahulSchoolId}`, null, { 'Authorization': `Bearer ${customerToken}` });
+    assert('User A cannot delete User B school (returns 404)', priyaDeleteSchool.status === 404);
+
+    // 9. Validation: Child required fields and coordinates
+    const missingChildName = await request('POST', '/api/children', {
+      gradeClass: 'Class 4',
+      guardianName: 'Rahul Sharma',
+      guardianPhone: '9876543210',
+      defaultPickupAddress: 'Flat 402, Civil Lines',
+      pickupLat: 28.6853,
+      pickupLng: 77.2185
+    }, { 'Authorization': `Bearer ${rahulToken}` });
+    assert('POST /api/children rejects missing fullName with 400', missingChildName.status === 400);
+
+    const badPickupLng = await request('POST', '/api/children', {
+      fullName: 'Aarav Sharma',
+      gradeClass: 'Class 4',
+      guardianName: 'Rahul Sharma',
+      guardianPhone: '9876543210',
+      defaultPickupAddress: 'Flat 402, Civil Lines',
+      pickupLat: 28.6853,
+      pickupLng: 250.0
+    }, { 'Authorization': `Bearer ${rahulToken}` });
+    assert('POST /api/children rejects invalid pickup longitude (>180) with 400', badPickupLng.status === 400);
+
+    // 10. Cross-User School Reference Attack: User 2 attempts to link User 1\'s school to User 2\'s child
+    const crossUserSchoolChild = await request('POST', '/api/children', {
+      fullName: 'Rhea Saxena',
+      schoolId: rahulSchoolId,
+      gradeClass: 'Class 2',
+      guardianName: 'Priya Saxena',
+      guardianPhone: '9845011982',
+      defaultPickupAddress: 'Saket District Centre',
+      pickupLat: 28.5244,
+      pickupLng: 77.2167
+    }, { 'Authorization': `Bearer ${customerToken}` });
+    assert('POST /api/children rejects cross-user school attachment with 400',
+      crossUserSchoolChild.status === 400 &&
+      crossUserSchoolChild.data.error.includes('school_id')
+    );
+
+    // 11. User 1 creates Child linked to own School (Stripping forbidden fields)
+    const createChildRes = await request('POST', '/api/children', {
+      fullName: 'Aarav Sharma',
+      schoolId: rahulSchoolId,
+      gradeClass: 'Class 4',
+      section: 'Section A',
+      guardianName: 'Rahul Sharma',
+      guardianPhone: '9876543210',
+      defaultPickupAddress: 'Flat 402, Civil Lines, Delhi',
+      pickupLat: 28.6853,
+      pickupLng: 77.2185,
+      specialInstructions: 'Wait for guardian pickup',
+      schoolAddress: 'Forbidden Address Injected',
+      schoolLat: 99.99,
+      schoolLng: 99.99
+    }, { 'Authorization': `Bearer ${rahulToken}` });
+
+    assert('POST /api/children creates child linked to user school and strips forbidden fields',
+      createChildRes.status === 200 &&
+      createChildRes.data.success &&
+      createChildRes.data.child.id &&
+      createChildRes.data.child.schoolId === rahulSchoolId &&
+      createChildRes.data.child.schoolName === 'St. Xavier Public School' &&
+      createChildRes.data.child.schoolAddress === undefined &&
+      createChildRes.data.child.schoolLat === undefined
+    );
+    const rahulChildId = createChildRes.data.child ? createChildRes.data.child.id : null;
+
+    // 12. User 1 creates Standalone Child (no schoolId)
+    const createStandaloneChild = await request('POST', '/api/children', {
+      fullName: 'Ananya Sharma',
+      gradeClass: 'Kindergarten',
+      guardianName: 'Rahul Sharma',
+      guardianPhone: '9876543210',
+      defaultPickupAddress: 'Flat 402, Civil Lines, Delhi',
+      pickupLat: 28.6853,
+      pickupLng: 77.2185
+    }, { 'Authorization': `Bearer ${rahulToken}` });
+    assert('POST /api/children creates standalone child without schoolId',
+      createStandaloneChild.status === 200 &&
+      createStandaloneChild.data.success &&
+      createStandaloneChild.data.child.schoolId === null
+    );
+    const standaloneChildId = createStandaloneChild.data.child ? createStandaloneChild.data.child.id : null;
+
+    // 13. User 1 lists their children
+    const rahulChildrenList = await request('GET', '/api/children', null, { 'Authorization': `Bearer ${rahulToken}` });
+    assert('GET /api/children returns User 1 children profiles',
+      rahulChildrenList.status === 200 &&
+      rahulChildrenList.data.success &&
+      rahulChildrenList.data.children.some(c => c.id === rahulChildId) &&
+      rahulChildrenList.data.children.some(c => c.id === standaloneChildId)
+    );
+
+    // 14. User 1 updates child record
+    const updateChildRes = await request('PUT', `/api/children/${rahulChildId}`, {
+      section: 'Section B',
+      specialInstructions: 'Authorized pickup by uncle permitted with OTP'
+    }, { 'Authorization': `Bearer ${rahulToken}` });
+    assert('PUT /api/children/:id updates child record',
+      updateChildRes.status === 200 &&
+      updateChildRes.data.success &&
+      updateChildRes.data.child.section === 'Section B'
+    );
+
+    // 15. User 2 CANNOT read User 1\'s children
+    const priyaChildrenList = await request('GET', '/api/children', null, { 'Authorization': `Bearer ${customerToken}` });
+    assert('User A cannot read User B children (tenant isolation)',
+      priyaChildrenList.status === 200 &&
+      priyaChildrenList.data.success &&
+      !priyaChildrenList.data.children.some(c => c.id === rahulChildId)
+    );
+
+    // 16. User 2 CANNOT update User 1\'s child (Returns 404)
+    const priyaUpdateChild = await request('PUT', `/api/children/${rahulChildId}`, {
+      fullName: 'Hacked Name'
+    }, { 'Authorization': `Bearer ${customerToken}` });
+    assert('User A cannot update User B child (returns 404)', priyaUpdateChild.status === 404);
+
+    // 17. User 2 CANNOT delete User 1\'s child (Returns 404)
+    const priyaDeleteChild = await request('DELETE', `/api/children/${rahulChildId}`, null, { 'Authorization': `Bearer ${customerToken}` });
+    assert('User A cannot delete User B child (returns 404)', priyaDeleteChild.status === 404);
+
+    // 18. Anti-Tamper: Client-provided user_id injection is ignored
+    const injectUserSchool = await request('POST', '/api/schools', {
+      name: 'Spoofed Owner School',
+      address: 'Hauz Khas',
+      latitude: 28.5494,
+      longitude: 77.2001,
+      userId: '00000000-0000-0000-0000-000000000001',
+      user_id: '00000000-0000-0000-0000-000000000001'
+    }, { 'Authorization': `Bearer ${customerToken}` });
+    assert('Client cannot select another user owner UUID; server binds authenticated identity',
+      injectUserSchool.status === 200 &&
+      injectUserSchool.data.school.userId !== '00000000-0000-0000-0000-000000000001'
+    );
+    const spoofedSchoolId = injectUserSchool.data.school ? injectUserSchool.data.school.id : null;
+
+    // 19. Composite Foreign Key: Deleting school cascades ON DELETE SET NULL to child
+    const deleteSchoolRes = await request('DELETE', `/api/schools/${rahulSchoolId}`, null, { 'Authorization': `Bearer ${rahulToken}` });
+    assert('DELETE /api/schools/:id deletes user school', deleteSchoolRes.status === 200 && deleteSchoolRes.data.success);
+
+    const recheckChildRes = await request('GET', '/api/children', null, { 'Authorization': `Bearer ${rahulToken}` });
+    const preservedChild = recheckChildRes.data.children.find(c => c.id === rahulChildId);
+    assert('Deleting school nullifies child.school_id via composite FK while preserving child profile and fallback schoolName',
+      preservedChild &&
+      preservedChild.schoolId === null &&
+      preservedChild.schoolName === 'St. Xavier Public School'
+    );
+
+    // 20. Clean up test records (test isolation)
+    if (rahulChildId) await request('DELETE', `/api/children/${rahulChildId}`, null, { 'Authorization': `Bearer ${rahulToken}` });
+    if (standaloneChildId) await request('DELETE', `/api/children/${standaloneChildId}`, null, { 'Authorization': `Bearer ${rahulToken}` });
+    if (spoofedSchoolId) await request('DELETE', `/api/schools/${spoofedSchoolId}`, null, { 'Authorization': `Bearer ${customerToken}` });
+
+    const finalRahulChildren = await request('GET', '/api/children', null, { 'Authorization': `Bearer ${rahulToken}` });
+    assert('Test cleanup verified: all temporary test records removed',
+      finalRahulChildren.status === 200 &&
+      !finalRahulChildren.data.children.some(c => c.id === rahulChildId || c.id === standaloneChildId)
+    );
   } catch (err) {
     console.error('Fatal Test Suite Exception:', err);
     failed++;

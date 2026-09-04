@@ -5,6 +5,7 @@ const DriverRepository = require('./repositories/DriverRepository');
 const JobRepository = require('./repositories/JobRepository');
 const PaymentRepository = require('./repositories/PaymentRepository');
 const LedgerRepository = require('./repositories/LedgerRepository');
+const SchoolChildRepository = require('./repositories/SchoolChildRepository');
 
 // Shared relational store with durable persistence, crash recovery & double-entry accounting
 class NabinDatabase {
@@ -1197,9 +1198,6 @@ class NabinDatabase {
         photoUrl: 'https://images.unsplash.com/photo-1543332164-6e82f355badc?w=200',
         schoolId: 'sch_1',
         schoolName: 'ABC Public School',
-        schoolAddress: 'Kamalanagar, Main Road',
-        schoolLat: 28.6912,
-        schoolLng: 77.2114,
         gradeClass: 'Class 5',
         section: 'Section B',
         guardianName: 'Rahul Sharma (Father)',
@@ -1712,6 +1710,7 @@ class NabinDatabase {
     this.jobRepo = new JobRepository(this);
     this.paymentRepo = new PaymentRepository(this);
     this.ledgerRepo = new LedgerRepository(this);
+    this.schoolChildRepo = new SchoolChildRepository(this);
   }
 
   save() {
