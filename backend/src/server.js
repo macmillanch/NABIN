@@ -7,6 +7,7 @@ const crypto = require('crypto');
 const { WebSocketServer } = require('ws');
 const db = require('./database');
 const supabaseHelper = require('./supabase');
+const { supabaseAdmin, isLivePostgres } = supabaseHelper;
 const cloudinaryService = require('./services/cloudinaryService');
 const { MockSandboxPushProvider, FcmV1PushProvider, PushNotificationService } = require('./services/PushNotificationService');
 const { notificationEventBus, NOTIFICATION_EVENTS } = require('./services/NotificationEventBus');
@@ -447,8 +448,33 @@ function authenticateMerchant(req, res, next) {
     });
   }
 
-  req.merchant = session.entity || db.restaurants[0];
+  if (session.role !== 'MERCHANT' && session.role !== 'ADMIN' && session.role !== 'SUPER_ADMIN') {
+    return res.status(403).json({
+      success: false,
+      error: 'Forbidden: Merchant access role required.',
+      requestId: req.id
+    });
+  }
+
+  const merchantId = session.entityId || (session.entity ? (session.entity.id || session.entity.uuid) : null) || 'rest_1';
+  req.merchant = {
+    id: merchantId,
+    entityId: merchantId,
+    name: session.entity?.name || 'Restaurant Merchant',
+    ...(session.entity || {})
+  };
   req.session = session;
+
+  const targetRestaurantId = req.params.restaurantId || req.params.merchantId;
+  if (targetRestaurantId && session.role === 'MERCHANT' && req.merchant.id !== targetRestaurantId) {
+    return res.status(403).json({
+      success: false,
+      error: 'Forbidden: You do not have permission to manage this restaurant menu or orders.',
+      code: 'FORBIDDEN_MERCHANT_IDOR',
+      requestId: req.id
+    });
+  }
+
   next();
 }
 
@@ -2013,7 +2039,21 @@ app.post('/api/customer/book-food', authenticateUser, async (req, res) => {
     });
   }
 
-  const { customerId, restaurantId, items, deliveryAddress, promoCode } = req.body;
+  const {
+    customerId,
+    restaurantId,
+    items,
+    deliveryAddress,
+    promoCode,
+    packagingFee: reqPackFee,
+    deliveryFee: reqDelFee,
+    customerStateCode = '07',
+    merchantStateCode = '07',
+    customerGstin = null,
+    seriesOwnerType = 'MERCHANT',
+    issueInvoiceImmediately = false
+  } = req.body;
+
   const idempotencyKey = req.headers['idempotency-key'] || req.headers['x-idempotency-key'] || req.body.idempotencyKey;
   if (idempotencyKey) {
     const existing = db.jobs.find(j => j.idempotencyKey === idempotencyKey);
@@ -2022,58 +2062,219 @@ app.post('/api/customer/book-food', authenticateUser, async (req, res) => {
     }
   }
 
-  const rest = db.restaurants.find(r => r.id === (restaurantId || 'rest_1')) || db.restaurants[0];
+  const targetRestId = restaurantId || 'rest_1';
+  let rest = db.restaurants.find(r => r.id === targetRestId || r.uuid === targetRestId);
+  let restaurantUuid = targetRestId;
+  let restaurantName = rest?.name || 'Dilli Darbar';
+  let restaurantAddress = rest?.address || 'Connaught Place, New Delhi';
 
-  if (rest.operationalStatus === 'SUSPENDED') {
+  if (isLivePostgres && supabaseAdmin) {
+    try {
+      const { data: dbRest } = await supabaseAdmin.from('merchants').select('*').eq('id', targetRestId).maybeSingle();
+      if (dbRest) {
+        restaurantUuid = dbRest.id;
+        restaurantName = dbRest.name;
+        restaurantAddress = dbRest.address || restaurantAddress;
+        if (dbRest.operational_status === 'SUSPENDED') {
+          return res.status(403).json({
+            success: false,
+            error: `Restaurant ${dbRest.name} is temporarily suspended by NABIN Admin and cannot accept new orders.`
+          });
+        }
+      }
+    } catch (e) {}
+  }
+
+  if (rest && rest.operationalStatus === 'SUSPENDED') {
     return res.status(403).json({
       success: false,
       error: `Restaurant ${rest.name} is temporarily suspended by NABIN Admin and cannot accept new orders.`
     });
   }
 
-  const user = req.user || db.getUser(customerId || 'usr_2');
-  const deliveryPricing = db.calculateFareEstimate({ serviceType: 'FOOD', distanceKm: 3.0, durationMins: 12, promoCode });
-  
-  // Calculate exact item total based on menu
-  let foodTotal = 220.0;
-  if (items && Array.isArray(items)) {
-    foodTotal = items.reduce((sum, itm) => {
-      const match = rest.menu.find(m => itm.includes(m.name));
-      return sum + (match ? match.price : 150);
-    }, 0);
-    if (foodTotal <= 0) foodTotal = 220.0;
+  const user = req.user || db.getUser(customerId || 'usr_2') || { id: customerId || 'usr_2', name: 'Customer Priya', phone: '+91 98450 11982' };
+  const customerUuid = user.uuid || (db.userRepo ? db.userRepo.resolveUuid(user.id) : null) || '00000000-0000-0000-0000-000000000002';
+
+  // 1. Authoritative Cart Validation via MenuRepository
+  let formattedItems = [];
+  if (Array.isArray(items)) {
+    formattedItems = items.map(itm => {
+      if (typeof itm === 'string') {
+        const m = itm.match(/^(\d+)x\s*(.*)$/);
+        const qty = m ? parseInt(m[1], 10) : 1;
+        const name = m ? m[2].trim() : itm.trim();
+        return {
+          productId: `prod_${name.toLowerCase().replace(/[^a-z0-9]/g, '_')}`,
+          name,
+          quantity: qty,
+          price: 150
+        };
+      }
+      return itm;
+    });
   }
 
-  const packagingFee = 15.0;
-  const gst = Math.round((foodTotal + deliveryPricing.customerCharge) * 0.05);
-  const finalTotal = foodTotal + deliveryPricing.customerCharge + packagingFee + gst;
+  let cartResult;
+  try {
+    cartResult = await db.menuRepo.validateCartAndCalculate({
+      merchantId: restaurantUuid,
+      items: formattedItems
+    });
+  } catch (cartErr) {
+    return res.status(400).json({
+      success: false,
+      error: cartErr.message,
+      code: 'CART_VALIDATION_FAILED',
+      requestId: req.id
+    });
+  }
 
+  const foodSubtotal = cartResult.foodSubtotal;
+  const packagingFee = reqPackFee !== undefined ? Number(reqPackFee) : 15.0;
+  const deliveryPricing = db.calculateFareEstimate({ serviceType: 'FOOD', distanceKm: 3.0, durationMins: 12, promoCode });
+  const deliveryFee = reqDelFee !== undefined ? Number(reqDelFee) : deliveryPricing.customerCharge;
+  const platformFee = 5.0;
+
+  // 2. Authoritative Dynamic Tax Calculation via TaxCalculationService
+  const taxResult = await db.taxCalculationService.calculateOrderTaxes({
+    serviceType: 'FOOD',
+    components: {
+      'FOOD_ITEM': foodSubtotal,
+      'PACKAGING_FEE': packagingFee,
+      'DELIVERY_FEE': deliveryFee,
+      'PLATFORM_FEE': platformFee
+    },
+    merchantStateCode,
+    customerStateCode
+  });
+
+  const finalTotal = Math.round((taxResult.taxableAmount + taxResult.totalTaxAmount) * 100) / 100;
+
+  // 3. Create Job in PostgreSQL / In-Memory
   const job = await db.createJob({
     type: 'FOOD',
     idempotencyKey: idempotencyKey || null,
-    restaurantId: rest.id,
-    restaurantName: rest.name,
+    restaurantId: restaurantUuid,
+    restaurantName,
+    merchantId: restaurantUuid,
     customerId: user.id,
+    customerUuid,
     customerName: user.name,
     customerPhone: user.phone,
-    pickup: { address: `${rest.name}, ${rest.address}` },
+    pickup: { address: `${restaurantName}, ${restaurantAddress}` },
     drop: { address: deliveryAddress || 'North Campus Girls Hostel, Delhi' },
     distance: '3.0 km',
     duration: '12 mins',
     fare: finalTotal,
-    deliveryFee: deliveryPricing.customerCharge,
-    foodSubtotal: foodTotal,
+    fareSubtotal: taxResult.taxableAmount,
+    foodSubtotal,
     packagingFee,
-    gst,
+    deliveryFee,
+    platformFee,
+    gst: taxResult.totalTaxAmount,
+    cgstAmount: taxResult.cgstAmount,
+    sgstAmount: taxResult.sgstAmount,
+    igstAmount: taxResult.igstAmount,
     driverEarnings: deliveryPricing.driverEarnings,
-    platformFee: deliveryPricing.platformFee,
     orderStatus: 'PENDING_RESTAURANT',
+    status: 'PENDING_RESTAURANT',
     pickupOtp: Math.floor(1000 + Math.random() * 9000).toString(),
     deliveryOtp: Math.floor(1000 + Math.random() * 9000).toString(),
-    foodItems: items || ['1x Special Dum Biryani (Chicken)', '2x Garlic Butter Naan']
+    foodItems: cartResult.items.map(i => `${i.quantity}x ${i.itemNameSnapshot}`),
+    cartItems: cartResult.items,
+    taxBreakdown: taxResult.breakdown
   });
 
-  broadcastToMerchant(rest.id, {
+  // 4. Persist Historical Snapshots in PostgreSQL (order_items & order_item_modifiers)
+  if (isLivePostgres && supabaseAdmin && job.uuid) {
+    try {
+      for (const itm of cartResult.items) {
+        const { data: insertedItem, error: itmErr } = await supabaseAdmin
+          .from('order_items')
+          .insert([{
+            job_id: job.uuid,
+            product_id: itm.productId,
+            merchant_id: restaurantUuid,
+            item_name_snapshot: itm.itemNameSnapshot,
+            item_sku_snapshot: itm.itemSkuSnapshot,
+            category_snapshot: itm.categorySnapshot,
+            base_unit_price: itm.baseUnitPrice,
+            quantity: itm.quantity,
+            item_subtotal: itm.itemSubtotal,
+            modifiers_subtotal: itm.modifiersSubtotal,
+            total_item_amount: itm.totalItemAmount
+          }])
+          .select()
+          .single();
+
+        if (!itmErr && insertedItem && itm.modifiers && itm.modifiers.length > 0) {
+          const modRows = itm.modifiers.map(m => ({
+            order_item_id: insertedItem.id,
+            modifier_option_id: m.modifierOptionId,
+            group_name_snapshot: m.groupNameSnapshot,
+            option_name_snapshot: m.optionNameSnapshot,
+            price_delta_snapshot: m.priceDeltaSnapshot,
+            quantity: m.quantity || 1
+          }));
+          await supabaseAdmin.from('order_item_modifiers').insert(modRows);
+        }
+      }
+    } catch (snapErr) {
+      console.warn('⚠️ Order snapshot persistence notice:', snapErr.message);
+    }
+  }
+
+  // 5. Optional Pre-payment Invoice (Policy B)
+  let invoice = null;
+  if (issueInvoiceImmediately && db.invoiceRepo) {
+    try {
+      const invRes = await db.invoiceRepo.createTaxInvoice({
+        jobId: job.uuid || job.id,
+        merchantId: restaurantUuid,
+        customerId: customerUuid,
+        seriesOwnerType,
+        merchantLegalName: restaurantName,
+        customerName: user.name,
+        customerPhone: user.phone,
+        customerStateCode,
+        merchantStateCode,
+        isInterState: taxResult.isInterState,
+        foodSubtotal,
+        packagingFee,
+        deliveryFee,
+        platformFee,
+        taxableAmount: taxResult.taxableAmount,
+        cgstAmount: taxResult.cgstAmount,
+        sgstAmount: taxResult.sgstAmount,
+        igstAmount: taxResult.igstAmount,
+        totalTaxAmount: taxResult.totalTaxAmount,
+        finalTotal,
+        taxBreakdownJson: taxResult.breakdown,
+        itemsSummaryJson: cartResult.items
+      });
+      invoice = invRes.invoice;
+    } catch (e) {
+      console.warn('⚠️ Immediate tax invoice notice:', e.message);
+    }
+  }
+
+  // 6. Decoupled Post-Commit Notification Event Bus Emission
+  try {
+    notificationEventBus.publish('FOOD_ORDER_PLACED', {
+      jobId: job.uuid || job.id,
+      orderId: job.id,
+      customerId: user.id,
+      recipientUserId: customerUuid,
+      restaurantId: restaurantUuid,
+      title: 'Order Placed Successfully',
+      body: `Your order from ${restaurantName} has been received and sent to kitchen.`,
+      data: { orderId: job.id, total: finalTotal }
+    });
+  } catch (busErr) {
+    console.warn('⚠️ NotificationEventBus FOOD_ORDER_PLACED notice:', busErr.message);
+  }
+
+  broadcastToMerchant(restaurantUuid, {
     type: 'NEW_FOOD_ORDER',
     order: {
       id: job.id,
@@ -2081,11 +2282,18 @@ app.post('/api/customer/book-food', authenticateUser, async (req, res) => {
       customerPhone: user.phone,
       items: job.foodItems,
       totalAmount: job.fare,
-      deliveryAddress: job.drop.address
+      deliveryAddress: job.drop?.address
     }
   });
 
-  res.json({ success: true, job });
+  res.json({
+    success: true,
+    job,
+    foodSubtotal,
+    taxBreakdown: taxResult,
+    finalTotal,
+    invoice
+  });
 });
 
 // RESTAURANT / MERCHANT API ENDPOINTS
@@ -2100,30 +2308,110 @@ app.get('/api/merchant/:restaurantId/dashboard', authenticateMerchant, (req, res
   });
 });
 
-app.get('/api/merchant/:restaurantId/orders', authenticateMerchant, (req, res) => {
-  const rest = db.restaurants.find(r => r.id === req.params.restaurantId) || db.restaurants[0];
-  const orders = db.jobs.filter(j => j.type === 'FOOD' && (j.restaurantId === rest.id || !j.restaurantId));
+app.get('/api/merchant/:restaurantId/orders', authenticateMerchant, async (req, res) => {
+  const restId = req.params.restaurantId;
+  const orders = db.jobs.filter(j => j.type === 'FOOD' && (j.merchantId === restId || j.restaurantId === restId || (restId === 'rest_1' && !j.merchantId)));
   res.json({ success: true, orders });
 });
 
-app.post(['/api/merchant/:restaurantId/orders/:orderId/status', '/api/merchant/orders/:orderId/status'], (req, res) => {
+app.post(['/api/merchant/:restaurantId/orders/:orderId/status', '/api/merchant/orders/:orderId/status'], authenticateMerchant, async (req, res) => {
   const { status } = req.body;
-  const orderId = req.params.orderId;
-  const job = db.getJob(orderId);
+  const { restaurantId, orderId } = req.params;
+  const job = db.getJob(orderId) || (db.jobRepo ? await db.jobRepo.findByIdAsync(orderId) : null);
 
   if (!job) return res.status(404).json({ success: false, error: 'Order not found' });
 
+  // IDOR check: Order must belong to this merchant
+  const effectiveRestId = restaurantId || req.merchant?.id;
+  if (effectiveRestId && job.merchantId && job.merchantId !== effectiveRestId && job.restaurantId !== effectiveRestId) {
+    return res.status(403).json({
+      success: false,
+      error: 'Forbidden: Order does not belong to this merchant.',
+      code: 'FORBIDDEN_MERCHANT_IDOR',
+      requestId: req.id
+    });
+  }
+
+  // Validate state transition through jobRepo
+  try {
+    await db.jobRepo.updateStatus(job.jobNumber || job.id, status);
+  } catch (transErr) {
+    return res.status(400).json({
+      success: false,
+      error: transErr.message,
+      code: 'INVALID_STATUS_TRANSITION',
+      requestId: req.id
+    });
+  }
+
+  job.status = status;
   job.orderStatus = status;
+
+  // Under Policy A: Generate Sequential Tax Invoice upon restaurant ACCEPTED
+  let invoice = null;
+  if (status === 'ACCEPTED' && db.invoiceRepo) {
+    try {
+      const invRes = await db.invoiceRepo.createTaxInvoice({
+        jobId: job.uuid || job.id,
+        merchantId: job.merchantId || effectiveRestId,
+        customerId: job.customerUuid || (db.userRepo ? db.userRepo.resolveUuid(job.customerId) : '00000000-0000-0000-0000-000000000002'),
+        seriesOwnerType: 'MERCHANT',
+        merchantLegalName: job.restaurantName || 'Restaurant Merchant',
+        customerName: job.customerName || 'Customer',
+        customerPhone: job.customerPhone,
+        foodSubtotal: job.foodSubtotal || (job.fare * 0.7),
+        packagingFee: job.packagingFee || 15.0,
+        deliveryFee: job.deliveryFee || 40.0,
+        platformFee: job.platformFee || 5.0,
+        taxableAmount: job.fareSubtotal || (job.fare * 0.85),
+        totalTaxAmount: job.gst || (job.fare * 0.15),
+        cgstAmount: job.cgstAmount || ((job.gst || 0) / 2),
+        sgstAmount: job.sgstAmount || ((job.gst || 0) / 2),
+        igstAmount: job.igstAmount || 0,
+        finalTotal: job.fare,
+        taxBreakdownJson: job.taxBreakdown || [],
+        itemsSummaryJson: job.cartItems || []
+      });
+      invoice = invRes.invoice;
+    } catch (invErr) {
+      console.warn('⚠️ Invoice issuance notice upon ACCEPTED:', invErr.message);
+    }
+  }
+
+  // Publish Decoupled Lifecycle Notifications
+  const notifEventMap = {
+    'ACCEPTED': { type: 'FOOD_ORDER_ACCEPTED', title: 'Order Accepted', body: 'Restaurant has accepted your order and will start preparation.' },
+    'PREPARING': { type: 'FOOD_ORDER_PREPARING', title: 'Kitchen Preparing Order', body: 'Your food is now being prepared fresh in the kitchen.' },
+    'READY_FOR_PICKUP': { type: 'FOOD_ORDER_READY', title: 'Food Packed & Ready', body: 'Your food is packed and ready for delivery pickup.' },
+    'IN_TRANSIT': { type: 'FOOD_ORDER_OUT_FOR_DELIVERY', title: 'Out for Delivery', body: 'Delivery courier has picked up your food and is heading your way.' }
+  };
+
+  const notifConfig = notifEventMap[status];
+  if (notifConfig) {
+    try {
+      notificationEventBus.publish(notifConfig.type, {
+        jobId: job.uuid || job.id,
+        orderId: job.id,
+        customerId: job.customerId,
+        recipientUserId: job.customerUuid,
+        title: notifConfig.title,
+        body: notifConfig.body,
+        data: { orderId: job.id, status }
+      });
+    } catch (notifErr) {
+      console.warn(`⚠️ NotificationEventBus ${notifConfig.type} notice:`, notifErr.message);
+    }
+  }
+
   if (status === 'READY_FOR_PICKUP') {
-    job.status = 'READY_FOR_PICKUP';
     broadcastToDrivers({
       type: 'NEW_JOB_DISPATCH',
       job: {
         id: job.id,
         type: 'FOOD',
         title: `Food Pickup: ${job.restaurantName || 'Dilli Darbar'}`,
-        pickup: job.pickup.address,
-        drop: job.drop.address,
+        pickup: job.pickup?.address || 'Restaurant',
+        drop: job.drop?.address || 'Customer',
         fare: `₹${(job.deliveryFee || 55).toFixed(2)}`,
         customer: job.customerName,
         deliveryOtp: job.deliveryOtp
@@ -2137,7 +2425,132 @@ app.post(['/api/merchant/:restaurantId/orders/:orderId/status', '/api/merchant/o
     orderStatus: status
   });
 
-  res.json({ success: true, job });
+  res.json({ success: true, job, status, invoice });
+});
+
+// MODIFIER GROUPS & OPTIONS MANAGEMENT
+app.get('/api/merchant/:restaurantId/modifier-groups', authenticateMerchant, async (req, res) => {
+  try {
+    const groups = await db.menuRepo.getModifierGroupsByMerchant(req.params.restaurantId, req.query.includeInactive === 'true');
+    res.json({ success: true, modifierGroups: groups });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+app.post('/api/merchant/:restaurantId/modifier-groups', authenticateMerchant, async (req, res) => {
+  try {
+    const group = await db.menuRepo.createModifierGroup(req.params.restaurantId, req.body);
+    res.status(201).json({ success: true, modifierGroup: group });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+app.put('/api/merchant/:restaurantId/modifier-groups/:id', authenticateMerchant, async (req, res) => {
+  try {
+    const group = await db.menuRepo.updateModifierGroup(req.params.id, req.params.restaurantId, req.body);
+    if (!group) return res.status(404).json({ success: false, error: 'Modifier group not found' });
+    res.json({ success: true, modifierGroup: group });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+app.delete('/api/merchant/:restaurantId/modifier-groups/:id', authenticateMerchant, async (req, res) => {
+  try {
+    const group = await db.menuRepo.archiveModifierGroup(req.params.id, req.params.restaurantId);
+    res.json({ success: true, message: 'Modifier group archived successfully.', modifierGroup: group });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+app.post('/api/merchant/:restaurantId/modifier-groups/:id/options', authenticateMerchant, async (req, res) => {
+  try {
+    const option = await db.menuRepo.createModifierOption(req.params.id, req.params.restaurantId, req.body);
+    res.status(201).json({ success: true, modifierOption: option });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+app.put('/api/merchant/:restaurantId/modifier-groups/:id/options/:optionId', authenticateMerchant, async (req, res) => {
+  try {
+    const option = await db.menuRepo.updateModifierOption(req.params.optionId, req.params.restaurantId, req.body);
+    res.json({ success: true, modifierOption: option });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+app.delete('/api/merchant/:restaurantId/modifier-groups/:id/options/:optionId', authenticateMerchant, async (req, res) => {
+  try {
+    const option = await db.menuRepo.archiveModifierOption(req.params.optionId, req.params.restaurantId);
+    res.json({ success: true, message: 'Modifier option archived successfully.', modifierOption: option });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+app.post('/api/merchant/:restaurantId/products/:productId/modifiers', authenticateMerchant, async (req, res) => {
+  try {
+    const { modifierGroupId, displayOrder = 0 } = req.body;
+    if (!modifierGroupId) return res.status(400).json({ success: false, error: 'modifierGroupId is required' });
+    const binding = await db.menuRepo.bindModifierGroupToProduct(req.params.productId, modifierGroupId, req.params.restaurantId, displayOrder);
+    res.status(201).json({ success: true, binding });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+app.delete('/api/merchant/:restaurantId/products/:productId/modifiers/:groupId', authenticateMerchant, async (req, res) => {
+  try {
+    await db.menuRepo.unbindModifierGroupFromProduct(req.params.productId, req.params.groupId, req.params.restaurantId);
+    res.json({ success: true, message: 'Modifier group unbound successfully.' });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+// PUBLIC PRODUCT MODIFIERS DISCOVERY
+app.get('/api/products/:productId/modifiers', async (req, res) => {
+  try {
+    const modifiers = await db.menuRepo.getProductModifiers(req.params.productId);
+    res.json({ success: true, modifiers });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+// TAX INVOICE RETRIEVAL ENDPOINTS
+app.get('/api/customer/orders/:orderId/invoice', authenticateUser, async (req, res) => {
+  const { orderId } = req.params;
+  const invoice = await db.invoiceRepo.getInvoiceByJobId(orderId) || await db.invoiceRepo.getInvoiceById(orderId);
+  if (!invoice) {
+    return res.status(404).json({ success: false, error: 'Tax invoice not found for this order.', requestId: req.id });
+  }
+
+  if (req.user) {
+    const callerUuid = req.user.uuid || req.user.id;
+    const isOwner = invoice.customer_id === callerUuid || invoice.customer_id === req.user.id || req.session?.role === 'ADMIN' || req.session?.role === 'SUPER_ADMIN';
+    if (!isOwner) {
+      return res.status(403).json({ success: false, error: 'Forbidden: Access to this tax invoice is restricted.', code: 'FORBIDDEN_INVOICE_IDOR', requestId: req.id });
+    }
+  }
+
+  res.json({ success: true, invoice });
+});
+
+app.get('/api/merchant/:restaurantId/invoices', authenticateMerchant, async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit || 50, 10);
+    const offset = parseInt(req.query.offset || 0, 10);
+    const invoices = await db.invoiceRepo.getInvoicesByMerchant(req.params.restaurantId, limit, offset);
+    res.json({ success: true, invoices });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message, requestId: req.id });
+  }
 });
 
 app.post('/api/merchant/:restaurantId/menu/:itemId/toggle', authenticateMerchant, (req, res) => {

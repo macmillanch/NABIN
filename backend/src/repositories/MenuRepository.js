@@ -251,6 +251,11 @@ class MenuRepository {
   }
 
   async getProductModifiers(productId) {
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(productId);
+    if (!isUuid) {
+      return [];
+    }
+
     if (isLivePostgres && supabaseAdmin) {
       const { data, error } = await supabaseAdmin
         .from('menu_item_modifiers')
@@ -312,26 +317,52 @@ class MenuRepository {
 
       // 1. Fetch Product Authoritatively
       let product = null;
-      if (isLivePostgres && supabaseAdmin) {
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(productId);
+      if (isLivePostgres && supabaseAdmin && isUuid) {
         const { data, error } = await supabaseAdmin
           .from('products')
           .select('*')
           .eq('id', productId)
           .maybeSingle();
 
-        if (error || !data) {
-          throw new Error(`Product ${productId} not found.`);
+        if (data) {
+          product = data;
         }
-        product = data;
-      } else {
-        product = {
-          id: productId,
-          merchant_id: merchantId,
-          name: item.name || 'Menu Item',
-          price: Number(item.price || 150),
-          is_available: true,
-          category: 'Food'
-        };
+      }
+
+      if (!product) {
+        const rest = this.db?.restaurants?.find(r => r.id === merchantId || r.uuid === merchantId) || this.db?.restaurants?.[0];
+        const menuItem = rest?.menu?.find(m => m.id === productId || m.name === item.name || (item.name && item.name.includes(m.name)));
+        if (menuItem) {
+          product = {
+            id: menuItem.id || productId,
+            merchant_id: merchantId,
+            name: menuItem.name,
+            price: Number(menuItem.price || 150),
+            is_available: menuItem.inStock !== false && menuItem.isAvailable !== false,
+            category: menuItem.category || 'Food'
+          };
+        } else if (item.name) {
+          product = {
+            id: productId,
+            merchant_id: merchantId,
+            name: item.name,
+            price: Number(item.price || 150),
+            is_available: true,
+            category: 'Food'
+          };
+        } else if (isUuid) {
+          throw new Error(`Product ${productId} not found.`);
+        } else {
+          product = {
+            id: productId,
+            merchant_id: merchantId,
+            name: 'Menu Item',
+            price: Number(item.price || 150),
+            is_available: true,
+            category: 'Food'
+          };
+        }
       }
 
       if (product.merchant_id !== merchantId) {
