@@ -75,3 +75,25 @@ Before every task, state:
 - **IMPACT**: Which NABIN applications are affected?
 - **PLAN**: What is the smallest safe implementation?
 - **TEST**: How will I verify it?
+
+## 5. PERMANENT GIT SAFETY & LOSS-PREVENTION PROTOCOL
+GitHub (`https://github.com/macmillanch/NABIN.git`, branch `origin/main`) is the primary recoverable checkpoint.
+1. **Push on Safe Milestones**: Never wait until the end of an entire phase. Whenever an internally consistent, tested milestone is completed: Test → Add specific files → Commit → Push to `origin/main` → Verify `HEAD == origin/main`.
+2. **Checkpoint Before Risky Work**: Before migrations, refactors, recovery, or schema/financial mutations, check `git status` / `git diff --stat`. If coherent uncommitted work exists, commit and push it first. Never leave large amounts of recoverable work only in the local tree.
+3. **Small Milestone Commits**: Break implementation into small, coherent, pushed milestones (e.g., Schema/Migration → Repository → Business Logic → Tests/Verification).
+4. **Never Push Broken Code**: Pushed commits must be syntactically valid, compilable, and pass relevant tests. Frequent safe checkpoints, never broken commits.
+5. **Database Safety**: Remote Supabase remains completely untouched unless explicitly authorized. Never `git push --force`, `git reset --hard` uncommitted work without approval, or rewrite Git history.
+6. **Pre-Flight Status Check**: Before beginning any next milestone, verify:
+   ```bash
+   git status
+   git rev-parse HEAD
+   git rev-parse origin/main
+   ```
+   Require `HEAD == origin/main`. If diverged, reconcile before beginning new work.
+7. **Phase Completion Gate**: Every final report must explicitly confirm:
+   - Git commit hash
+   - Remote `origin/main`
+   - `HEAD == origin/main: YES`
+   - `Working tree: CLEAN`
+8. **Plan-First Governance Preserved**: Frequent Git checkpointing does not bypass `PLAN → STOP → EXPLICIT APPROVAL → IMPLEMENT`. Only implement work that has been explicitly authorized.
+
