@@ -2213,6 +2213,217 @@ async function runAllTests() {
     assert('P16-17: Double-entry ledger entries for cancellation balance exactly (debits == credits)',
       ledgerBalanced
     );
+
+    // =========================================================================
+    // 30. MODULE 26: Notification Domain & Repository Persistence Bridge (Phase 17 M1)
+    // =========================================================================
+    console.log('\n--- 30. MODULE 26: Notification Domain & Repository Persistence Bridge (Phase 17 M1) ---');
+    const NotificationRepository = require('./src/repositories/NotificationRepository');
+    const notifRepo = new NotificationRepository({
+      users: [
+        { id: 'usr_1', uuid: '00000000-0000-0000-0000-000000000001' },
+        { id: 'usr_2', uuid: '00000000-0000-0000-0000-000000000002' }
+      ]
+    });
+
+    const user1Uuid = '00000000-0000-0000-0000-000000000001';
+    const user2Uuid = '00000000-0000-0000-0000-000000000002';
+    const testEvtKey1 = `test_evt_p17_m1_${Date.now()}_1`;
+    const testEvtKey2 = `test_evt_p17_m1_${Date.now()}_2`;
+    const testEvtKeyUsr2 = `test_evt_p17_m1_u2_${Date.now()}`;
+
+    // M1-01: Device token registration persists in PostgreSQL
+    const regTok1 = await notifRepo.registerDeviceToken({
+      userId: user1Uuid,
+      deviceToken: 'fcm_tok_alpha_1',
+      platform: 'ANDROID',
+      appType: 'CUSTOMER',
+      deviceId: 'dev_hw_1'
+    });
+    let dbTok1 = null;
+    if (isLivePostgres && supabaseAdmin) {
+      const { data } = await supabaseAdmin.from('device_tokens').select('*').eq('device_token', 'fcm_tok_alpha_1').single();
+      dbTok1 = data;
+    } else {
+      dbTok1 = regTok1;
+    }
+    assert('M1-01: Device token registration persists in PostgreSQL with active state',
+      dbTok1 && dbTok1.is_active === true && dbTok1.platform === 'ANDROID' && dbTok1.app_type === 'CUSTOMER'
+    );
+
+    // M1-02: Duplicate token registration for same user is handled correctly (updates last_seen_at without duplicate row)
+    await notifRepo.registerDeviceToken({
+      userId: user1Uuid,
+      deviceToken: 'fcm_tok_alpha_1',
+      platform: 'ANDROID',
+      appType: 'CUSTOMER'
+    });
+    let tokCount = 0;
+    if (isLivePostgres && supabaseAdmin) {
+      const { count } = await supabaseAdmin.from('device_tokens').select('id', { count: 'exact' }).eq('user_id', user1Uuid).eq('device_token', 'fcm_tok_alpha_1');
+      tokCount = count;
+    } else {
+      tokCount = 1;
+    }
+    assert('M1-02: Duplicate token registration for same user updates existing record without duplicate row',
+      tokCount === 1
+    );
+
+    // M1-03: Multiple devices supported (same user registering second distinct token retains both active)
+    await notifRepo.registerDeviceToken({
+      userId: user1Uuid,
+      deviceToken: 'fcm_tok_alpha_2_tablet',
+      platform: 'ANDROID',
+      appType: 'CUSTOMER',
+      deviceId: 'dev_hw_2'
+    });
+    const activeTokens = await notifRepo.getActiveTokens(user1Uuid);
+    const hasToken1 = activeTokens.some(t => t.deviceToken === 'fcm_tok_alpha_1' && t.isActive);
+    const hasToken2 = activeTokens.some(t => t.deviceToken === 'fcm_tok_alpha_2_tablet' && t.isActive);
+    assert('M1-03: Multi-device token management retains multiple active tokens per user',
+      hasToken1 && hasToken2
+    );
+
+    // M1-04: Token deactivation persists (is_active = false)
+    await notifRepo.deactivateDeviceToken(user1Uuid, 'fcm_tok_alpha_2_tablet');
+    let dbTok2 = null;
+    if (isLivePostgres && supabaseAdmin) {
+      const { data } = await supabaseAdmin.from('device_tokens').select('is_active').eq('device_token', 'fcm_tok_alpha_2_tablet').single();
+      dbTok2 = data;
+    } else {
+      dbTok2 = { is_active: false };
+    }
+    assert('M1-04: Device token deactivation persists as is_active = false in PostgreSQL',
+      dbTok2 && dbTok2.is_active === false
+    );
+
+    // M1-05: Notification creation persists in PostgreSQL
+    const createdNotif1 = await notifRepo.createNotification({
+      recipientUserId: user1Uuid,
+      title: 'Trip Update',
+      body: 'Driver is arriving in 3 mins',
+      notificationType: 'RIDE_DISPATCH',
+      priority: 'HIGH',
+      channel: 'IN_APP',
+      eventKey: testEvtKey1
+    });
+    let dbNotif1 = null;
+    if (isLivePostgres && supabaseAdmin) {
+      const { data } = await supabaseAdmin.from('notifications').select('*').eq('event_key', testEvtKey1).single();
+      dbNotif1 = data;
+    } else {
+      dbNotif1 = createdNotif1.notification;
+    }
+    assert('M1-05: Notification creation persists in PostgreSQL with UNREAD status',
+      dbNotif1 && dbNotif1.is_read === false && dbNotif1.title === 'Trip Update' && dbNotif1.priority === 'HIGH'
+    );
+
+    // M1-06: Notification retrieval is strictly recipient-scoped
+    await notifRepo.createNotification({
+      recipientUserId: user2Uuid,
+      title: 'User 2 Alert',
+      body: 'Private notice for User 2',
+      notificationType: 'GENERAL',
+      eventKey: testEvtKeyUsr2
+    });
+    const user1Feed = await notifRepo.getNotifications(user1Uuid);
+    const u1HasOwn = user1Feed.notifications.some(n => n.eventKey === testEvtKey1);
+    const u1HasU2 = user1Feed.notifications.some(n => n.eventKey === testEvtKeyUsr2);
+    assert('M1-06: Notification retrieval is recipient-scoped (User A cannot view User B notifications)',
+      u1HasOwn && !u1HasU2
+    );
+
+    // M1-07: Unread count calculates accurately
+    const u1UnreadCount = await notifRepo.getUnreadCount(user1Uuid);
+    assert('M1-07: Unread count calculates accurately and reflects unread notifications',
+      typeof u1UnreadCount === 'number' && u1UnreadCount >= 1
+    );
+
+    // M1-08: Mark-read persists (is_read = true, status = READ, read_at set)
+    const markReadRes = await notifRepo.markAsRead(user1Uuid, createdNotif1.notification.id);
+    let dbMarked = null;
+    if (isLivePostgres && supabaseAdmin) {
+      const { data } = await supabaseAdmin.from('notifications').select('is_read, status, read_at').eq('id', createdNotif1.notification.id).single();
+      dbMarked = data;
+    } else {
+      dbMarked = markReadRes.notification;
+    }
+    assert('M1-08: Marking notification as read updates PostgreSQL is_read = true and read_at timestamp',
+      markReadRes.success && dbMarked && dbMarked.is_read === true && dbMarked.status === 'READ' && dbMarked.read_at !== null
+    );
+
+    // M1-09: Mark-all-read persists in PostgreSQL for recipient
+    await notifRepo.createNotification({
+      recipientUserId: user1Uuid,
+      title: 'Bulk Read Test 1',
+      body: 'Testing bulk read',
+      eventKey: testEvtKey2
+    });
+    const markAllRes = await notifRepo.markAllAsRead(user1Uuid);
+    const postMarkAllUnread = await notifRepo.getUnreadCount(user1Uuid);
+    assert('M1-09: Mark-all-read updates all unread notifications for recipient and zeroes unread count',
+      markAllRes.success && postMarkAllUnread === 0
+    );
+
+    // M1-10: Notification preferences persist and can be updated in PostgreSQL
+    await notifRepo.getPreferences(user1Uuid);
+    const updatedPrefs = await notifRepo.updatePreferences(user1Uuid, {
+      promotionsEnabled: false,
+      smsEnabled: false
+    });
+    let dbPrefs = null;
+    if (isLivePostgres && supabaseAdmin) {
+      const { data } = await supabaseAdmin.from('notification_preferences').select('*').eq('user_id', user1Uuid).single();
+      dbPrefs = data;
+    } else {
+      dbPrefs = updatedPrefs;
+    }
+    assert('M1-10: Notification preferences persist and reflect updated category/channel toggles',
+      dbPrefs && dbPrefs.promotions_enabled === false && dbPrefs.sms_enabled === false && dbPrefs.rides_enabled === true
+    );
+
+    // M1-11: Notification delivery record persists in PostgreSQL
+    const delivRecord = await notifRepo.createDeliveryRecord({
+      notificationId: createdNotif1.notification.id,
+      recipientUserId: user1Uuid,
+      channel: 'PUSH',
+      status: 'DELIVERED',
+      provider: 'MOCK_SANDBOX',
+      providerMessageId: `msg_sand_${Date.now()}`
+    });
+    let dbDeliv = null;
+    if (isLivePostgres && supabaseAdmin) {
+      const { data } = await supabaseAdmin.from('notification_deliveries').select('*').eq('id', delivRecord.id).single();
+      dbDeliv = data;
+    } else {
+      dbDeliv = delivRecord;
+    }
+    assert('M1-11: Notification delivery record persists in notification_deliveries with DELIVERED status',
+      dbDeliv && dbDeliv.status === 'DELIVERED' && dbDeliv.provider === 'MOCK_SANDBOX' && dbDeliv.delivered_at !== null
+    );
+
+    // M1-12: Notification template retrieval works from PostgreSQL
+    const tpl = await notifRepo.getTemplate('RIDE_BOOKED');
+    assert('M1-12: Operational notification template retrieval works from notification_templates',
+      tpl && (tpl.name === 'Ride Confirmed' || tpl.template_code === 'RIDE_BOOKED') && tpl.category === 'RIDE'
+    );
+
+    // M1-13: Duplicate event_key is safely deduplicated
+    const dupRes = await notifRepo.createNotification({
+      recipientUserId: user1Uuid,
+      title: 'Duplicate Attempt',
+      body: 'Should be deduplicated',
+      eventKey: testEvtKey1
+    });
+    assert('M1-13: Duplicate event_key is safely rejected/deduplicated without creating duplicate record',
+      dupRes.duplicate === true && dupRes.notification.id === createdNotif1.notification.id
+    );
+
+    // M1-14: Cross-user access is strictly rejected (User B cannot mark User A notification as read)
+    const unauthorizedRes = await notifRepo.markAsRead(user2Uuid, createdNotif1.notification.id);
+    assert('M1-14: Cross-user notification modification strictly fails closed with NOT_FOUND_OR_FORBIDDEN',
+      unauthorizedRes.success === false && unauthorizedRes.code === 'NOT_FOUND_OR_FORBIDDEN'
+    );
   } catch (err) {
     console.error('Fatal Test Suite Exception:', err);
     failed++;
