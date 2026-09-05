@@ -760,6 +760,7 @@ class NotificationRepository {
     failedAt = null,
     failureReason = null,
     providerMessageId = null,
+    attemptCount = null,
     incrementAttempt = false
   }) {
     if (!deliveryId) return null;
@@ -768,14 +769,19 @@ class NotificationRepository {
 
     const dbUpdates = {
       status: cleanStatus,
-      provider_message_id: providerMessageId,
       failure_reason: failureReason
     };
 
+    if (providerMessageId) dbUpdates.provider_message_id = providerMessageId;
+    if (attemptCount !== null && attemptCount !== undefined) dbUpdates.attempt_count = attemptCount;
     if (cleanStatus === 'DELIVERED') dbUpdates.delivered_at = deliveredAt || now;
     if (cleanStatus === 'FAILED') dbUpdates.failed_at = failedAt || now;
 
     if (isLivePostgres && supabaseAdmin) {
+      if (incrementAttempt && (attemptCount === null || attemptCount === undefined)) {
+        const { data: cur } = await supabaseAdmin.from('notification_deliveries').select('attempt_count').eq('id', deliveryId).maybeSingle();
+        dbUpdates.attempt_count = ((cur?.attempt_count) || 1) + 1;
+      }
       let query = supabaseAdmin.from('notification_deliveries').update(dbUpdates).eq('id', deliveryId);
       const { data, error } = await query.select('*').single();
       if (error) throw new Error(`Failed to update delivery status: ${error.message}`);
@@ -785,7 +791,11 @@ class NotificationRepository {
     const rec = this.deliveries.find(d => d.id === deliveryId);
     if (rec) {
       Object.assign(rec, dbUpdates);
-      if (incrementAttempt) rec.attemptCount = (rec.attemptCount || 1) + 1;
+      if (attemptCount !== null && attemptCount !== undefined) {
+        rec.attemptCount = attemptCount;
+      } else if (incrementAttempt) {
+        rec.attemptCount = (rec.attemptCount || 1) + 1;
+      }
       return mapRowToDelivery(rec);
     }
     return null;
