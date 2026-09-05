@@ -8,6 +8,7 @@ const BASE_URL = 'http://127.0.0.1:4000';
 function request(method, pathName, body = null, headers = {}) {
   return new Promise((resolve, reject) => {
     const url = new URL(pathName, BASE_URL);
+    const bodyStr = body ? JSON.stringify(body) : null;
     const options = {
       method: method,
       hostname: url.hostname,
@@ -15,6 +16,7 @@ function request(method, pathName, body = null, headers = {}) {
       path: url.pathname + url.search,
       headers: {
         'Content-Type': 'application/json',
+        ...(bodyStr ? { 'Content-Length': Buffer.byteLength(bodyStr) } : {}),
         ...headers
       },
     };
@@ -2084,7 +2086,7 @@ async function runAllTests() {
     );
 
     // TEST-14: Model A Cancellation — Source Refund with Zero Customer Wallet Increase
-    const cancelJobId = `00000000-0000-0000-0000-0000000099${Date.now().toString().slice(-2)}`;
+    const cancelJobId = crypto.randomUUID();
     const cancelPayId = `pay_cancel_${Date.now()}`;
 
     let custWalletBefore = 0;
@@ -2615,6 +2617,223 @@ async function runAllTests() {
     const prodProvider = new FcmV1PushProvider();
     assert('M2-14: Production FCM provider detects unconfigured environment and requires explicit credentials',
       prodProvider.name === 'FCM_V1' && prodProvider.isConfigured === false
+    );
+
+    // --- 32. MODULE 28: Notification REST API Endpoints (Phase 17 M3) ---
+    console.log('\n--- 32. MODULE 28: Notification REST API Endpoints (Phase 17 M3) ---');
+
+    // NOTIF-API-01: Authenticated user can register device token
+    const devTok1 = `fcm_dev_tok_${Date.now()}_1`;
+    const regRes = await request('POST', '/api/notifications/device-token', {
+      deviceToken: devTok1,
+      platform: 'ANDROID',
+      appType: 'CUSTOMER'
+    }, { 'Authorization': `Bearer ${rahulToken}` });
+    assert('NOTIF-API-01: Authenticated user can register device token',
+      regRes.status === 200 && regRes.data?.success === true && regRes.data?.deviceToken?.deviceToken === devTok1
+    );
+
+    // NOTIF-API-02: Unauthenticated token registration is rejected
+    const unauthRegRes = await request('POST', '/api/notifications/device-token', {
+      deviceToken: `fcm_unauth_${Date.now()}`,
+      platform: 'ANDROID'
+    });
+    assert('NOTIF-API-02: Unauthenticated token registration is rejected with 401',
+      unauthRegRes.status === 401 && unauthRegRes.data?.success === false
+    );
+
+    // NOTIF-API-03: Client-supplied user_id cannot hijack token ownership
+    const hijackTok = `fcm_hijack_${Date.now()}`;
+    const hijackRes = await request('POST', '/api/notifications/device-token', {
+      deviceToken: hijackTok,
+      userId: user2Uuid,
+      user_id: user2Uuid,
+      platform: 'ANDROID'
+    }, { 'Authorization': `Bearer ${rahulToken}` });
+    assert('NOTIF-API-03: Client-supplied user_id cannot hijack token ownership',
+      hijackRes.status === 200 &&
+      hijackRes.data?.deviceToken?.userId === user1Uuid &&
+      hijackRes.data?.deviceToken?.userId !== user2Uuid
+    );
+
+    // NOTIF-API-04: Authenticated user can deactivate own token
+    const deactRes = await request('DELETE', '/api/notifications/device-token', {
+      deviceToken: devTok1
+    }, { 'Authorization': `Bearer ${rahulToken}` });
+    assert('NOTIF-API-04: Authenticated user can deactivate own token',
+      deactRes.status === 200 && deactRes.data?.success === true
+    );
+
+    // NOTIF-API-05: User can retrieve own notification feed
+    const priyaFeedRes = await request('GET', '/api/notifications', null, {
+      'Authorization': `Bearer ${priyaToken}`
+    });
+    assert('NOTIF-API-05: User can retrieve own notification feed',
+      priyaFeedRes.status === 200 &&
+      priyaFeedRes.data?.success === true &&
+      Array.isArray(priyaFeedRes.data?.notifications)
+    );
+
+    // NOTIF-API-06: User cannot retrieve another user's notification
+    const priyaSpecificNotif = await notifRepo.createNotification({
+      userId: null,
+      recipientUserId: user2Uuid,
+      title: 'Confidential Priya Statement',
+      body: 'Your statement is ready for download.',
+      notificationType: 'STATEMENT'
+    });
+    const rahulFeedRes = await request('GET', '/api/notifications', null, {
+      'Authorization': `Bearer ${rahulToken}`
+    });
+    const leakInRahulFeed = rahulFeedRes.data?.notifications?.some(n => n.id === priyaSpecificNotif.notification.id);
+    assert('NOTIF-API-06: User cannot retrieve another user\'s notification in feed',
+      rahulFeedRes.status === 200 && leakInRahulFeed === false
+    );
+
+    // NOTIF-API-07: User can mark own notification read
+    const rahulNotif = await notifRepo.createNotification({
+      userId: null,
+      recipientUserId: user1Uuid,
+      title: 'Rahul Ride Update',
+      body: 'Your ride is arriving now.',
+      notificationType: 'RIDE_UPDATE'
+    });
+    const apiMarkReadRes = await request('PUT', `/api/notifications/${rahulNotif.notification.id}/read`, {}, {
+      'Authorization': `Bearer ${rahulToken}`
+    });
+    assert('NOTIF-API-07: User can mark own notification read',
+      apiMarkReadRes.status === 200 &&
+      apiMarkReadRes.data?.success === true &&
+      apiMarkReadRes.data?.notification?.isRead === true
+    );
+
+    // NOTIF-API-08: User cannot mark another user's notification read
+    const crossReadRes = await request('PUT', `/api/notifications/${priyaSpecificNotif.notification.id}/read`, {}, {
+      'Authorization': `Bearer ${rahulToken}`
+    });
+    assert('NOTIF-API-08: User cannot mark another user\'s notification read (fails closed with 404)',
+      crossReadRes.status === 404 && crossReadRes.data?.success === false
+    );
+
+    // NOTIF-API-09: Read-all only affects the authenticated user's notifications
+    const priyaUnread = await notifRepo.createNotification({
+      userId: null,
+      recipientUserId: user2Uuid,
+      title: 'Priya Unread Test',
+      body: 'Must remain unread after Rahul marks all read.',
+      notificationType: 'ALERT'
+    });
+    const apiReadAllRes = await request('PUT', '/api/notifications/read-all', {}, {
+      'Authorization': `Bearer ${rahulToken}`
+    });
+    const priyaCheckFeed = await request('GET', '/api/notifications?unreadOnly=true', null, {
+      'Authorization': `Bearer ${priyaToken}`
+    });
+    const stillUnread = priyaCheckFeed.data?.notifications?.some(n => n.id === priyaUnread.notification.id);
+    assert('NOTIF-API-09: Read-all only affects the authenticated user\'s notifications',
+      apiReadAllRes.status === 200 && stillUnread === true
+    );
+
+    // NOTIF-API-10: Preferences can be retrieved
+    const getPrefsRes = await request('GET', '/api/notifications/preferences', null, {
+      'Authorization': `Bearer ${priyaToken}`
+    });
+    assert('NOTIF-API-10: User notification preferences can be retrieved',
+      getPrefsRes.status === 200 &&
+      getPrefsRes.data?.success === true &&
+      getPrefsRes.data?.preferences?.ridesEnabled !== undefined
+    );
+
+    // NOTIF-API-11: Preferences can be updated
+    const updatePrefsRes = await request('PUT', '/api/notifications/preferences', {
+      promotionsEnabled: false,
+      groceryEnabled: false
+    }, { 'Authorization': `Bearer ${priyaToken}` });
+    assert('NOTIF-API-11: User notification preferences can be updated',
+      updatePrefsRes.status === 200 &&
+      updatePrefsRes.data?.preferences?.promotionsEnabled === false &&
+      updatePrefsRes.data?.preferences?.groceryEnabled === false
+    );
+
+    // NOTIF-API-12: Marketing opt-out does not suppress critical transactional notifications
+    const transactionalCheck = await pushService.shouldDeliverPush(user2Uuid, 'PAYMENT_SUCCESS');
+    const marketingCheck = await pushService.shouldDeliverPush(user2Uuid, 'PROMOTION');
+    assert('NOTIF-API-12: Marketing opt-out does not suppress critical transactional notifications',
+      transactionalCheck.allowed === true &&
+      transactionalCheck.reason === 'MANDATORY_SAFETY_TRANSACTIONAL' &&
+      marketingCheck.allowed === false &&
+      marketingCheck.reason === 'PREFERENCE_PROMOTIONS_DISABLED'
+    );
+
+    // NOTIF-API-13: Admin without notification.broadcast permission receives 403
+    const ananyaLoginRes = await request('POST', '/api/admin/login', {
+      username: testUsername,
+      password: 'AdminPassword123!'
+    });
+    const ananyaToken = ananyaLoginRes.data?.token;
+    const unauthBroadcastRes = await request('POST', '/api/admin/notifications/broadcast', {
+      title: 'Unauthorized Broadcast',
+      body: 'Attempt by KYC specialist.',
+      audience: 'ALL'
+    }, { 'Authorization': `Bearer ${ananyaToken}` });
+    assert('NOTIF-API-13: Admin without notification.broadcast permission receives 403 Forbidden',
+      unauthBroadcastRes.status === 403 && unauthBroadcastRes.data?.success === false
+    );
+
+    // NOTIF-API-14: Authorized admin broadcast succeeds
+    const broadcastTitle = `Platform Advisory ${Date.now()}`;
+    const broadcastRes = await request('POST', '/api/admin/notifications/broadcast', {
+      title: broadcastTitle,
+      body: 'Scheduled system infrastructure maintenance tonight at 02:00 AM IST.',
+      audience: 'ALL',
+      priority: 'HIGH'
+    }, { 'Authorization': `Bearer ${superToken}` });
+    assert('NOTIF-API-14: Authorized admin broadcast succeeds',
+      broadcastRes.status === 200 &&
+      broadcastRes.data?.success === true &&
+      Boolean(broadcastRes.data?.broadcastId)
+    );
+    const sentBroadcastId = broadcastRes.data?.broadcastId;
+
+    // NOTIF-API-15: Broadcast creates the expected audit record
+    const bcastAuditRes = await request('GET', '/api/admin/audit-logs?module=NOTIFICATIONS&action=NOTIFICATION_BROADCAST', null, {
+      'Authorization': `Bearer ${superToken}`
+    });
+    const foundAudit = bcastAuditRes.data?.logs?.find(l => l.targetEntityId === sentBroadcastId);
+    assert('NOTIF-API-15: Broadcast creates the expected immutable audit record in PostgreSQL',
+      bcastAuditRes.status === 200 &&
+      Boolean(foundAudit) &&
+      foundAudit.action === 'NOTIFICATION_BROADCAST' &&
+      foundAudit.adminName !== undefined
+    );
+
+    // NOTIF-API-16: Broadcast rate limit is enforced (1 per 15 minutes)
+    const rateLimitedRes = await request('POST', '/api/admin/notifications/broadcast', {
+      title: 'Second Broadcast Attempt',
+      body: 'Should be rejected by 15-minute rate limit.',
+      audience: 'ALL'
+    }, { 'Authorization': `Bearer ${superToken}` });
+    assert('NOTIF-API-16: Administrative broadcast rate limit (1 per 15 mins) is strictly enforced with 429',
+      rateLimitedRes.status === 429 &&
+      rateLimitedRes.data?.code === 'RATE_LIMIT_EXCEEDED' &&
+      rateLimitedRes.data?.retryAfter > 0
+    );
+
+    // NOTIF-API-17: Pagination limits are enforced
+    const pagedRes = await request('GET', '/api/notifications?limit=2&offset=0', null, {
+      'Authorization': `Bearer ${priyaToken}`
+    });
+    assert('NOTIF-API-17: Notification feed pagination limits are strictly enforced',
+      pagedRes.status === 200 &&
+      pagedRes.data?.limit === 2 &&
+      pagedRes.data?.notifications?.length <= 2
+    );
+
+    // NOTIF-API-18: Notification feed unreadCount is correct
+    const unreadCountCheck = await notifRepo.getUnreadCount(user2Uuid);
+    assert('NOTIF-API-18: Notification feed unreadCount matches actual unread state in database',
+      pagedRes.data?.unreadCount === unreadCountCheck &&
+      typeof pagedRes.data?.unreadCount === 'number'
     );
   } catch (err) {
     console.error('Fatal Test Suite Exception:', err);

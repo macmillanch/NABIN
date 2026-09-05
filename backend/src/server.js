@@ -3180,6 +3180,450 @@ app.post('/api/parcel/:id/delivery-proof', async (req, res) => {
   }
 });
 
+// =========================================================================
+// NOTIFICATION REST API ENDPOINTS (PHASE 17 - MILESTONE 3)
+// =========================================================================
+
+const { MockSandboxPushProvider, FcmV1PushProvider, PushNotificationService } = require('./services/PushNotificationService');
+const { notificationEventBus, NOTIFICATION_EVENTS } = require('./services/NotificationEventBus');
+
+const pushProvider = (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL)
+  ? new FcmV1PushProvider()
+  : new MockSandboxPushProvider();
+
+const pushNotificationService = new PushNotificationService(db.notificationRepo, pushProvider);
+db.pushNotificationService = pushNotificationService;
+db.notificationEventBus = notificationEventBus;
+
+// Rate limiting state for Administrative Broadcasts (Requirement 9: 1 per 15 minutes)
+let lastAdminBroadcastTimestamp = 0;
+const BROADCAST_COOLDOWN_MS = 15 * 60 * 1000; // 15 minutes
+
+/**
+ * Universal Notification User Authentication Middleware
+ * Enforces authenticated identity from session token; rejects unauthenticated requests.
+ * Resolves session entity and sets req.authenticatedUserId.
+ */
+function requireNotificationAuth(req, res, next) {
+  const authHeader = req.headers['authorization'] || '';
+  const token = authHeader.replace(/^Bearer\s+/, '').trim();
+
+  if (!token) {
+    return res.status(401).json({
+      success: false,
+      error: 'Unauthorized: Authentication token required. Please log in with Bearer token.',
+      code: 'UNAUTHORIZED',
+      requestId: req.id
+    });
+  }
+
+  let session = db.getSessionByToken(token);
+  if (!session) {
+    const admin = activeAdminSessions.get(token);
+    if (admin) {
+      session = { token, role: admin.role, entityId: admin.id, entity: admin };
+    }
+  }
+
+  if (!session) {
+    return res.status(401).json({
+      success: false,
+      error: 'Unauthorized: Invalid or expired session token.',
+      code: 'UNAUTHORIZED',
+      requestId: req.id
+    });
+  }
+
+  let resolvedUserId = null;
+  if (session.role === 'CUSTOMER') {
+    resolvedUserId = session.entityId;
+  } else if (session.role === 'DRIVER') {
+    const drv = session.entity || db.getDriver(session.entityId);
+    resolvedUserId = drv?.userId || drv?.user_id || session.entityId;
+  } else {
+    resolvedUserId = session.entityId;
+  }
+
+  req.session = session;
+  req.user = session.entity || db.getUser(resolvedUserId) || { id: resolvedUserId };
+  req.authenticatedUserId = resolvedUserId;
+  next();
+}
+
+// 1. Device Token Registration (POST /api/notifications/device-token)
+app.post('/api/notifications/device-token', requireNotificationAuth, async (req, res) => {
+  try {
+    const { deviceToken, platform = 'ANDROID', appType = 'CUSTOMER', deviceId = null } = req.body || {};
+
+    if (!deviceToken || typeof deviceToken !== 'string' || !deviceToken.trim()) {
+      return res.status(400).json({
+        success: false,
+        error: 'deviceToken is required and must be a non-empty string.',
+        code: 'INVALID_DEVICE_TOKEN',
+        requestId: req.id
+      });
+    }
+
+    if (deviceToken.length > 1024) {
+      return res.status(400).json({
+        success: false,
+        error: 'deviceToken exceeds maximum length of 1024 characters.',
+        code: 'TOKEN_TOO_LONG',
+        requestId: req.id
+      });
+    }
+
+    const validPlatforms = ['ANDROID', 'IOS', 'WEB'];
+    const normPlatform = platform.toUpperCase().trim();
+    if (!validPlatforms.includes(normPlatform)) {
+      return res.status(400).json({
+        success: false,
+        error: `Invalid platform [${platform}]. Allowed values: ${validPlatforms.join(', ')}`,
+        code: 'INVALID_PLATFORM',
+        requestId: req.id
+      });
+    }
+
+    const validAppTypes = ['CUSTOMER', 'DRIVER', 'MERCHANT', 'ADMIN'];
+    const normAppType = appType.toUpperCase().trim();
+    if (!validAppTypes.includes(normAppType)) {
+      return res.status(400).json({
+        success: false,
+        error: `Invalid appType [${appType}]. Allowed values: ${validAppTypes.join(', ')}`,
+        code: 'INVALID_APP_TYPE',
+        requestId: req.id
+      });
+    }
+
+    // Authenticated identity is authoritative; ignore any client-supplied user_id
+    const registered = await db.notificationRepo.registerDeviceToken({
+      userId: req.authenticatedUserId,
+      deviceToken: deviceToken.trim(),
+      platform: normPlatform,
+      appType: normAppType,
+      deviceId: deviceId ? String(deviceId).slice(0, 255) : null
+    });
+
+    res.json({
+      success: true,
+      deviceToken: registered,
+      requestId: req.id
+    });
+  } catch (err) {
+    res.status(err.statusCode || 500).json({
+      success: false,
+      error: err.message,
+      requestId: req.id
+    });
+  }
+});
+
+// 2. Device Token Deactivation (DELETE /api/notifications/device-token)
+app.delete('/api/notifications/device-token', requireNotificationAuth, async (req, res) => {
+  try {
+    const tokenToDeactivate = req.body?.deviceToken || req.body?.device_token || req.query?.deviceToken;
+
+    if (!tokenToDeactivate || typeof tokenToDeactivate !== 'string' || !tokenToDeactivate.trim()) {
+      return res.status(400).json({
+        success: false,
+        error: 'deviceToken is required to deactivate token.',
+        code: 'MISSING_DEVICE_TOKEN',
+        requestId: req.id
+      });
+    }
+
+    // Only deactivates the authenticated user's token; never affects or exposes other accounts
+    const deactivated = await db.notificationRepo.deactivateDeviceToken(
+      req.authenticatedUserId,
+      tokenToDeactivate.trim()
+    );
+
+    res.json({
+      success: true,
+      deactivated,
+      requestId: req.id
+    });
+  } catch (err) {
+    res.status(err.statusCode || 500).json({
+      success: false,
+      error: err.message,
+      requestId: req.id
+    });
+  }
+});
+
+// 3. User Notification Feed (GET /api/notifications)
+app.get('/api/notifications', requireNotificationAuth, async (req, res) => {
+  try {
+    const limit = Math.min(Math.max(1, parseInt(req.query.limit, 10) || 20), 100);
+    const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
+    const unreadOnly = req.query.unreadOnly === 'true' || req.query.unreadOnly === true || req.query.unreadOnly === '1';
+    const notificationType = req.query.category || req.query.type || req.query.notificationType || null;
+
+    // Authenticated recipient is authoritative; ignore client-supplied recipient filtering
+    const feed = await db.notificationRepo.getNotifications(req.authenticatedUserId, {
+      limit,
+      offset,
+      unreadOnly,
+      notificationType
+    });
+
+    res.json({
+      success: true,
+      ...feed,
+      requestId: req.id
+    });
+  } catch (err) {
+    res.status(err.statusCode || 500).json({
+      success: false,
+      error: err.message,
+      requestId: req.id
+    });
+  }
+});
+
+// 4. Mark Notification Read (PUT /api/notifications/:id/read)
+app.put('/api/notifications/:id/read', requireNotificationAuth, async (req, res) => {
+  try {
+    const notificationId = req.params.id;
+    if (!notificationId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Notification ID is required.',
+        code: 'MISSING_NOTIFICATION_ID',
+        requestId: req.id
+      });
+    }
+
+    // Fails closed if notification does not exist or belongs to another user
+    const result = await db.notificationRepo.markAsRead(req.authenticatedUserId, notificationId);
+    if (!result.success) {
+      return res.status(404).json({
+        success: false,
+        error: 'Notification not found.',
+        code: 'NOT_FOUND',
+        requestId: req.id
+      });
+    }
+
+    res.json({
+      success: true,
+      notification: result.notification,
+      requestId: req.id
+    });
+  } catch (err) {
+    res.status(err.statusCode || 500).json({
+      success: false,
+      error: err.message,
+      requestId: req.id
+    });
+  }
+});
+
+// 5. Mark All Notifications Read (PUT /api/notifications/read-all)
+app.put('/api/notifications/read-all', requireNotificationAuth, async (req, res) => {
+  try {
+    const result = await db.notificationRepo.markAllAsRead(req.authenticatedUserId);
+    res.json({
+      success: true,
+      updatedCount: result.updatedCount,
+      requestId: req.id
+    });
+  } catch (err) {
+    res.status(err.statusCode || 500).json({
+      success: false,
+      error: err.message,
+      requestId: req.id
+    });
+  }
+});
+
+// 6. Get User Notification Preferences (GET /api/notifications/preferences)
+app.get('/api/notifications/preferences', requireNotificationAuth, async (req, res) => {
+  try {
+    const preferences = await db.notificationRepo.getPreferences(req.authenticatedUserId);
+    res.json({
+      success: true,
+      preferences,
+      requestId: req.id
+    });
+  } catch (err) {
+    res.status(err.statusCode || 500).json({
+      success: false,
+      error: err.message,
+      requestId: req.id
+    });
+  }
+});
+
+// 7. Update User Notification Preferences (PUT /api/notifications/preferences)
+app.put('/api/notifications/preferences', requireNotificationAuth, async (req, res) => {
+  try {
+    const updated = await db.notificationRepo.updatePreferences(req.authenticatedUserId, req.body || {});
+    res.json({
+      success: true,
+      preferences: updated,
+      requestId: req.id
+    });
+  } catch (err) {
+    res.status(err.statusCode || 500).json({
+      success: false,
+      error: err.message,
+      requestId: req.id
+    });
+  }
+});
+
+// 8. Admin Notification Broadcast (POST /api/admin/notifications/broadcast)
+app.post('/api/admin/notifications/broadcast', authenticateAdmin, requirePermission('notification.broadcast'), async (req, res) => {
+  try {
+    const now = Date.now();
+    // Enforce 1 broadcast per 15 minutes rate limit
+    if (now - lastAdminBroadcastTimestamp < BROADCAST_COOLDOWN_MS) {
+      const remainingSeconds = Math.ceil((BROADCAST_COOLDOWN_MS - (now - lastAdminBroadcastTimestamp)) / 1000);
+      return res.status(429).json({
+        success: false,
+        error: `Administrative broadcast rate limit exceeded. Only 1 broadcast permitted per 15 minutes. Try again in ${remainingSeconds}s.`,
+        code: 'RATE_LIMIT_EXCEEDED',
+        retryAfter: remainingSeconds,
+        requestId: req.id
+      });
+    }
+
+    const {
+      title,
+      body,
+      audience = 'ALL',
+      notificationType = 'BROADCAST',
+      priority = 'NORMAL',
+      data = {}
+    } = req.body || {};
+
+    if (!title || typeof title !== 'string' || !title.trim()) {
+      return res.status(400).json({
+        success: false,
+        error: 'title is required and must be a non-empty string.',
+        code: 'MISSING_TITLE',
+        requestId: req.id
+      });
+    }
+
+    if (title.length > 255) {
+      return res.status(400).json({
+        success: false,
+        error: 'title exceeds maximum allowed length of 255 characters.',
+        code: 'TITLE_TOO_LONG',
+        requestId: req.id
+      });
+    }
+
+    if (!body || typeof body !== 'string' || !body.trim()) {
+      return res.status(400).json({
+        success: false,
+        error: 'body is required and must be a non-empty string.',
+        code: 'MISSING_BODY',
+        requestId: req.id
+      });
+    }
+
+    if (body.length > 2000) {
+      return res.status(400).json({
+        success: false,
+        error: 'body exceeds maximum allowed length of 2000 characters.',
+        code: 'BODY_TOO_LONG',
+        requestId: req.id
+      });
+    }
+
+    const validAudiences = ['ALL', 'CUSTOMERS', 'DRIVERS', 'MERCHANTS'];
+    const normAudience = audience.toUpperCase().trim();
+    if (!validAudiences.includes(normAudience)) {
+      return res.status(400).json({
+        success: false,
+        error: `Invalid audience [${audience}]. Allowed values: ${validAudiences.join(', ')}`,
+        code: 'INVALID_AUDIENCE',
+        requestId: req.id
+      });
+    }
+
+    // PII / Credential sanitization check
+    const rawContent = `${title} ${body} ${JSON.stringify(data)}`;
+    const sensitivePattern = /(?:BEGIN\s+(?:RSA\s+)?PRIVATE\s+KEY|password\s*[:=]|secret\s*[:=]|\b\d{4}[ -]?\d{4}[ -]?\d{4}[ -]?\d{4}\b)/i;
+    if (sensitivePattern.test(rawContent)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Content validation error: Broadcast title or body contains sensitive PII or credentials.',
+        code: 'SENSITIVE_CONTENT_DETECTED',
+        requestId: req.id
+      });
+    }
+
+    const broadcastId = `bcast_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+
+    // Target audience user resolution
+    let targetUsers = [];
+    if (normAudience === 'ALL') {
+      targetUsers = db.users || [];
+    } else if (normAudience === 'CUSTOMERS') {
+      targetUsers = (db.users || []).filter(u => !u.role || u.role === 'CUSTOMER');
+    } else if (normAudience === 'DRIVERS') {
+      const driverUserIds = (db.drivers || []).map(d => d.userId || d.user_id).filter(Boolean);
+      targetUsers = (db.users || []).filter(u => driverUserIds.includes(u.id) || driverUserIds.includes(u.uuid));
+    } else if (normAudience === 'MERCHANTS') {
+      targetUsers = (db.users || []).filter(u => u.role === 'MERCHANT');
+    }
+
+    // Persist notification for target recipients
+    const dispatchPromises = targetUsers.slice(0, 500).map(user => {
+      const recipientId = user.uuid || user.id;
+      return db.notificationRepo.createNotification({
+        userId: null,
+        recipientUserId: recipientId,
+        title: title.trim(),
+        body: body.trim(),
+        notificationType,
+        priority,
+        data: { ...data, broadcastId }
+      });
+    });
+
+    await Promise.all(dispatchPromises);
+
+    // Record immutable audit log
+    await db.createAuditLog({
+      adminId: req.admin.id,
+      adminName: req.admin.name || req.admin.username,
+      role: req.admin.role,
+      action: 'NOTIFICATION_BROADCAST',
+      module: 'NOTIFICATIONS',
+      targetEntityType: 'BROADCAST',
+      targetEntityId: broadcastId,
+      previousState: null,
+      newState: normAudience,
+      reason: `Broadcast dispatched to audience ${normAudience}. Title: "${title.trim()}". Recipients: ${targetUsers.length}`,
+      ipAddress: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1'
+    });
+
+    // Update cooldown
+    lastAdminBroadcastTimestamp = now;
+
+    res.json({
+      success: true,
+      broadcastId,
+      audience: normAudience,
+      recipientCount: targetUsers.length,
+      timestamp: new Date().toISOString(),
+      requestId: req.id
+    });
+  } catch (err) {
+    res.status(err.statusCode || 500).json({
+      success: false,
+      error: err.message,
+      requestId: req.id
+    });
+  }
+});
+
 // Centralized Asynchronous Error Handler Middleware
 app.use((err, req, res, next) => {
   console.error(`[${req.id || 'NO_REQ_ID'}] Unhandled error:`, err);

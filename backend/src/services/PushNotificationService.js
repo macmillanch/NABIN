@@ -133,9 +133,14 @@ class FcmV1PushProvider {
  * delivery logging, and automatic retry / token deactivation.
  */
 class PushNotificationService {
-  constructor(notificationRepo, pushProvider = null) {
-    this.notificationRepo = notificationRepo;
-    this.provider = pushProvider || new MockSandboxPushProvider();
+  constructor(notificationRepoOrOptions, pushProvider = null) {
+    if (notificationRepoOrOptions && notificationRepoOrOptions.notificationRepo) {
+      this.notificationRepo = notificationRepoOrOptions.notificationRepo;
+      this.provider = notificationRepoOrOptions.pushProvider || pushProvider || new MockSandboxPushProvider();
+    } else {
+      this.notificationRepo = notificationRepoOrOptions;
+      this.provider = pushProvider || new MockSandboxPushProvider();
+    }
   }
 
   setProvider(provider) {

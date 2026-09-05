@@ -3662,7 +3662,7 @@ class NabinDatabase {
 
   async createJob(jobData) {
     const newJob = {
-      id: jobData.id || `JOB-${Date.now().toString().slice(-4)}`,
+      id: jobData.id || `JOB-${Date.now().toString().slice(-8)}-${Math.floor(100 + Math.random() * 900)}`,
       status: jobData.status || 'SEARCHING',
       driverId: jobData.driverId || null,
       startOtp: Math.floor(1000 + Math.random() * 9000).toString(),

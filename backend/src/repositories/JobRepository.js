@@ -114,7 +114,7 @@ class JobRepository {
    * Authoritative Job Creation in PostgreSQL
    */
   async create(jobData) {
-    const jobNumber = jobData.id || `JOB-${Date.now().toString().slice(-4)}`;
+    const jobNumber = jobData.id || `JOB-${Date.now().toString().slice(-8)}-${Math.floor(100 + Math.random() * 900)}`;
     const serviceType = normalizeServiceType(jobData.type || jobData.serviceType);
     const status = jobData.status || 'REQUESTED';
 
