@@ -2026,6 +2026,8 @@ app.post('/api/customer/book-parcel', authenticateUser, async (req, res) => {
   res.json({ success: true, job });
 });
 
+const inflightFoodOrders = new Map();
+
 app.post('/api/customer/book-food', authenticateUser, async (req, res) => {
   if (db.isServicePaused('food')) {
     const s = db.getService('food');
@@ -2043,8 +2045,9 @@ app.post('/api/customer/book-food', authenticateUser, async (req, res) => {
     customerId,
     restaurantId,
     items,
-    deliveryAddress,
     promoCode,
+    deliveryAddress,
+    deliveryNotes,
     packagingFee: reqPackFee,
     deliveryFee: reqDelFee,
     customerStateCode = '07',
@@ -2060,74 +2063,99 @@ app.post('/api/customer/book-food', authenticateUser, async (req, res) => {
     if (existing) {
       return res.json({ success: true, job: existing, duplicate: true });
     }
-  }
-
-  const targetRestId = restaurantId || 'rest_1';
-  let rest = db.restaurants.find(r => r.id === targetRestId || r.uuid === targetRestId);
-  let restaurantUuid = targetRestId;
-  let restaurantName = rest?.name || 'Dilli Darbar';
-  let restaurantAddress = rest?.address || 'Connaught Place, New Delhi';
-
-  if (isLivePostgres && supabaseAdmin) {
-    try {
-      const { data: dbRest } = await supabaseAdmin.from('merchants').select('*').eq('id', targetRestId).maybeSingle();
-      if (dbRest) {
-        restaurantUuid = dbRest.id;
-        restaurantName = dbRest.name;
-        restaurantAddress = dbRest.address || restaurantAddress;
-        if (dbRest.operational_status === 'SUSPENDED') {
-          return res.status(403).json({
-            success: false,
-            error: `Restaurant ${dbRest.name} is temporarily suspended by NABIN Admin and cannot accept new orders.`
-          });
-        }
+    if (inflightFoodOrders.has(idempotencyKey)) {
+      try {
+        const inflightRes = await inflightFoodOrders.get(idempotencyKey);
+        return res.json({ success: true, ...inflightRes, duplicate: true });
+      } catch (err) {
+        return res.status(500).json({ success: false, error: err.message, requestId: req.id });
       }
-    } catch (e) {}
+    }
   }
 
-  if (rest && rest.operationalStatus === 'SUSPENDED') {
-    return res.status(403).json({
-      success: false,
-      error: `Restaurant ${rest.name} is temporarily suspended by NABIN Admin and cannot accept new orders.`
+  let orderPromiseResolve = null;
+  let orderPromiseReject = null;
+  if (idempotencyKey) {
+    const p = new Promise((resolve, reject) => {
+      orderPromiseResolve = resolve;
+      orderPromiseReject = reject;
     });
+    inflightFoodOrders.set(idempotencyKey, p);
   }
 
-  const user = req.user || db.getUser(customerId || 'usr_2') || { id: customerId || 'usr_2', name: 'Customer Priya', phone: '+91 98450 11982' };
-  const customerUuid = user.uuid || (db.userRepo ? db.userRepo.resolveUuid(user.id) : null) || '00000000-0000-0000-0000-000000000002';
-
-  // 1. Authoritative Cart Validation via MenuRepository
-  let formattedItems = [];
-  if (Array.isArray(items)) {
-    formattedItems = items.map(itm => {
-      if (typeof itm === 'string') {
-        const m = itm.match(/^(\d+)x\s*(.*)$/);
-        const qty = m ? parseInt(m[1], 10) : 1;
-        const name = m ? m[2].trim() : itm.trim();
-        return {
-          productId: `prod_${name.toLowerCase().replace(/[^a-z0-9]/g, '_')}`,
-          name,
-          quantity: qty,
-          price: 150
-        };
-      }
-      return itm;
-    });
-  }
-
-  let cartResult;
   try {
-    cartResult = await db.menuRepo.validateCartAndCalculate({
-      merchantId: restaurantUuid,
-      items: formattedItems
-    });
-  } catch (cartErr) {
-    return res.status(400).json({
-      success: false,
-      error: cartErr.message,
-      code: 'CART_VALIDATION_FAILED',
-      requestId: req.id
-    });
-  }
+    const targetRestId = restaurantId || 'rest_1';
+    let rest = db.restaurants.find(r => r.id === targetRestId || r.uuid === targetRestId);
+    let restaurantUuid = targetRestId;
+    let restaurantName = rest?.name || 'Dilli Darbar';
+    let restaurantAddress = rest?.address || 'Connaught Place, New Delhi';
+
+    if (isLivePostgres && supabaseAdmin) {
+      try {
+        const { data: dbRest } = await supabaseAdmin.from('merchants').select('*').eq('id', targetRestId).maybeSingle();
+        if (dbRest) {
+          restaurantUuid = dbRest.id;
+          restaurantName = dbRest.name;
+          restaurantAddress = dbRest.address || restaurantAddress;
+          if (dbRest.operational_status === 'SUSPENDED') {
+            if (orderPromiseReject) orderPromiseReject(new Error('Restaurant suspended'));
+            if (idempotencyKey) inflightFoodOrders.delete(idempotencyKey);
+            return res.status(403).json({
+              success: false,
+              error: `Restaurant ${dbRest.name} is temporarily suspended by NABIN Admin and cannot accept new orders.`
+            });
+          }
+        }
+      } catch (e) {}
+    }
+
+    if (rest && rest.operationalStatus === 'SUSPENDED') {
+      if (orderPromiseReject) orderPromiseReject(new Error('Restaurant suspended'));
+      if (idempotencyKey) inflightFoodOrders.delete(idempotencyKey);
+      return res.status(403).json({
+        success: false,
+        error: `Restaurant ${rest.name} is temporarily suspended by NABIN Admin and cannot accept new orders.`
+      });
+    }
+
+    const user = req.user || db.getUser(customerId || 'usr_2') || { id: customerId || 'usr_2', name: 'Customer Priya', phone: '+91 98450 11982' };
+    const customerUuid = user.uuid || (db.userRepo ? db.userRepo.resolveUuid(user.id) : null) || '00000000-0000-0000-0000-000000000002';
+
+    // 1. Authoritative Cart Validation via MenuRepository
+    let formattedItems = [];
+    if (Array.isArray(items)) {
+      formattedItems = items.map(itm => {
+        if (typeof itm === 'string') {
+          const m = itm.match(/^(\d+)x\s*(.*)$/);
+          const qty = m ? parseInt(m[1], 10) : 1;
+          const name = m ? m[2].trim() : itm.trim();
+          return {
+            productId: `prod_${name.toLowerCase().replace(/[^a-z0-9]/g, '_')}`,
+            name,
+            quantity: qty,
+            price: 150
+          };
+        }
+        return itm;
+      });
+    }
+
+    let cartResult;
+    try {
+      cartResult = await db.menuRepo.validateCartAndCalculate({
+        merchantId: restaurantUuid,
+        items: formattedItems
+      });
+    } catch (cartErr) {
+      if (orderPromiseReject) orderPromiseReject(cartErr);
+      if (idempotencyKey) inflightFoodOrders.delete(idempotencyKey);
+      return res.status(400).json({
+        success: false,
+        error: cartErr.message,
+        code: 'CART_VALIDATION_FAILED',
+        requestId: req.id
+      });
+    }
 
   const foodSubtotal = cartResult.foodSubtotal;
   const packagingFee = reqPackFee !== undefined ? Number(reqPackFee) : 15.0;
@@ -2274,26 +2302,38 @@ app.post('/api/customer/book-food', authenticateUser, async (req, res) => {
     console.warn('⚠️ NotificationEventBus FOOD_ORDER_PLACED notice:', busErr.message);
   }
 
-  broadcastToMerchant(restaurantUuid, {
-    type: 'NEW_FOOD_ORDER',
-    order: {
-      id: job.id,
-      customerName: user.name,
-      customerPhone: user.phone,
-      items: job.foodItems,
-      totalAmount: job.fare,
-      deliveryAddress: job.drop?.address
-    }
-  });
+    broadcastToMerchant(restaurantUuid, {
+      type: 'NEW_FOOD_ORDER',
+      order: {
+        id: job.id,
+        customerName: user.name,
+        customerPhone: user.phone,
+        items: job.foodItems,
+        totalAmount: job.fare,
+        deliveryAddress: job.drop?.address
+      }
+    });
 
-  res.json({
-    success: true,
-    job,
-    foodSubtotal,
-    taxBreakdown: taxResult,
-    finalTotal,
-    invoice
-  });
+    const responseData = {
+      job,
+      foodSubtotal,
+      taxBreakdown: taxResult,
+      finalTotal,
+      invoice
+    };
+
+    if (orderPromiseResolve) orderPromiseResolve(responseData);
+    if (idempotencyKey) inflightFoodOrders.delete(idempotencyKey);
+
+    res.json({
+      success: true,
+      ...responseData
+    });
+  } catch (uncaughtOrderErr) {
+    if (orderPromiseReject) orderPromiseReject(uncaughtOrderErr);
+    if (idempotencyKey) inflightFoodOrders.delete(idempotencyKey);
+    res.status(500).json({ success: false, error: uncaughtOrderErr.message, requestId: req.id });
+  }
 });
 
 // RESTAURANT / MERCHANT API ENDPOINTS
@@ -2526,7 +2566,25 @@ app.get('/api/products/:productId/modifiers', async (req, res) => {
 // TAX INVOICE RETRIEVAL ENDPOINTS
 app.get('/api/customer/orders/:orderId/invoice', authenticateUser, async (req, res) => {
   const { orderId } = req.params;
-  const invoice = await db.invoiceRepo.getInvoiceByJobId(orderId) || await db.invoiceRepo.getInvoiceById(orderId);
+  const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  let jobUuid = null;
+  if (UUID_REGEX.test(orderId)) {
+    jobUuid = orderId;
+  } else if (db.jobRepo) {
+    const foundJob = db.jobRepo.findById(orderId);
+    if (foundJob) jobUuid = foundJob.uuid || foundJob.id;
+  }
+
+  let invoice = null;
+  if (jobUuid) {
+    invoice = await db.invoiceRepo.getInvoiceByJobId(jobUuid);
+  }
+  if (!invoice && UUID_REGEX.test(orderId)) {
+    invoice = await db.invoiceRepo.getInvoiceById(orderId);
+  }
+  if (!invoice) {
+    invoice = await db.invoiceRepo.getInvoiceByJobId(orderId);
+  }
   if (!invoice) {
     return res.status(404).json({ success: false, error: 'Tax invoice not found for this order.', requestId: req.id });
   }

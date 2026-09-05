@@ -216,11 +216,23 @@ class InvoiceRepository {
   }
 
   async getInvoiceByJobId(jobId) {
+    if (!jobId) return null;
+    const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    let targetJobId = jobId;
+    if (!UUID_REGEX.test(targetJobId) && this.db?.jobRepo) {
+      const job = this.db.jobRepo.findById(jobId);
+      if (job && job.uuid) {
+        targetJobId = job.uuid;
+      }
+    }
+    if (!UUID_REGEX.test(targetJobId)) {
+      return null;
+    }
     if (isLivePostgres && supabaseAdmin) {
       const { data, error } = await supabaseAdmin
         .from('tax_invoices')
         .select('*')
-        .eq('job_id', jobId)
+        .eq('job_id', targetJobId)
         .maybeSingle();
 
       if (!error && data) return data;
@@ -229,14 +241,26 @@ class InvoiceRepository {
   }
 
   async getInvoiceById(id) {
+    if (!id) return null;
+    const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     if (isLivePostgres && supabaseAdmin) {
-      const { data, error } = await supabaseAdmin
-        .from('tax_invoices')
-        .select('*')
-        .or(`id.eq.${id},invoice_number.eq.${id}`)
-        .maybeSingle();
+      if (UUID_REGEX.test(id)) {
+        const { data, error } = await supabaseAdmin
+          .from('tax_invoices')
+          .select('*')
+          .or(`id.eq.${id},invoice_number.eq.${id}`)
+          .maybeSingle();
 
-      if (!error && data) return data;
+        if (!error && data) return data;
+      } else {
+        const { data, error } = await supabaseAdmin
+          .from('tax_invoices')
+          .select('*')
+          .eq('invoice_number', id)
+          .maybeSingle();
+
+        if (!error && data) return data;
+      }
     }
     return null;
   }
