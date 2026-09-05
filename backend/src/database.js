@@ -215,6 +215,8 @@ class NabinDatabase {
         id: 'DRV-101',
         name: 'Rajesh Kumar',
         phone: '+91 98101 22910',
+        userId: null,
+        user_id: null,
         category: '4W',
         categoryName: 'Cab Comfort (4W)',
         vehicle: 'Hyundai Aura (DL 1RA 4892)',
@@ -222,8 +224,17 @@ class NabinDatabase {
         vehiclePlate: 'DL 1RA 4892',
         dl: 'DL-04201992019',
         rating: 4.92,
-        status: 'VERIFIED',
-        kycStatus: 'VERIFIED',
+        status: 'PENDING',
+        kycStatus: 'PENDING',
+        verifiedUpiId: null,
+        verified_upi_id: null,
+        pendingUpiId: null,
+        pending_upi_id: null,
+        upiCoolingUntil: null,
+        upi_cooling_until: null,
+        payoutUpiVerified: false,
+        payout_upi_verified: false,
+        vpaVerificationMethod: null,
         driverState: 'ONLINE',
         isOnline: true,
         operationalStatus: 'ACTIVE',
@@ -248,8 +259,10 @@ class NabinDatabase {
       },
       {
         id: 'DRV-102',
-        name: 'Deepak Sharma',
-        phone: '+91 98711 00412',
+        name: 'Sunil Verma',
+        phone: '+91 98222 33445',
+        userId: null,
+        user_id: null,
         category: '3W',
         categoryName: 'Auto Rickshaw (3W)',
         vehicle: 'Bajaj EV Auto (DL 2S 9012)',
@@ -257,8 +270,17 @@ class NabinDatabase {
         vehiclePlate: 'DL 2S 9012',
         dl: 'DL-07202100412',
         rating: 4.85,
-        status: 'VERIFIED',
-        kycStatus: 'VERIFIED',
+        status: 'PENDING',
+        kycStatus: 'PENDING',
+        verifiedUpiId: null,
+        verified_upi_id: null,
+        pendingUpiId: null,
+        pending_upi_id: null,
+        upiCoolingUntil: null,
+        upi_cooling_until: null,
+        payoutUpiVerified: false,
+        payout_upi_verified: false,
+        vpaVerificationMethod: null,
         driverState: 'ONLINE',
         isOnline: true,
         operationalStatus: 'ACTIVE',
@@ -280,8 +302,10 @@ class NabinDatabase {
       },
       {
         id: 'DRV-103',
-        name: 'Vikram Singh',
-        phone: '+91 98990 11901',
+        name: 'Deepak Auto',
+        phone: '+91 98333 44556',
+        userId: null,
+        user_id: null,
         category: '2W',
         categoryName: 'Bike Taxi (2W)',
         vehicle: 'TVS Apache RTR (DL 9C 1190)',
@@ -289,8 +313,17 @@ class NabinDatabase {
         vehiclePlate: 'DL 9C 1190',
         dl: 'DL-01201800918',
         rating: 4.95,
-        status: 'VERIFIED',
-        kycStatus: 'VERIFIED',
+        status: 'PENDING',
+        kycStatus: 'PENDING',
+        verifiedUpiId: null,
+        verified_upi_id: null,
+        pendingUpiId: null,
+        pending_upi_id: null,
+        upiCoolingUntil: null,
+        upi_cooling_until: null,
+        payoutUpiVerified: false,
+        payout_upi_verified: false,
+        vpaVerificationMethod: null,
         driverState: 'ONLINE',
         isOnline: true,
         operationalStatus: 'ACTIVE',
@@ -313,6 +346,8 @@ class NabinDatabase {
         id: 'DRV-104',
         name: 'Amit Verma',
         phone: '+91 98112 48102',
+        userId: null,
+        user_id: null,
         category: '2W',
         categoryName: 'Parcel Courier (2W)',
         vehicle: 'Honda Activa 6G (DL 5P 4810)',
@@ -320,8 +355,17 @@ class NabinDatabase {
         vehiclePlate: 'DL 5P 4810',
         dl: 'DL-03202000481',
         rating: 4.88,
-        status: 'VERIFIED',
-        kycStatus: 'VERIFIED',
+        status: 'PENDING',
+        kycStatus: 'PENDING',
+        verifiedUpiId: null,
+        verified_upi_id: null,
+        pendingUpiId: null,
+        pending_upi_id: null,
+        upiCoolingUntil: null,
+        upi_cooling_until: null,
+        payoutUpiVerified: false,
+        payout_upi_verified: false,
+        vpaVerificationMethod: null,
         driverState: 'ONLINE',
         isOnline: true,
         operationalStatus: 'ACTIVE',
@@ -343,6 +387,8 @@ class NabinDatabase {
         id: 'DRV-105',
         name: 'Manoj Yadav',
         phone: '+91 98733 99120',
+        userId: null,
+        user_id: null,
         category: '4W',
         categoryName: 'Prime Sedan (4W)',
         vehicle: 'Maruti Suzuki Dzire (DL 1Z 3341)',
@@ -350,8 +396,17 @@ class NabinDatabase {
         vehiclePlate: 'DL 1Z 3341',
         dl: 'DL-08201700334',
         rating: 4.90,
-        status: 'VERIFIED',
-        kycStatus: 'VERIFIED',
+        status: 'PENDING',
+        kycStatus: 'PENDING',
+        verifiedUpiId: null,
+        verified_upi_id: null,
+        pendingUpiId: null,
+        pending_upi_id: null,
+        upiCoolingUntil: null,
+        upi_cooling_until: null,
+        payoutUpiVerified: false,
+        payout_upi_verified: false,
+        vpaVerificationMethod: null,
         driverState: 'ONLINE',
         isOnline: true,
         operationalStatus: 'ACTIVE',
@@ -1790,6 +1845,8 @@ class NabinDatabase {
           const mapped = {
             id: legacyId || row.id,
             uuid: row.id,
+            userId: row.user_id ? (this.users.find(u => u.uuid === row.user_id || u.id === row.user_id)?.id || row.user_id) : null,
+            user_id: row.user_id || null,
             name: row.name,
             phone: row.phone,
             category: row.vehicle_type,
@@ -1799,8 +1856,17 @@ class NabinDatabase {
             vehiclePlate: row.vehicle_number,
             dl: row.license_number,
             rating: parseFloat(row.rating || 5.0),
-            status: 'VERIFIED',
-            kycStatus: 'VERIFIED',
+            status: row.kyc_status || 'PENDING',
+            kycStatus: row.kyc_status || 'PENDING',
+            verifiedUpiId: row.verified_upi_id || null,
+            verified_upi_id: row.verified_upi_id || null,
+            pendingUpiId: row.pending_upi_id || null,
+            pending_upi_id: row.pending_upi_id || null,
+            upiCoolingUntil: row.upi_cooling_until || null,
+            upi_cooling_until: row.upi_cooling_until || null,
+            payoutUpiVerified: Boolean(row.payout_upi_verified),
+            payout_upi_verified: Boolean(row.payout_upi_verified),
+            vpaVerificationMethod: row.vpa_verification_method || null,
             driverState: row.is_online ? 'ONLINE' : 'OFFLINE',
             isOnline: Boolean(row.is_online),
             operationalStatus: row.operational_status || 'AVAILABLE',
@@ -3492,29 +3558,44 @@ class NabinDatabase {
   }
 
   // --- Driver Operational Status Control ---
-  setDriverStatus(driverId, operationalStatus, reason, adminId, adminName) {
+  async setDriverStatus(driverId, operationalStatus, reason, adminId, adminName, kycStatus = null) {
+    if (this.driverRepo) {
+      return await this.driverRepo.updateDriverStatus(driverId, {
+        operationalStatus,
+        kycStatus,
+        reason,
+        adminId,
+        adminName
+      });
+    }
+
     const driver = this.getDriver(driverId);
     if (!driver) return { success: false, error: 'Driver not found' };
 
     const prev = driver.operationalStatus || 'APPROVED';
-    driver.operationalStatus = operationalStatus;
-    driver.suspensionReason = reason || '';
-
-    if (operationalStatus === 'SUSPENDED') {
-      driver.isOnline = false;
+    if (operationalStatus) {
+      driver.operationalStatus = operationalStatus;
+      if (operationalStatus === 'SUSPENDED') {
+        driver.isOnline = false;
+      }
     }
+    if (kycStatus) {
+      driver.kycStatus = kycStatus;
+      driver.status = kycStatus;
+    }
+    driver.suspensionReason = reason || '';
 
     this.createAuditLog({
       adminId,
       adminName,
       role: 'ADMIN',
-      action: operationalStatus === 'SUSPENDED' ? 'DRIVER_SUSPENDED' : 'DRIVER_ACTIVATED',
+      action: kycStatus ? `DRIVER_KYC_${kycStatus}` : (operationalStatus === 'SUSPENDED' ? 'DRIVER_SUSPENDED' : 'DRIVER_ACTIVATED'),
       module: 'DRIVER_FLEET',
       targetEntityType: 'DRIVER',
       targetEntityId: driver.id,
       previousState: prev,
-      newState: operationalStatus,
-      reason: reason || `Driver operational status set to ${operationalStatus}`
+      newState: operationalStatus || kycStatus,
+      reason: reason || `Driver operational status set to ${operationalStatus || kycStatus}`
     });
 
     return { success: true, driver };
@@ -3774,32 +3855,134 @@ class NabinDatabase {
     return job;
   }
 
-  recordPayout(driverId, amount, upiId) {
-    const driver = this.getDriver(driverId);
-    if (driver && driver.walletBalance >= amount) {
-      driver.walletBalance -= amount;
-      this.transactions.unshift({
-        id: `TXN-${Date.now().toString().slice(-4)}`,
-        type: 'PAYOUT',
-        jobId: null,
-        userId: driver.id,
-        userRole: 'DRIVER',
-        driverId: driver.id,
-        title: `Instant UPI Payout to ${upiId || driver.upiId}`,
-        amount: -amount,
-        platformFee: 0,
-        commission: 0,
-        deliveryFee: 0,
-        net: -amount,
-        paymentMode: 'UPI_DIRECT',
-        paymentStatus: 'SUCCESS',
-        settlementStatus: 'COMPLETED',
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ' Today'
-      });
-      this.save();
-      return { success: true, balance: driver.walletBalance };
+  async recordPayout(driverId, amount) {
+    let driver = this.driverRepo ? this.driverRepo.findById(driverId) : this.getDriver(driverId);
+    if (!driver && this.driverRepo) {
+      driver = await this.driverRepo.findByIdAsync(driverId);
     }
-    return { success: false, error: 'Insufficient wallet balance' };
+    if (!driver) {
+      return { success: false, error: 'Driver not found', code: 'DRIVER_NOT_FOUND' };
+    }
+
+    const { supabaseAdmin, isLivePostgres } = require('./supabase');
+    if (isLivePostgres && supabaseAdmin) {
+      const targetUuid = this.driverRepo?.resolveUuid(driverId) || driver.uuid || driverId;
+      const { data: dbDriver } = await supabaseAdmin.from('drivers').select('*').eq('id', targetUuid).maybeSingle();
+      if (dbDriver) {
+        driver.kycStatus = dbDriver.kyc_status;
+        driver.status = dbDriver.kyc_status;
+        driver.userId = dbDriver.user_id;
+        driver.user_id = dbDriver.user_id;
+        driver.verifiedUpiId = dbDriver.verified_upi_id;
+        driver.verified_upi_id = dbDriver.verified_upi_id;
+        driver.pendingUpiId = dbDriver.pending_upi_id;
+        driver.pending_upi_id = dbDriver.pending_upi_id;
+        driver.payoutUpiVerified = dbDriver.payout_upi_verified;
+        driver.payout_upi_verified = dbDriver.payout_upi_verified;
+        driver.upiCoolingUntil = dbDriver.upi_cooling_until;
+        driver.upi_cooling_until = dbDriver.upi_cooling_until;
+        if (dbDriver.wallet_balance !== undefined && dbDriver.wallet_balance !== null) {
+          driver.walletBalance = Number(dbDriver.wallet_balance);
+        }
+      }
+    }
+
+    if (!driver.userId && !driver.user_id) {
+      return {
+        success: false,
+        error: 'Driver profile is not linked to an active user account. Account linkage required.',
+        code: 'UNLINKED_DRIVER_ACCOUNT'
+      };
+    }
+
+    if (driver.kycStatus !== 'VERIFIED' && driver.status !== 'VERIFIED') {
+      return {
+        success: false,
+        error: 'Driver KYC verification required before payouts can be disbursed.',
+        code: 'KYC_VERIFICATION_REQUIRED'
+      };
+    }
+
+    if (!driver.payoutUpiVerified || !driver.verifiedUpiId) {
+      return {
+        success: false,
+        error: 'No verified payout destination on file. Admin verification required.',
+        code: 'UNVERIFIED_PAYOUT_DESTINATION'
+      };
+    }
+
+    if (driver.upiCoolingUntil && new Date(driver.upiCoolingUntil) > new Date()) {
+      return {
+        success: false,
+        error: 'Payout destination is in 24-hour cooling-off period.',
+        code: 'PAYOUT_DESTINATION_COOLING_ACTIVE'
+      };
+    }
+
+    const numAmount = Number(amount);
+    if (isNaN(numAmount) || numAmount <= 0) {
+      return { success: false, error: 'Invalid payout amount', code: 'INVALID_AMOUNT' };
+    }
+
+    if (driver.walletBalance < numAmount) {
+      return { success: false, error: 'Insufficient wallet balance', code: 'INSUFFICIENT_BALANCE' };
+    }
+
+    const payoutKey = `payout_${driver.id}_${Date.now()}`;
+
+    if (this.ledgerRepo) {
+      const res = await this.ledgerRepo.adjustWallet({
+        ownerId: driver.id,
+        ownerType: 'DRIVER',
+        amount: -numAmount,
+        category: 'DRIVER_PAYOUT',
+        description: `Instant UPI Payout to ${driver.verifiedUpiId}`,
+        referenceId: payoutKey,
+        debitAccount: 'DRIVER_EARNINGS_PAYABLE',
+        creditAccount: 'PAYMENT_GATEWAY_ESCROW',
+        idempotencyKey: payoutKey
+      });
+      if (res && res.balance !== undefined) {
+        driver.walletBalance = Number(res.balance);
+      }
+    } else {
+      driver.walletBalance -= numAmount;
+    }
+
+    if (isLivePostgres && supabaseAdmin) {
+      const targetUuid = this.driverRepo?.resolveUuid(driver.id) || driver.uuid || driver.id;
+      await supabaseAdmin.from('driver_payouts').insert({
+        payout_id: `PO-${Date.now()}`,
+        driver_id: targetUuid,
+        amount: numAmount,
+        upi_id: driver.verifiedUpiId,
+        status: 'SETTLED',
+        settled_at: new Date().toISOString(),
+        idempotency_key: payoutKey
+      });
+    }
+
+    this.transactions.unshift({
+      id: `TXN-${Date.now().toString().slice(-4)}`,
+      type: 'PAYOUT',
+      jobId: null,
+      userId: driver.id,
+      userRole: 'DRIVER',
+      driverId: driver.id,
+      title: `Instant UPI Payout to ${driver.verifiedUpiId}`,
+      amount: -numAmount,
+      platformFee: 0,
+      commission: 0,
+      deliveryFee: 0,
+      net: -numAmount,
+      paymentMode: 'UPI_DIRECT',
+      paymentStatus: 'SUCCESS',
+      settlementStatus: 'COMPLETED',
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ' Today'
+    });
+
+    this.save();
+    return { success: true, balance: driver.walletBalance, verifiedUpiId: driver.verifiedUpiId };
   }
 
   getAdminAccounts() {
@@ -4595,7 +4778,7 @@ class NabinDatabase {
     };
   }
 
-  verifyAuthOtp({ phone, otp, role = 'CUSTOMER', purpose = 'LOGIN' }) {
+  async verifyAuthOtp({ phone, otp, role = 'CUSTOMER', purpose = 'LOGIN' }) {
     const normPhone = this.normalizePhone(phone);
     if (!normPhone || !otp) {
       throw new Error('Mobile number and OTP code are required.');
@@ -4665,51 +4848,128 @@ class NabinDatabase {
 
     // Resolve or provision account based on role
     let entity = null;
+    const { supabaseAdmin, isLivePostgres } = require('./supabase');
     if (role === 'CUSTOMER') {
       entity = this.users.find(u => this.normalizePhone(u.phone) === normPhone);
-      if (!entity) {
+      let userUuid = entity?.uuid;
+      if (isLivePostgres && supabaseAdmin) {
+        const { data: dbUser } = await supabaseAdmin.from('users').select('*').eq('phone', normPhone).maybeSingle();
+        if (dbUser) {
+          userUuid = dbUser.id;
+          if (!entity) {
+            entity = this.userRepo?.mapRowToUser ? this.userRepo.mapRowToUser(dbUser) : dbUser;
+            this.users.unshift(entity);
+          } else {
+            entity.uuid = dbUser.id;
+            if (dbUser.wallet_balance !== undefined) entity.walletBalance = Number(dbUser.wallet_balance);
+          }
+        } else {
+          if (!userUuid) {
+            const crypto = require('crypto');
+            userUuid = crypto.randomUUID();
+          }
+          if (!entity) {
+            entity = {
+              id: `usr_${Date.now().toString().slice(-5)}`,
+              uuid: userUuid,
+              name: 'New NABIN Customer',
+              phone: normPhone,
+              email: `${normPhone.replace('+', '')}@user.nabin.in`,
+              dob: '2000-01-01',
+              address: 'Delhi NCR',
+              rating: 5.0,
+              walletBalance: 250.0,
+              identityStatus: 'IDENTITY_VERIFICATION_PENDING',
+              accountStatus: 'ACTIVE',
+              currentApplicationId: null,
+              createdAt: new Date().toISOString()
+            };
+            this.users.unshift(entity);
+          } else {
+            entity.uuid = userUuid;
+          }
+          await supabaseAdmin.from('users').insert({
+            id: userUuid,
+            name: entity.name,
+            phone: normPhone,
+            email: entity.email || `${normPhone.replace('+', '')}@user.nabin.in`,
+            dob: entity.dob || '2000-01-01',
+            address: entity.address || 'Delhi NCR',
+            rating: entity.rating || 5.0,
+            wallet_balance: entity.walletBalance !== undefined ? entity.walletBalance : 250.0,
+            identity_status: 'PENDING',
+            account_status: 'ACTIVE',
+            created_at: entity.createdAt || new Date().toISOString()
+          });
+        }
+      } else if (!entity) {
+        const crypto = require('crypto');
+        userUuid = crypto.randomUUID();
         entity = {
           id: `usr_${Date.now().toString().slice(-5)}`,
+          uuid: userUuid,
           name: 'New NABIN Customer',
           phone: normPhone,
           email: `${normPhone.replace('+', '')}@user.nabin.in`,
           dob: '2000-01-01',
           address: 'Delhi NCR',
           rating: 5.0,
-          walletBalance: 250.0, // Welcome wallet credit
+          walletBalance: 250.0,
           identityStatus: 'IDENTITY_VERIFICATION_PENDING',
-          accountStatus: 'IDENTITY_VERIFICATION_PENDING',
+          accountStatus: 'ACTIVE',
           currentApplicationId: null,
           createdAt: new Date().toISOString()
         };
         this.users.unshift(entity);
       }
+
+      let matchingDriver = this.drivers.find(d => this.normalizePhone(d.phone) === normPhone);
+      if (matchingDriver) {
+        matchingDriver.userId = entity.id;
+        matchingDriver.user_id = userUuid || entity.uuid || entity.id;
+        if (isLivePostgres && supabaseAdmin) {
+          const targetUuid = this.driverRepo?.resolveUuid(matchingDriver.id) || matchingDriver.uuid || matchingDriver.id;
+          await supabaseAdmin.from('drivers').update({ user_id: userUuid || entity.uuid }).eq('id', targetUuid);
+        }
+      }
     } else if (role === 'DRIVER') {
       entity = this.drivers.find(d => this.normalizePhone(d.phone) === normPhone);
-      if (!entity) {
-        entity = {
-          id: `DRV-${Date.now().toString().slice(-4)}`,
-          name: 'Partner Driver',
-          phone: normPhone,
-          category: '3W',
-          categoryName: 'Auto Rickshaw (3W)',
-          vehicle: 'Bajaj RE Auto (DL 1S ' + Math.floor(1000 + Math.random() * 9000) + ')',
-          vehicleModel: 'Bajaj RE CNG 2024',
-          vehiclePlate: 'DL 1S ' + Math.floor(1000 + Math.random() * 9000),
-          dl: 'DL-' + Math.floor(1000000000 + Math.random() * 9000000000),
-          rating: 5.0,
-          status: 'VERIFIED',
-          kycStatus: 'VERIFIED',
-          driverState: 'ONLINE',
-          isOnline: true,
-          operationalStatus: 'ACTIVE',
-          todayTrips: 0,
-          todayEarnings: 0.0,
-          walletBalance: 500.0,
-          batteryFuel: '95% (CNG)',
-          currentLocation: { lat: 28.6139, lng: 77.2090, area: 'Central Delhi Operations Zone' }
-        };
-        this.drivers.unshift(entity);
+      if (isLivePostgres && supabaseAdmin) {
+        const { data: dbDrv } = await supabaseAdmin.from('drivers').select('*').eq('phone', normPhone).maybeSingle();
+        if (dbDrv) {
+          if (!entity) {
+            entity = this.driverRepo?.mapRowToDriver ? this.driverRepo.mapRowToDriver(dbDrv) : dbDrv;
+            this.drivers.push(entity);
+          } else {
+            entity.uuid = dbDrv.id;
+            entity.userId = dbDrv.user_id;
+            entity.user_id = dbDrv.user_id;
+            entity.kycStatus = dbDrv.kyc_status;
+            entity.status = dbDrv.kyc_status;
+            entity.verifiedUpiId = dbDrv.verified_upi_id;
+            entity.pendingUpiId = dbDrv.pending_upi_id;
+            entity.payoutUpiVerified = Boolean(dbDrv.payout_upi_verified);
+            entity.upiCoolingUntil = dbDrv.upi_cooling_until;
+            if (dbDrv.wallet_balance !== undefined) entity.walletBalance = Number(dbDrv.wallet_balance);
+          }
+        }
+      }
+      if (entity) {
+        if (isLivePostgres && supabaseAdmin) {
+          const { data: dbUser } = await supabaseAdmin.from('users').select('*').eq('phone', normPhone).maybeSingle();
+          if (dbUser) {
+            entity.userId = dbUser.id;
+            entity.user_id = dbUser.id;
+            const targetUuid = this.driverRepo?.resolveUuid(entity.id) || entity.uuid || entity.id;
+            await supabaseAdmin.from('drivers').update({ user_id: dbUser.id }).eq('id', targetUuid);
+          }
+        } else {
+          const matchingUser = this.users.find(u => this.normalizePhone(u.phone) === normPhone);
+          if (matchingUser) {
+            entity.userId = matchingUser.id;
+            entity.user_id = matchingUser.uuid || matchingUser.id;
+          }
+        }
       }
     } else if (role === 'MERCHANT') {
       entity = this.restaurants[0];

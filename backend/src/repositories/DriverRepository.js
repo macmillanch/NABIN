@@ -30,8 +30,17 @@ function mapRowToDriver(row, legacyId = null) {
     vehiclePlate: row.vehicle_number,
     dl: row.license_number,
     rating: parseFloat(row.rating || 5.0),
-    status: 'VERIFIED',
-    kycStatus: 'VERIFIED',
+    status: row.kyc_status || 'PENDING',
+    kycStatus: row.kyc_status || 'PENDING',
+    userId: row.user_id || null,
+    verifiedUpiId: row.verified_upi_id || null,
+    pendingUpiId: row.pending_upi_id || null,
+    payoutUpiVerified: Boolean(row.payout_upi_verified),
+    payoutUpiVerifiedAt: row.payout_upi_verified_at || null,
+    vpaVerificationMethod: row.vpa_verification_method || null,
+    upiCoolingUntil: row.upi_cooling_until || null,
+    kycVerifiedAt: row.kyc_verified_at || null,
+    kycRejectedReason: row.kyc_rejected_reason || null,
     driverState: row.is_online ? 'ONLINE' : 'OFFLINE',
     isOnline: Boolean(row.is_online),
     operationalStatus: row.operational_status || 'AVAILABLE',
@@ -332,6 +341,207 @@ class DriverRepository {
   getOnlineFleet(serviceType = null) {
     if (!this.db.drivers) return [];
     return this.db.drivers.filter(d => d.isOnline && (!serviceType || d.category === serviceType || d.vehicleType === serviceType));
+  }
+
+  async updateDriverStatus(driverId, { operationalStatus, kycStatus, reason, adminId, adminName }) {
+    let driver = this.findById(driverId);
+    if (!driver) {
+      driver = await this.findByIdAsync(driverId);
+    }
+    if (!driver) return { success: false, error: 'Driver not found' };
+
+    const targetUuid = this.resolveUuid(driverId) || driver.uuid || (UUID_REGEX.test(driverId) ? driverId : null);
+    const updates = {};
+    if (operationalStatus) {
+      const normOpStatus = (operationalStatus === 'ACTIVE' ? 'AVAILABLE' : operationalStatus).toUpperCase();
+      updates.operational_status = normOpStatus;
+      driver.operationalStatus = normOpStatus;
+      if (normOpStatus === 'SUSPENDED') {
+        driver.isOnline = false;
+        updates.is_online = false;
+      }
+    }
+    if (kycStatus) {
+      const normalizedKyc = (kycStatus === 'APPROVED' ? 'VERIFIED' : kycStatus).toUpperCase();
+      updates.kyc_status = normalizedKyc;
+      driver.kycStatus = normalizedKyc;
+      driver.status = normalizedKyc;
+      if (normalizedKyc === 'VERIFIED') {
+        updates.kyc_verified_at = new Date().toISOString();
+        driver.kycVerifiedAt = updates.kyc_verified_at;
+      } else if (normalizedKyc === 'REJECTED') {
+        updates.kyc_rejected_reason = reason || 'Compliance rejection';
+        driver.kycRejectedReason = updates.kyc_rejected_reason;
+      }
+    }
+    if (reason) {
+      driver.suspensionReason = reason;
+    }
+
+    if (isLivePostgres && supabaseAdmin && targetUuid) {
+      const { error } = await supabaseAdmin
+        .from('drivers')
+        .update(updates)
+        .eq('id', targetUuid);
+
+      if (error) {
+        return { success: false, error: error.message };
+      }
+
+      await this.db.createAuditLog({
+        adminId: adminId || 'admin',
+        adminName: adminName || 'Admin',
+        role: 'ADMIN',
+        action: kycStatus ? `DRIVER_KYC_${updates.kyc_status || kycStatus}` : (operationalStatus === 'SUSPENDED' ? 'DRIVER_SUSPENDED' : 'DRIVER_ACTIVATED'),
+        module: 'DRIVER_FLEET',
+        targetEntityType: 'DRIVER',
+        targetEntityId: targetUuid,
+        previousState: driver.operationalStatus,
+        newState: operationalStatus || updates.kyc_status || kycStatus,
+        reason: reason || `Driver status updated to ${operationalStatus || updates.kyc_status || kycStatus}`
+      });
+    }
+
+    return { success: true, driver };
+  }
+
+  async requestPayoutDestination(driverId, upiId) {
+    let driver = this.findById(driverId);
+    if (!driver) {
+      driver = await this.findByIdAsync(driverId);
+    }
+    if (!driver) return { success: false, error: 'Driver not found' };
+
+    const targetUuid = this.resolveUuid(driverId) || driver.uuid || driverId;
+    if (isLivePostgres && supabaseAdmin && targetUuid) {
+      const { data: dbDriver } = await supabaseAdmin.from('drivers').select('*').eq('id', targetUuid).maybeSingle();
+      if (dbDriver) {
+        driver.kycStatus = dbDriver.kyc_status;
+        driver.status = dbDriver.kyc_status;
+        driver.userId = dbDriver.user_id;
+        driver.user_id = dbDriver.user_id;
+        driver.verifiedUpiId = dbDriver.verified_upi_id;
+        driver.pendingUpiId = dbDriver.pending_upi_id;
+        driver.payoutUpiVerified = dbDriver.payout_upi_verified;
+        driver.upiCoolingUntil = dbDriver.upi_cooling_until;
+      }
+    }
+
+    if (!driver.userId && !driver.user_id) {
+      return { success: false, error: 'Unlinked driver profile cannot request payout destination.', code: 'UNLINKED_DRIVER_ACCOUNT' };
+    }
+    if (driver.kycStatus !== 'APPROVED' && driver.kycStatus !== 'VERIFIED' && driver.status !== 'APPROVED' && driver.status !== 'VERIFIED') {
+      return { success: false, error: 'KYC must be verified before adding a payout destination.', code: 'KYC_NOT_VERIFIED' };
+    }
+
+    const upiRegex = /^[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z]{2,64}$/;
+    if (!upiId || !upiRegex.test(upiId.trim())) {
+      return { success: false, error: 'Invalid UPI VPA format.', code: 'INVALID_UPI_FORMAT' };
+    }
+
+    const cleanUpi = upiId.trim();
+
+    if (isLivePostgres && supabaseAdmin && targetUuid) {
+      const { error } = await supabaseAdmin
+        .from('drivers')
+        .update({
+          pending_upi_id: cleanUpi,
+          payout_upi_verified: false
+        })
+        .eq('id', targetUuid);
+
+      if (error) {
+        return { success: false, error: error.message };
+      }
+    }
+
+    driver.pendingUpiId = cleanUpi;
+    driver.payoutUpiVerified = false;
+    return { success: true, pendingUpiId: cleanUpi, status: 'PENDING_VERIFICATION' };
+  }
+
+  async verifyPayoutDestination(driverId, { decision, evidenceUrl, bankAccountHolderName, reason, adminId, adminName }) {
+    let driver = this.findById(driverId);
+    if (!driver) {
+      driver = await this.findByIdAsync(driverId);
+    }
+    if (!driver) return { success: false, error: 'Driver not found' };
+
+    const targetUuid = this.resolveUuid(driverId) || driver.uuid;
+    const isApprove = decision === 'APPROVE';
+
+    if (isApprove) {
+      const vpaToVerify = driver.pendingUpiId || driver.verifiedUpiId;
+      if (!vpaToVerify) {
+        return { success: false, error: 'No pending or existing VPA to verify.', code: 'NO_VPA_PENDING' };
+      }
+      const coolingUntil = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+      const verifiedAt = new Date().toISOString();
+
+      if (isLivePostgres && supabaseAdmin && targetUuid) {
+        const { error } = await supabaseAdmin
+          .from('drivers')
+          .update({
+            verified_upi_id: vpaToVerify,
+            pending_upi_id: null,
+            payout_upi_verified: true,
+            payout_upi_verified_at: verifiedAt,
+            vpa_verification_method: 'ADMIN_MANUAL',
+            upi_cooling_until: coolingUntil
+          })
+          .eq('id', targetUuid);
+
+        if (error) return { success: false, error: error.message };
+
+        await this.db.createAuditLog({
+          adminId: adminId || 'admin',
+          adminName: adminName || 'Admin',
+          role: 'ADMIN',
+          action: 'PAYOUT_DESTINATION_VERIFIED',
+          module: 'FINANCE_SETTLEMENT',
+          targetEntityType: 'DRIVER',
+          targetEntityId: targetUuid,
+          reason: reason || 'Admin manual verification approved',
+          metadata: { evidenceUrl, bankAccountHolderName, verifiedUpiId: vpaToVerify, coolingUntil }
+        });
+      }
+
+      driver.verifiedUpiId = vpaToVerify;
+      driver.pendingUpiId = null;
+      driver.payoutUpiVerified = true;
+      driver.payoutUpiVerifiedAt = verifiedAt;
+      driver.vpaVerificationMethod = 'ADMIN_MANUAL';
+      driver.upiCoolingUntil = coolingUntil;
+      return { success: true, driver };
+    } else {
+      // REJECT
+      if (isLivePostgres && supabaseAdmin && targetUuid) {
+        const { error } = await supabaseAdmin
+          .from('drivers')
+          .update({
+            pending_upi_id: null,
+            payout_upi_verified: false
+          })
+          .eq('id', targetUuid);
+
+        if (error) return { success: false, error: error.message };
+
+        await this.db.createAuditLog({
+          adminId: adminId || 'admin',
+          adminName: adminName || 'Admin',
+          role: 'ADMIN',
+          action: 'PAYOUT_DESTINATION_REJECTED',
+          module: 'FINANCE_SETTLEMENT',
+          targetEntityType: 'DRIVER',
+          targetEntityId: targetUuid,
+          reason: reason || 'Admin manual verification rejected'
+        });
+      }
+
+      driver.pendingUpiId = null;
+      driver.payoutUpiVerified = false;
+      return { success: true, driver };
+    }
   }
 }
 

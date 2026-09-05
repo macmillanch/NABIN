@@ -290,7 +290,24 @@ function authenticateDriver(req, res, next) {
   }
 
   const driver = session.entity || db.getDriver(session.entityId);
-  if (driver && driver.operationalStatus === 'SUSPENDED') {
+  if (!driver) {
+    return res.status(401).json({
+      success: false,
+      error: 'Unauthorized: Driver profile not found.',
+      requestId: req.id
+    });
+  }
+
+  if (!driver.userId && !driver.user_id) {
+    return res.status(403).json({
+      success: false,
+      error: 'Forbidden: Driver profile is not linked to an active user account. Account linkage required before Driver App operations.',
+      code: 'UNLINKED_DRIVER_ACCOUNT',
+      requestId: req.id
+    });
+  }
+
+  if (driver.operationalStatus === 'SUSPENDED') {
     return res.status(403).json({
       success: false,
       error: `Driver account is suspended: ${driver.suspensionReason || 'Compliance review'}`,
@@ -395,10 +412,10 @@ app.post('/api/auth/send-otp', (req, res) => {
 });
 
 // Verify Mobile OTP & Issue Session Token
-app.post('/api/auth/verify-otp', (req, res) => {
+app.post('/api/auth/verify-otp', async (req, res) => {
   try {
     const { phone, otp, role = 'CUSTOMER', purpose = 'LOGIN' } = req.body;
-    const result = db.verifyAuthOtp({ phone, otp, role, purpose });
+    const result = await db.verifyAuthOtp({ phone, otp, role, purpose });
     res.json(result);
   } catch (err) {
     res.status(400).json({ success: false, error: err.message });
@@ -809,29 +826,11 @@ app.get('/api/admin/drivers/:id', (req, res) => {
 });
 
 app.post('/api/admin/drivers/:id/status', authenticateAdmin, async (req, res) => {
-  const { status, reason } = req.body;
-  const driver = (db.drivers || []).find(d => d.id === req.params.id);
-  if (!driver) return res.status(404).json({ success: false, error: 'Driver not found' });
-  
-  const prev = driver.operationalStatus || 'ACTIVE';
-  driver.operationalStatus = status;
-  driver.driverState = status === 'SUSPENDED' ? 'SUSPENDED' : 'ONLINE';
-  driver.isOnline = status !== 'SUSPENDED';
-
-  await db.createAuditLog({
-    adminId: req.admin.id,
-    adminName: req.admin.name,
-    role: req.admin.role,
-    action: status === 'SUSPENDED' ? 'DRIVER_SUSPENDED' : 'DRIVER_ACTIVATED',
-    module: 'FLEET',
-    targetEntityType: 'DRIVER',
-    targetEntityId: driver.id,
-    previousState: prev,
-    newState: status,
-    reason: reason || `Driver status updated to ${status}`
-  });
-
-  res.json({ success: true, driver });
+  const { status, operationalStatus, kycStatus, reason } = req.body;
+  const opStatus = operationalStatus || status;
+  const result = await db.setDriverStatus(req.params.id, opStatus, reason, req.admin.id, req.admin.name, kycStatus);
+  if (!result.success) return res.status(400).json(result);
+  res.json(result);
 });
 
 // -------------------------------------------------------------
@@ -1081,61 +1080,56 @@ app.post('/api/admin/finance/adjustments', authenticateAdmin, requirePermission(
 });
 
 app.post('/api/admin/finance/refund', authenticateAdmin, requirePermission('finance.refund'), async (req, res) => {
-  const { jobId, customerId, amount, reason } = req.body;
-  const amt = Number(amount);
-  if (!amt || amt <= 0) return res.status(400).json({ success: false, error: 'Invalid refund amount.' });
-
-  const existingRefund = db.transactions.find(t => t.type === 'WALLET_REFUND' && t.jobId === jobId);
-  if (existingRefund) {
-    return res.status(400).json({ success: false, error: `Refund already processed for job ${jobId}.` });
+  const { paymentId, jobId, amount, reason, ticketId, idempotencyKey } = req.body;
+  const amt = amount !== undefined ? Number(amount) : null;
+  if (amt !== null && (isNaN(amt) || amt <= 0)) {
+    return res.status(400).json({ success: false, error: 'Invalid refund amount.' });
   }
 
-  const user = db.getUser(customerId || 'usr_1');
-  user.walletBalance = (user.walletBalance || 0) + amt;
+  const targetIdentifier = paymentId || jobId;
+  if (!targetIdentifier) {
+    return res.status(400).json({ success: false, error: 'paymentId or jobId is required.' });
+  }
 
-  const refundTxn = {
-    id: `TXN-REF-${Date.now().toString().slice(-4)}`,
-    type: 'WALLET_REFUND',
-    jobId,
-    userId: user.id,
-    userRole: 'CUSTOMER',
-    title: `Admin Refund for Job ${jobId}: ${reason}`,
-    amount: amt,
-    platformFee: 0,
-    commission: 0,
-    deliveryFee: 0,
-    net: amt,
-    paymentMode: 'WALLET_CREDIT',
-    paymentStatus: 'SUCCESS',
-    settlementStatus: 'SETTLED',
-    time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ' Today'
-  };
+  const eventId = idempotencyKey || `ref_adm_${Date.now()}`;
+  const { supabaseAdmin, isLivePostgres } = require('./supabase');
 
-  db.transactions.unshift(refundTxn);
+  if (isLivePostgres && supabaseAdmin) {
+    const { data, error } = await supabaseAdmin.rpc('refund_payment_atomic', {
+      p_order_or_payment: targetIdentifier,
+      p_refund_event_id: eventId,
+      p_reason: reason || 'Admin authorized refund',
+      p_authorized_by: req.admin.id,
+      p_provider: 'RAZORPAY_SANDBOX',
+      p_declared_amount: amt,
+      p_ticket_id: ticketId || null
+    });
 
-  db.recordLedgerEntry({
-    transactionId: refundTxn.id,
-    debitAccount: 'CUSTOMER_WALLET_LIABILITY',
-    creditAccount: 'PAYMENT_GATEWAY_ESCROW',
-    amount: amt,
-    description: `Admin Refund for Job ${jobId}: ${reason}`,
-    referenceId: jobId
-  });
+    if (error) {
+      return res.status(400).json({ success: false, error: error.message });
+    }
+    if (!data.success) {
+      const statusCode = data.code === 'IDEMPOTENCY_CONFLICT' ? 409 : 400;
+      return res.status(statusCode).json(data);
+    }
 
-  await db.createAuditLog({
-    adminId: req.admin.id,
-    adminName: req.admin.name,
-    role: req.admin.role,
-    action: 'REFUND_PROCESSED',
-    module: 'FINANCE',
-    targetEntityType: 'CUSTOMER_REFUND',
-    targetEntityId: user.id,
-    previousState: 'CHARGED',
-    newState: `REFUNDED_₹${amt}`,
-    reason: reason || `Admin refund of ₹${amt} issued for job ${jobId}`
-  });
+    await db.createAuditLog({
+      adminId: req.admin.id,
+      adminName: req.admin.name,
+      role: req.admin.role,
+      action: 'REFUND_PROCESSED',
+      module: 'FINANCE',
+      targetEntityType: 'PAYMENT',
+      targetEntityId: data.paymentId || targetIdentifier,
+      previousState: 'CAPTURED',
+      newState: data.status,
+      reason: reason || `Admin refund of ₹${data.refundAmount} authorized by ${req.admin.name}`
+    });
 
-  res.json({ success: true, refund: refundTxn, updatedWalletBalance: user.walletBalance });
+    return res.json(data);
+  }
+
+  return res.status(500).json({ success: false, error: 'PostgreSQL database unavailable' });
 });
 
 // -------------------------------------------------------------
@@ -2007,9 +2001,27 @@ app.post('/api/admin/restaurants/:id/status', authenticateAdmin, requirePermissi
 });
 
 // DRIVER FLEET GOVERNANCE & TELEMETRY
-app.post('/api/admin/drivers/:id/status', authenticateAdmin, requirePermission('fleet.manage'), (req, res) => {
-  const { status, reason } = req.body;
-  const result = db.setDriverStatus(req.params.id, status, reason, req.admin.id, req.admin.name);
+app.post('/api/admin/drivers/:id/status', authenticateAdmin, requirePermission('fleet.manage'), async (req, res) => {
+  const { status, operationalStatus, kycStatus, reason } = req.body;
+  const opStatus = operationalStatus || status;
+  const result = await db.setDriverStatus(req.params.id, opStatus, reason, req.admin.id, req.admin.name, kycStatus);
+  if (!result.success) return res.status(400).json(result);
+  res.json(result);
+});
+
+app.post('/api/admin/drivers/:id/verify-payout-destination', authenticateAdmin, requirePermission('finance.settlement'), async (req, res) => {
+  const { decision, evidenceUrl, bankAccountHolderName, reason } = req.body;
+  if (!decision || !['APPROVE', 'REJECT'].includes(decision)) {
+    return res.status(400).json({ success: false, error: 'decision must be APPROVE or REJECT' });
+  }
+  const result = await db.driverRepo.verifyPayoutDestination(req.params.id, {
+    decision,
+    evidenceUrl,
+    bankAccountHolderName,
+    reason,
+    adminId: req.admin.id,
+    adminName: req.admin.name
+  });
   if (!result.success) return res.status(400).json(result);
   res.json(result);
 });
@@ -2036,7 +2048,28 @@ app.get('/api/driver/:driverId/dashboard', authenticateDriver, (req, res) => {
 app.post('/api/driver/accept-job', authenticateDriver, async (req, res) => {
   const { jobId, driverId } = req.body;
   const effectiveDriverId = req.driver?.id || driverId || 'drv_1';
-  const driver = db.getDriver(effectiveDriverId);
+  let driver = db.getDriver(effectiveDriverId);
+
+  const { supabaseAdmin, isLivePostgres } = require('./supabase');
+  if (isLivePostgres && supabaseAdmin) {
+    const targetUuid = db.driverRepo?.resolveUuid(effectiveDriverId) || driver?.uuid || effectiveDriverId;
+    const { data: dbDriver } = await supabaseAdmin.from('drivers').select('*').eq('id', targetUuid).maybeSingle();
+    if (dbDriver) {
+      driver.userId = dbDriver.user_id;
+      driver.user_id = dbDriver.user_id;
+      driver.kycStatus = dbDriver.kyc_status;
+      driver.status = dbDriver.kyc_status;
+      driver.operationalStatus = dbDriver.operational_status;
+    }
+  }
+
+  if (!driver.userId && !driver.user_id) {
+    return res.status(403).json({
+      success: false,
+      error: 'Unlinked driver profile cannot accept jobs. Account linkage required.',
+      code: 'UNLINKED_DRIVER_ACCOUNT'
+    });
+  }
 
   if (driver.operationalStatus === 'SUSPENDED') {
     return res.status(403).json({ success: false, error: 'Suspended driver cannot accept trips.' });
@@ -2103,10 +2136,99 @@ app.post('/api/driver/complete-trip', authenticateDriver, async (req, res) => {
   }
 });
 
-app.post('/api/driver/payout', (req, res) => {
-  const { driverId, amount, upiId } = req.body;
-  const result = db.recordPayout(driverId || 'drv_1', Number(amount) || 500, upiId);
+app.post('/api/driver/payout-destination/request', authenticateDriver, async (req, res) => {
+  const { upiId } = req.body;
+  const result = await db.driverRepo.requestPayoutDestination(req.driver.id, upiId);
+  if (!result.success) {
+    const statusCode = result.code === 'UNLINKED_DRIVER_ACCOUNT' || result.code === 'KYC_NOT_VERIFIED' ? 403 : 400;
+    return res.status(statusCode).json(result);
+  }
   res.json(result);
+});
+
+app.post('/api/driver/payout', authenticateDriver, async (req, res) => {
+  const { amount } = req.body;
+  const result = await db.recordPayout(req.driver.id, Number(amount) || 500);
+  if (!result.success) {
+    const statusCode = result.code === 'UNLINKED_DRIVER_ACCOUNT' ||
+      result.code === 'KYC_VERIFICATION_REQUIRED' ||
+      result.code === 'UNVERIFIED_PAYOUT_DESTINATION' ||
+      result.code === 'PAYOUT_DESTINATION_COOLING_ACTIVE' ? 403 : 400;
+    return res.status(statusCode).json(result);
+  }
+  res.json(result);
+});
+
+app.post(['/api/rides/:id/cancel', '/api/jobs/:id/cancel'], async (req, res) => {
+  try {
+    const jobId = req.params.id;
+    const { reason, isDelayedOverride } = req.body;
+
+    let requesterId = req.user?.id || req.body.customerId || req.body.userId || '00000000-0000-0000-0000-000000000001';
+    let requesterRole = 'CUSTOMER';
+    if (req.admin) {
+      requesterId = req.admin.id;
+      requesterRole = 'ADMIN';
+    } else if (req.driver) {
+      requesterId = req.driver.id;
+      requesterRole = 'DRIVER';
+    }
+
+    const { supabaseAdmin, isLivePostgres } = require('./supabase');
+    let jobUuid = jobId;
+    const memJob = db.getJob(jobId);
+    if (memJob?.uuid) {
+      jobUuid = memJob.uuid;
+    }
+
+    let userUuid = requesterId;
+    if (requesterRole === 'CUSTOMER') {
+      const memUser = db.getUser(requesterId);
+      if (memUser?.uuid) userUuid = memUser.uuid;
+    } else if (requesterRole === 'DRIVER') {
+      const memDrv = db.getDriver(requesterId);
+      if (memDrv?.uuid) userUuid = memDrv.uuid;
+    }
+
+    if (isLivePostgres && supabaseAdmin) {
+      const { data, error } = await supabaseAdmin.rpc('cancel_ride_atomic', {
+        p_job_id: jobUuid,
+        p_requester_id: userUuid,
+        p_requester_role: requesterRole,
+        p_reason: reason || 'Customer requested cancellation',
+        p_is_delayed_override: Boolean(isDelayedOverride)
+      });
+
+      if (error) {
+        return res.status(400).json({ success: false, error: error.message });
+      }
+
+      const memJob = db.getJob(jobId);
+      if (memJob) {
+        memJob.status = 'CANCELLED';
+        memJob.cancellationFee = data.cancellationFee;
+        memJob.driverCompensation = data.driverCompensation;
+        memJob.refundAmount = data.refundAmount;
+        memJob.refundStatus = data.refundStatus;
+      }
+      if (memJob?.driverId) {
+        const memDrv = db.getDriver(memJob.driverId);
+        if (memDrv) {
+          memDrv.operationalStatus = 'AVAILABLE';
+          memDrv.isOnline = true;
+          if (data.driverWalletBalance !== undefined) {
+            memDrv.walletBalance = Number(data.driverWalletBalance);
+          }
+        }
+      }
+
+      return res.json({ success: true, ...data });
+    }
+
+    return res.status(500).json({ success: false, error: 'PostgreSQL database unavailable' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 app.get('/api/driver/:driverId/earnings', (req, res) => {
@@ -3072,8 +3194,14 @@ app.use((err, req, res, next) => {
 });
 
 const PORT = process.env.PORT || 4000;
-server.listen(PORT, async () => {
-  console.log(`NABIN Unified Backend running on http://localhost:${PORT}`);
-  console.log(`WebSocket Dispatch Server listening on ws://localhost:${PORT}`);
-  await db.initPostgres().catch(e => console.warn('⚠️ PostgreSQL init error:', e.message));
-});
+(async () => {
+  try {
+    await db.initPostgres();
+  } catch (e) {
+    console.warn('⚠️ PostgreSQL init error:', e.message);
+  }
+  server.listen(PORT, () => {
+    console.log(`NABIN Unified Backend running on http://localhost:${PORT}`);
+    console.log(`WebSocket Dispatch Server listening on ws://localhost:${PORT}`);
+  });
+})();

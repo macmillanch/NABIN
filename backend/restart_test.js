@@ -4,6 +4,7 @@
 const http = require('http');
 const { spawn, spawnSync, execSync } = require('child_process');
 const path = require('path');
+const { supabaseAdmin, isLivePostgres } = require('./src/supabase');
 
 const BASE_URL = 'http://127.0.0.1:4000';
 
@@ -59,9 +60,9 @@ function assert(description, condition, details = '') {
 
 async function ensureServerRunning() {
   try {
-    const res = await request('GET', '/api/health');
-    if (res.status === 200) return null;
+    execSync('powershell -Command "Get-NetTCPConnection -LocalPort 4000 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }"');
   } catch (e) {}
+  await sleep(1500);
 
   const proc = spawn(process.execPath, [path.join(__dirname, 'src/server.js')], {
     cwd: __dirname,
@@ -71,8 +72,8 @@ async function ensureServerRunning() {
   });
   proc.unref();
 
-  for (let i = 0; i < 30; i++) {
-    await new Promise(r => setTimeout(r, 200));
+  for (let i = 0; i < 40; i++) {
+    await sleep(250);
     try {
       const res = await request('GET', '/api/health');
       if (res.status === 200) return proc;
@@ -95,6 +96,14 @@ async function runRestartTest() {
     const ready = await request('GET', '/api/ready');
     assert('Initial backend readiness check returns 200 with operational status', ready.status === 200 && ready.data.ready === true);
 
+    // Reset DRV-101 to unlinked baseline for clean repeatable test
+    if (isLivePostgres && supabaseAdmin) {
+      await supabaseAdmin.from('drivers')
+        .update({ user_id: null, kyc_status: 'PENDING', verified_upi_id: null, pending_upi_id: null, payout_upi_verified: false, upi_cooling_until: null })
+        .eq('id', '00000000-0000-0000-0000-000000000101');
+      await supabaseAdmin.from('users').delete().eq('phone', '+919810122910');
+    }
+
     // 2. Obtain Customer & Driver Session Tokens
     const custOtpSend = await request('POST', '/api/auth/send-otp', { phone: '9845011982', role: 'CUSTOMER', purpose: 'LOGIN' });
     const custOtpVerify = await request('POST', '/api/auth/verify-otp', { phone: '9845011982', otp: custOtpSend.data.testOtp || '7729', role: 'CUSTOMER' });
@@ -102,7 +111,7 @@ async function runRestartTest() {
 
     const drvOtpSend = await request('POST', '/api/auth/send-otp', { phone: '9810122910', role: 'DRIVER', purpose: 'LOGIN' });
     const drvOtpVerify = await request('POST', '/api/auth/verify-otp', { phone: '9810122910', otp: drvOtpSend.data.testOtp || '7729', role: 'DRIVER' });
-    const driverToken = drvOtpVerify.data.token || 'drv_session_rajesh';
+    let driverToken = drvOtpVerify.data.token || 'drv_session_rajesh';
 
     // Ensure admin is bootstrapped before login
     await request('POST', '/api/admin/bootstrap', {
@@ -113,6 +122,43 @@ async function runRestartTest() {
 
     const adminLogin = await request('POST', '/api/admin/login', { username: 'superadmin', password: 'AdminPassword123!' });
     const adminToken = adminLogin.data.token;
+
+    // 2b. Phase 16: Verify unlinked driver fails closed (403 UNLINKED_DRIVER_ACCOUNT)
+    const unlinkedProbe = await request('POST', '/api/driver/accept-job', { jobId: 'job_probe_fail_closed', driverId: 'DRV-101' }, { 'Authorization': `Bearer ${driverToken}` });
+    assert('Unlinked driver fails closed with 403 UNLINKED_DRIVER_ACCOUNT', unlinkedProbe.status === 403 && unlinkedProbe.data.code === 'UNLINKED_DRIVER_ACCOUNT', JSON.stringify(unlinkedProbe.data));
+
+    // 2c. Authenticate authentic user for 9810122910 to establish authentic driver-user link
+    const linkUserOtpSend = await request('POST', '/api/auth/send-otp', { phone: '9810122910', role: 'CUSTOMER', purpose: 'LOGIN' });
+    const linkUserOtpVerify = await request('POST', '/api/auth/verify-otp', { phone: '9810122910', otp: linkUserOtpSend.data.testOtp || '7729', role: 'CUSTOMER' });
+    assert('Legitimate user account created/linked for driver phone', linkUserOtpVerify.status === 200 && linkUserOtpVerify.data.user);
+
+    // Refresh driver session token now that user linkage exists
+    const reDrvOtpSend = await request('POST', '/api/auth/send-otp', { phone: '9810122910', role: 'DRIVER', purpose: 'LOGIN' });
+    const reDrvOtpVerify = await request('POST', '/api/auth/verify-otp', { phone: '9810122910', otp: reDrvOtpSend.data.testOtp || '7729', role: 'DRIVER' });
+    driverToken = reDrvOtpVerify.data.token || driverToken;
+
+    // 2d. Admin verifies driver KYC
+    const kycApprovalRes = await request('POST', '/api/admin/drivers/DRV-101/status', {
+      kycStatus: 'APPROVED',
+      operationalStatus: 'ACTIVE',
+      reason: 'Driver license DL-04201992019 and Aadhaar verified'
+    }, { 'Authorization': `Bearer ${adminToken}` });
+    assert('Admin approves driver KYC status in PostgreSQL', kycApprovalRes.status === 200 && (kycApprovalRes.data.driver?.kycStatus === 'VERIFIED' || kycApprovalRes.data.driver?.kycStatus === 'APPROVED' || kycApprovalRes.data.driver?.status === 'VERIFIED' || kycApprovalRes.data.driver?.status === 'APPROVED'));
+
+    // 2e. Driver requests payout VPA destination
+    const vpaReqRes = await request('POST', '/api/driver/payout-destination/request', {
+      upiId: 'rajesh.kumar@okhdfcbank'
+    }, { 'Authorization': `Bearer ${driverToken}` });
+    assert('Driver requests payout destination VPA', vpaReqRes.status === 200 && vpaReqRes.data.pendingUpiId === 'rajesh.kumar@okhdfcbank', JSON.stringify(vpaReqRes.data));
+
+    // 2f. Admin verifies payout destination
+    const vpaVerifyRes = await request('POST', '/api/admin/drivers/DRV-101/verify-payout-destination', {
+      decision: 'APPROVE',
+      evidenceUrl: 'https://bank.example.com/penny_drop_receipt_101.pdf',
+      bankAccountHolderName: 'Rajesh Kumar',
+      reason: 'Penny drop verification successful against HDFC account'
+    }, { 'Authorization': `Bearer ${adminToken}` });
+    assert('Admin verifies driver payout destination VPA in PostgreSQL', vpaVerifyRes.status === 200 && vpaVerifyRes.data.driver?.verifiedUpiId === 'rajesh.kumar@okhdfcbank', JSON.stringify(vpaVerifyRes.data));
 
     // 3. Create a unique persistent ride booking
     const uniqueRideIdempotency = `idem_restart_test_${Date.now()}`;
@@ -129,10 +175,10 @@ async function runRestartTest() {
     const rideJob = bookRideRes.data.job;
 
     // 4. Driver accepts and verifies OTPs to complete trip
-    await request('POST', '/api/driver/accept-job', { jobId: rideJob.id, driverId: 'DRV-101' }, { 'Authorization': `Bearer ${driverToken}` });
+    const acceptRes = await request('POST', '/api/driver/accept-job', { jobId: rideJob.id, driverId: 'DRV-101' }, { 'Authorization': `Bearer ${driverToken}` });
     await request('POST', '/api/driver/verify-otp', { jobId: rideJob.id, otpType: 'START', otp: rideJob.startOtp }, { 'Authorization': `Bearer ${driverToken}` });
     const completeRes = await request('POST', '/api/driver/verify-otp', { jobId: rideJob.id, otpType: 'DELIVERY', otp: rideJob.deliveryOtp || '4892' }, { 'Authorization': `Bearer ${driverToken}` });
-    assert('Driver completes ride job and triggers double-entry ledger', completeRes.status === 200 && completeRes.data.status === 'COMPLETED');
+    assert('Driver completes ride job and triggers double-entry ledger', completeRes.status === 200 && completeRes.data.status === 'COMPLETED', JSON.stringify({ accept: acceptRes.data, complete: completeRes.data }));
 
     // 5. Query driver balance before restart
     const driverPre = await request('GET', '/api/driver/DRV-101/dashboard', null, { 'Authorization': `Bearer ${driverToken}` });
@@ -245,9 +291,11 @@ async function runRestartTest() {
     // 10. Verify Driver Balance STILL EXISTS after restart
     const postDrvOtpSend = await request('POST', '/api/auth/send-otp', { phone: '9810122910', role: 'DRIVER', purpose: 'LOGIN' });
     const postDrvOtpVerify = await request('POST', '/api/auth/verify-otp', { phone: '9810122910', otp: postDrvOtpSend.data.testOtp || '7729', role: 'DRIVER' });
-    const postDriverToken = postDrvOtpVerify.data.token || 'drv_session_rajesh';
+    const postDriverToken = postDrvOtpVerify.data?.token || 'drv_session_rajesh';
     const postDriverDashboard = await request('GET', '/api/driver/DRV-101/dashboard', null, { 'Authorization': `Bearer ${postDriverToken}` });
     assert(`Driver wallet balance (₹${postDriverDashboard.data?.driver?.walletBalance}) survived server restart`, postDriverDashboard.data?.driver?.walletBalance === expectedDriverBalance);
+    assert(`Driver KYC status (VERIFIED/APPROVED) survived server restart in PostgreSQL`, postDriverDashboard.data?.driver?.kycStatus === 'VERIFIED' || postDriverDashboard.data?.driver?.kycStatus === 'APPROVED');
+    assert(`Driver verified UPI ID (${postDriverDashboard.data?.driver?.verifiedUpiId}) survived server restart in PostgreSQL`, postDriverDashboard.data?.driver?.verifiedUpiId === 'rajesh.kumar@okhdfcbank');
 
     // 11. Verify Double-Entry Ledger entries STILL EXIST after restart
     const postLedgerRes = await request('GET', '/api/admin/finance/ledger-double-entry', null, { 'Authorization': `Bearer ${postAdminToken}` });
