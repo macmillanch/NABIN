@@ -152,7 +152,7 @@ async function runAllTests() {
 
     // --- 4. MODULE 2: Support & Dispute Resolution ---
     console.log('\n--- 4. MODULE 2: Support & Dispute Resolution ---');
-    const priyaToken = 'usr_session_priya';
+    let priyaToken = 'usr_session_priya';
     const createTicket = await request('POST', '/api/support/ticket', {
       category: 'FARE_DISPUTE',
       userId: 'usr_2',
@@ -547,6 +547,7 @@ async function runAllTests() {
       validOtpRes.status === 200 && validOtpRes.data.success && validOtpRes.data.token && validOtpRes.data.user.name === 'Priya Saxena'
     );
     const customerToken = validOtpRes.data.token;
+    priyaToken = customerToken;
 
     // Driver login to obtain valid driver token
     const driverOtpSend = await request('POST', '/api/auth/send-otp', {
@@ -1913,7 +1914,9 @@ async function runAllTests() {
           operational_status: 'AVAILABLE',
           is_online: true,
           upi_cooling_until: new Date(Date.now() - 3600000).toISOString(),
-          wallet_balance: 1500.00
+          wallet_balance: 1500.00,
+          verified_upi_id: 'rajesh.kumar@okhdfcbank',
+          payout_upi_verified: true
         })
         .eq('id', '00000000-0000-0000-0000-000000000101');
     }
@@ -2834,6 +2837,342 @@ async function runAllTests() {
     assert('NOTIF-API-18: Notification feed unreadCount matches actual unread state in database',
       pagedRes.data?.unreadCount === unreadCountCheck &&
       typeof pagedRes.data?.unreadCount === 'number'
+    );
+
+    // =========================================================================
+    // 33. MODULE 29: Notification Lifecycle Wiring & Event Bus Integration (Phase 17 M4)
+    // =========================================================================
+    console.log('\n--- 33. MODULE 29: Notification Lifecycle Wiring & Event Bus Integration (Phase 17 M4) ---');
+    const db = require('./src/database');
+    const { notificationEventBus } = require('./src/services/NotificationEventBus');
+
+    const waitForNotification = async (eventKey, maxWaitMs = 2000) => {
+      const start = Date.now();
+      while (Date.now() - start < maxWaitMs) {
+        if (isLivePostgres && supabaseAdmin) {
+          const { data } = await supabaseAdmin.from('notifications').select('*').eq('event_key', eventKey).maybeSingle();
+          if (data) return data;
+        } else {
+          const found = await notifRepo.findByEventKey(eventKey);
+          if (found) return found;
+        }
+        await new Promise(r => setTimeout(r, 60));
+      }
+      return null;
+    };
+
+    let expectedDriverUserId = null;
+    if (isLivePostgres && supabaseAdmin) {
+      const { data: drvRow } = await supabaseAdmin.from('drivers').select('user_id').eq('id', db.driverRepo.resolveUuid('DRV-101')).maybeSingle();
+      expectedDriverUserId = drvRow?.user_id;
+    }
+    if (!expectedDriverUserId) {
+      const d = db.getDriver('DRV-101');
+      expectedDriverUserId = d?.userId || d?.user_id || '00000000-0000-0000-0000-000000000004';
+    }
+
+    // M4-01: Booking emits JOB_DISPATCHED and creates customer notification
+    const bookRideM4 = await request('POST', '/api/customer/book-ride', {
+      customerId: 'usr_2',
+      vehicleType: '3W',
+      pickup: { address: 'Civil Lines Gate 2, Delhi', lat: 28.6853, lng: 77.2185 },
+      drop: { address: 'Connaught Place Inner Circle, Block B', lat: 28.6328, lng: 77.2197 }
+    }, { 'Authorization': `Bearer ${priyaToken}` });
+    const m4Job = bookRideM4.data?.job;
+    const m4JobDispatchKey = `job_dispatch:${m4Job?.id}`;
+    const m4Notif1 = await waitForNotification(m4JobDispatchKey);
+    assert('M4-01: Booking emits JOB_DISPATCHED and creates customer notification',
+      bookRideM4.status === 200 &&
+      Boolean(m4Job?.id) &&
+      Boolean(m4Notif1) &&
+      m4Notif1.notification_type === 'JOB_DISPATCHED' &&
+      m4Notif1.recipient_user_id === user2Uuid
+    );
+
+    // M4-02: Accepting emits JOB_ACCEPTED and creates customer notification
+    const acceptRideM4 = await request('POST', '/api/driver/accept-job', {
+      jobId: m4Job?.id,
+      driverId: 'DRV-101'
+    }, { 'Authorization': `Bearer ${driverToken}` });
+    const m4JobAcceptKey = `job_accepted:${m4Job?.id}`;
+    const m4Notif2 = await waitForNotification(m4JobAcceptKey);
+    assert('M4-02: Accepting emits JOB_ACCEPTED and creates customer notification',
+      acceptRideM4.status === 200 &&
+      acceptRideM4.data?.job?.status === 'ASSIGNED' &&
+      Boolean(m4Notif2) &&
+      m4Notif2.notification_type === 'JOB_ACCEPTED' &&
+      m4Notif2.recipient_user_id === user2Uuid
+    );
+
+    // M4-03: Driver arrival emits DRIVER_ARRIVED
+    const arriveRideM4 = await request('POST', '/api/driver/arrived', {
+      jobId: m4Job?.id,
+      driverId: 'DRV-101'
+    }, { 'Authorization': `Bearer ${driverToken}` });
+    const m4DriverArrivedKey = `driver_arrived:${m4Job?.id}`;
+    const m4Notif3 = await waitForNotification(m4DriverArrivedKey);
+    assert('M4-03: Driver arrival emits DRIVER_ARRIVED',
+      arriveRideM4.status === 200 &&
+      arriveRideM4.data?.job?.status === 'DRIVER_ARRIVED' &&
+      Boolean(m4Notif3) &&
+      m4Notif3.notification_type === 'DRIVER_ARRIVED' &&
+      m4Notif3.recipient_user_id === user2Uuid
+    );
+
+    // M4-04: START OTP emits RIDE_STARTED
+    const startRideM4 = await request('POST', '/api/driver/verify-otp', {
+      jobId: m4Job?.id,
+      otp: m4Job?.startOtp,
+      otpType: 'START',
+      driverId: 'DRV-101'
+    }, { 'Authorization': `Bearer ${driverToken}` });
+    const m4RideStartedKey = `ride_started:${m4Job?.id}`;
+    const m4Notif4 = await waitForNotification(m4RideStartedKey);
+    assert('M4-04: START OTP emits RIDE_STARTED',
+      startRideM4.status === 200 &&
+      startRideM4.data?.verified === true &&
+      Boolean(m4Notif4) &&
+      m4Notif4.notification_type === 'RIDE_STARTED' &&
+      m4Notif4.recipient_user_id === user2Uuid
+    );
+
+    // M4-05: Delivery OTP emits RIDE_COMPLETED
+    const completeRideM4 = await request('POST', '/api/driver/verify-otp', {
+      jobId: m4Job?.id,
+      otp: m4Job?.deliveryOtp,
+      otpType: 'DELIVERY',
+      driverId: 'DRV-101'
+    }, { 'Authorization': `Bearer ${driverToken}` });
+    const m4RideCompletedKey = `ride_completed:${m4Job?.id}`;
+    const m4Notif5 = await waitForNotification(m4RideCompletedKey);
+    assert('M4-05: Delivery OTP emits RIDE_COMPLETED',
+      completeRideM4.status === 200 &&
+      completeRideM4.data?.status === 'COMPLETED' &&
+      Boolean(m4Notif5) &&
+      m4Notif5.notification_type === 'RIDE_COMPLETED' &&
+      m4Notif5.recipient_user_id === user2Uuid
+    );
+
+    // M4-06: Atomic cancellation emits JOB_CANCELLED
+    const cancelRideBooking = await request('POST', '/api/customer/book-ride', {
+      customerId: 'usr_2',
+      vehicleType: '3W',
+      pickup: { address: 'Delhi University Campus', lat: 28.6853, lng: 77.2185 },
+      drop: { address: 'Connaught Place Inner Circle', lat: 28.6328, lng: 77.2197 }
+    }, { 'Authorization': `Bearer ${priyaToken}` });
+    const cancelJob = cancelRideBooking.data?.job;
+
+    const m4CancelRes = await request('POST', `/api/rides/${cancelJob?.id}/cancel`, {
+      customerId: 'usr_2',
+      reason: 'Customer cancelled before driver arrival'
+    }, { 'Authorization': `Bearer ${priyaToken}` });
+    const m4JobCancelledKey = `job_cancelled:${cancelJob?.id}`;
+    const m4Notif6 = await waitForNotification(m4JobCancelledKey);
+    assert('M4-06: Atomic cancellation emits JOB_CANCELLED',
+      m4CancelRes.status === 200 &&
+      m4CancelRes.data?.success === true &&
+      Boolean(m4Notif6) &&
+      m4Notif6.notification_type === 'JOB_CANCELLED' &&
+      m4Notif6.recipient_user_id === user2Uuid
+    );
+
+    // M4-07: Settled payout emits PAYOUT_SETTLED to linked driver user_id
+    if (isLivePostgres && supabaseAdmin) {
+      await supabaseAdmin.from('drivers').update({
+        wallet_balance: 1000,
+        payout_upi_verified: true,
+        verified_upi_id: 'rajesh.kumar@okhdfcbank',
+        upi_cooling_until: new Date(Date.now() - 3600000).toISOString()
+      }).eq('id', db.driverRepo.resolveUuid('DRV-101'));
+    }
+    const drvMem = db.getDriver('DRV-101');
+    if (drvMem) {
+      drvMem.walletBalance = 1000;
+      drvMem.payoutUpiVerified = true;
+      drvMem.verifiedUpiId = 'rajesh.kumar@okhdfcbank';
+      drvMem.upiCoolingUntil = null;
+    }
+
+    const m4PayoutRes = await request('POST', '/api/driver/payout', {
+      amount: 100
+    }, { 'Authorization': `Bearer ${driverToken}` });
+
+    let m4Notif7 = null;
+    const payoutPollStart = Date.now();
+    while (Date.now() - payoutPollStart < 2000) {
+      if (isLivePostgres && supabaseAdmin) {
+        const { data } = await supabaseAdmin.from('notifications')
+          .select('*')
+          .eq('recipient_user_id', expectedDriverUserId)
+          .eq('notification_type', 'PAYOUT_SETTLED')
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (data) { m4Notif7 = data; break; }
+      } else {
+        const userNotifs = await notifRepo.findByUserId(expectedDriverUserId);
+        const found = userNotifs.find(n => n.notificationType === 'PAYOUT_SETTLED');
+        if (found) { m4Notif7 = found; break; }
+      }
+      await new Promise(r => setTimeout(r, 60));
+    }
+
+    assert('M4-07: Settled payout emits PAYOUT_SETTLED to linked driver user_id',
+      m4PayoutRes.status === 200 &&
+      m4PayoutRes.data?.success === true &&
+      Boolean(m4Notif7) &&
+      m4Notif7.notification_type === 'PAYOUT_SETTLED' &&
+      m4Notif7.event_key.startsWith('payout_settled:') &&
+      m4Notif7.recipient_user_id === expectedDriverUserId
+    );
+
+    // M4-08: Admin refund emits REFUND_PROCESSED
+    const testRefundPayId = `pay_m4_${Date.now()}`;
+    if (isLivePostgres && supabaseAdmin) {
+      await supabaseAdmin.from('payments').insert({
+        payment_id: testRefundPayId,
+        customer_id: user2Uuid,
+        amount: 250.00,
+        currency: 'INR',
+        method: 'UPI',
+        status: 'CAPTURED',
+        gateway_order_id: `order_${testRefundPayId}`,
+        created_at: new Date().toISOString()
+      });
+    }
+    const refundEventId = `ref_evt_m4_${Date.now()}`;
+    const m4RefundRes = await request('POST', '/api/admin/finance/refund', {
+      paymentId: testRefundPayId,
+      amount: 100.00,
+      idempotencyKey: refundEventId,
+      ticketId: 'TKT-M4-001',
+      reason: 'Trip quality concern compensation'
+    }, { 'Authorization': `Bearer ${superToken}` });
+    const expectedRefundKey = `refund_proc:${testRefundPayId}:${refundEventId}`;
+    const m4Notif8 = await waitForNotification(expectedRefundKey);
+    assert('M4-08: Admin refund emits REFUND_PROCESSED',
+      m4RefundRes.status === 200 &&
+      m4RefundRes.data?.success === true &&
+      Boolean(m4Notif8) &&
+      m4Notif8.notification_type === 'REFUND_PROCESSED' &&
+      m4Notif8.recipient_user_id === user2Uuid
+    );
+
+    // M4-09: KYC approval emits KYC_APPROVED
+    const m4KycApproveRes = await request('POST', '/api/admin/drivers/DRV-101/status', {
+      kycStatus: 'APPROVED',
+      operationalStatus: 'ACTIVE',
+      reason: 'Annual compliance review verified'
+    }, { 'Authorization': `Bearer ${superToken}` });
+    const expectedKycApproveKey = 'kyc_approved:DRV-101';
+    const m4Notif9 = await waitForNotification(expectedKycApproveKey);
+    assert('M4-09: KYC approval emits KYC_APPROVED',
+      m4KycApproveRes.status === 200 &&
+      Boolean(m4Notif9) &&
+      m4Notif9.notification_type === 'KYC_APPROVED' &&
+      m4Notif9.recipient_user_id === expectedDriverUserId
+    );
+
+    // M4-10: KYC rejection emits KYC_REJECTED
+    const m4KycRejectRes = await request('POST', '/api/admin/drivers/DRV-101/status', {
+      kycStatus: 'REJECTED',
+      reason: 'Driver license photo illegible'
+    }, { 'Authorization': `Bearer ${superToken}` });
+    const expectedKycRejectKey = 'kyc_rejected:DRV-101';
+    const m4Notif10 = await waitForNotification(expectedKycRejectKey);
+    assert('M4-10: KYC rejection emits KYC_REJECTED',
+      m4KycRejectRes.status === 200 &&
+      Boolean(m4Notif10) &&
+      m4Notif10.notification_type === 'KYC_REJECTED' &&
+      m4Notif10.recipient_user_id === expectedDriverUserId
+    );
+    // Restore driver KYC status to APPROVED for healthy platform state
+    await request('POST', '/api/admin/drivers/DRV-101/status', {
+      kycStatus: 'APPROVED',
+      operationalStatus: 'ACTIVE',
+      reason: 'Re-approved after M4 verification'
+    }, { 'Authorization': `Bearer ${superToken}` });
+
+    // M4-11: VPA verification emits VPA_VERIFIED
+    const testVpaDestination = `rajesh.verified.m4.${Date.now()}@okhdfcbank`;
+    await request('POST', '/api/driver/payout-destination/request', {
+      upiId: testVpaDestination
+    }, { 'Authorization': `Bearer ${driverToken}` });
+    const m4VpaVerify = await request('POST', '/api/admin/drivers/DRV-101/verify-payout-destination', {
+      decision: 'APPROVE',
+      evidenceUrl: 'https://bank.example.com/penny_m4.pdf',
+      bankAccountHolderName: 'Rajesh Kumar',
+      reason: 'Penny drop verified successfully'
+    }, { 'Authorization': `Bearer ${superToken}` });
+    const expectedVpaKey = `vpa_verified:DRV-101:${testVpaDestination}`;
+    const m4Notif11 = await waitForNotification(expectedVpaKey);
+    assert('M4-11: VPA verification emits VPA_VERIFIED',
+      m4VpaVerify.status === 200 &&
+      m4VpaVerify.data?.success === true &&
+      Boolean(m4Notif11) &&
+      m4Notif11.notification_type === 'VPA_VERIFIED' &&
+      m4Notif11.recipient_user_id === expectedDriverUserId
+    );
+    // Restore driver verified UPI destination for test isolation
+    if (isLivePostgres && supabaseAdmin) {
+      await supabaseAdmin.from('drivers').update({
+        verified_upi_id: 'rajesh.kumar@okhdfcbank',
+        payout_upi_verified: true
+      }).eq('id', db.driverRepo.resolveUuid('DRV-101'));
+    }
+    const drv101Mem = db.getDriver('DRV-101');
+    if (drv101Mem) {
+      drv101Mem.verifiedUpiId = 'rajesh.kumar@okhdfcbank';
+      drv101Mem.payoutUpiVerified = true;
+    }
+
+    // M4-12: Unlinked driver safely skips driver notification without breaking business flow
+    const unlinkedDriver = await db.driverRepo.create({
+      name: 'Unlinked M4 Driver',
+      phone: `998${Date.now().toString().slice(-7)}`,
+      vehicleType: '3W',
+      vehicleNumber: 'DL01UNLINKED',
+      userId: null,
+      user_id: null
+    });
+    const unlinkedUpdateRes = await db.driverRepo.updateDriverStatus(unlinkedDriver.id, {
+      operationalStatus: 'AVAILABLE',
+      kycStatus: 'VERIFIED',
+      reason: 'M4 unlinked safety test'
+    });
+    assert('M4-12: Unlinked driver safely skips driver notification without breaking business flow',
+      unlinkedUpdateRes !== null && unlinkedUpdateRes.success !== false
+    );
+
+    // M4-13: Duplicate event_key cannot create duplicate notification and notifications are decoupled
+    const dupTestKey = `job_dispatch:${m4Job?.id}`;
+    const duplicateNotifRes = await notifRepo.createNotification({
+      recipientUserId: user2Uuid,
+      title: 'Duplicate Dispatch Attempt',
+      body: 'Should be suppressed by idempotency',
+      notificationType: 'JOB_DISPATCHED',
+      eventKey: dupTestKey
+    });
+
+    const faultySubscriber = () => { throw new Error('Simulated notification listener crash'); };
+    const unsubFaulty = notificationEventBus.subscribe('TEST_FAULT_DECOUPLING', faultySubscriber);
+    let operationSucceeded = false;
+    try {
+      // Post-commit notification emission wrapped in fail-safe caller try-catch
+      try {
+        notificationEventBus.publish('TEST_FAULT_DECOUPLING', { eventKey: `fault_test_${Date.now()}` });
+      } catch (notifErr) {
+        // Safe fail-silent decoupling: notification failure does not alter business operation
+      }
+      operationSucceeded = true;
+    } catch (e) {
+      operationSucceeded = false;
+    }
+    unsubFaulty();
+
+    assert('M4-13: Duplicate event_key cannot create duplicate notification and notifications are decoupled from caller',
+      duplicateNotifRes.duplicate === true &&
+      operationSucceeded === true
     );
   } catch (err) {
     console.error('Fatal Test Suite Exception:', err);

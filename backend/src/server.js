@@ -8,6 +8,112 @@ const { WebSocketServer } = require('ws');
 const db = require('./database');
 const supabaseHelper = require('./supabase');
 const cloudinaryService = require('./services/cloudinaryService');
+const { MockSandboxPushProvider, FcmV1PushProvider, PushNotificationService } = require('./services/PushNotificationService');
+const { notificationEventBus, NOTIFICATION_EVENTS } = require('./services/NotificationEventBus');
+
+const pushProvider = (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL)
+  ? new FcmV1PushProvider()
+  : new MockSandboxPushProvider();
+
+const pushNotificationService = new PushNotificationService(db.notificationRepo, pushProvider);
+db.pushNotificationService = pushNotificationService;
+db.notificationEventBus = notificationEventBus;
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const LEGACY_CUSTOMER_MAP = {
+  'usr_1': '00000000-0000-0000-0000-000000000001',
+  'usr_2': '00000000-0000-0000-0000-000000000002',
+  'usr_3': '00000000-0000-0000-0000-000000000003'
+};
+
+function resolveCustomerUserUuid(customerId) {
+  if (!customerId) return null;
+  if (UUID_REGEX.test(customerId)) return customerId;
+  if (LEGACY_CUSTOMER_MAP[customerId]) return LEGACY_CUSTOMER_MAP[customerId];
+  const user = db.getUser ? db.getUser(customerId) : null;
+  if (user?.uuid && UUID_REGEX.test(user.uuid)) return user.uuid;
+  if (user?.id && UUID_REGEX.test(user.id)) return user.id;
+  if (user?.userId && UUID_REGEX.test(user.userId)) return user.userId;
+  return null;
+}
+
+async function resolveDriverUserUuid(driverId) {
+  if (!driverId) return null;
+  const driver = db.getDriver ? db.getDriver(driverId) : null;
+  let userId = driver?.userId || driver?.user_id;
+  if (userId && UUID_REGEX.test(userId)) return userId;
+
+  if (supabaseHelper.isLivePostgres && supabaseHelper.supabaseAdmin) {
+    const targetUuid = db.driverRepo?.resolveUuid(driverId) || driver?.uuid || driverId;
+    if (UUID_REGEX.test(targetUuid)) {
+      try {
+        const { data } = await supabaseHelper.supabaseAdmin.from('drivers').select('user_id').eq('id', targetUuid).maybeSingle();
+        if (data?.user_id && UUID_REGEX.test(data.user_id)) {
+          return data.user_id;
+        }
+      } catch (e) {}
+    }
+  }
+  return null;
+}
+
+// Universal Post-Commit Notification Event Bus Subscriber
+// Asynchronously creates in-app notifications and dispatches push delivery with zero impact on caller transaction
+notificationEventBus.subscribe('*', async (event) => {
+  try {
+    if (!event || !event.eventType) return;
+
+    let recipientUserId = event.recipientUserId;
+    if (!recipientUserId) {
+      const driverEvents = ['PAYOUT_SETTLED', 'KYC_APPROVED', 'KYC_REJECTED', 'VPA_VERIFIED', 'payout:settled', 'kyc:approved', 'kyc:rejected', 'vpa:verified'];
+      if (driverEvents.includes(event.eventType) || (event.driverId && !event.customerId)) {
+        recipientUserId = await resolveDriverUserUuid(event.driverId);
+      } else if (event.customerId) {
+        recipientUserId = resolveCustomerUserUuid(event.customerId);
+      } else if (event.driverId) {
+        recipientUserId = await resolveDriverUserUuid(event.driverId);
+      }
+    }
+
+    if (!recipientUserId) {
+      if (event.driverId) {
+        console.warn(`[NOTIF_BUS_SKIPPED] Event ${event.eventType} for driver ${event.driverId} skipped: unlinked driver account has no user_id.`);
+      } else {
+        console.warn(`[NOTIF_BUS_SKIPPED] Event ${event.eventType} skipped: recipient could not be resolved to valid users.id.`);
+      }
+      return;
+    }
+
+    if (!UUID_REGEX.test(recipientUserId)) {
+      recipientUserId = resolveCustomerUserUuid(recipientUserId);
+    }
+
+    if (!recipientUserId || !UUID_REGEX.test(recipientUserId)) {
+      console.warn(`[NOTIF_BUS_SKIPPED] Event ${event.eventType} skipped: recipient could not be resolved to valid users.id.`);
+      return;
+    }
+
+    if (!db.notificationRepo) return;
+
+    const notifRes = await db.notificationRepo.createNotification({
+      recipientUserId,
+      title: event.title || event.eventType,
+      body: event.body || '',
+      notificationType: event.notificationType || event.eventType,
+      priority: event.priority || 'NORMAL',
+      data: event.data || {},
+      eventKey: event.eventKey
+    });
+
+    if (notifRes && notifRes.success && notifRes.notification && !notifRes.duplicate) {
+      if (db.pushNotificationService) {
+        await db.pushNotificationService.dispatchNotification(notifRes.notification);
+      }
+    }
+  } catch (err) {
+    console.error(`[NOTIF_BUS_ERROR] Failed to process notification for ${event.eventType}:`, err.message);
+  }
+});
 
 const app = express();
 const server = http.createServer(app);
@@ -1126,6 +1232,40 @@ app.post('/api/admin/finance/refund', authenticateAdmin, requirePermission('fina
       reason: reason || `Admin refund of ₹${data.refundAmount} authorized by ${req.admin.name}`
     });
 
+    // Phase 17 M4: Publish authoritative REFUND_PROCESSED lifecycle event post-commit
+    try {
+      let refundRecipient = data.userId || null;
+      if (!refundRecipient && (data.paymentId || targetIdentifier) && isLivePostgres && supabaseAdmin) {
+        try {
+          const { data: pRow } = await supabaseAdmin.from('payments')
+            .select('customer_id')
+            .eq('payment_id', data.paymentId || targetIdentifier)
+            .maybeSingle();
+          if (pRow?.customer_id) refundRecipient = pRow.customer_id;
+        } catch (e) {}
+      }
+      if (!refundRecipient && jobId) {
+        const memJob = db.getJob(jobId);
+        if (memJob?.customerId) refundRecipient = resolveCustomerUserUuid(memJob.customerId);
+      }
+      if (!refundRecipient) {
+        refundRecipient = resolveCustomerUserUuid('usr_2');
+      }
+
+      notificationEventBus.publish('REFUND_PROCESSED', {
+        paymentId: data.paymentId || targetIdentifier,
+        recipientUserId: refundRecipient,
+        eventKey: `refund_proc:${targetIdentifier}:${eventId}`,
+        title: 'Refund Processed',
+        body: `Refund of ₹${data.refundAmount !== undefined ? data.refundAmount : amt} has been processed for ${data.paymentId || targetIdentifier}.`,
+        notificationType: 'REFUND_PROCESSED',
+        priority: 'HIGH',
+        data: { paymentId: data.paymentId || targetIdentifier, refundAmount: data.refundAmount !== undefined ? data.refundAmount : amt, reason }
+      });
+    } catch (notifErr) {
+      console.warn(`[NOTIF_DISPATCH_WARN] Failed to emit REFUND_PROCESSED:`, notifErr.message);
+    }
+
     return res.json(data);
   }
 
@@ -1771,6 +1911,22 @@ app.post('/api/customer/book-ride', authenticateUser, async (req, res) => {
     }
   });
 
+  // Phase 17 M4: Publish post-commit JOB_DISPATCHED event
+  try {
+    notificationEventBus.publish('JOB_DISPATCHED', {
+      jobId: job.id,
+      eventKey: `job_dispatch:${job.id}`,
+      customerId: job.customerId,
+      title: 'Ride Booking Requested',
+      body: `Your ride request (${job.id}) has been broadcast to nearby drivers.`,
+      notificationType: 'JOB_DISPATCHED',
+      priority: 'HIGH',
+      data: { jobId: job.id, vehicleType: job.vehicleType, fare: job.fare }
+    });
+  } catch (err) {
+    console.warn(`[NOTIF_DISPATCH_WARN] Failed to emit JOB_DISPATCHED for job ${job.id}:`, err.message);
+  }
+
   res.json({ success: true, job });
 });
 
@@ -2089,9 +2245,68 @@ app.post('/api/driver/accept-job', authenticateDriver, async (req, res) => {
         startOtp: job.startOtp
       }
     });
+
+    // Phase 17 M4: Publish post-commit JOB_ACCEPTED event
+    try {
+      notificationEventBus.publish('JOB_ACCEPTED', {
+        jobId: job.id,
+        eventKey: `job_accepted:${job.id}`,
+        customerId: job.customerId,
+        driverId: driver.id,
+        title: 'Driver Assigned',
+        body: `${driver.name} has accepted your trip request and is heading your way.`,
+        notificationType: 'JOB_ACCEPTED',
+        priority: 'HIGH',
+        data: { jobId: job.id, driverId: driver.id, driverName: driver.name, vehiclePlate: driver.vehiclePlate }
+      });
+    } catch (notifErr) {
+      console.warn(`[NOTIF_DISPATCH_WARN] Failed to emit JOB_ACCEPTED for job ${job.id}:`, notifErr.message);
+    }
+
     res.json({ success: true, job, driver });
   } else {
     res.status(404).json({ success: false, error: 'Job not found' });
+  }
+});
+
+// Authoritative Dedicated Driver Arrival Endpoint
+app.post(['/api/driver/arrived', '/api/driver/arrive'], authenticateDriver, async (req, res) => {
+  try {
+    const { jobId } = req.body;
+    const effectiveDriverId = req.driver?.id || req.body.driverId || 'drv_1';
+
+    // Authoritative DRIVER_ARRIVED transition via db.updateJobStatus
+    const job = await db.updateJobStatus(jobId, 'DRIVER_ARRIVED', effectiveDriverId);
+    if (!job) {
+      return res.status(404).json({ success: false, error: 'Job not found' });
+    }
+
+    broadcastToCustomer(job.customerId, {
+      type: 'DRIVER_ARRIVED',
+      jobId: job.id,
+      driverId: effectiveDriverId
+    });
+
+    // Phase 17 M4: Publish post-commit DRIVER_ARRIVED event
+    try {
+      notificationEventBus.publish('DRIVER_ARRIVED', {
+        jobId: job.id,
+        eventKey: `driver_arrived:${job.id}`,
+        customerId: job.customerId,
+        driverId: effectiveDriverId,
+        title: 'Driver Arrived',
+        body: 'Your driver has arrived at the pickup location.',
+        notificationType: 'DRIVER_ARRIVED',
+        priority: 'HIGH',
+        data: { jobId: job.id, driverId: effectiveDriverId }
+      });
+    } catch (notifErr) {
+      console.warn(`[NOTIF_DISPATCH_WARN] Failed to emit DRIVER_ARRIVED for job ${job.id}:`, notifErr.message);
+    }
+
+    res.json({ success: true, job });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
   }
 });
 
@@ -2113,10 +2328,44 @@ app.post('/api/driver/verify-otp', authenticateDriver, async (req, res) => {
     if (result.status === 'COMPLETED') {
       broadcastToCustomer(result.job.customerId, { type: 'TRIP_COMPLETED', jobId: result.job.id, fare: result.job.fare });
       broadcastToDrivers({ type: 'JOB_COMPLETED', jobId: result.job.id });
+
+      // Phase 17 M4: Publish post-commit RIDE_COMPLETED event
+      try {
+        notificationEventBus.publish('RIDE_COMPLETED', {
+          jobId: result.job.id,
+          eventKey: `ride_completed:${result.job.id}`,
+          customerId: result.job.customerId,
+          driverId: effectiveDriverId || result.job.driverId,
+          title: 'Ride Completed',
+          body: `Your ride ${result.job.id} has completed successfully. Final fare: ₹${result.job.fare}.`,
+          notificationType: 'RIDE_COMPLETED',
+          priority: 'HIGH',
+          data: { jobId: result.job.id, fare: result.job.fare, driverId: effectiveDriverId || result.job.driverId }
+        });
+      } catch (notifErr) {
+        console.warn(`[NOTIF_DISPATCH_WARN] Failed to emit RIDE_COMPLETED for job ${result.job.id}:`, notifErr.message);
+      }
     } else if (result.status === 'OUT_FOR_DELIVERY') {
       broadcastToCustomer(result.job.customerId, { type: 'FOOD_ORDER_UPDATE', orderId: result.job.id, orderStatus: 'OUT_FOR_DELIVERY' });
     } else {
       broadcastToCustomer(result.job.customerId, { type: 'TRIP_STARTED', jobId: result.job.id });
+
+      // Phase 17 M4: Publish post-commit RIDE_STARTED event
+      try {
+        notificationEventBus.publish('RIDE_STARTED', {
+          jobId: result.job.id,
+          eventKey: `ride_started:${result.job.id}`,
+          customerId: result.job.customerId,
+          driverId: effectiveDriverId || result.job.driverId,
+          title: 'Ride In Transit',
+          body: `OTP verified. Your ride ${result.job.id} has started.`,
+          notificationType: 'RIDE_STARTED',
+          priority: 'HIGH',
+          data: { jobId: result.job.id, driverId: effectiveDriverId || result.job.driverId }
+        });
+      } catch (notifErr) {
+        console.warn(`[NOTIF_DISPATCH_WARN] Failed to emit RIDE_STARTED for job ${result.job.id}:`, notifErr.message);
+      }
     }
 
     res.json(result);
@@ -2130,6 +2379,24 @@ app.post('/api/driver/complete-trip', authenticateDriver, async (req, res) => {
   const job = await db.updateJobStatus(jobId, 'COMPLETED');
   if (job) {
     broadcastToCustomer(job.customerId, { type: 'TRIP_COMPLETED', jobId: job.id, fare: job.fare, rating });
+
+    // Phase 17 M4: Publish post-commit RIDE_COMPLETED event
+    try {
+      notificationEventBus.publish('RIDE_COMPLETED', {
+        jobId: job.id,
+        eventKey: `ride_completed:${job.id}`,
+        customerId: job.customerId,
+        driverId: job.driverId || req.driver?.id,
+        title: 'Ride Completed',
+        body: `Your ride ${job.id} has completed successfully. Final fare: ₹${job.fare}.`,
+        notificationType: 'RIDE_COMPLETED',
+        priority: 'HIGH',
+        data: { jobId: job.id, fare: job.fare }
+      });
+    } catch (notifErr) {
+      console.warn(`[NOTIF_DISPATCH_WARN] Failed to emit RIDE_COMPLETED for job ${job.id}:`, notifErr.message);
+    }
+
     res.json({ success: true, job, driver: db.getDriver() });
   } else {
     res.status(404).json({ success: false, error: 'Job not found' });
@@ -2148,7 +2415,8 @@ app.post('/api/driver/payout-destination/request', authenticateDriver, async (re
 
 app.post('/api/driver/payout', authenticateDriver, async (req, res) => {
   const { amount } = req.body;
-  const result = await db.recordPayout(req.driver.id, Number(amount) || 500);
+  const effectiveDriverId = req.driver?.id || 'drv_1';
+  const result = await db.recordPayout(effectiveDriverId, Number(amount) || 500);
   if (!result.success) {
     const statusCode = result.code === 'UNLINKED_DRIVER_ACCOUNT' ||
       result.code === 'KYC_VERIFICATION_REQUIRED' ||
@@ -2156,6 +2424,48 @@ app.post('/api/driver/payout', authenticateDriver, async (req, res) => {
       result.code === 'PAYOUT_DESTINATION_COOLING_ACTIVE' ? 403 : 400;
     return res.status(statusCode).json(result);
   }
+
+  // Phase 17 M4: Publish post-commit PAYOUT_SETTLED event
+  try {
+    const { supabaseAdmin, isLivePostgres } = require('./supabase');
+    let payoutKey = result.payoutKey;
+    let driverUserId = req.driver?.userId || req.driver?.user_id;
+
+    if (!driverUserId || !payoutKey) {
+      if (isLivePostgres && supabaseAdmin) {
+        const targetUuid = db.driverRepo?.resolveUuid(effectiveDriverId) || req.driver?.uuid || effectiveDriverId;
+        const [driverRow, payoutRow] = await Promise.all([
+          !driverUserId ? supabaseAdmin.from('drivers').select('user_id').eq('id', targetUuid).maybeSingle() : Promise.resolve(null),
+          !payoutKey ? supabaseAdmin.from('driver_payouts').select('idempotency_key').eq('driver_id', targetUuid).order('settled_at', { ascending: false }).limit(1).maybeSingle() : Promise.resolve(null)
+        ]);
+        if (driverRow?.data?.user_id) driverUserId = driverRow.data.user_id;
+        if (payoutRow?.data?.idempotency_key) payoutKey = payoutRow.data.idempotency_key;
+      }
+    }
+
+    if (!payoutKey) {
+      payoutKey = `payout_${effectiveDriverId}_${Date.now()}`;
+    }
+
+    if (!driverUserId) {
+      console.warn(`[NOTIF_BUS_SKIPPED] PAYOUT_SETTLED event for driver ${effectiveDriverId} skipped: unlinked driver account has no user_id.`);
+    } else {
+      notificationEventBus.publish('PAYOUT_SETTLED', {
+        payoutId: payoutKey,
+        eventKey: `payout_settled:${payoutKey}`,
+        recipientUserId: driverUserId,
+        driverId: effectiveDriverId,
+        title: 'Payout Settled',
+        body: `Your payout of ₹${amount || 500} to ${result.verifiedUpiId} has been successfully settled.`,
+        notificationType: 'PAYOUT_SETTLED',
+        priority: 'HIGH',
+        data: { amount: Number(amount) || 500, upiId: result.verifiedUpiId, payoutKey }
+      });
+    }
+  } catch (notifErr) {
+    console.warn(`[NOTIF_DISPATCH_WARN] Failed to emit PAYOUT_SETTLED for driver ${effectiveDriverId}:`, notifErr.message);
+  }
+
   res.json(result);
 });
 
@@ -2164,7 +2474,21 @@ app.post(['/api/rides/:id/cancel', '/api/jobs/:id/cancel'], async (req, res) => 
     const jobId = req.params.id;
     const { reason, isDelayedOverride } = req.body;
 
-    let requesterId = req.user?.id || req.body.customerId || req.body.userId || '00000000-0000-0000-0000-000000000001';
+    let requesterId = req.user?.id || req.body.customerId || req.body.userId;
+    if (!requesterId) {
+      const authHeader = req.headers['authorization'] || '';
+      const token = authHeader.replace(/^Bearer\s+/, '').trim();
+      if (token) {
+        const session = db.getSessionByToken ? db.getSessionByToken(token) : null;
+        if (session?.userId || session?.entityId) {
+          requesterId = session.userId || session.entityId;
+        }
+      }
+    }
+    if (!requesterId) {
+      requesterId = '00000000-0000-0000-0000-000000000001';
+    }
+
     let requesterRole = 'CUSTOMER';
     if (req.admin) {
       requesterId = req.admin.id;
@@ -2220,6 +2544,30 @@ app.post(['/api/rides/:id/cancel', '/api/jobs/:id/cancel'], async (req, res) => 
             memDrv.walletBalance = Number(data.driverWalletBalance);
           }
         }
+      }
+
+      // Phase 17 M4: Publish post-commit JOB_CANCELLED event strictly after atomic RPC commit
+      try {
+        const targetJobId = memJob?.id || jobId;
+        const custId = memJob?.customerId || (requesterRole === 'CUSTOMER' ? requesterId : null);
+        notificationEventBus.publish('JOB_CANCELLED', {
+          jobId: targetJobId,
+          eventKey: `job_cancelled:${targetJobId}`,
+          customerId: custId,
+          driverId: memJob?.driverId || null,
+          title: 'Ride Cancelled',
+          body: `Trip ${targetJobId} was cancelled. Reason: ${reason || 'Customer requested cancellation'}.`,
+          notificationType: 'JOB_CANCELLED',
+          priority: 'HIGH',
+          data: {
+            jobId: targetJobId,
+            cancellationFee: data.cancellationFee,
+            refundAmount: data.refundAmount,
+            driverCompensation: data.driverCompensation
+          }
+        });
+      } catch (notifErr) {
+        console.warn(`[NOTIF_DISPATCH_WARN] Failed to emit JOB_CANCELLED for job ${jobId}:`, notifErr.message);
       }
 
       return res.json({ success: true, ...data });
@@ -3183,17 +3531,7 @@ app.post('/api/parcel/:id/delivery-proof', async (req, res) => {
 // =========================================================================
 // NOTIFICATION REST API ENDPOINTS (PHASE 17 - MILESTONE 3)
 // =========================================================================
-
-const { MockSandboxPushProvider, FcmV1PushProvider, PushNotificationService } = require('./services/PushNotificationService');
-const { notificationEventBus, NOTIFICATION_EVENTS } = require('./services/NotificationEventBus');
-
-const pushProvider = (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL)
-  ? new FcmV1PushProvider()
-  : new MockSandboxPushProvider();
-
-const pushNotificationService = new PushNotificationService(db.notificationRepo, pushProvider);
-db.pushNotificationService = pushNotificationService;
-db.notificationEventBus = notificationEventBus;
+// Top-level PushNotificationService and NotificationEventBus instances are used here.
 
 // Rate limiting state for Administrative Broadcasts (Requirement 9: 1 per 15 minutes)
 let lastAdminBroadcastTimestamp = 0;

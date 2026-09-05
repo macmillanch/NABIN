@@ -400,6 +400,52 @@ class DriverRepository {
         newState: operationalStatus || updates.kyc_status || kycStatus,
         reason: reason || `Driver status updated to ${operationalStatus || updates.kyc_status || kycStatus}`
       });
+
+      // Post-commit KYC lifecycle event publication
+      if (kycStatus && this.db?.notificationEventBus) {
+        const normKyc = updates.kyc_status || kycStatus;
+        let driverUserId = driver.userId || driver.user_id;
+        if (!driverUserId && targetUuid) {
+          const { data: dbDrv } = await supabaseAdmin.from('drivers').select('user_id').eq('id', targetUuid).maybeSingle();
+          if (dbDrv?.user_id) {
+            driverUserId = dbDrv.user_id;
+            driver.userId = driverUserId;
+            driver.user_id = driverUserId;
+          }
+        }
+
+        if (normKyc === 'VERIFIED') {
+          if (driverUserId) {
+            this.db.notificationEventBus.publish('KYC_APPROVED', {
+              driverId: driver.id,
+              recipientUserId: driverUserId,
+              eventKey: `kyc_approved:${driver.id}`,
+              title: 'Driver KYC Approved',
+              body: 'Your driver partner identity verification has been approved. You are now authorized for trip dispatches.',
+              notificationType: 'KYC_APPROVED',
+              priority: 'HIGH',
+              data: { driverId: driver.id, kycStatus: 'VERIFIED' }
+            });
+          } else {
+            console.warn(`[NOTIF_SKIPPED] KYC_APPROVED for driver ${driver.id} skipped: unlinked driver has no user_id.`);
+          }
+        } else if (normKyc === 'REJECTED') {
+          if (driverUserId) {
+            this.db.notificationEventBus.publish('KYC_REJECTED', {
+              driverId: driver.id,
+              recipientUserId: driverUserId,
+              eventKey: `kyc_rejected:${driver.id}`,
+              title: 'Driver KYC Rejected',
+              body: `Your driver partner identity verification was rejected: ${reason || 'Compliance criteria not met.'}`,
+              notificationType: 'KYC_REJECTED',
+              priority: 'HIGH',
+              data: { driverId: driver.id, kycStatus: 'REJECTED', reason }
+            });
+          } else {
+            console.warn(`[NOTIF_SKIPPED] KYC_REJECTED for driver ${driver.id} skipped: unlinked driver has no user_id.`);
+          }
+        }
+      }
     }
 
     return { success: true, driver };
@@ -504,6 +550,34 @@ class DriverRepository {
           reason: reason || 'Admin manual verification approved',
           metadata: { evidenceUrl, bankAccountHolderName, verifiedUpiId: vpaToVerify, coolingUntil }
         });
+
+        // Post-commit VPA verification notification event
+        if (this.db?.notificationEventBus) {
+          let driverUserId = driver.userId || driver.user_id;
+          if (!driverUserId && targetUuid) {
+            const { data: dbDrv } = await supabaseAdmin.from('drivers').select('user_id').eq('id', targetUuid).maybeSingle();
+            if (dbDrv?.user_id) {
+              driverUserId = dbDrv.user_id;
+              driver.userId = driverUserId;
+              driver.user_id = driverUserId;
+            }
+          }
+
+          if (driverUserId) {
+            this.db.notificationEventBus.publish('VPA_VERIFIED', {
+              driverId: driver.id,
+              recipientUserId: driverUserId,
+              eventKey: `vpa_verified:${driver.id}:${vpaToVerify}`,
+              title: 'Payout Destination Verified',
+              body: `Your payout UPI VPA ${vpaToVerify} has been verified for automated payouts.`,
+              notificationType: 'VPA_VERIFIED',
+              priority: 'HIGH',
+              data: { driverId: driver.id, verifiedUpiId: vpaToVerify }
+            });
+          } else {
+            console.warn(`[NOTIF_SKIPPED] VPA_VERIFIED for driver ${driver.id} skipped: unlinked driver has no user_id.`);
+          }
+        }
       }
 
       driver.verifiedUpiId = vpaToVerify;
