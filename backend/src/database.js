@@ -11,9 +11,6 @@ const AuditLogRepository = require('./repositories/AuditLogRepository');
 const PromotionRepository = require('./repositories/PromotionRepository');
 const PricingRepository = require('./repositories/PricingRepository');
 const NotificationRepository = require('./repositories/NotificationRepository');
-const MenuRepository = require('./repositories/MenuRepository');
-const InvoiceRepository = require('./repositories/InvoiceRepository');
-const TaxCalculationService = require('./services/TaxCalculationService');
 
 // Shared relational store with durable persistence, crash recovery & double-entry accounting
 class NabinDatabase {
@@ -117,8 +114,6 @@ class NabinDatabase {
     this.activeSessions.set('usr_session_rahul', { token: 'usr_session_rahul', role: 'CUSTOMER', entityId: 'usr_1', entity: this.users[0] });
     this.activeSessions.set('drv_session_rajesh', { token: 'drv_session_rajesh', role: 'DRIVER', entityId: 'DRV-101', entity: null });
     this.activeSessions.set('mcht_session_dilli', { token: 'mcht_session_dilli', role: 'MERCHANT', entityId: 'rest_1', entity: null });
-    this.activeSessions.set('mcht_token_alpha_dilli', { token: 'mcht_token_alpha_dilli', role: 'MERCHANT', entityId: '11111111-1111-1111-1111-111111111111', entity: null });
-    this.activeSessions.set('mcht_token_beta_pizza', { token: 'mcht_token_beta_pizza', role: 'MERCHANT', entityId: '22222222-2222-2222-2222-222222222222', entity: null });
 
     // Admin Users with granular permissions (Bootstrapped securely on first run)
     this.adminUsers = [];
@@ -1781,9 +1776,6 @@ class NabinDatabase {
     this.promotionRepo = new PromotionRepository(this);
     this.pricingRepo = new PricingRepository(this);
     this.notificationRepo = new NotificationRepository(this);
-    this.menuRepo = new MenuRepository(this);
-    this.invoiceRepo = new InvoiceRepository(this);
-    this.taxCalculationService = new TaxCalculationService(this);
   }
 
   save() {

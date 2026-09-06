@@ -11,12 +11,7 @@ const NOTIFICATION_EVENTS = Object.freeze({
   REFUND_PROCESSED: 'refund:processed',
   KYC_APPROVED: 'kyc:approved',
   KYC_REJECTED: 'kyc:rejected',
-  VPA_VERIFIED: 'vpa:verified',
-  FOOD_ORDER_PLACED: 'food_order:placed',
-  FOOD_ORDER_ACCEPTED: 'food_order:accepted',
-  FOOD_ORDER_PREPARING: 'food_order:preparing',
-  FOOD_ORDER_READY: 'food_order:ready',
-  FOOD_ORDER_OUT_FOR_DELIVERY: 'food_order:out_for_delivery'
+  VPA_VERIFIED: 'vpa:verified'
 });
 
 /**
@@ -76,26 +71,6 @@ function createEventKey(eventType, entityId, targetId = null) {
     case NOTIFICATION_EVENTS.VPA_VERIFIED:
     case 'VPA_VERIFIED':
       return `vpa_verified:${cleanEntityId}${cleanTargetId}`;
-
-    case NOTIFICATION_EVENTS.FOOD_ORDER_PLACED:
-    case 'FOOD_ORDER_PLACED':
-      return `food_order_placed:${cleanEntityId}`;
-
-    case NOTIFICATION_EVENTS.FOOD_ORDER_ACCEPTED:
-    case 'FOOD_ORDER_ACCEPTED':
-      return `food_order_accepted:${cleanEntityId}`;
-
-    case NOTIFICATION_EVENTS.FOOD_ORDER_PREPARING:
-    case 'FOOD_ORDER_PREPARING':
-      return `food_order_prep:${cleanEntityId}`;
-
-    case NOTIFICATION_EVENTS.FOOD_ORDER_READY:
-    case 'FOOD_ORDER_READY':
-      return `food_order_ready:${cleanEntityId}`;
-
-    case NOTIFICATION_EVENTS.FOOD_ORDER_OUT_FOR_DELIVERY:
-    case 'FOOD_ORDER_OUT_FOR_DELIVERY':
-      return `food_order_dispatched:${cleanEntityId}`;
 
     default:
       return `${cleanType}:${cleanEntityId}${cleanTargetId}`;
