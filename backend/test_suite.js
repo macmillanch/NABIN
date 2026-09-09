@@ -270,7 +270,7 @@ async function runAllTests() {
       code: 'FESTIVAL30',
       orderAmount: 200.0,
       service: 'RIDE'
-    });
+    }, { 'Authorization': 'Bearer usr_session_priya' });
     assert('Server-side coupon validation calculates 30% discount (₹60)', 
       applyPromo.status === 200 && applyPromo.data.discount === 60 && applyPromo.data.finalAmount === 140
     );
@@ -337,7 +337,7 @@ async function runAllTests() {
       vehicleType: '4W',
       pickup: { address: 'CyberCity Gate 1' },
       drop: { address: 'DLF Phase 2' }
-    });
+    }, { 'Authorization': 'Bearer usr_session_priya' });
     assert('Customer ride booking returns HTTP 423 Locked when service is paused',
       blockedRide.status === 423 && blockedRide.data.servicePaused === true
     );
@@ -357,7 +357,7 @@ async function runAllTests() {
       vehicleType: '4W',
       pickup: { address: 'CyberCity Gate 1' },
       drop: { address: 'DLF Phase 2' }
-    });
+    }, { 'Authorization': 'Bearer usr_session_priya' });
     assert('Customer ride booking succeeds once service is resumed',
       allowedRide.status === 200 && allowedRide.data.success
     );
@@ -375,7 +375,7 @@ async function runAllTests() {
     const blockedGrocery = await request('POST', '/api/grocery/checkout/validate', {
       cartItems: [{ productId: 'gprod_1', unitPrice: 60.0, quantity: 1 }],
       deliveryAddress: 'Civil Lines'
-    });
+    }, { 'Authorization': 'Bearer usr_session_priya' });
     assert('Grocery checkout returns HTTP 423 when master killswitch is active',
       blockedGrocery.status === 423 && blockedGrocery.data.servicePaused === true
     );
@@ -740,7 +740,7 @@ async function runAllTests() {
         { productId: 'gprod_3', name: 'Amul Taaza Fresh Toned Milk', quantity: 2, price: 56.0 },
         { productId: 'gprod_5', name: 'Lays Classic Salted Chips', quantity: 1, price: 20.0 }
       ]
-    });
+    }, { 'Authorization': `Bearer ${customerToken}` });
     assert('POST /api/grocery/cart/revalidate returns valid cart subtotal and stock status',
       revalRes.status === 200 && revalRes.data.success && revalRes.data.items.length === 2 && revalRes.data.status === 'VALIDATED'
     );
@@ -750,7 +750,7 @@ async function runAllTests() {
         { productId: 'gprod_3', quantity: 2, price: 56.0 }
       ],
       deliveryAddress: 'Flat 402, Civil Lines Hub, North Delhi'
-    });
+    }, { 'Authorization': `Bearer ${customerToken}` });
     assert('POST /api/grocery/checkout/validate authoritatively locks order total with delivery slot',
       checkoutValRes.status === 200 && checkoutValRes.data.success && checkoutValRes.data.order && checkoutValRes.data.order.finalTotal === 114
     );

@@ -119,6 +119,15 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
+// Global error handlers to prevent server crashes
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error);
+});
+
 // Environment-Specific Whitelisted CORS
 const allowedOrigins = [
   'http://localhost:3000',
@@ -152,7 +161,7 @@ app.use(cors({
 
 // Request Tracking ID Middleware
 app.use((req, res, next) => {
-  req.id = req.headers['x-request-id'] || `req_${Date.now().toString(36)}_${crypto.randomBytes(4).toString('hex')}`;
+  req.id = req.headers['x-request-id'] || `req_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 10)}`;
   res.setHeader('X-Request-Id', req.id);
   next();
 });
@@ -353,11 +362,13 @@ const activeAdminSessions = new Map();
 function authenticateUser(req, res, next) {
   const authHeader = req.headers['authorization'] || '';
   const token = authHeader.replace(/^Bearer\s+/, '').trim();
-  
+
   if (!token) {
-    req.user = null;
-    req.session = null;
-    return next();
+    return res.status(401).json({
+      success: false,
+      error: 'Unauthorized: Customer session token required. Please log in with Bearer token.',
+      requestId: req.id
+    });
   }
 
   const session = db.getSessionByToken(token);
@@ -365,6 +376,14 @@ function authenticateUser(req, res, next) {
     return res.status(401).json({
       success: false,
       error: 'Unauthorized: Invalid or expired customer session token. Please log in.',
+      requestId: req.id
+    });
+  }
+
+  if (session.role !== 'CUSTOMER') {
+    return res.status(403).json({
+      success: false,
+      error: 'Forbidden: Customer role required.',
       requestId: req.id
     });
   }
@@ -447,8 +466,48 @@ function authenticateMerchant(req, res, next) {
     });
   }
 
-  req.merchant = session.entity || db.restaurants[0];
+  if (session.role !== 'MERCHANT') {
+    return res.status(403).json({
+      success: false,
+      error: 'Forbidden: Merchant role required.',
+      requestId: req.id
+    });
+  }
+
+  const merchant = session.entity || (db.getMerchant ? db.getMerchant(session.entityId) : null);
+  if (!merchant) {
+    return res.status(401).json({
+      success: false,
+      error: 'Unauthorized: Merchant profile not found.',
+      requestId: req.id
+    });
+  }
+
+  req.merchant = merchant;
   req.session = session;
+  next();
+}
+
+// Require merchant tenant binding - ensures merchant is linked to a valid tenant
+function requireMerchantTenant(req, res, next) {
+  if (!req.merchant) {
+    return res.status(401).json({
+      success: false,
+      error: 'Unauthorized: Merchant context required.',
+      requestId: req.id
+    });
+  }
+
+  if (!req.merchant.tenantId && !req.merchant.tenant_id) {
+    return res.status(403).json({
+      success: false,
+      error: 'Forbidden: Merchant is not associated with a tenant. Tenant binding required.',
+      code: 'MERCHANT_TENANT_REQUIRED',
+      requestId: req.id
+    });
+  }
+
+  req.merchantTenantId = req.merchant.tenantId || req.merchant.tenant_id;
   next();
 }
 
@@ -797,26 +856,34 @@ app.post('/api/admin/services/emergency-killswitch', authenticateAdmin, requireP
 
 // Admin Login with Brute-Force Protection & Password Hashing Verification
 app.post('/api/admin/login', async (req, res) => {
+  console.log('[DEBUG] Admin login request received');
   const { username, password } = req.body;
   if (!username || !password) {
     return res.status(400).json({ success: false, error: 'Username and password are required.', requestId: req.id });
   }
 
+  console.log('[DEBUG] Calling verifyAdminCredentials');
   const authResult = db.verifyAdminCredentials(username, password);
+  console.log('[DEBUG] verifyAdminCredentials result:', authResult);
+  
   if (!authResult.success) {
-    await db.createAuditLog({
-      adminId: 'GUEST',
-      adminName: username || 'Unknown',
-      role: 'GUEST',
-      action: 'LOGIN_FAILED',
-      module: 'AUTH',
-      targetEntityType: 'ADMIN_SESSION',
-      targetEntityId: 'LOGIN',
-      previousState: 'UNAUTHENTICATED',
-      newState: 'FAILED',
-      reason: `Failed login attempt for username: ${username}. Detail: ${authResult.error}`,
-      ipAddress: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1'
-    });
+    try {
+      await db.createAuditLog({
+        adminId: 'GUEST',
+        adminName: username || 'Unknown',
+        role: 'GUEST',
+        action: 'LOGIN_FAILED',
+        module: 'AUTH',
+        targetEntityType: 'ADMIN_SESSION',
+        targetEntityId: 'LOGIN',
+        previousState: 'UNAUTHENTICATED',
+        newState: 'FAILED',
+        reason: `Failed login attempt for username: ${username}. Detail: ${authResult.error}`,
+        ipAddress: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1'
+      });
+    } catch (auditErr) {
+      console.error('[WARN] Failed to create audit log for failed login:', auditErr.message);
+    }
 
     return res.status(authResult.locked ? 429 : 401).json({
       success: false,
@@ -825,8 +892,9 @@ app.post('/api/admin/login', async (req, res) => {
     });
   }
 
+  console.log('[DEBUG] Login successful, creating session');
   const admin = authResult.admin;
-  const token = `adm_token_${Date.now()}_${crypto.randomBytes(16).toString('hex')}`;
+  const token = `adm_token_${Date.now()}_${Math.random().toString(36).substring(2, 18)}`;
   const session = {
     token,
     role: admin.role,
@@ -836,23 +904,30 @@ app.post('/api/admin/login', async (req, res) => {
     expiresAt: new Date(Date.now() + 24 * 3600 * 1000).toISOString()
   };
 
+  console.log('[DEBUG] Setting session');
   activeAdminSessions.set(token, admin);
   db.activeSessions.set(token, session);
 
-  await db.createAuditLog({
-    adminId: admin.id,
-    adminName: admin.name,
-    role: admin.role,
-    action: 'ADMIN_LOGIN',
-    module: 'AUTH',
-    targetEntityType: 'ADMIN_SESSION',
-    targetEntityId: admin.id,
-    previousState: 'OFFLINE',
-    newState: 'ONLINE',
-    reason: `Admin login successful. Role: ${admin.role}`,
-    ipAddress: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1'
-  });
+  console.log('[DEBUG] Creating audit log');
+  try {
+    await db.createAuditLog({
+      adminId: admin.id,
+      adminName: admin.name,
+      role: admin.role,
+      action: 'ADMIN_LOGIN',
+      module: 'AUTH',
+      targetEntityType: 'ADMIN_SESSION',
+      targetEntityId: admin.id,
+      previousState: 'OFFLINE',
+      newState: 'ONLINE',
+      reason: `Admin login successful. Role: ${admin.role}`,
+      ipAddress: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1'
+    });
+  } catch (auditErr) {
+    console.error('[WARN] Failed to create audit log for successful login:', auditErr.message);
+  }
 
+  console.log('[DEBUG] Sending response');
   res.json({
     success: true,
     token,
@@ -1838,7 +1913,25 @@ app.post('/api/customer/book-ride', authenticateUser, async (req, res) => {
     }
   }
 
-  const user = (customerId ? db.getUser(customerId) : req.user) || db.getUser('usr_1');
+  // Customer identity binding: req.user is set by authenticateUser middleware
+  if (!req.user) {
+    return res.status(401).json({
+      success: false,
+      error: 'Unauthorized: Customer session required.',
+      requestId: req.id
+    });
+  }
+
+  // Reject cross-customer IDOR attempts
+  if (customerId && String(customerId).trim() !== String(req.user.id).trim()) {
+    return res.status(403).json({
+      success: false,
+      error: 'Forbidden: Cannot book rides for another customer account.',
+      requestId: req.id
+    });
+  }
+
+  const user = req.user;
 
   if (user && user.identityStatus !== 'VERIFIED') {
     return res.status(403).json({
@@ -1952,8 +2045,26 @@ app.post('/api/customer/book-parcel', authenticateUser, async (req, res) => {
     }
   }
 
-  const user = req.user || db.getUser(customerId || 'usr_2');
-  
+  // Customer identity binding: req.user is set by authenticateUser middleware
+  if (!req.user) {
+    return res.status(401).json({
+      success: false,
+      error: 'Unauthorized: Customer session required.',
+      requestId: req.id
+    });
+  }
+
+  // Reject cross-customer IDOR attempts
+  if (customerId && String(customerId).trim() !== String(req.user.id).trim()) {
+    return res.status(403).json({
+      success: false,
+      error: 'Forbidden: Cannot book parcels for another customer account.',
+      requestId: req.id
+    });
+  }
+
+  const user = req.user;
+
   // Authoritative server-side pricing
   const pricing = db.calculateFareEstimate({
     serviceType: 'PARCEL',
@@ -2031,7 +2142,25 @@ app.post('/api/customer/book-food', authenticateUser, async (req, res) => {
     });
   }
 
-  const user = req.user || db.getUser(customerId || 'usr_2');
+  // Customer identity binding: req.user is set by authenticateUser middleware
+  if (!req.user) {
+    return res.status(401).json({
+      success: false,
+      error: 'Unauthorized: Customer session required.',
+      requestId: req.id
+    });
+  }
+
+  // Reject cross-customer IDOR attempts
+  if (customerId && String(customerId).trim() !== String(req.user.id).trim()) {
+    return res.status(403).json({
+      success: false,
+      error: 'Forbidden: Cannot book food orders for another customer account.',
+      requestId: req.id
+    });
+  }
+
+  const user = req.user;
   const deliveryPricing = db.calculateFareEstimate({ serviceType: 'FOOD', distanceKm: 3.0, durationMins: 12, promoCode });
   
   // Calculate exact item total based on menu
@@ -2089,8 +2218,18 @@ app.post('/api/customer/book-food', authenticateUser, async (req, res) => {
 });
 
 // RESTAURANT / MERCHANT API ENDPOINTS
-app.get('/api/merchant/:restaurantId/dashboard', authenticateMerchant, (req, res) => {
+app.get('/api/merchant/:restaurantId/dashboard', authenticateMerchant, requireMerchantTenant, (req, res) => {
   const rest = db.restaurants.find(r => r.id === req.params.restaurantId) || db.restaurants[0];
+  
+  // Verify merchant owns this restaurant
+  if (rest.merchantId && rest.merchantId !== req.merchant.id) {
+    return res.status(403).json({
+      success: false,
+      error: 'Forbidden: Cannot access another merchant\'s restaurant dashboard.',
+      requestId: req.id
+    });
+  }
+  
   const pendingOrders = db.jobs.filter(j => j.type === 'FOOD' && j.restaurantId === rest.id && j.status !== 'COMPLETED');
   res.json({
     success: true,
@@ -2100,18 +2239,40 @@ app.get('/api/merchant/:restaurantId/dashboard', authenticateMerchant, (req, res
   });
 });
 
-app.get('/api/merchant/:restaurantId/orders', authenticateMerchant, (req, res) => {
+app.get('/api/merchant/:restaurantId/orders', authenticateMerchant, requireMerchantTenant, (req, res) => {
   const rest = db.restaurants.find(r => r.id === req.params.restaurantId) || db.restaurants[0];
+  
+  // Verify merchant owns this restaurant
+  if (rest.merchantId && rest.merchantId !== req.merchant.id) {
+    return res.status(403).json({
+      success: false,
+      error: 'Forbidden: Cannot access another merchant\'s orders.',
+      requestId: req.id
+    });
+  }
+  
   const orders = db.jobs.filter(j => j.type === 'FOOD' && (j.restaurantId === rest.id || !j.restaurantId));
   res.json({ success: true, orders });
 });
 
-app.post(['/api/merchant/:restaurantId/orders/:orderId/status', '/api/merchant/orders/:orderId/status'], (req, res) => {
+app.post(['/api/merchant/:restaurantId/orders/:orderId/status', '/api/merchant/orders/:orderId/status'], authenticateMerchant, requireMerchantTenant, (req, res) => {
   const { status } = req.body;
   const orderId = req.params.orderId;
   const job = db.getJob(orderId);
 
   if (!job) return res.status(404).json({ success: false, error: 'Order not found' });
+
+  // Verify merchant owns this order's restaurant
+  if (job.restaurantId) {
+    const rest = db.restaurants.find(r => r.id === job.restaurantId);
+    if (rest && rest.merchantId && rest.merchantId !== req.merchant.id) {
+      return res.status(403).json({
+        success: false,
+        error: 'Forbidden: Cannot modify another merchant\'s order.',
+        requestId: req.id
+      });
+    }
+  }
 
   job.orderStatus = status;
   if (status === 'READY_FOR_PICKUP') {
@@ -2140,8 +2301,17 @@ app.post(['/api/merchant/:restaurantId/orders/:orderId/status', '/api/merchant/o
   res.json({ success: true, job });
 });
 
-app.post('/api/merchant/:restaurantId/menu/:itemId/toggle', authenticateMerchant, (req, res) => {
+app.post('/api/merchant/:restaurantId/menu/:itemId/toggle', authenticateMerchant, requireMerchantTenant, (req, res) => {
   const rest = db.restaurants.find(r => r.id === req.params.restaurantId) || db.restaurants[0];
+
+  // Verify merchant owns this restaurant
+  if (rest.merchantId && rest.merchantId !== req.merchant.id) {
+    return res.status(403).json({
+      success: false,
+      error: 'Forbidden: Cannot modify another merchant\'s menu.',
+      requestId: req.id
+    });
+  }
   const item = rest.menu.find(m => m.id === req.params.itemId);
   if (!item) return res.status(404).json({ success: false, error: 'Menu item not found' });
 
@@ -2797,13 +2967,14 @@ app.get('/api/grocery/products/:id/history', (req, res) => {
 });
 
 // Single Merchant Price Update
-app.put('/api/grocery/products/:id/price', (req, res) => {
+app.put('/api/grocery/products/:id/price', authenticateMerchant, requireMerchantTenant, (req, res) => {
   try {
-    const { newPrice, reason, merchantId, actor } = req.body;
+    const { newPrice, reason, actor } = req.body;
+    const merchantId = req.merchant.id;
     const updated = db.updateGroceryProductPrice({
       productId: req.params.id,
       newPrice,
-      merchantId: merchantId || 'mcht_darkstore_1',
+      merchantId,
       reason: reason || 'Merchant price adjustment',
       actor: actor || 'Merchant'
     });
@@ -2860,15 +3031,15 @@ app.get('/api/admin/master-catalog/:id/stores', (req, res) => {
 });
 
 // --- MERCHANT STORE INVENTORY ENDPOINTS ---
-app.get('/api/merchant/inventory', (req, res) => {
-  const merchantId = req.query.merchant_id || 'mcht_darkstore_1';
+app.get('/api/merchant/inventory', authenticateMerchant, requireMerchantTenant, (req, res) => {
+  const merchantId = req.merchant.id;
   const inventory = db.getMerchantInventory(merchantId);
   res.json({ success: true, merchantId, count: inventory.length, inventory });
 });
 
-app.post('/api/merchant/inventory', (req, res) => {
+app.post('/api/merchant/inventory', authenticateMerchant, requireMerchantTenant, (req, res) => {
   try {
-    const item = db.updateMerchantInventoryItem(req.body);
+    const item = db.updateMerchantInventoryItem({ ...req.body, merchantId: req.merchant.id });
     res.json({ success: true, item });
   } catch (err) {
     res.status(400).json({ success: false, error: err.message });
@@ -2876,9 +3047,10 @@ app.post('/api/merchant/inventory', (req, res) => {
 });
 
 // Bulk Merchant Price Update
-app.post('/api/grocery/products/bulk-price-update', (req, res) => {
+app.post('/api/grocery/products/bulk-price-update', authenticateMerchant, requireMerchantTenant, (req, res) => {
   try {
-    const { updates, merchantId, actor } = req.body;
+    const { updates, actor } = req.body;
+    const merchantId = req.merchant.id;
     const results = db.bulkUpdateGroceryPrices({ updates, merchantId, actor });
     broadcastToAdmins({ type: 'GROCERY_BULK_PRICE_UPDATED', results });
     res.json({ success: true, count: results.length, results });
@@ -2888,14 +3060,14 @@ app.post('/api/grocery/products/bulk-price-update', (req, res) => {
 });
 
 // Server-Side Cart Price Revalidation (Customer App & Cart)
-app.post('/api/grocery/cart/revalidate', (req, res) => {
+app.post('/api/grocery/cart/revalidate', authenticateUser, (req, res) => {
   const { cartItems } = req.body;
   const reval = db.revalidateCart(cartItems || []);
   res.json({ success: true, ...reval });
 });
 
 // Authoritative Checkout Validation & Order Generation
-app.post('/api/grocery/checkout/validate', (req, res) => {
+app.post('/api/grocery/checkout/validate', authenticateUser, (req, res) => {
   if (db.isServicePaused('grocery')) {
     const s = db.getService('grocery');
     return res.status(423).json({
@@ -2916,15 +3088,27 @@ app.post('/api/grocery/checkout/validate', (req, res) => {
 });
 
 // Merchant Submit Actual Packed Weight & Recalculate Order Total
-app.post('/api/grocery/orders/:id/packed-weight', (req, res) => {
+app.post('/api/grocery/orders/:id/packed-weight', authenticateMerchant, requireMerchantTenant, async (req, res) => {
   try {
-    const { itemId, packedWeight, merchantId } = req.body;
+    const { itemId, packedWeight } = req.body;
+    const merchantId = req.merchant.id;
+    
     const result = db.submitPackedWeight({
       orderId: req.params.id,
       itemId,
       packedWeight,
       merchantId
     });
+    
+    // Verify order ownership - merchant can only submit packed weight for their own orders
+    if (result.order && result.order.merchantId && result.order.merchantId !== req.merchant.id) {
+      return res.status(403).json({
+        success: false,
+        error: 'Forbidden: Cannot submit packed weight for another merchant\'s order.',
+        requestId: req.id
+      });
+    }
+    
     broadcastToCustomer(result.order.customerId, { type: 'ORDER_WEIGHT_RECALCULATED', order: result.order });
     res.json(result);
   } catch (err) {
