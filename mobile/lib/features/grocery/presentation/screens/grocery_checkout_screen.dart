@@ -1,7 +1,6 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import '../theme/grocery_theme.dart';
+import '../../../../core/network/nabin_api_service.dart';
 
 /// Dedicated 10-Minute Express Checkout Screen for NABIN Grocery App
 class GroceryCheckoutScreen extends StatefulWidget {
@@ -104,7 +103,6 @@ class _GroceryCheckoutScreenState extends State<GroceryCheckoutScreen> {
     setState(() => _isSubmitting = true);
 
     final payload = {
-      'customerId': 'cust_express_8812',
       'customerName': 'Rahul Sharma',
       'customerPhone': '+91 98765 43210',
       'deliveryAddress': '$_selectedAddressLabel: $_selectedAddressDetails',
@@ -126,27 +124,25 @@ class _GroceryCheckoutScreenState extends State<GroceryCheckoutScreen> {
     };
 
     try {
-      final response = await http.post(
-        Uri.parse('http://127.0.0.1:4000/api/grocery/checkout/validate'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode(payload),
-      ).timeout(const Duration(seconds: 4));
-
-      final data = jsonDecode(response.body);
+      final data = await NabinApiService.validateGroceryCheckout(payload)
+          .timeout(const Duration(seconds: 8));
       setState(() => _isSubmitting = false);
 
-      if (mounted) {
+      if (mounted && data?['success'] == true) {
         _showOrderConfirmationModal(
           orderId: data['order']?['id'] ?? 'ORD-EXPRESS-${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}',
           etaMinutes: 9,
+        );
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(data?['error']?.toString() ?? 'Checkout could not be completed. Please try again.')),
         );
       }
     } catch (_) {
       setState(() => _isSubmitting = false);
       if (mounted) {
-        _showOrderConfirmationModal(
-          orderId: 'ORD-EXPRESS-${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}',
-          etaMinutes: 10,
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Checkout could not be completed. Please check your connection and try again.')),
         );
       }
     }

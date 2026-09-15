@@ -2,10 +2,17 @@ import 'dart:convert';
 import 'dart:io';
 
 class NabinApiService {
+  static const String _configuredBaseUrl = String.fromEnvironment('NABIN_API_URL');
   static const String baseUrl = 'http://10.0.2.2:4000/api'; // Android Emulator loopback to Host PC
   static const String webBaseUrl = 'http://localhost:4000/api';
 
-  static String get effectiveUrl => Platform.isAndroid ? baseUrl : webBaseUrl;
+  static String get effectiveUrl {
+    if (_configuredBaseUrl.isNotEmpty) return _configuredBaseUrl;
+    if (const bool.fromEnvironment('dart.vm.product')) {
+      throw StateError('NABIN_API_URL must be provided for release builds.');
+    }
+    return Platform.isAndroid ? baseUrl : webBaseUrl;
+  }
 
   static String? _authToken;
 
