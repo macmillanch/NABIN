@@ -16,11 +16,15 @@ class NabinWsService {
   String? get currentRole => _currentRole;
   String? get currentUserId => _currentUserId;
 
+  static const String _configuredWsUrl = String.fromEnvironment('NABIN_WS_URL');
   static const String localWsUrl = 'ws://localhost:4000';
   static const String androidWsUrl = 'ws://10.0.2.2:4000';
-  static const String productionWssUrl = 'wss://nabin-beta-api.onrender.com';
 
   static String get effectiveWsUrl {
+    if (_configuredWsUrl.isNotEmpty) return _configuredWsUrl;
+    if (const bool.fromEnvironment('dart.vm.product')) {
+      throw StateError('NABIN_WS_URL must be provided for release builds.');
+    }
     try {
       if (Platform.isAndroid) return androidWsUrl;
     } catch (_) {}
@@ -31,13 +35,19 @@ class NabinWsService {
   final _driverLocationController = StreamController<Map<String, dynamic>>.broadcast();
   final _tripUpdateController = StreamController<Map<String, dynamic>>.broadcast();
   final _merchantOrderController = StreamController<Map<String, dynamic>>.broadcast();
+  final _authErrorController = StreamController<Map<String, dynamic>>.broadcast();
+  final _authenticatedController = StreamController<Map<String, dynamic>>.broadcast();
 
   Stream<Map<String, dynamic>> get onIncomingJob => _incomingJobController.stream;
   Stream<Map<String, dynamic>> get onDriverLocation => _driverLocationController.stream;
   Stream<Map<String, dynamic>> get onTripUpdate => _tripUpdateController.stream;
   Stream<Map<String, dynamic>> get onMerchantOrder => _merchantOrderController.stream;
+  Stream<Map<String, dynamic>> get onAuthError => _authErrorController.stream;
+  Stream<Map<String, dynamic>> get onAuthenticated => _authenticatedController.stream;
 
+  bool _isAuthenticated = false;
   bool get isConnected => _isConnected;
+  bool get isAuthenticated => _isAuthenticated;
 
   Future<void> connect({required String role, required String userId, String? token}) async {
     _currentRole = role;
@@ -49,12 +59,9 @@ class NabinWsService {
 
     try {
       _socket?.close();
+      _isAuthenticated = false;
       final effectiveToken = token ?? SessionManager.instance.token ?? NabinApiService.authToken;
-      final uri = effectiveToken != null && effectiveToken.isNotEmpty
-          ? '$effectiveWsUrl?token=$effectiveToken'
-          : effectiveWsUrl;
-
-      _socket = await WebSocket.connect(uri).timeout(const Duration(seconds: 5));
+      _socket = await WebSocket.connect(effectiveWsUrl).timeout(const Duration(seconds: 5));
       _isConnected = true;
 
       // Register client role and identity with server with authentication token
@@ -74,13 +81,16 @@ class NabinWsService {
         },
         onError: (err) {
           _isConnected = false;
+          _isAuthenticated = false;
         },
         onDone: () {
           _isConnected = false;
+          _isAuthenticated = false;
         },
       );
     } catch (e) {
       _isConnected = false;
+      _isAuthenticated = false;
     }
   }
 
@@ -90,6 +100,14 @@ class NabinWsService {
       final type = msg['type'] as String?;
 
       switch (type) {
+        case 'AUTHENTICATED':
+          _isAuthenticated = true;
+          _authenticatedController.add(msg);
+          break;
+        case 'AUTH_ERROR':
+          _isAuthenticated = false;
+          _authErrorController.add(msg);
+          break;
         case 'NEW_RIDE_REQUEST':
         case 'JOB_DISPATCH_OFFER':
         case 'JOB_ASSIGNED':
@@ -117,15 +135,19 @@ class NabinWsService {
     required double latitude,
     required double longitude,
     required double bearing,
+    double speed = 0.0,
     String? activeJobId,
   }) {
-    if (_socket != null && _isConnected) {
+    if (_socket != null && _isConnected && _isAuthenticated) {
       _socket!.add(jsonEncode({
         'type': 'DRIVER_LOCATION_UPDATE',
         'driverId': driverId,
-        'latitude': latitude,
-        'longitude': longitude,
-        'bearing': bearing,
+        'location': {
+          'lat': latitude,
+          'lng': longitude,
+        },
+        'heading': bearing,
+        'speed': speed,
         'activeJobId': activeJobId,
         'timestamp': DateTime.now().toIso8601String(),
       }));
@@ -136,5 +158,6 @@ class NabinWsService {
     _socket?.close();
     _socket = null;
     _isConnected = false;
+    _isAuthenticated = false;
   }
 }

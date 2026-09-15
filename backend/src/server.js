@@ -234,67 +234,215 @@ wss.on('connection', (ws, req) => {
   ws.isAuthenticated = false;
   ws.authInfo = null;
 
-  // Handshake Token Check
-  if (req && req.url) {
-    try {
-      const urlObj = new URL(req.url, 'http://localhost');
-      const handshakeToken = urlObj.searchParams.get('token');
-      if (handshakeToken) {
-        const session = db.getSessionByToken(handshakeToken);
-        if (session) {
-          ws.isAuthenticated = true;
-          ws.authInfo = { role: session.role.toLowerCase(), id: session.entityId, entity: session.entity };
-          clients.set(ws, ws.authInfo);
-          ws.send(JSON.stringify({ type: 'AUTHENTICATED', role: session.role, id: session.entityId }));
-        }
-      }
-    } catch (e) {}
-  }
+  // Unauthenticated Registration Timeout (10 seconds)
+  const registrationTimer = setTimeout(() => {
+    if (!ws.isAuthenticated && ws.readyState === ws.OPEN) {
+      try {
+        ws.send(JSON.stringify({
+          type: 'AUTH_ERROR',
+          code: 'REGISTRATION_TIMEOUT',
+          error: 'WebSocket authentication timeout: REGISTER message with valid token required within 10 seconds.'
+        }));
+        ws.close(4408, 'Registration Timeout');
+      } catch (_) {}
+    }
+  }, 10000);
 
   ws.on('message', (message) => {
+    let data;
     try {
-      const data = JSON.parse(message.toString());
-      if (data.type === 'AUTHENTICATE' || data.type === 'REGISTER') {
-        const token = data.token;
-        if (token) {
-          const session = db.getSessionByToken(token);
-          if (session) {
-            // Check if client role specified matches session role
-            if (data.role && session.role && data.role.toUpperCase() !== session.role.toUpperCase()) {
-              ws.send(JSON.stringify({ type: 'AUTH_ERROR', error: 'WebSocket role mismatch.' }));
-              return;
-            }
-            ws.isAuthenticated = true;
-            ws.authInfo = { role: session.role.toLowerCase(), id: session.entityId, entity: session.entity };
-            clients.set(ws, ws.authInfo);
-            ws.send(JSON.stringify({ type: 'AUTHENTICATED', role: session.role, id: session.entityId }));
-            return;
-          }
-        }
-        ws.send(JSON.stringify({ type: 'AUTH_ERROR', error: 'WebSocket authentication rejected: Valid session token required.' }));
-      } else {
-        if (!ws.isAuthenticated) {
-          ws.send(JSON.stringify({ type: 'AUTH_ERROR', error: 'Unauthorized: Session authentication required.' }));
-          return;
-        }
-        if (data.type === 'DRIVER_LOCATION_UPDATE') {
-          if (ws.authInfo.role !== 'driver') {
-            ws.send(JSON.stringify({ type: 'ERROR', error: 'Only drivers can update driver location.' }));
-            return;
-          }
-          const driverId = ws.authInfo.id;
-          const driver = db.getDriver(driverId);
-          if (driver && data.location) {
-            driver.location = data.location;
-          }
-        }
-      }
+      data = JSON.parse(message.toString());
     } catch (e) {
-      console.error('WS parse error:', e);
+      ws.send(JSON.stringify({
+        type: 'ERROR',
+        code: 'MALFORMED_JSON',
+        error: 'Invalid JSON message payload.'
+      }));
+      return;
     }
+
+    // Ping / Heartbeat
+    if (data.type === 'PING') {
+      ws.send(JSON.stringify({ type: 'PONG', timestamp: new Date().toISOString() }));
+      return;
+    }
+
+    // Handshake: REGISTER / AUTHENTICATE
+    if (data.type === 'AUTHENTICATE' || data.type === 'REGISTER') {
+      const token = data.token;
+      if (!token) {
+        ws.send(JSON.stringify({
+          type: 'AUTH_ERROR',
+          code: 'AUTH_REQUIRED',
+          error: 'WebSocket authentication rejected: Valid session token required.'
+        }));
+        clearTimeout(registrationTimer);
+        ws.close(4401, 'Unauthorized');
+        return;
+      }
+
+      const session = db.getSessionByToken(token);
+      if (!session) {
+        ws.send(JSON.stringify({
+          type: 'AUTH_ERROR',
+          code: 'INVALID_TOKEN',
+          error: 'WebSocket authentication rejected: Invalid or expired session token.'
+        }));
+        clearTimeout(registrationTimer);
+        ws.close(4401, 'Unauthorized');
+        return;
+      }
+
+      // Role check: If declared in payload, verify match with authoritative session
+      const isRoleMatch = () => {
+        if (!data.role) return true;
+        const requested = data.role.toUpperCase();
+        const actual = (session.role || '').toUpperCase();
+        if (requested === actual) return true;
+        if (requested === 'ADMIN' && (actual === 'SUPER_ADMIN' || actual === 'ADMIN')) return true;
+        return false;
+      };
+
+      if (!isRoleMatch()) {
+        ws.send(JSON.stringify({
+          type: 'AUTH_ERROR',
+          code: 'ROLE_MISMATCH',
+          error: `WebSocket role mismatch: Session is ${session.role}, but registration requested ${data.role}.`
+        }));
+        clearTimeout(registrationTimer);
+        ws.close(4403, 'Forbidden');
+        return;
+      }
+
+      clearTimeout(registrationTimer);
+      ws.isAuthenticated = true;
+      const normalizedRole = (session.role === 'SUPER_ADMIN' || session.role === 'ADMIN') ? 'admin' : session.role.toLowerCase();
+      ws.authInfo = { role: normalizedRole, id: session.entityId, entity: session.entity };
+      clients.set(ws, ws.authInfo);
+      ws.send(JSON.stringify({ type: 'AUTHENTICATED', role: session.role, id: session.entityId }));
+      return;
+    }
+
+    // Guard: Every subsequent message requires authenticated socket
+    if (!ws.isAuthenticated) {
+      ws.send(JSON.stringify({
+        type: 'AUTH_ERROR',
+        code: 'AUTH_REQUIRED',
+        error: 'Unauthorized: Session authentication required. Send REGISTER with valid session token.'
+      }));
+      clearTimeout(registrationTimer);
+      ws.close(4401, 'Unauthorized');
+      return;
+    }
+
+    // Telemetry: DRIVER_LOCATION_UPDATE
+    if (data.type === 'DRIVER_LOCATION_UPDATE') {
+      if (ws.authInfo.role !== 'driver') {
+        ws.send(JSON.stringify({
+          type: 'ERROR',
+          code: 'ROLE_FORBIDDEN',
+          error: 'Only drivers can update driver location.'
+        }));
+        return;
+      }
+
+      // Anti-spoofing verification: client-supplied driverId must match session
+      if (data.driverId && data.driverId !== ws.authInfo.id) {
+        ws.send(JSON.stringify({
+          type: 'ERROR',
+          code: 'IDENTITY_SPOOFING_REJECTED',
+          error: 'Driver impersonation rejected: driverId does not match authenticated session.'
+        }));
+        return;
+      }
+
+      const driverId = ws.authInfo.id;
+      // Extract coordinates flexibly (supporting nested location, flat lat/lng, or latitude/longitude)
+      const rawLat = data.location?.lat ?? data.location?.latitude ?? data.lat ?? data.latitude;
+      const rawLng = data.location?.lng ?? data.location?.longitude ?? data.lng ?? data.longitude;
+      const heading = Number(data.heading ?? data.bearing ?? data.location?.heading ?? 0) || 0;
+      const speed = Number(data.speed ?? data.speedKmph ?? data.location?.speed ?? 0) || 0;
+      const jobId = data.jobId ?? data.activeJobId ?? data.location?.jobId ?? null;
+
+      if (rawLat === undefined || rawLng === undefined || isNaN(Number(rawLat)) || isNaN(Number(rawLng))) {
+        ws.send(JSON.stringify({
+          type: 'ERROR',
+          code: 'INVALID_COORDINATES',
+          error: 'Numeric latitude and longitude are required.'
+        }));
+        return;
+      }
+
+      const lat = Number(rawLat);
+      const lng = Number(rawLng);
+
+      if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+        ws.send(JSON.stringify({
+          type: 'ERROR',
+          code: 'COORDINATES_OUT_OF_RANGE',
+          error: 'Latitude must be between -90 and 90, longitude between -180 and 180.'
+        }));
+        return;
+      }
+
+      const locationRecord = db.updateDriverLocation({
+        driverId,
+        lat,
+        lng,
+        heading,
+        speed,
+        jobId,
+        isOnline: true,
+        status: jobId ? 'ON_TRIP' : 'AVAILABLE',
+        serviceType: 'RIDE'
+      });
+
+      // Synchronize in-memory driver location
+      const driver = db.getDriver(driverId);
+      if (driver) {
+        driver.location = { lat, lng };
+      }
+
+      // Broadcast to admin:fleet channel
+      broadcastToAdmins({
+        type: 'DRIVER_LOCATION_UPDATE',
+        channel: 'admin:fleet',
+        driverId,
+        location: locationRecord
+      });
+
+      // Broadcast to active trip channel if assigned
+      if (jobId) {
+        const job = db.getJob(jobId);
+        const channelName = job?.type === 'RIDE' ? `ride:${jobId}` : `delivery:${jobId}`;
+        broadcast({
+          type: 'DRIVER_LOCATION_UPDATE',
+          channel: channelName,
+          jobId,
+          driverId,
+          location: locationRecord
+        });
+      }
+
+      ws.send(JSON.stringify({
+        type: 'LOCATION_ACK',
+        success: true,
+        driverId,
+        timestamp: locationRecord.updatedAt
+      }));
+      return;
+    }
+
+    // Unrecognized message fallback
+    ws.send(JSON.stringify({
+      type: 'ERROR',
+      code: 'UNKNOWN_MESSAGE_TYPE',
+      error: `Unrecognized message type: ${data.type}`
+    }));
   });
 
   ws.on('close', () => {
+    clearTimeout(registrationTimer);
     clients.delete(ws);
   });
 });

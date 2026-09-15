@@ -99,7 +99,7 @@ async function runRealWorldValidation() {
   const driverWs = new WebSocket(WS_URL);
   await new Promise((resolve) => {
     driverWs.on('open', () => {
-      driverWs.send(JSON.stringify({ type: 'REGISTER', role: 'driver', id: 'DRV-101' }));
+      driverWs.send(JSON.stringify({ type: 'REGISTER', role: 'driver', id: 'DRV-101', token: driverToken }));
       resolve();
     });
     driverWs.on('message', (data) => {
@@ -119,7 +119,7 @@ async function runRealWorldValidation() {
 
   await new Promise((resolve) => {
     customerWs.on('open', () => {
-      customerWs.send(JSON.stringify({ type: 'REGISTER', role: 'customer', id: 'usr_2' }));
+      customerWs.send(JSON.stringify({ type: 'REGISTER', role: 'customer', id: 'usr_2', token: customerToken }));
       resolve();
     });
     customerWs.on('message', (data) => {

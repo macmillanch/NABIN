@@ -2,6 +2,7 @@ const http = require('http');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
 const path = require('path');
+const WebSocket = require('ws');
 process.env.PAYMENT_WEBHOOK_SECRET ||= 'test_webhook_secret_not_for_deployment';
 process.env.NABIN_TEST_MODE = 'true';
 const { supabaseAdmin, isLivePostgres } = require('./src/supabase');
@@ -3185,6 +3186,204 @@ async function runAllTests() {
       duplicateNotifRes.duplicate === true &&
       operationSucceeded === true
     );
+
+    // --- 34. MODULE 30: WebSocket Protocol Security, Authentication & Telemetry ---
+    console.log('\n--- 34. MODULE 30: WebSocket Protocol Security, Authentication & Telemetry ---');
+
+    const WS_URL = 'ws://127.0.0.1:4000';
+
+    function waitForWsMessage(ws, timeoutMs = 2500) {
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('WS message timeout')), timeoutMs);
+        ws.once('message', (raw) => {
+          clearTimeout(timer);
+          try {
+            resolve(JSON.parse(raw.toString()));
+          } catch (e) {
+            resolve({ raw: raw.toString() });
+          }
+        });
+      });
+    }
+
+    function waitForWsClose(ws, timeoutMs = 2500) {
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('WS close timeout')), timeoutMs);
+        ws.once('close', (code, reason) => {
+          clearTimeout(timer);
+          resolve({ code, reason: reason ? reason.toString() : '' });
+        });
+      });
+    }
+
+    // WS-01: Valid REGISTER with driver session token authenticates and keeps socket alive
+    const ws1 = new WebSocket(WS_URL);
+    await new Promise(r => ws1.once('open', r));
+    ws1.send(JSON.stringify({ type: 'REGISTER', role: 'DRIVER', token: driverToken }));
+    const msg1 = await waitForWsMessage(ws1);
+    assert('WS-01: Valid REGISTER handshake authenticates and returns AUTHENTICATED frame',
+      msg1.type === 'AUTHENTICATED' && msg1.role === 'DRIVER' && msg1.id !== undefined
+    );
+    ws1.close();
+
+    // WS-02: REGISTER with invalid token returns AUTH_ERROR (INVALID_TOKEN) and closes socket with code 4401
+    const ws2 = new WebSocket(WS_URL);
+    await new Promise(r => ws2.once('open', r));
+    ws2.send(JSON.stringify({ type: 'REGISTER', role: 'DRIVER', token: 'invalid_unrecognized_token_xyz' }));
+    const msg2 = await waitForWsMessage(ws2);
+    const close2 = await waitForWsClose(ws2);
+    assert('WS-02: REGISTER with invalid token returns AUTH_ERROR and closes socket with code 4401',
+      msg2.type === 'AUTH_ERROR' && msg2.code === 'INVALID_TOKEN' && close2.code === 4401
+    );
+
+    // WS-03: REGISTER with expired/invalid session token returns AUTH_ERROR and closes socket
+    const expiredToken = `nabin_driver_tok_expired_${Date.now()}`;
+    const ws3 = new WebSocket(WS_URL);
+    await new Promise(r => ws3.once('open', r));
+    ws3.send(JSON.stringify({ type: 'REGISTER', role: 'DRIVER', token: expiredToken }));
+    const msg3 = await waitForWsMessage(ws3);
+    const close3 = await waitForWsClose(ws3);
+    assert('WS-03: REGISTER with expired/invalid session returns AUTH_ERROR and terminates socket',
+      msg3.type === 'AUTH_ERROR' && close3.code === 4401
+    );
+
+    // WS-04: REGISTER with missing token returns AUTH_ERROR (AUTH_REQUIRED) and closes socket
+    const ws4 = new WebSocket(WS_URL);
+    await new Promise(r => ws4.once('open', r));
+    ws4.send(JSON.stringify({ type: 'REGISTER', role: 'DRIVER' }));
+    const msg4 = await waitForWsMessage(ws4);
+    const close4 = await waitForWsClose(ws4);
+    assert('WS-04: REGISTER with missing token returns AUTH_ERROR and closes socket with code 4401',
+      msg4.type === 'AUTH_ERROR' && msg4.code === 'AUTH_REQUIRED' && close4.code === 4401
+    );
+
+    // WS-05: Message sent before REGISTER returns AUTH_REQUIRED and closes socket
+    const ws5 = new WebSocket(WS_URL);
+    await new Promise(r => ws5.once('open', r));
+    ws5.send(JSON.stringify({ type: 'DRIVER_LOCATION_UPDATE', location: { lat: 28.6853, lng: 77.2185 } }));
+    const msg5 = await waitForWsMessage(ws5);
+    const close5 = await waitForWsClose(ws5);
+    assert('WS-05: Protected message sent before REGISTER returns AUTH_REQUIRED and terminates socket',
+      msg5.type === 'AUTH_ERROR' && msg5.code === 'AUTH_REQUIRED' && close5.code === 4401
+    );
+
+    // WS-06: Role mismatch (customer token registered as ADMIN) is rejected with ROLE_MISMATCH and code 4403
+    const ws6 = new WebSocket(WS_URL);
+    await new Promise(r => ws6.once('open', r));
+    ws6.send(JSON.stringify({ type: 'REGISTER', role: 'ADMIN', token: customerToken }));
+    const msg6 = await waitForWsMessage(ws6);
+    const close6 = await waitForWsClose(ws6);
+    assert('WS-06: Role mismatch between token and declared role returns ROLE_MISMATCH and closes socket with 4403',
+      msg6.type === 'AUTH_ERROR' && msg6.code === 'ROLE_MISMATCH' && close6.code === 4403
+    );
+
+    // WS-07: Valid DRIVER_LOCATION_UPDATE updates fleet locations and receives LOCATION_ACK
+    const driverWs = new WebSocket(WS_URL);
+    await new Promise(r => driverWs.once('open', r));
+    driverWs.send(JSON.stringify({ type: 'REGISTER', role: 'DRIVER', token: driverToken }));
+    const driverAuth = await waitForWsMessage(driverWs);
+
+    // Also connect an Admin client to verify telemetry broadcast
+    const adminWs = new WebSocket(WS_URL);
+    await new Promise(r => adminWs.once('open', r));
+    adminWs.send(JSON.stringify({ type: 'REGISTER', role: 'ADMIN', token: superToken }));
+    await waitForWsMessage(adminWs);
+
+    const adminBroadcastPromise = waitForWsMessage(adminWs);
+    driverWs.send(JSON.stringify({
+      type: 'DRIVER_LOCATION_UPDATE',
+      driverId: driverAuth.id,
+      location: { lat: 28.6912, lng: 77.2198 },
+      heading: 90.0,
+      speed: 25.0
+    }));
+    const ackMsg = await waitForWsMessage(driverWs);
+    const broadcastMsg = await adminBroadcastPromise;
+
+    const wsFleetRes = await request('GET', '/api/v1/fleet/locations', null, { 'Authorization': `Bearer ${superToken}` });
+    const updatedFleetDriver = wsFleetRes.data?.fleet?.find(d => d.driverId === driverAuth.id);
+
+    assert('WS-07: Valid DRIVER_LOCATION_UPDATE updates in-memory fleet locations and returns LOCATION_ACK',
+      ackMsg.type === 'LOCATION_ACK' && ackMsg.success === true &&
+      updatedFleetDriver && updatedFleetDriver.lat === 28.6912 && updatedFleetDriver.lng === 77.2198
+    );
+
+    // WS-08: Admin receives live telemetry broadcast on admin:fleet channel
+    assert('WS-08: Admin WebSocket subscriber receives DRIVER_LOCATION_UPDATE broadcast on admin:fleet channel',
+      broadcastMsg.type === 'DRIVER_LOCATION_UPDATE' &&
+      broadcastMsg.channel === 'admin:fleet' &&
+      broadcastMsg.driverId === driverAuth.id
+    );
+
+    // WS-09: Driver impersonation attempt (sending spoofed driverId) is rejected with IDENTITY_SPOOFING_REJECTED
+    driverWs.send(JSON.stringify({
+      type: 'DRIVER_LOCATION_UPDATE',
+      driverId: 'DRV-SPOOFED-IDENTITY',
+      location: { lat: 28.6912, lng: 77.2198 }
+    }));
+    const spoofMsg = await waitForWsMessage(driverWs);
+    assert('WS-09: Driver impersonation attempt with spoofed driverId is rejected with IDENTITY_SPOOFING_REJECTED',
+      spoofMsg.type === 'ERROR' && spoofMsg.code === 'IDENTITY_SPOOFING_REJECTED'
+    );
+
+    // WS-10: Non-driver client attempting DRIVER_LOCATION_UPDATE is rejected with ROLE_FORBIDDEN
+    const custWs = new WebSocket(WS_URL);
+    await new Promise(r => custWs.once('open', r));
+    custWs.send(JSON.stringify({ type: 'REGISTER', role: 'CUSTOMER', token: customerToken }));
+    await waitForWsMessage(custWs);
+    custWs.send(JSON.stringify({
+      type: 'DRIVER_LOCATION_UPDATE',
+      location: { lat: 28.6912, lng: 77.2198 }
+    }));
+    const nonDriverMsg = await waitForWsMessage(custWs);
+    assert('WS-10: Customer role attempting DRIVER_LOCATION_UPDATE is rejected with ROLE_FORBIDDEN',
+      nonDriverMsg.type === 'ERROR' && nonDriverMsg.code === 'ROLE_FORBIDDEN'
+    );
+    custWs.close();
+
+    // WS-11: Invalid coordinates (non-numeric) returns INVALID_COORDINATES
+    driverWs.send(JSON.stringify({
+      type: 'DRIVER_LOCATION_UPDATE',
+      location: { lat: 'invalid_latitude', lng: 77.2198 }
+    }));
+    const invalidCoordMsg = await waitForWsMessage(driverWs);
+    assert('WS-11: Non-numeric coordinates return INVALID_COORDINATES error',
+      invalidCoordMsg.type === 'ERROR' && invalidCoordMsg.code === 'INVALID_COORDINATES'
+    );
+
+    // WS-12: Out-of-range coordinates return COORDINATES_OUT_OF_RANGE
+    driverWs.send(JSON.stringify({
+      type: 'DRIVER_LOCATION_UPDATE',
+      location: { lat: 150.0, lng: 77.2198 }
+    }));
+    const rangeMsg = await waitForWsMessage(driverWs);
+    assert('WS-12: Latitude exceeding +/-90 returns COORDINATES_OUT_OF_RANGE error',
+      rangeMsg.type === 'ERROR' && rangeMsg.code === 'COORDINATES_OUT_OF_RANGE'
+    );
+
+    // WS-13: Unknown message type returns UNKNOWN_MESSAGE_TYPE
+    driverWs.send(JSON.stringify({ type: 'UNKNOWN_TEST_OPCODE_XYZ' }));
+    const unknownMsg = await waitForWsMessage(driverWs);
+    assert('WS-13: Unrecognized message type returns UNKNOWN_MESSAGE_TYPE error',
+      unknownMsg.type === 'ERROR' && unknownMsg.code === 'UNKNOWN_MESSAGE_TYPE'
+    );
+
+    // WS-14: PING returns PONG with timestamp
+    driverWs.send(JSON.stringify({ type: 'PING' }));
+    const pongMsg = await waitForWsMessage(driverWs);
+    assert('WS-14: PING frame returns PONG with ISO timestamp',
+      pongMsg.type === 'PONG' && pongMsg.timestamp !== undefined
+    );
+
+    // WS-15: Malformed JSON payload returns MALFORMED_JSON
+    driverWs.send('{ not valid json payload');
+    const malformedMsg = await waitForWsMessage(driverWs);
+    assert('WS-15: Malformed JSON frame returns MALFORMED_JSON error',
+      malformedMsg.type === 'ERROR' && malformedMsg.code === 'MALFORMED_JSON'
+    );
+
+    driverWs.close();
+    adminWs.close();
   } catch (err) {
     console.error('Fatal Test Suite Exception:', err);
     failed++;
