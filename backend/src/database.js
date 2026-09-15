@@ -4980,7 +4980,9 @@ class NabinDatabase {
     }
 
     // Issue Secure Session Token
-    const token = `nabin_${role.toLowerCase()}_tok_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+    // Session identifiers are bearer credentials. Use cryptographically secure
+    // entropy rather than timestamp/Math.random-derived values.
+    const token = `nabin_${role.toLowerCase()}_tok_${require('crypto').randomBytes(32).toString('base64url')}`;
     const sessionObj = {
       token,
       role,
@@ -5017,7 +5019,13 @@ class NabinDatabase {
   getSessionByToken(token) {
     if (!token) return null;
     const clean = token.replace(/^Bearer\s+/, '').trim();
-    return this.activeSessions.get(clean) || null;
+    const session = this.activeSessions.get(clean) || null;
+    if (!session) return null;
+    if (session.expiresAt && Date.parse(session.expiresAt) <= Date.now()) {
+      this.activeSessions.delete(clean);
+      return null;
+    }
+    return session;
   }
 
   invalidateSession(token) {
@@ -5530,9 +5538,19 @@ class NabinDatabase {
     }
 
     // Success State
+    const paymentSecret = process.env.PAYMENT_KEY_SECRET;
+    const verificationPayload = `${orderId}|${paymentId}`;
+    const expectedSignature = paymentSecret
+      ? crypto.createHmac('sha256', paymentSecret).update(verificationPayload).digest('hex')
+      : null;
+    const suppliedSignature = Buffer.from(signature || '', 'utf8');
+    const expectedSignatureBuffer = Buffer.from(expectedSignature || '', 'utf8');
+    if (!expectedSignature || suppliedSignature.length !== expectedSignatureBuffer.length || !crypto.timingSafeEqual(suppliedSignature, expectedSignatureBuffer)) {
+      throw new Error('Payment signature verification failed.');
+    }
     session.status = 'PAYMENT_SUCCESS';
     session.paymentId = paymentId || `pay_rzp_test_${Date.now()}`;
-    session.signature = signature || 'sig_valid_test';
+    session.signature = signature;
     session.updatedAt = new Date().toISOString();
 
     if (session.jobId) {

@@ -8,6 +8,12 @@ const LEGACY_USER_MAP = {
   'usr_3': '00000000-0000-0000-0000-000000000003'
 };
 
+const UUID_TO_LEGACY_MAP = {
+  '00000000-0000-0000-0000-000000000001': 'usr_1',
+  '00000000-0000-0000-0000-000000000002': 'usr_2',
+  '00000000-0000-0000-0000-000000000003': 'usr_3'
+};
+
 function generateTicketNumber() {
   const datePart = new Date().toISOString().slice(2, 10).replace(/-/g, '');
   const randPart = Math.floor(100000 + Math.random() * 900000);
@@ -76,6 +82,13 @@ function mapRowToTicket(row) {
 class SupportTicketRepository {
   constructor(db) {
     this.db = db;
+    if (this.db.users) {
+      for (const u of this.db.users) {
+        if (!u.uuid && LEGACY_USER_MAP[u.id]) {
+          u.uuid = LEGACY_USER_MAP[u.id];
+        }
+      }
+    }
   }
 
   static mapRowToTicket(row) {
@@ -100,14 +113,50 @@ class SupportTicketRepository {
     }
 
     if (this.db.users) {
-      const u = this.db.users.find(x => x.id === userId);
+      const u = this.db.users.find(x => x.id === userId || x.uuid === userId);
       if (u && u.uuid) return u.uuid;
+      if (u && LEGACY_USER_MAP[u.id]) return LEGACY_USER_MAP[u.id];
     }
     if (this.db.drivers) {
-      const d = this.db.drivers.find(x => x.id === userId);
+      const d = this.db.drivers.find(x => x.id === userId || x.uuid === userId);
       if (d && d.uuid) return d.uuid;
     }
 
+    return null;
+  }
+
+  resolveUser(userId, userType = 'CUSTOMER') {
+    if (!userId) return null;
+    if (userType === 'CUSTOMER') {
+      if (this.db.userRepo && typeof this.db.userRepo.findById === 'function') {
+        const u = this.db.userRepo.findById(userId);
+        if (u) return u;
+      }
+      if (this.db.users) {
+        const targetUuid = this.resolveUserUuid(userId, 'CUSTOMER');
+        const legacyId = UUID_TO_LEGACY_MAP[userId] || userId;
+        const u = this.db.users.find(x =>
+          x.id === userId ||
+          x.uuid === userId ||
+          (legacyId && x.id === legacyId) ||
+          (targetUuid && (x.uuid === targetUuid || x.id === targetUuid || LEGACY_USER_MAP[x.id] === targetUuid))
+        );
+        if (u) {
+          if (!u.uuid && targetUuid) u.uuid = targetUuid;
+          return u;
+        }
+      }
+    } else if (userType === 'DRIVER') {
+      if (this.db.driverRepo && typeof this.db.driverRepo.findById === 'function') {
+        const d = this.db.driverRepo.findById(userId);
+        if (d) return d;
+      }
+      if (this.db.drivers) {
+        const targetUuid = this.resolveUserUuid(userId, 'DRIVER');
+        const d = this.db.drivers.find(x => x.id === userId || x.uuid === userId || (targetUuid && (x.uuid === targetUuid || x.id === targetUuid)));
+        if (d) return d;
+      }
+    }
     return null;
   }
 
@@ -304,6 +353,15 @@ class SupportTicketRepository {
     const callerRole = caller?.role || 'CUSTOMER';
     const targetUuid = this.resolveUserUuid(targetUserId, callerRole) || targetUserId;
 
+    if (caller && caller.role !== 'ADMIN') {
+      const callerUuid = this.resolveUserUuid(caller.id, caller.role);
+      if (callerUuid && targetUuid && callerUuid !== targetUuid) {
+        const err = new Error('Access denied: You can only view your own support tickets.');
+        err.statusCode = 403;
+        throw err;
+      }
+    }
+
     if (isLivePostgres && supabaseAdmin) {
       let query = supabaseAdmin
         .from('support_tickets')
@@ -482,7 +540,8 @@ class SupportTicketRepository {
       // Non-admin ownership check
       if (caller.role !== 'ADMIN') {
         const callerUuid = this.resolveUserUuid(caller.id, caller.role);
-        if (callerUuid && row.user_id !== callerUuid) {
+        const ticketOwnerUuid = this.resolveUserUuid(row.user_id, row.user_type);
+        if (callerUuid && ticketOwnerUuid && callerUuid !== ticketOwnerUuid) {
           const err = new Error('Ticket not found');
           err.statusCode = 404;
           throw err;
@@ -684,12 +743,9 @@ class SupportTicketRepository {
           idempotencyKey
         });
 
-        if (this.db.users) {
-          const u = this.db.users.find(x => x.id === row.user_id || x.uuid === row.user_id);
-          if (u) {
-            u.walletBalance = refundResult ? refundResult.balance : ((u.walletBalance || 0) + amt);
-            userRefunded = u;
-          }
+        userRefunded = this.resolveUser(row.user_id, row.user_type || 'CUSTOMER');
+        if (userRefunded) {
+          userRefunded.walletBalance = refundResult ? refundResult.balance : ((userRefunded.walletBalance || 0) + amt);
         }
       }
 

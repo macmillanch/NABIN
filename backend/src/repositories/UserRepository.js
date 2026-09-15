@@ -6,6 +6,12 @@ const LEGACY_USER_MAP = {
   'usr_3': '00000000-0000-0000-0000-000000000003'
 };
 
+const UUID_TO_LEGACY_USER_MAP = {
+  '00000000-0000-0000-0000-000000000001': 'usr_1',
+  '00000000-0000-0000-0000-000000000002': 'usr_2',
+  '00000000-0000-0000-0000-000000000003': 'usr_3'
+};
+
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function normalizePhone(phone) {
@@ -35,6 +41,13 @@ function mapRowToUser(row, legacyId = null) {
 class UserRepository {
   constructor(db) {
     this.db = db;
+    if (this.db.users) {
+      for (const u of this.db.users) {
+        if (!u.uuid && LEGACY_USER_MAP[u.id]) {
+          u.uuid = LEGACY_USER_MAP[u.id];
+        }
+      }
+    }
   }
 
   resolveUuid(id) {
@@ -48,14 +61,32 @@ class UserRepository {
     return null;
   }
 
+  resolveLegacyId(id) {
+    if (!id) return null;
+    if (UUID_TO_LEGACY_USER_MAP[id]) return UUID_TO_LEGACY_USER_MAP[id];
+    if (this.db.users) {
+      const u = this.db.users.find(x => x.uuid === id || x.id === id);
+      if (u) return u.id;
+    }
+    return id;
+  }
+
   findById(id) {
     if (!id) return null;
     const targetUuid = this.resolveUuid(id);
+    const legacyId = UUID_TO_LEGACY_USER_MAP[id] || (UUID_REGEX.test(id) ? null : id);
 
     // 1. Fast cache lookup
     if (this.db.users) {
-      const found = this.db.users.find(u => u.id === id || (targetUuid && (u.uuid === targetUuid || u.id === targetUuid)));
-      if (found) return found;
+      const found = this.db.users.find(u =>
+        u.id === id ||
+        (legacyId && u.id === legacyId) ||
+        (targetUuid && (u.uuid === targetUuid || u.id === targetUuid || LEGACY_USER_MAP[u.id] === targetUuid))
+      );
+      if (found) {
+        if (!found.uuid && targetUuid) found.uuid = targetUuid;
+        return found;
+      }
     }
     return null;
   }
