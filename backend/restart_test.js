@@ -2,11 +2,20 @@
 // NABIN — MANDATORY BACKEND PERSISTENCE & RESTART INTEGRATION TEST
 // =========================================================================
 const http = require('http');
+const crypto = require('crypto');
 const { spawn, spawnSync, execSync } = require('child_process');
 const path = require('path');
+process.env.PAYMENT_WEBHOOK_SECRET ||= 'test_webhook_secret_not_for_deployment';
+process.env.NABIN_TEST_MODE = 'true';
 const { supabaseAdmin, isLivePostgres } = require('./src/supabase');
 
 const BASE_URL = 'http://127.0.0.1:4000';
+
+function webhookHeaders(body) {
+  const secret = process.env.PAYMENT_WEBHOOK_SECRET;
+  if (!secret) throw new Error('PAYMENT_WEBHOOK_SECRET must be configured for webhook tests.');
+  return { 'x-razorpay-signature': crypto.createHmac('sha256', secret).update(JSON.stringify(body)).digest('hex') };
+}
 
 function request(method, pathName, body = null, headers = {}) {
   return new Promise((resolve, reject) => {
@@ -187,11 +196,12 @@ async function runRestartTest() {
 
     // 6. Record a persistent payment webhook
     const restartWebhookId = `evt_persist_restart_${Date.now()}`;
-    await request('POST', '/api/payments/webhook', {
+    const restartWebhookPayload = {
       id: restartWebhookId,
       event: 'payment.captured',
       payload: { payment: { entity: { id: `pay_restart_${Date.now()}`, amount: 9900 } } }
-    });
+    };
+    await request('POST', '/api/payments/webhook', restartWebhookPayload, webhookHeaders(restartWebhookPayload));
 
     // 6b. Create a persistent promotion and redeem it before restart
     const restartPromoCode = `RESTART_${Date.now().toString().slice(-4)}`;
@@ -303,10 +313,11 @@ async function runRestartTest() {
     assert(`Double-entry ledger records (${jobLedgerEntries.length}) survived server restart`, jobLedgerEntries.length >= 1 && jobLedgerEntries[0].referenceId === rideJob.id);
 
     // 12. Verify Webhook Idempotency registry STILL REJECTS DUPLICATES after restart
-    const postDuplicateWebhook = await request('POST', '/api/payments/webhook', {
+    const restartDuplicateWebhookPayload = {
       id: restartWebhookId,
       event: 'payment.captured'
-    });
+    };
+    const postDuplicateWebhook = await request('POST', '/api/payments/webhook', restartDuplicateWebhookPayload, webhookHeaders(restartDuplicateWebhookPayload));
     assert('Payment webhook idempotency memory survived server restart and rejected replay', postDuplicateWebhook.status === 200 && postDuplicateWebhook.data.duplicate === true);
 
     // 12b. Verify Promotion and Redemption STILL EXIST after restart

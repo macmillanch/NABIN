@@ -1,9 +1,18 @@
 const http = require('http');
+const crypto = require('crypto');
 const { spawn } = require('child_process');
 const path = require('path');
+process.env.PAYMENT_WEBHOOK_SECRET ||= 'test_webhook_secret_not_for_deployment';
+process.env.NABIN_TEST_MODE = 'true';
 const { supabaseAdmin, isLivePostgres } = require('./src/supabase');
 
 const BASE_URL = 'http://127.0.0.1:4000';
+
+function webhookHeaders(body) {
+  const secret = process.env.PAYMENT_WEBHOOK_SECRET;
+  if (!secret) throw new Error('PAYMENT_WEBHOOK_SECRET must be configured for webhook tests.');
+  return { 'x-razorpay-signature': crypto.createHmac('sha256', secret).update(JSON.stringify(body)).digest('hex') };
+}
 
 function request(method, pathName, body = null, headers = {}) {
   return new Promise((resolve, reject) => {
@@ -718,7 +727,7 @@ async function runAllTests() {
     );
 
     // 3. Customer retrieves scoped tracking for active ride
-    const trackingRes = await request('GET', `/api/v1/tracking/${activeRideJob.id}`);
+    const trackingRes = await request('GET', `/api/v1/tracking/${activeRideJob.id}`, null, { 'Authorization': `Bearer ${customerToken}` });
     assert('Customer retrieves scoped tracking for their specific active job',
       trackingRes.status === 200 && trackingRes.data.success && trackingRes.data.driver && (trackingRes.data.driver.id === 'DRV-101' || trackingRes.data.driver.id.startsWith('DRV-')) && trackingRes.data.location && trackingRes.data.location.lat === 28.6853,
       JSON.stringify(trackingRes)
@@ -827,7 +836,7 @@ async function runAllTests() {
     // --- 20. MODULE 18: Payment Webhook HMAC Verification & Idempotency ---
     console.log('\n--- 20. MODULE 18: Payment Webhook & Idempotent Escrow ---');
     const webhookEventId = `evt_test_${Date.now()}`;
-    const webhookRes1 = await request('POST', '/api/payments/webhook', {
+    const webhookPayload = {
       id: webhookEventId,
       event: 'payment.captured',
       payload: {
@@ -839,14 +848,16 @@ async function runAllTests() {
           }
         }
       }
-    });
-    assert('POST /api/payments/webhook processes new payment capture', webhookRes1.status === 200 && webhookRes1.data.success && !webhookRes1.data.duplicate);
+    };
+    const webhookRes1 = await request('POST', '/api/payments/webhook', webhookPayload, webhookHeaders(webhookPayload));
+    assert('POST /api/payments/webhook processes new payment capture', webhookRes1.status === 200 && webhookRes1.data.success && !webhookRes1.data.duplicate, JSON.stringify(webhookRes1));
 
-    const webhookResDuplicate = await request('POST', '/api/payments/webhook', {
+    const duplicateWebhookPayload = {
       id: webhookEventId,
       event: 'payment.captured'
-    });
-    assert('POST /api/payments/webhook idempotently handles duplicate replay event', webhookResDuplicate.status === 200 && webhookResDuplicate.data.duplicate === true);
+    };
+    const webhookResDuplicate = await request('POST', '/api/payments/webhook', duplicateWebhookPayload, webhookHeaders(duplicateWebhookPayload));
+    assert('POST /api/payments/webhook idempotently handles duplicate replay event', webhookResDuplicate.status === 200 && webhookResDuplicate.data.duplicate === true, JSON.stringify(webhookResDuplicate));
 
     // --- 21. MODULE 19: Double-Entry Financial Ledger & Platform Readiness ---
     console.log('\n--- 21. MODULE 19: Double-Entry Financial Ledger & Readiness ---');
