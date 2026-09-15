@@ -68,11 +68,11 @@ services:
       - key: PAYMENT_MODE
         value: sandbox
       - key: PAYMENT_KEY_ID
-        value: rzp_test_nabin_beta_2026
+        sync: false
       - key: PAYMENT_KEY_SECRET
-        value: rzp_sec_nabin_beta_test_secret_2026
+        sync: false
       - key: PAYMENT_WEBHOOK_SECRET
-        value: whsec_nabin_secure_beta_2026
+        sync: false
       - key: CLOUDINARY_CLOUD_NAME
         sync: false
       - key: CLOUDINARY_API_KEY

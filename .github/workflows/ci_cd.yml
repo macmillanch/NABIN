@@ -57,8 +57,8 @@ jobs:
 
       - name: Validate Database Migrations
         run: |
-          test -f backend/migrations/001_central_schema.sql
-          test -f backend/migrations/002_finance_ledger_schema.sql
+          test -n "$(find supabase/migrations -maxdepth 1 -type f -name '*.sql' -print -quit)"
+          for migration in supabase/migrations/*.sql; do test -s "$migration"; done
 
       - name: Security Vulnerability Scan
         working-directory: backend
