@@ -344,7 +344,7 @@ async function runAllTests() {
     // Customer ride booking is blocked with HTTP 423
     const blockedRide = await request('POST', '/api/customer/book-ride', {
       customerId: 'usr_2',
-      vehicleType: '4W',
+      vehicleType: 'AUTO',
       pickup: { address: 'CyberCity Gate 1' },
       drop: { address: 'DLF Phase 2' }
     }, { 'Authorization': 'Bearer usr_session_priya' });
@@ -364,7 +364,7 @@ async function runAllTests() {
     // Customer booking now proceeds
     const allowedRide = await request('POST', '/api/customer/book-ride', {
       customerId: 'usr_2',
-      vehicleType: '4W',
+      vehicleType: 'AUTO',
       pickup: { address: 'CyberCity Gate 1' },
       drop: { address: 'DLF Phase 2' }
     }, { 'Authorization': 'Bearer usr_session_priya' });
@@ -597,7 +597,7 @@ async function runAllTests() {
     // 1. Customer attempts to inject fake low fare (₹5); server overrides with authoritative calculation
     const tamperedRideRes = await request('POST', '/api/customer/book-ride', {
       customerId: 'usr_2',
-      vehicleType: '3W',
+      vehicleType: 'AUTO',
       pickup: { address: 'Connaught Place Block A', lat: 28.6328, lng: 77.2197 },
       drop: { address: 'Civil Lines Hub', lat: 28.6853, lng: 77.2185 },
       fare: 5.0 // Fake low fare submitted by malicious client
@@ -611,7 +611,7 @@ async function runAllTests() {
     // 2. Unverified KYC user blocked from dispatch
     const unverifiedRideRes = await request('POST', '/api/customer/book-ride', {
       customerId: 'usr_1', // Rahul Sharma (KYC Pending)
-      vehicleType: '3W'
+      vehicleType: 'AUTO'
     }, { 'Authorization': `Bearer ${rahulToken}` });
     assert('Unverified identity user is blocked with HTTP 403 until admin approves KYC',
       unverifiedRideRes.status === 403 && unverifiedRideRes.data.error.includes('identity verification pending')
@@ -676,7 +676,7 @@ async function runAllTests() {
     // 1. Query active platform feature flags
     const featureFlagsRes = await request('GET', '/api/v1/features');
     assert('GET /api/v1/features returns active feature flags',
-      featureFlagsRes.status === 200 && featureFlagsRes.data.success && featureFlagsRes.data.flags.grocery_enabled === true
+      featureFlagsRes.status === 200 && featureFlagsRes.data.success && featureFlagsRes.data.features && featureFlagsRes.data.features.FEATURE_GROCERY && featureFlagsRes.data.features.FEATURE_GROCERY.enabled === true
     );
 
     // 2. Admin toggles feature flag live with audit logging
@@ -1768,7 +1768,7 @@ async function runAllTests() {
     // CLIENT TRUST BOUNDARY SECURITY TESTS:
     // Client attempts to pass tampered fare, surgeMultiplier, and discount in book-ride body
     const tamperedBooking = await request('POST', '/api/customer/book-ride', {
-      vehicleType: '3W',
+      vehicleType: 'AUTO',
       fare: 1.0,                       // Client attempts to pay ₹1.00
       customerCharge: 1.0,             // Client attempts to override charge
       surgeMultiplier: 0.1,            // Client attempts to deflate surge
@@ -2886,7 +2886,7 @@ async function runAllTests() {
     // M4-01: Booking emits JOB_DISPATCHED and creates customer notification
     const bookRideM4 = await request('POST', '/api/customer/book-ride', {
       customerId: 'usr_2',
-      vehicleType: '3W',
+      vehicleType: 'AUTO',
       pickup: { address: 'Civil Lines Gate 2, Delhi', lat: 28.6853, lng: 77.2185 },
       drop: { address: 'Connaught Place Inner Circle, Block B', lat: 28.6328, lng: 77.2197 }
     }, { 'Authorization': `Bearer ${priyaToken}` });
@@ -2968,7 +2968,7 @@ async function runAllTests() {
     // M4-06: Atomic cancellation emits JOB_CANCELLED
     const cancelRideBooking = await request('POST', '/api/customer/book-ride', {
       customerId: 'usr_2',
-      vehicleType: '3W',
+      vehicleType: 'AUTO',
       pickup: { address: 'Delhi University Campus', lat: 28.6853, lng: 77.2185 },
       drop: { address: 'Connaught Place Inner Circle', lat: 28.6328, lng: 77.2197 }
     }, { 'Authorization': `Bearer ${priyaToken}` });

@@ -10,6 +10,7 @@ const supabaseHelper = require('./supabase');
 const cloudinaryService = require('./services/cloudinaryService');
 const { MockSandboxPushProvider, FcmV1PushProvider, PushNotificationService } = require('./services/PushNotificationService');
 const { notificationEventBus, NOTIFICATION_EVENTS } = require('./services/NotificationEventBus');
+const featureControlService = require('./services/FeatureControlService');
 
 const pushProvider = (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL)
   ? new FcmV1PushProvider()
@@ -2158,6 +2159,22 @@ app.post('/api/customer/book-ride', authenticateUser, async (req, res) => {
     });
   }
 
+  try {
+    await featureControlService.requireFeature('FEATURE_RIDE', req.header('X-Location-Id') || 'GLOBAL');
+    if (req.body.vehicleType) {
+        let type = req.body.vehicleType.toUpperCase();
+        if (type === '4W' || type === 'LUX') type = 'TAXI';
+        if (type === '3W') type = 'AUTO';
+        const supportedFeatures = ['BIKE', 'AUTO', 'TAXI', 'SHARED', 'RENTAL'];
+        if (supportedFeatures.includes(type)) {
+            await featureControlService.requireFeature(`FEATURE_RIDE_${type}`, req.header('X-Location-Id') || 'GLOBAL');
+        }
+    }
+  } catch (error) {
+    if (error.code === 'FEATURE_DISABLED') return res.status(403).json({ success: false, error: error.message, code: error.code });
+    return res.status(500).json({ success: false, error: error.message });
+  }
+
   const { customerId, vehicleType, pickup, drop, promoCode, zoneId, bookingType, passengerCategory, passengerInfo } = req.body;
   const idempotencyKey = req.headers['idempotency-key'] || req.headers['x-idempotency-key'] || req.body.idempotencyKey;
   if (idempotencyKey) {
@@ -2312,6 +2329,14 @@ app.post('/api/customer/book-parcel', authenticateUser, async (req, res) => {
     });
   }
 
+  try {
+    await featureControlService.requireFeature('FEATURE_PARCEL', req.header('X-Location-Id') || 'GLOBAL');
+    await featureControlService.requireFeature('FEATURE_PARCEL_BOOKING', req.header('X-Location-Id') || 'GLOBAL');
+  } catch (error) {
+    if (error.code === 'FEATURE_DISABLED') return res.status(403).json({ success: false, error: error.message, code: error.code });
+    return res.status(500).json({ success: false, error: error.message });
+  }
+
   const { customerId, senderDetails, recipientDetails, promoCode } = req.body;
   const idempotencyKey = req.headers['idempotency-key'] || req.headers['x-idempotency-key'] || req.body.idempotencyKey;
   if (idempotencyKey) {
@@ -2416,6 +2441,14 @@ app.post('/api/customer/book-food', authenticateUser, async (req, res) => {
       resumeAt: s?.resumeAt || null,
       reason: s?.pausedReason || null
     });
+  }
+
+  try {
+    await featureControlService.requireFeature('FEATURE_FOOD', req.header('X-Location-Id') || 'GLOBAL');
+    await featureControlService.requireFeature('FEATURE_FOOD_ORDERING', req.header('X-Location-Id') || 'GLOBAL');
+  } catch (error) {
+    if (error.code === 'FEATURE_DISABLED') return res.status(403).json({ success: false, error: error.message, code: error.code });
+    return res.status(500).json({ success: false, error: error.message });
   }
 
   // 1. Authenticate customer
@@ -3882,6 +3915,14 @@ app.post('/api/grocery/checkout/validate', authenticateUser, async (req, res) =>
   }
 
   try {
+    await featureControlService.requireFeature('FEATURE_GROCERY', req.header('X-Location-Id') || 'GLOBAL');
+    await featureControlService.requireFeature('FEATURE_GROCERY_MARKETPLACE', req.header('X-Location-Id') || 'GLOBAL');
+  } catch (error) {
+    if (error.code === 'FEATURE_DISABLED') return res.status(403).json({ success: false, error: error.message, code: error.code });
+    throw error;
+  }
+
+  try {
     const customerRaw = req.user?.id || req.user?.userId || req.user?.sub;
     if (!customerRaw) {
       return res.status(401).json({
@@ -4122,19 +4163,108 @@ app.get(['/api/v1/system/version-check', '/api/system/version-check'], (req, res
   res.json({ success: true, ...check });
 });
 
-app.get(['/api/v1/features', '/api/features'], (req, res) => {
-  const env = req.query.env || process.env.NODE_ENV || 'production';
-  const flags = db.getFeatureFlags(env);
-  res.json({ success: true, ...flags });
+// -------------------------------------------------------------
+// FEATURE CONTROL SYSTEM API
+// -------------------------------------------------------------
+app.get(['/api/features', '/api/v1/features'], async (req, res) => {
+  try {
+    await featureControlService.refreshCache();
+    const publicFeatures = {};
+    for (const [key, val] of featureControlService.cache.entries()) {
+      publicFeatures[key] = { enabled: val.enabled };
+    }
+    res.json({ success: true, features: publicFeatures });
+  } catch (error) {
+    res.status(500).json({ success: false, error: 'Failed to fetch features' });
+  }
 });
 
-app.post(['/api/v1/admin/features', '/api/admin/features'], authenticateAdmin, (req, res) => {
-  const { key, enabled, betaOnly, description } = req.body;
-  if (!key) {
-    return res.status(400).json({ success: false, code: 'INVALID_INPUT', message: 'Feature flag key is required.' });
+app.get(['/api/admin/features', '/api/v1/admin/features'], authenticateAdmin, async (req, res) => {
+  try {
+    await featureControlService.refreshCache();
+    const adminFeatures = {};
+    for (const [key, val] of featureControlService.cache.entries()) {
+      adminFeatures[key] = val;
+    }
+    res.json({ success: true, features: adminFeatures });
+  } catch (error) {
+    res.status(500).json({ success: false, error: 'Failed to fetch features' });
   }
-  const updated = db.updateFeatureFlag(key, { enabled, betaOnly, description }, req.admin?.username || 'admin');
-  res.json({ success: true, featureFlag: updated });
+});
+
+app.post(['/api/v1/admin/features', '/api/admin/features'], authenticateAdmin, async (req, res) => {
+  // Legacy POST wrapper to support test_suite.js
+  const key = req.body.key;
+  if (!key) return res.status(400).json({ success: false, code: 'INVALID_INPUT', message: 'Feature flag key is required.' });
+  
+  try {
+    const adminRole = req.admin?.role || req.user?.role;
+    if (adminRole !== 'SUPER_ADMIN') {
+      return res.status(403).json({ success: false, error: 'Only SUPER_ADMIN can modify feature controls' });
+    }
+
+    const { data, error } = await supabaseHelper.supabaseAdmin.from('platform_settings')
+      .select('setting_value')
+      .eq('setting_key', key)
+      .maybeSingle();
+
+    let newValue = { enabled: req.body.enabled, description: req.body.description };
+    if (data && data.setting_value) {
+      newValue = { ...data.setting_value, ...newValue };
+    }
+
+    await supabaseHelper.supabaseAdmin.from('platform_settings')
+      .upsert({
+        setting_key: key,
+        setting_value: newValue,
+        updated_by: req.admin?.id || 'admin',
+        updated_at: new Date().toISOString()
+      }, { onConflict: 'setting_key' });
+
+    featureControlService.invalidateCache();
+    res.json({ success: true, featureFlag: { key, ...newValue } });
+  } catch (error) {
+    res.status(500).json({ success: false, error: 'Failed to update feature' });
+  }
+});
+
+app.put('/api/admin/features/:key', authenticateAdmin, async (req, res) => {
+  try {
+    const { key } = req.params;
+    const { enabled, location_overrides } = req.body;
+    const adminRole = req.admin?.role || req.user?.role;
+    if (adminRole !== 'SUPER_ADMIN') {
+      return res.status(403).json({ success: false, error: 'Only SUPER_ADMIN can modify feature controls' });
+    }
+
+    const { data, error } = await supabaseHelper.supabaseAdmin.from('platform_settings')
+      .select('setting_value')
+      .eq('setting_key', key)
+      .maybeSingle();
+      
+    if (error || !data) {
+      return res.status(404).json({ success: false, error: 'Feature key not found' });
+    }
+
+    const newValue = {
+      ...data.setting_value,
+      ...(enabled !== undefined ? { enabled } : {}),
+      ...(location_overrides ? { location_overrides } : {})
+    };
+
+    await supabaseHelper.supabaseAdmin.from('platform_settings')
+      .update({
+        setting_value: newValue,
+        updated_by: req.admin?.id || 'admin',
+        updated_at: new Date().toISOString()
+      })
+      .eq('setting_key', key);
+
+    featureControlService.invalidateCache();
+    res.json({ success: true, feature: { setting_key: key, setting_value: newValue } });
+  } catch (error) {
+    res.status(500).json({ success: false, error: 'Failed to update feature' });
+  }
 });
 
 // =========================================================================
