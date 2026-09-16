@@ -1629,8 +1629,9 @@ app.put('/api/admin/promotions/:id', authenticateAdmin, requirePermission('promo
 
 app.post('/api/promotions/apply', authenticateUser, async (req, res) => {
   try {
-    const { code, orderAmount, service, vehicleType, areaId, userId } = req.body;
-    const effectiveUserId = req.user?.id || userId || null;
+    const { code, orderAmount, service, vehicleType, areaId } = req.body;
+    // Phase 8: Use authenticated user ID exclusively. Never accept userId from request body.
+    const effectiveUserId = req.user.id;
     const result = await db.promotionRepo.preview({
       code,
       userId: effectiveUserId,
@@ -1981,7 +1982,21 @@ app.post('/api/identity/submit', authenticateUser, (req, res) => {
   });
 });
 
-app.get('/api/identity/status/:userId', (req, res) => {
+// Phase 8: Add authentication + ownership check (was fully unauthenticated — IDOR risk)
+app.get('/api/identity/status/:userId', authenticateUser, (req, res) => {
+  // Enforce caller owns the requested userId, or is an admin
+  if (req.user.id !== req.params.userId) {
+    const token = req.headers.authorization?.split(' ')[1];
+    const session = token ? db.getSessionByToken(token) : null;
+    const isAdmin = session?.role === 'ADMIN' || session?.role === 'SUPER_ADMIN';
+    if (!isAdmin) {
+      return res.status(403).json({
+        success: false,
+        code: 'FORBIDDEN',
+        error: 'Access denied: cannot view another user identity status.'
+      });
+    }
+  }
   const user = db.getUser(req.params.userId);
   if (!user) return res.status(404).json({ success: false, error: 'User record not found.' });
 
@@ -2742,7 +2757,9 @@ app.post(['/api/merchant/:restaurantId/orders/:orderId/status', '/api/merchant/o
 });
 
 app.post('/api/merchant/:restaurantId/menu/:itemId/toggle', authenticateMerchant, requireMerchantTenant, (req, res) => {
-  const rest = db.restaurants.find(r => r.id === req.params.restaurantId) || db.restaurants[0];
+  // Phase 8: Fail-closed (DEC-005) — no fallback to first restaurant
+  const rest = db.restaurants.find(r => r.id === req.params.restaurantId);
+  if (!rest) return res.status(404).json({ success: false, error: 'Restaurant not found.', requestId: req.id });
 
   // Verify merchant owns this restaurant
   if (rest.merchantId && rest.merchantId !== req.merchant.id) {
@@ -4908,7 +4925,9 @@ app.post(['/api/merchant/:restaurantId/media', '/api/merchant/media'], async (re
     }
 
     const { fileData, mediaType = 'COVER', mimeType = 'image/jpeg' } = req.body;
-    const rest = db.restaurants.find(r => r.id === restaurantId) || db.restaurants[0];
+    // Phase 8: Fail-closed (DEC-005) — no fallback to first restaurant
+    const rest = db.restaurants.find(r => r.id === restaurantId);
+    if (!rest) return res.status(404).json({ success: false, code: 'RESTAURANT_NOT_FOUND', error: 'Restaurant not found.', requestId: req.id });
 
     const folder = `nabin/restaurants/${rest.id}`;
     const publicId = `${folder}/${mediaType.toLowerCase()}`;
