@@ -2941,26 +2941,61 @@ class NabinDatabase {
     };
   }
 
-  processFinancialAdjustment(targetType, targetId, direction, amount, reason, adminId, adminName) {
+  async processFinancialAdjustment(targetType, targetId, direction, amount, reason, adminId, adminName) {
     const amt = Number(amount);
     if (!amt || amt <= 0) return { success: false, error: 'Invalid adjustment amount' };
-
-    let targetEntity = null;
-    if (targetType === 'DRIVER') {
-      targetEntity = this.getDriver(targetId);
-      if (targetEntity) {
-        if (direction === 'CREDIT') targetEntity.walletBalance += amt;
-        else targetEntity.walletBalance -= amt;
-      }
-    } else if (targetType === 'CUSTOMER') {
-      targetEntity = this.getUser(targetId);
-      if (targetEntity) {
-        if (direction === 'CREDIT') targetEntity.walletBalance += amt;
-        else targetEntity.walletBalance -= amt;
-      }
+    if (direction !== 'CREDIT' && direction !== 'DEBIT') {
+      return { success: false, error: 'Invalid adjustment direction' };
+    }
+    if (targetType !== 'DRIVER' && targetType !== 'CUSTOMER') {
+      return { success: false, error: `${targetType} financial adjustments are not supported` };
     }
 
+    const targetEntity = targetType === 'DRIVER' ? this.getDriver(targetId) : this.getUser(targetId);
     if (!targetEntity) return { success: false, error: `${targetType} record not found` };
+
+    // Phase 9 / DEC-004: All wallet mutations flow through the PostgreSQL
+    // atomic ledger RPC. No JavaScript balance arithmetic — the database is
+    // authoritative, enforces the non-negative balance guard, and writes the
+    // double-entry journal with idempotency protection.
+    const delta = direction === 'CREDIT' ? amt : -amt;
+    // Category mapping follows the Phase 14 documented remediation:
+    // credit adjustments -> 'WALLET_TOPUP'; debit adjustments -> 'DISPUTE_REFUND'
+    // (both satisfy the journal_transactions category CHECK constraint).
+    const category = direction === 'CREDIT' ? 'WALLET_TOPUP' : 'DISPUTE_REFUND';
+    const idempotencyKey = `admin_adj_${targetType}_${targetId}_${direction}_${amt}_${Date.now()}`;
+    let authoritativeBalance = null;
+
+    if (this.ledgerRepo) {
+      try {
+        const result = await this.ledgerRepo.adjustWallet({
+          ownerId: targetId,
+          ownerType: targetType,
+          amount: delta,
+          category,
+          description: `Admin financial adjustment (${direction}): ${reason || 'manual adjustment'}`,
+          referenceId: `admin_adjustment_${adminId || 'unknown'}`,
+          idempotencyKey
+        });
+        if (result && result.balance !== undefined) {
+          authoritativeBalance = Number(result.balance);
+        }
+      } catch (e) {
+        return { success: false, error: `Ledger adjustment failed: ${e.message}` };
+      }
+    } else {
+      // Offline dev fallback (no PostgreSQL): bounded in-memory arithmetic
+      // with an explicit non-negative guard mirroring adjust_wallet_atomic.
+      const newBalance = Math.round(((targetEntity.walletBalance || 0) + delta) * 100) / 100;
+      if (newBalance < 0) {
+        return { success: false, error: 'Insufficient wallet balance' };
+      }
+      targetEntity.walletBalance = newBalance;
+    }
+
+    if (authoritativeBalance !== null) {
+      targetEntity.walletBalance = authoritativeBalance;
+    }
 
     const txn = {
       id: `TXN-ADJ-${Date.now().toString().slice(-4)}`,

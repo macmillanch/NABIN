@@ -1442,7 +1442,18 @@ app.get('/api/admin/finance/settlements/drivers', authenticateAdmin, requirePerm
 app.post('/api/admin/finance/settlements/drivers/:id/payout', authenticateAdmin, requirePermission('finance.settlement'), async (req, res) => {
   const driver = db.getDriver(req.params.id);
   if (!driver) return res.status(404).json({ success: false, error: 'Driver not found' });
-  const amount = Number(req.body.amount) || driver.walletBalance;
+
+  // Phase 9: Explicit amount validation. A malformed amount must never
+  // silently settle the driver's full wallet balance; the full-balance
+  // default applies only when no amount is provided at all.
+  let amount = driver.walletBalance;
+  if (req.body.amount !== undefined && req.body.amount !== null) {
+    const parsed = Number(req.body.amount);
+    if (isNaN(parsed) || parsed <= 0) {
+      return res.status(400).json({ success: false, error: 'Invalid payout amount', code: 'INVALID_AMOUNT' });
+    }
+    amount = parsed;
+  }
 
   const result = db.recordPayout(driver.id, amount, driver.upiId);
   if (result.success) {
@@ -1462,11 +1473,15 @@ app.post('/api/admin/finance/settlements/drivers/:id/payout', authenticateAdmin,
   res.json(result);
 });
 
-app.post('/api/admin/finance/adjustments', authenticateAdmin, requirePermission('finance.adjust'), (req, res) => {
+app.post('/api/admin/finance/adjustments', authenticateAdmin, requirePermission('finance.adjust'), async (req, res) => {
   const { targetType, targetId, direction, amount, reason } = req.body;
-  const result = db.processFinancialAdjustment(targetType, targetId, direction, amount, reason, req.admin.id, req.admin.name);
-  if (!result.success) return res.status(400).json(result);
-  res.json(result);
+  try {
+    const result = await db.processFinancialAdjustment(targetType, targetId, direction, amount, reason, req.admin.id, req.admin.name);
+    if (!result.success) return res.status(400).json(result);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
 });
 
 app.post('/api/admin/finance/refund', authenticateAdmin, requirePermission('finance.refund'), async (req, res) => {
@@ -3267,7 +3282,19 @@ app.post('/api/driver/payout-destination/request', authenticateDriver, async (re
 app.post('/api/driver/payout', authenticateDriver, async (req, res) => {
   const { amount } = req.body;
   const effectiveDriverId = req.driver.id;
-  const result = await db.recordPayout(effectiveDriverId, Number(amount) || 500);
+
+  // Phase 9: Explicit amount required. A missing or malformed amount must
+  // never trigger a default money movement (previously ₹500).
+  const parsedAmount = Number(amount);
+  if (amount === undefined || amount === null || isNaN(parsedAmount) || parsedAmount <= 0) {
+    return res.status(400).json({
+      success: false,
+      error: 'A positive numeric payout amount is required.',
+      code: 'INVALID_AMOUNT'
+    });
+  }
+
+  const result = await db.recordPayout(effectiveDriverId, parsedAmount);
   if (!result.success) {
     const statusCode = result.code === 'UNLINKED_DRIVER_ACCOUNT' ||
       result.code === 'KYC_VERIFICATION_REQUIRED' ||
@@ -3307,10 +3334,10 @@ app.post('/api/driver/payout', authenticateDriver, async (req, res) => {
         recipientUserId: driverUserId,
         driverId: effectiveDriverId,
         title: 'Payout Settled',
-        body: `Your payout of ₹${amount || 500} to ${result.verifiedUpiId} has been successfully settled.`,
+        body: `Your payout of ₹${parsedAmount} to ${result.verifiedUpiId} has been successfully settled.`,
         notificationType: 'PAYOUT_SETTLED',
         priority: 'HIGH',
-        data: { amount: Number(amount) || 500, upiId: result.verifiedUpiId, payoutKey }
+        data: { amount: parsedAmount, upiId: result.verifiedUpiId, payoutKey }
       });
     }
   } catch (notifErr) {

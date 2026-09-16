@@ -7,7 +7,10 @@ const { spawn, execSync } = require('child_process');
 const path = require('path');
 const { Client } = require('pg');
 
-process.env.PAYMENT_WEBHOOK_SECRET ||= 'whsec_nabin_secure_beta_2026';
+// Phase 9 note: aligned with the webhook secret used by test_suite.js,
+// restart_test.js, and test_phase4_orders.js so a server spawned by a
+// preceding suite can be safely reused by this suite (test isolation fix).
+process.env.PAYMENT_WEBHOOK_SECRET ||= 'test_webhook_secret_not_for_deployment';
 process.env.PAYMENT_KEY_SECRET ||= 'rzp_sec_nabin_beta_test_secret_2026';
 process.env.NABIN_TEST_MODE = 'true';
 
