@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/theme/restaurant_theme.dart';
+import '../../../../core/network/nabin_api_service.dart';
+import '../../../../core/network/session_manager.dart';
 
 class RestaurantOtpScreen extends StatefulWidget {
   final String phoneNumber;
@@ -14,14 +16,31 @@ class _RestaurantOtpScreenState extends State<RestaurantOtpScreen> {
   final TextEditingController _otpController = TextEditingController(text: '7729');
   bool _isLoading = false;
 
-  void _verifyOtp() {
+  Future<void> _verifyOtp() async {
+    final otp = _otpController.text;
+    if (otp.length < 4) return;
+    
     setState(() => _isLoading = true);
-    Future.delayed(const Duration(milliseconds: 500), () {
-      if (mounted) {
-        setState(() => _isLoading = false);
-        context.go('/dashboard');
-      }
-    });
+    
+    final res = await NabinApiService.verifyOtp(phone: widget.phoneNumber, otp: otp, role: 'MERCHANT', purpose: 'LOGIN');
+    
+    if (!mounted) return;
+    setState(() => _isLoading = false);
+    
+    if (res != null && res['success'] == true && res['token'] != null) {
+      SessionManager.instance.saveSession(
+        token: res['token'] as String,
+        user: res['user'] as Map<String, dynamic>,
+      );
+      context.go('/dashboard');
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(res?['error'] ?? 'Invalid OTP'),
+          backgroundColor: RestaurantTheme.nonVegRed,
+        ),
+      );
+    }
   }
 
   @override

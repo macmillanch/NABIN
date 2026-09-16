@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/theme/restaurant_theme.dart';
+import '../../../../core/network/nabin_api_service.dart';
 
 class RestaurantLoginScreen extends StatefulWidget {
   const RestaurantLoginScreen({super.key});
@@ -13,8 +14,9 @@ class _RestaurantLoginScreenState extends State<RestaurantLoginScreen> {
   final TextEditingController _phoneController = TextEditingController(text: '9876543210');
   bool _isLoading = false;
 
-  void _submitPhone() {
-    if (_phoneController.text.length < 10) {
+  Future<void> _submitPhone() async {
+    final phone = _phoneController.text;
+    if (phone.length < 10) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Please enter a valid 10-digit mobile number'),
@@ -24,12 +26,22 @@ class _RestaurantLoginScreenState extends State<RestaurantLoginScreen> {
       return;
     }
     setState(() => _isLoading = true);
-    Future.delayed(const Duration(milliseconds: 500), () {
-      if (mounted) {
-        setState(() => _isLoading = false);
-        context.push('/otp', extra: _phoneController.text);
-      }
-    });
+    
+    final res = await NabinApiService.sendOtp(phone: phone, role: 'MERCHANT', purpose: 'LOGIN');
+    
+    if (!mounted) return;
+    setState(() => _isLoading = false);
+    
+    if (res != null && res['success'] == true) {
+      context.push('/otp', extra: phone);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(res?['error'] ?? 'Failed to send OTP'),
+          backgroundColor: RestaurantTheme.nonVegRed,
+        ),
+      );
+    }
   }
 
   @override

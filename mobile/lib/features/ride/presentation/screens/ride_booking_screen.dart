@@ -1044,7 +1044,7 @@ class _RideBookingScreenState extends State<RideBookingScreen> {
 
                       final res = await NabinApiService.bookRide(payload);
 
-                      if (!mounted) return;
+                      if (!context.mounted) return;
                       
                       if (res != null && res['success'] == true) {
                         context.pushReplacement('/active-ride', extra: {

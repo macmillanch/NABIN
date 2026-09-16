@@ -2,6 +2,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/theme/restaurant_theme.dart';
+import '../../../../core/network/nabin_api_service.dart';
+import '../../../../core/network/session_manager.dart';
 
 class RestaurantMainShell extends StatefulWidget {
   const RestaurantMainShell({super.key});
@@ -15,55 +17,36 @@ class _RestaurantMainShellState extends State<RestaurantMainShell> {
   String _merchantMode = 'RESTAURANT'; // 'RESTAURANT' or 'GROCERY'
   String _storeStatus = 'OPEN'; // 'OPEN', 'CLOSED', 'TEMPORARILY UNAVAILABLE'
   String _ordersFilter = 'Active'; // 'Active' or 'History'
+  String _restaurantId = '';
 
-  // Live Orders matching KDS pipeline
-  final List<Map<String, dynamic>> _orders = [
-    {
-      'id': '1042',
-      'customer': 'Sarah Jenkins',
-      'time': '4 mins ago',
-      'type': 'Delivery',
-      'status': 'NEW', // 'NEW', 'ACCEPTED', 'PREPARING', 'READY', 'PICKED_UP', 'COMPLETED'
-      'items': [
-        {'name': 'Truffle Burger', 'qty': 2, 'done': false, 'notes': 'Medium rare, extra pickles'},
-        {'name': 'Sweet Potato Fries', 'qty': 1, 'done': false, 'notes': 'With garlic aioli'},
-        {'name': 'Diet Coke', 'qty': 1, 'done': false, 'notes': ''},
-      ],
-      'total': '₹580.00',
-      'pickupOtp': '4892',
-      'driver': 'Looking for driver...',
-    },
-    {
-      'id': '1041',
-      'customer': 'Marcus Chen',
-      'time': '12 mins ago',
-      'type': 'Takeaway',
-      'status': 'PREPARING',
-      'items': [
-        {'name': 'Margherita Pizza', 'qty': 1, 'done': true, 'notes': 'Thin crust'},
-        {'name': 'Caesar Salad', 'qty': 1, 'done': false, 'notes': 'Dressing on side'},
-      ],
-      'total': '₹420.00',
-      'pickupOtp': '7729',
-      'driver': 'Assigned: Deepak Auto (DL 1RA 4892)',
-    },
-    {
-      'id': '1040',
-      'customer': 'Elena Rostova',
-      'time': '18 mins ago',
-      'type': 'Delivery',
-      'status': 'READY',
-      'items': [
-        {'name': 'Chicken Tikka Roll', 'qty': 2, 'done': true, 'notes': 'Spicy mint chutney'},
-        {'name': 'Mango Lassi', 'qty': 2, 'done': true, 'notes': ''},
-      ],
-      'total': '₹340.00',
-      'pickupOtp': '3391',
-      'driver': 'Driver Arrived at Counter',
-    },
-  ];
+  List<Map<String, dynamic>> _orders = [];
 
-  // Menu Catalog
+  @override
+  void initState() {
+    super.initState();
+    _initMerchant();
+  }
+
+  Future<void> _initMerchant() async {
+    final user = SessionManager.instance.currentUser;
+    if (user != null && user['restaurantId'] != null) {
+      _restaurantId = user['restaurantId'] as String;
+    } else {
+      // Fallback for testing if session is missing
+      _restaurantId = 'rest_1';
+    }
+
+    final res = await NabinApiService.getMerchantOrders(_restaurantId);
+    if (mounted) {
+      setState(() {
+        if (res != null && res['success'] == true) {
+          _orders = List<Map<String, dynamic>>.from(res['orders'] ?? []);
+        }
+      });
+    }
+  }
+
+  // Menu Catalog (Hardcoded for now)
   final List<Map<String, dynamic>> _menuItems = [
     {
       'id': '1',
@@ -707,18 +690,35 @@ class _RestaurantMainShellState extends State<RestaurantMainShell> {
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                       elevation: 0,
                     ),
-                    onPressed: () {
-                      setState(() {
-                        if (status == 'NEW') {
-                          order['status'] = 'ACCEPTED';
-                        } else if (status == 'ACCEPTED') {
-                          order['status'] = 'PREPARING';
-                        } else if (status == 'PREPARING') {
-                          order['status'] = 'READY';
-                        } else if (status == 'READY') {
-                          order['status'] = 'COMPLETED';
-                        }
-                      });
+                    onPressed: () async {
+                      String newStatus = status;
+                      if (status == 'NEW') {
+                        newStatus = 'ACCEPTED';
+                      } else if (status == 'ACCEPTED') {
+                        newStatus = 'PREPARING';
+                      } else if (status == 'PREPARING') {
+                        newStatus = 'READY';
+                      } else if (status == 'READY') {
+                        newStatus = 'COMPLETED';
+                      }
+                      
+                      final res = await NabinApiService.updateMerchantOrderStatus(
+                        restaurantId: _restaurantId,
+                        orderId: order['id'].toString(),
+                        status: newStatus,
+                      );
+                      
+                      if (!mounted) return;
+                      
+                      if (res != null && res['success'] == true) {
+                        setState(() {
+                          order['status'] = newStatus;
+                        });
+                      } else {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Failed to update status: ${res?['error'] ?? 'Unknown'}')),
+                        );
+                      }
                     },
                     child: Text(
                       status == 'NEW'
@@ -930,8 +930,25 @@ class _RestaurantMainShellState extends State<RestaurantMainShell> {
                                   Switch(
                                     value: inStock,
                                     activeThumbColor: RestaurantTheme.neonOrange,
-                                    onChanged: (val) {
+                                    onChanged: (val) async {
+                                      // Optimistic update
                                       setState(() => item['inStock'] = val);
+                                      
+                                      final res = await NabinApiService.toggleMenuItem(
+                                        restaurantId: _restaurantId,
+                                        itemId: item['id'] as String,
+                                        inStock: val,
+                                      );
+                                      
+                                      if (!context.mounted) return;
+                                      
+                                      if (res == null || res['success'] != true) {
+                                        // Revert on failure
+                                        setState(() => item['inStock'] = !val);
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          SnackBar(content: Text('Failed to update stock: ${res?['error'] ?? 'Unknown'}')),
+                                        );
+                                      }
                                     },
                                   ),
                                 ],
