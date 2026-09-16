@@ -2264,7 +2264,12 @@ app.post('/api/customer/book-ride', authenticateUser, async (req, res) => {
       distance: `${job.distance} (${job.duration})`,
       customer: isSchoolChild ? `${passengerInfo?.guardianName || 'Rahul Sharma (Guardian)'}` : `${job.customerName} (${job.customerRating} ★)`,
       customerPhone: passengerInfo?.guardianPhone || job.customerPhone,
-      startOtp: job.startOtp,
+      // Phase 10: the trip-start code is NOT broadcast with the open dispatch
+      // offer. Broadcasting it to every connected driver disclosed the pickup
+      // control to drivers who were never assigned the trip (docs/PHASE_2_
+      // MIGRATION_PLAN.md scopes OTPs to the assigned driver's channel only).
+      // The assigned driver receives the code with the assignment response and
+      // the customer receives it on DRIVER_ASSIGNED.
       isForSomeoneElse: job.isForSomeoneElse,
       isSchoolChild: isSchoolChild,
       childName: passengerInfo?.childName,
@@ -2390,8 +2395,9 @@ app.post('/api/customer/book-parcel', authenticateUser, async (req, res) => {
       distance: '6.1 km (18 mins)',
       customer: `${user.name} (Sender)`,
       customerPhone: job.customerPhone,
-      startOtp: job.startOtp,
-      deliveryOtp: job.deliveryOtp,
+      // Phase 10: parcel OTPs are NOT broadcast with the open dispatch offer.
+      // The delivery OTP in particular is the proof-of-delivery control; sending
+      // it to every connected driver before assignment nullified it.
       packageDetails: 'Electronics Box (1.4 kg, Fragile)'
     }
   });
@@ -3239,6 +3245,22 @@ app.post('/api/driver/complete-trip', authenticateDriver, async (req, res) => {
       success: false,
       code: 'JOB_NOT_ASSIGNED_TO_DRIVER',
       error: 'Forbidden: You are not assigned to this job.'
+    });
+  }
+
+  // Phase 10: completion is the money-mutating transition (driver wallet credit
+  // + double-entry ledger posting). It must never be reachable without the
+  // OTP-verified trip lifecycle, otherwise an assigned driver could mint driver
+  // earnings and post ledger entries while skipping both OTP proofs
+  // (ASSIGNED -> COMPLETED was previously permitted).
+  const completableStates = ['IN_TRANSIT', 'OUT_FOR_DELIVERY'];
+  const currentStatus = String(job.status || '').toUpperCase();
+  if (!completableStates.includes(currentStatus)) {
+    return res.status(409).json({
+      success: false,
+      code: 'OTP_VERIFICATION_REQUIRED',
+      error: `Trip cannot be completed from state ${currentStatus || 'UNKNOWN'}. Start and delivery OTP verification must be completed first.`,
+      status: currentStatus || null
     });
   }
 

@@ -11,7 +11,14 @@ const VALID_JOB_TRANSITIONS = {
   'DRIVER_ARRIVED': ['ASSIGNED', 'ACCEPTED', 'DRIVER_ARRIVING'],
   'IN_TRANSIT': ['ASSIGNED', 'ACCEPTED', 'DRIVER_ARRIVED'],
   'OUT_FOR_DELIVERY': ['IN_TRANSIT'],
-  'COMPLETED': ['IN_TRANSIT', 'OUT_FOR_DELIVERY', 'ASSIGNED'],
+  // Phase 10: 'ASSIGNED' was removed as a valid prior state for COMPLETED.
+  // Completion is the money-mutating transition (driver wallet credit plus
+  // double-entry ledger posting), so it must only be reachable after the
+  // OTP-verified lifecycle (START/PICKUP -> IN_TRANSIT/OUT_FOR_DELIVERY). This
+  // enforces that invariant in the SQL WHERE allowlist itself, independently of
+  // the route-level guard in server.js, so a future caller cannot reintroduce
+  // settlement of a trip whose OTP proofs were never presented.
+  'COMPLETED': ['IN_TRANSIT', 'OUT_FOR_DELIVERY'],
   'CANCELLED': ['REQUESTED', 'SEARCHING', 'ASSIGNED', 'ACCEPTED', 'DRIVER_ARRIVING', 'DRIVER_ARRIVED']
 };
 

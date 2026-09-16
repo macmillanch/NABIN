@@ -3819,6 +3819,13 @@ class NabinDatabase {
       try {
         await this.jobRepo.updateStatus(job.id, status, driverId);
       } catch (e) {
+        // Phase 10: the COMPLETED transition mutates money (driver wallet credit
+        // plus double-entry ledger posting). A persistence write that the
+        // database rejected must abort the settlement instead of silently
+        // proceeding on in-memory state and desynchronising the ledger.
+        if (status === 'COMPLETED') {
+          throw e;
+        }
         console.warn('⚠️ jobRepo.updateStatus notice:', e.message);
       }
     }
@@ -5079,16 +5086,42 @@ class NabinDatabase {
     const cleanOtp = otp.toString().trim();
     let expectedOtp = null;
 
+    // Phase 10: the verification code must come from the authoritative record.
+    // The previous hardcoded fallbacks ('7729' / '4892') silently substituted a
+    // predictable code whenever a record appeared to lack one (dead code today,
+    // because job creation always persists start_otp + delivery_otp, but a
+    // fail-open default is never acceptable for a trip-start/proof-of-delivery
+    // control).
     if (otpType === 'DELIVERY' || otpType === 'RECIPIENT') {
-      expectedOtp = job.deliveryOtp || '4892';
+      expectedOtp = job.deliveryOtp || null;
     } else if (otpType === 'PICKUP' || otpType === 'SENDER' || otpType === 'START') {
-      expectedOtp = job.startOtp || job.pickupOtp || '7729';
+      expectedOtp = job.startOtp || job.pickupOtp || null;
     } else {
-      expectedOtp = job.startOtp || job.deliveryOtp || '7729';
+      expectedOtp = job.startOtp || job.deliveryOtp || null;
     }
 
-    // Strict validation against DB record
-    const isValid = cleanOtp === expectedOtp.toString().trim() || cleanOtp === '7729' || cleanOtp === '4892' || cleanOtp === '3184';
+    // Phase 10: fail closed. A trip/order with no bound code can never verify.
+    if (expectedOtp === null || expectedOtp === undefined || String(expectedOtp).trim() === '') {
+      this.createAuditLog({
+        adminId: driverId || 'UNKNOWN_DRIVER',
+        adminName: 'Fleet Telemetry',
+        role: 'DRIVER',
+        action: 'OTP_VERIFICATION_REJECTED_NO_BOUND_CODE',
+        module: 'DISPATCH',
+        targetEntityType: 'JOB',
+        targetEntityId: job.id,
+        previousState: job.status,
+        newState: job.status,
+        reason: `No ${otpType} verification code is bound to Job ${job.id}. Verification rejected (fail closed).`
+      });
+      throw new Error(`No ${otpType} verification code is bound to this trip/order. Verification rejected.`);
+    }
+
+    // Phase 10: strict single-source comparison against the persisted code.
+    // The removed universal codes ('7729' / '4892' / '3184') let ANY
+    // authenticated driver verify ANY job without knowledge of that job's code,
+    // defeating both the trip-start check and proof of delivery.
+    const isValid = cleanOtp === String(expectedOtp).trim();
     if (!isValid) {
       this.createAuditLog({
         adminId: driverId || 'UNKNOWN_DRIVER',
