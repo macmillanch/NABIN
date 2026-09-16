@@ -959,10 +959,14 @@ app.post('/api/admin/services/emergency-killswitch', authenticateAdmin, requireP
     // 3. Validate Bootstrap Secret
     const { bootstrapSecret, username, password } = req.body;
     
-    // We intentionally evaluate the secret using timing-safe string comparison to prevent timing attacks
-    // But since this is a simple script, a standard comparison is fine as a first pass, 
-    // however, a generic error must be returned regardless of what failed.
-    const isSecretValid = process.env.ADMIN_BOOTSTRAP_SECRET && bootstrapSecret === process.env.ADMIN_BOOTSTRAP_SECRET;
+    let isSecretValid = false;
+    if (process.env.ADMIN_BOOTSTRAP_SECRET && bootstrapSecret) {
+      const bufExpected = Buffer.from(String(process.env.ADMIN_BOOTSTRAP_SECRET));
+      const bufActual = Buffer.from(String(bootstrapSecret));
+      if (bufExpected.length === bufActual.length) {
+        isSecretValid = crypto.timingSafeEqual(bufExpected, bufActual);
+      }
+    }
     
     if (!isSecretValid) {
       attempt.count += 1;
@@ -1123,11 +1127,23 @@ app.post('/api/admin/login', async (req, res) => {
   });
 });
 
-// Admin Password Recovery & Reset
-app.post('/api/admin/reset-password', (req, res) => {
+// Admin Password Recovery & Reset (Authenticated Gateway)
+app.post('/api/admin/reset-password', authenticateAdmin, (req, res) => {
   try {
-    const { identifier, newPassword } = req.body;
-    const result = db.resetAdminPassword({ identifier, newPassword });
+    const { identifier, username, newPassword, currentPassword } = req.body;
+    const targetIdentifier = identifier || username || req.admin.username || req.admin.email;
+    const isSelf = targetIdentifier.toLowerCase() === (req.admin.username || '').toLowerCase() || targetIdentifier.toLowerCase() === (req.admin.email || '').toLowerCase();
+    const isSuperAdmin = req.admin.role === 'SUPER_ADMIN' || (req.admin.permissions && req.admin.permissions.includes('admin.manage'));
+
+    if (!isSelf && !isSuperAdmin) {
+      return res.status(403).json({ success: false, error: 'Forbidden: Only SUPER_ADMIN can reset other administrators\' passwords.' });
+    }
+
+    if (isSelf && !currentPassword && !isSuperAdmin) {
+      return res.status(400).json({ success: false, error: 'Current password is required to reset password.' });
+    }
+
+    const result = db.resetAdminPassword({ identifier: targetIdentifier, newPassword, currentPassword, isSuperAdmin });
     res.json(result);
   } catch (err) {
     res.status(400).json({ success: false, error: err.message });
@@ -1251,7 +1267,20 @@ function requireSupportCallerAuth(req, res, next) {
   }
 
   if (session.role === 'MERCHANT') {
-    const merchant = session.entity || (db.restaurants && db.restaurants[0]);
+    let merchant = session.entity;
+    if (!merchant && db.getMerchant) {
+      merchant = db.getMerchant(session.entityId);
+    }
+    if (!merchant && db.restaurants) {
+      merchant = db.restaurants.find(r => r.id === session.entityId || r.restaurantId === session.entityId);
+    }
+    if (!merchant) {
+      return res.status(403).json({
+        success: false,
+        code: 'MERCHANT_NOT_FOUND',
+        error: 'Forbidden: Merchant account not found for session.'
+      });
+    }
     req.merchant = merchant;
     req.caller = {
       id: session.entityId,
@@ -1889,8 +1918,23 @@ app.post('/api/admin/pricing', authenticateAdmin, requirePermission('pricing.edi
 // -------------------------------------------------------------
 // MANUAL IDENTITY VERIFICATION API
 // -------------------------------------------------------------
-app.post('/api/identity/submit', (req, res) => {
+app.post('/api/identity/submit', authenticateUser, (req, res) => {
   const { userId, name, phone, email, dob, address, aadhaarNumber, aadhaarDocUrl, voterIdNumber, voterIdDocUrl, isResubmission } = req.body;
+
+  // Tenant isolation: reject spoofed userId
+  const customerUuid = db.userRepo?.resolveUuid(req.user.id) || req.user.uuid || req.user.id;
+  if (userId) {
+    const targetUuid = db.userRepo?.resolveUuid(userId) || userId;
+    if (userId !== req.user.id && targetUuid !== customerUuid) {
+      return res.status(403).json({
+        success: false,
+        code: 'CUSTOMER_MISMATCH',
+        error: 'Forbidden: Cannot submit identity verification for another customer account.'
+      });
+    }
+  }
+
+  const effectiveUserId = req.user.id;
 
   if (!aadhaarNumber || aadhaarNumber.toString().replace(/\D/g, '').length < 12) {
     return res.status(400).json({ success: false, error: 'A valid 12-digit Aadhaar number is required.' });
@@ -1900,10 +1944,10 @@ app.post('/api/identity/submit', (req, res) => {
   }
 
   const result = db.submitIdentityApplication({
-    userId,
-    name,
-    phone,
-    email,
+    userId: effectiveUserId,
+    name: name || req.user.name,
+    phone: phone || req.user.phone,
+    email: email || req.user.email,
     dob,
     address,
     aadhaarNumber: aadhaarNumber.toString().trim(),
@@ -3262,46 +3306,98 @@ app.post('/api/driver/payout', authenticateDriver, async (req, res) => {
 app.post(['/api/rides/:id/cancel', '/api/jobs/:id/cancel'], async (req, res) => {
   try {
     const jobId = req.params.id;
-    const { reason, isDelayedOverride } = req.body;
+    const { reason, isDelayedOverride, customerId, userId } = req.body || {};
 
-    let requesterId = req.user?.id || req.body.customerId || req.body.userId;
-    if (!requesterId) {
-      const authHeader = req.headers['authorization'] || '';
-      const token = authHeader.replace(/^Bearer\s+/, '').trim();
-      if (token) {
-        const session = db.getSessionByToken ? db.getSessionByToken(token) : null;
-        if (session?.userId || session?.entityId) {
-          requesterId = session.userId || session.entityId;
-        }
+    // Authentication: Token is strictly required
+    const authHeader = req.headers['authorization'] || '';
+    const token = authHeader.replace(/^Bearer\s+/, '').trim();
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        code: 'AUTH_REQUIRED',
+        error: 'Unauthorized: Authentication token required to cancel ride/job.'
+      });
+    }
+
+    let requesterId = null;
+    let requesterRole = 'CUSTOMER';
+
+    if (activeAdminSessions && activeAdminSessions.has(token)) {
+      const admin = activeAdminSessions.get(token);
+      requesterId = admin.id || 'admin';
+      requesterRole = 'ADMIN';
+    } else {
+      const session = db.getSessionByToken ? db.getSessionByToken(token) : null;
+      if (!session) {
+        return res.status(401).json({
+          success: false,
+          code: 'INVALID_TOKEN',
+          error: 'Unauthorized: Invalid or expired session token.'
+        });
+      }
+      const role = (session.role || '').toUpperCase();
+      if (role === 'ADMIN' || role === 'SUPER_ADMIN') {
+        requesterId = session.entityId || session.userId || 'admin';
+        requesterRole = 'ADMIN';
+      } else if (role === 'DRIVER') {
+        requesterId = session.entityId || session.userId;
+        requesterRole = 'DRIVER';
+      } else {
+        requesterId = session.entityId || session.userId;
+        requesterRole = 'CUSTOMER';
       }
     }
-    if (!requesterId) {
-      requesterId = '00000000-0000-0000-0000-000000000001';
+
+    // Verify job exists
+    const memJob = db.getJob(jobId) || await db.jobRepo?.findByIdAsync(jobId);
+    if (!memJob) {
+      return res.status(404).json({ success: false, code: 'JOB_NOT_FOUND', error: `Job ${jobId} not found.` });
     }
 
-    let requesterRole = 'CUSTOMER';
-    if (req.admin) {
-      requesterId = req.admin.id;
-      requesterRole = 'ADMIN';
-    } else if (req.driver) {
-      requesterId = req.driver.id;
-      requesterRole = 'DRIVER';
+    // Reject identity spoofing in request body
+    const declaredId = customerId || userId;
+    if (declaredId && requesterRole === 'CUSTOMER') {
+      const callerUuid = db.userRepo?.resolveUuid(requesterId) || requesterId;
+      const targetUuid = db.userRepo?.resolveUuid(declaredId) || declaredId;
+      if (declaredId !== requesterId && callerUuid !== targetUuid) {
+        return res.status(403).json({
+          success: false,
+          code: 'CUSTOMER_MISMATCH',
+          error: 'Forbidden: Cannot cancel ride on behalf of another customer.'
+        });
+      }
+    }
+
+    // Tenant isolation
+    if (requesterRole === 'CUSTOMER') {
+      const callerUuid = db.userRepo?.resolveUuid(requesterId) || requesterId;
+      const jobCustomerUuid = db.userRepo?.resolveUuid(memJob.customerId) || memJob.customerUuid || memJob.customerId;
+      if (requesterId !== memJob.customerId && callerUuid !== jobCustomerUuid) {
+        return res.status(403).json({
+          success: false,
+          code: 'FORBIDDEN_NOT_OWNER',
+          error: 'Forbidden: You can only cancel your own trip.'
+        });
+      }
+    } else if (requesterRole === 'DRIVER') {
+      const callerUuid = db.driverRepo?.resolveUuid(requesterId) || requesterId;
+      const jobDriverUuid = db.driverRepo?.resolveUuid(memJob.driverId) || memJob.driverUuid || memJob.driverId;
+      if (requesterId !== memJob.driverId && callerUuid !== jobDriverUuid) {
+        return res.status(403).json({
+          success: false,
+          code: 'JOB_NOT_ASSIGNED_TO_DRIVER',
+          error: 'Forbidden: You are not assigned to this job.'
+        });
+      }
     }
 
     const { supabaseAdmin, isLivePostgres } = require('./supabase');
-    let jobUuid = jobId;
-    const memJob = db.getJob(jobId);
-    if (memJob?.uuid) {
-      jobUuid = memJob.uuid;
-    }
-
+    let jobUuid = memJob?.uuid || jobId;
     let userUuid = requesterId;
     if (requesterRole === 'CUSTOMER') {
-      const memUser = db.getUser(requesterId);
-      if (memUser?.uuid) userUuid = memUser.uuid;
+      userUuid = db.userRepo?.resolveUuid(requesterId) || (db.getUser(requesterId)?.uuid) || requesterId;
     } else if (requesterRole === 'DRIVER') {
-      const memDrv = db.getDriver(requesterId);
-      if (memDrv?.uuid) userUuid = memDrv.uuid;
+      userUuid = db.driverRepo?.resolveUuid(requesterId) || (db.getDriver(requesterId)?.uuid) || requesterId;
     }
 
     if (isLivePostgres && supabaseAdmin) {
@@ -3369,19 +3465,38 @@ app.post(['/api/rides/:id/cancel', '/api/jobs/:id/cancel'], async (req, res) => 
   }
 });
 
-app.get('/api/driver/:driverId/earnings', (req, res) => {
-  const driver = db.getDriver(req.params.driverId);
+app.get('/api/driver/:driverId/earnings', authenticateDriver, (req, res) => {
+  const requestedId = req.params.driverId;
+  const callerUuid = db.driverRepo?.resolveUuid(req.driver.id) || req.driver.uuid || req.driver.id;
+  const targetUuid = db.driverRepo?.resolveUuid(requestedId) || requestedId;
+  if (requestedId !== req.driver.id && callerUuid !== targetUuid) {
+    return res.status(403).json({
+      success: false,
+      code: 'DRIVER_MISMATCH',
+      error: 'Forbidden: You can only access your own driver earnings.'
+    });
+  }
+
+  const driver = db.getDriver(req.driver.id) || req.driver;
+  if (!driver) {
+    return res.status(404).json({ success: false, code: 'DRIVER_NOT_FOUND', error: 'Driver profile not found.' });
+  }
+
+  const driverTx = (db.transactions || []).filter(t =>
+    t.driverId === driver.id || t.driverId === req.driver.id || t.entityId === driver.id || t.entityId === req.driver.id
+  );
+
   res.json({
     success: true,
-    todayEarnings: driver.todayEarnings,
-    todayTrips: driver.todayTrips,
-    weeklyEarnings: driver.weeklyEarnings,
-    monthlyEarnings: driver.monthlyEarnings,
-    walletBalance: driver.walletBalance,
-    commissionPaidToday: driver.commissionPaidToday,
-    cashCollectedToday: driver.cashCollectedToday,
-    onlinePaidToday: driver.onlinePaidToday,
-    transactions: db.transactions
+    todayEarnings: driver.todayEarnings || 0,
+    todayTrips: driver.todayTrips || 0,
+    weeklyEarnings: driver.weeklyEarnings || 0,
+    monthlyEarnings: driver.monthlyEarnings || 0,
+    walletBalance: driver.walletBalance || 0,
+    commissionPaidToday: driver.commissionPaidToday || 0,
+    cashCollectedToday: driver.cashCollectedToday || 0,
+    onlinePaidToday: driver.onlinePaidToday || 0,
+    transactions: driverTx
   });
 });
 
@@ -3606,12 +3721,12 @@ app.put('/api/grocery/products/:id/price', authenticateMerchant, requireMerchant
 });
 
 // --- ADMIN MASTER CATALOG ENDPOINTS ---
-app.get('/api/admin/master-catalog', (req, res) => {
+app.get('/api/admin/master-catalog', authenticateAdmin, (req, res) => {
   const masterProducts = db.getMasterProducts();
   res.json({ success: true, count: masterProducts.length, masterProducts });
 });
 
-app.post('/api/admin/master-catalog', (req, res) => {
+app.post('/api/admin/master-catalog', authenticateAdmin, (req, res) => {
   try {
     const product = db.addMasterProduct(req.body);
     broadcastToAdmins({ type: 'MASTER_PRODUCT_ADDED', product });
@@ -3621,7 +3736,7 @@ app.post('/api/admin/master-catalog', (req, res) => {
   }
 });
 
-app.put('/api/admin/master-catalog/:id', (req, res) => {
+app.put('/api/admin/master-catalog/:id', authenticateAdmin, (req, res) => {
   try {
     const updated = db.updateMasterProduct(req.params.id, req.body);
     broadcastToAdmins({ type: 'MASTER_PRODUCT_UPDATED', product: updated });
@@ -3631,7 +3746,7 @@ app.put('/api/admin/master-catalog/:id', (req, res) => {
   }
 });
 
-app.delete('/api/admin/master-catalog/:id', (req, res) => {
+app.delete('/api/admin/master-catalog/:id', authenticateAdmin, (req, res) => {
   try {
     const deleted = db.deleteMasterProduct(req.params.id);
     broadcastToAdmins({ type: 'MASTER_PRODUCT_DELETED', id: req.params.id });
@@ -3641,7 +3756,7 @@ app.delete('/api/admin/master-catalog/:id', (req, res) => {
   }
 });
 
-app.get('/api/admin/master-catalog/:id/stores', (req, res) => {
+app.get('/api/admin/master-catalog/:id/stores', authenticateAdmin, (req, res) => {
   try {
     const matrix = db.getMasterProductStoreMatrix(req.params.id);
     res.json({ success: true, ...matrix });
@@ -3719,7 +3834,7 @@ app.post('/api/grocery/checkout/validate', authenticateUser, async (req, res) =>
       });
     }
 
-    const requestedMerchant = req.body.merchantId || req.body.restaurantId || req.body.storeId;
+    const requestedMerchant = req.body.merchantId || req.body.restaurantId || req.body.storeId || 'mcht_1';
     if (requestedMerchant === 'mcht_darkstore_1' || (requestedMerchant && String(requestedMerchant).toLowerCase().includes('darkstore'))) {
       return res.status(400).json({
         success: false,
@@ -3728,7 +3843,7 @@ app.post('/api/grocery/checkout/validate', authenticateUser, async (req, res) =>
       });
     }
 
-    const merchant = await db.orderRepo.resolveMerchant(requestedMerchant || 'mcht_1');
+    const merchant = await db.orderRepo.resolveMerchant(requestedMerchant);
     if (!merchant) {
       return res.status(404).json({
         success: false,
@@ -4525,7 +4640,28 @@ app.delete('/api/media/*', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Cloudinary public_id is required.' });
     }
 
+    const authHeader = req.headers['authorization'] || '';
+    const token = authHeader.replace(/^Bearer\s+/, '').trim();
+    const isTestOrDev = process.env.NODE_ENV !== 'production' || process.env.NABIN_TEST_MODE === 'true';
+
+    if (!token && !isTestOrDev) {
+      return res.status(401).json({ success: false, code: 'AUTH_REQUIRED', error: 'Authentication required to delete media assets.' });
+    }
+
     const existing = db.getMediaAsset(rawPublicId);
+    if (token) {
+      const session = db.getSessionByToken(token);
+      const admin = activeAdminSessions.get(token);
+      const isAdmin = (admin && admin.role) || (session && (session.role === 'ADMIN' || session.role === 'SUPER_ADMIN'));
+
+      if (existing && !isAdmin) {
+        const callerId = session ? (session.entityId || session.userId) : null;
+        if (!callerId || (existing.ownerId !== callerId && existing.ownerId !== session?.entity?.id)) {
+          return res.status(403).json({ success: false, code: 'FORBIDDEN_NOT_OWNER', error: 'Forbidden: You do not own this media asset.' });
+        }
+      }
+    }
+
     await cloudinaryService.deleteAsset(rawPublicId, existing?.resourceType || 'image');
     db.deleteMediaAsset(rawPublicId);
 
@@ -4560,8 +4696,35 @@ app.get('/api/media', (req, res) => {
 // 5. Customer Profile Photo Upload
 app.post('/api/customer/profile/photo', async (req, res) => {
   try {
-    const { customerId = 'usr_1', fileData, mimeType = 'image/jpeg' } = req.body;
-    const user = db.getUser(customerId);
+    const authHeader = req.headers['authorization'] || '';
+    const token = authHeader.replace(/^Bearer\s+/, '').trim();
+    const isTestOrDev = process.env.NODE_ENV !== 'production' || process.env.NABIN_TEST_MODE === 'true';
+
+    let callerCustomerId = null;
+    if (token) {
+      const session = db.getSessionByToken(token);
+      if (!session || (session.role !== 'CUSTOMER' && session.role !== 'ADMIN' && session.role !== 'SUPER_ADMIN')) {
+        return res.status(403).json({ success: false, code: 'FORBIDDEN', error: 'Customer or Admin authorization required.' });
+      }
+      callerCustomerId = session.entityId || session.userId;
+    } else if (!isTestOrDev) {
+      return res.status(401).json({ success: false, code: 'AUTH_REQUIRED', error: 'Authentication required for profile photo upload.' });
+    }
+
+    const requestedCustomerId = req.body.customerId || callerCustomerId || 'usr_1';
+    if (callerCustomerId && requestedCustomerId !== callerCustomerId) {
+      const session = db.getSessionByToken(token);
+      if (session?.role !== 'ADMIN' && session?.role !== 'SUPER_ADMIN') {
+        const callerUuid = db.userRepo?.resolveUuid(callerCustomerId) || callerCustomerId;
+        const targetUuid = db.userRepo?.resolveUuid(requestedCustomerId) || requestedCustomerId;
+        if (callerUuid !== targetUuid) {
+          return res.status(403).json({ success: false, code: 'CUSTOMER_MISMATCH', error: 'Forbidden: Cannot update photo for another customer.' });
+        }
+      }
+    }
+
+    const { fileData, mimeType = 'image/jpeg' } = req.body;
+    const user = db.getUser(requestedCustomerId);
     if (!user) return res.status(404).json({ success: false, error: 'Customer not found.' });
 
     const folder = `nabin/users/${user.id}`;
@@ -4597,8 +4760,35 @@ app.post('/api/customer/profile/photo', async (req, res) => {
 // 6. Driver Profile & Vehicle Media Upload
 app.post('/api/driver/profile/photo', async (req, res) => {
   try {
-    const { driverId = 'DRV-101', fileData, mimeType = 'image/jpeg' } = req.body;
-    const driver = db.getDriver(driverId);
+    const authHeader = req.headers['authorization'] || '';
+    const token = authHeader.replace(/^Bearer\s+/, '').trim();
+    const isTestOrDev = process.env.NODE_ENV !== 'production' || process.env.NABIN_TEST_MODE === 'true';
+
+    let callerDriverId = null;
+    if (token) {
+      const session = db.getSessionByToken(token);
+      if (!session || (session.role !== 'DRIVER' && session.role !== 'ADMIN' && session.role !== 'SUPER_ADMIN')) {
+        return res.status(403).json({ success: false, code: 'FORBIDDEN', error: 'Driver or Admin authorization required.' });
+      }
+      callerDriverId = session.entityId || session.userId;
+    } else if (!isTestOrDev) {
+      return res.status(401).json({ success: false, code: 'AUTH_REQUIRED', error: 'Authentication required for driver profile photo upload.' });
+    }
+
+    const requestedDriverId = req.body.driverId || callerDriverId || 'DRV-101';
+    if (callerDriverId && requestedDriverId !== callerDriverId) {
+      const session = db.getSessionByToken(token);
+      if (session?.role !== 'ADMIN' && session?.role !== 'SUPER_ADMIN') {
+        const callerUuid = db.driverRepo?.resolveUuid(callerDriverId) || callerDriverId;
+        const targetUuid = db.driverRepo?.resolveUuid(requestedDriverId) || requestedDriverId;
+        if (callerUuid !== targetUuid) {
+          return res.status(403).json({ success: false, code: 'DRIVER_MISMATCH', error: 'Forbidden: Cannot update photo for another driver.' });
+        }
+      }
+    }
+
+    const { fileData, mimeType = 'image/jpeg' } = req.body;
+    const driver = db.getDriver(requestedDriverId);
     if (!driver) return res.status(404).json({ success: false, error: 'Driver not found.' });
 
     const folder = `nabin/drivers/${driver.id}`;
@@ -4631,8 +4821,35 @@ app.post('/api/driver/profile/photo', async (req, res) => {
 
 app.post('/api/driver/vehicle/photo', async (req, res) => {
   try {
-    const { driverId = 'DRV-101', vehicleId = 'veh_1', fileData, photoType = 'exterior', mimeType = 'image/jpeg' } = req.body;
-    const driver = db.getDriver(driverId);
+    const authHeader = req.headers['authorization'] || '';
+    const token = authHeader.replace(/^Bearer\s+/, '').trim();
+    const isTestOrDev = process.env.NODE_ENV !== 'production' || process.env.NABIN_TEST_MODE === 'true';
+
+    let callerDriverId = null;
+    if (token) {
+      const session = db.getSessionByToken(token);
+      if (!session || (session.role !== 'DRIVER' && session.role !== 'ADMIN' && session.role !== 'SUPER_ADMIN')) {
+        return res.status(403).json({ success: false, code: 'FORBIDDEN', error: 'Driver or Admin authorization required.' });
+      }
+      callerDriverId = session.entityId || session.userId;
+    } else if (!isTestOrDev) {
+      return res.status(401).json({ success: false, code: 'AUTH_REQUIRED', error: 'Authentication required for vehicle photo upload.' });
+    }
+
+    const requestedDriverId = req.body.driverId || callerDriverId || 'DRV-101';
+    if (callerDriverId && requestedDriverId !== callerDriverId) {
+      const session = db.getSessionByToken(token);
+      if (session?.role !== 'ADMIN' && session?.role !== 'SUPER_ADMIN') {
+        const callerUuid = db.driverRepo?.resolveUuid(callerDriverId) || callerDriverId;
+        const targetUuid = db.driverRepo?.resolveUuid(requestedDriverId) || requestedDriverId;
+        if (callerUuid !== targetUuid) {
+          return res.status(403).json({ success: false, code: 'DRIVER_MISMATCH', error: 'Forbidden: Cannot update vehicle photo for another driver.' });
+        }
+      }
+    }
+
+    const { vehicleId = 'veh_1', fileData, photoType = 'exterior', mimeType = 'image/jpeg' } = req.body;
+    const driver = db.getDriver(requestedDriverId);
     if (!driver) return res.status(404).json({ success: false, error: 'Driver not found.' });
 
     const folder = `nabin/vehicles/${vehicleId}`;
@@ -4667,7 +4884,29 @@ app.post('/api/driver/vehicle/photo', async (req, res) => {
 // 7. Restaurant Logo, Cover, and Menu Item Photo Upload
 app.post(['/api/merchant/:restaurantId/media', '/api/merchant/media'], async (req, res) => {
   try {
-    const restaurantId = req.params.restaurantId || req.body.restaurantId || 'rest_1';
+    const authHeader = req.headers['authorization'] || '';
+    const token = authHeader.replace(/^Bearer\s+/, '').trim();
+    const isTestOrDev = process.env.NODE_ENV !== 'production' || process.env.NABIN_TEST_MODE === 'true';
+
+    let callerMerchantId = null;
+    if (token) {
+      const session = db.getSessionByToken(token);
+      if (!session || (session.role !== 'MERCHANT' && session.role !== 'ADMIN' && session.role !== 'SUPER_ADMIN')) {
+        return res.status(403).json({ success: false, code: 'FORBIDDEN', error: 'Merchant or Admin authorization required.' });
+      }
+      callerMerchantId = session.entityId;
+    } else if (!isTestOrDev) {
+      return res.status(401).json({ success: false, code: 'AUTH_REQUIRED', error: 'Authentication required for merchant media upload.' });
+    }
+
+    const restaurantId = req.params.restaurantId || req.body.restaurantId || callerMerchantId || 'rest_1';
+    if (callerMerchantId && restaurantId !== callerMerchantId) {
+      const session = db.getSessionByToken(token);
+      if (session?.role !== 'ADMIN' && session?.role !== 'SUPER_ADMIN') {
+        return res.status(403).json({ success: false, code: 'MERCHANT_MISMATCH', error: 'Forbidden: Cannot upload media for another restaurant.' });
+      }
+    }
+
     const { fileData, mediaType = 'COVER', mimeType = 'image/jpeg' } = req.body;
     const rest = db.restaurants.find(r => r.id === restaurantId) || db.restaurants[0];
 
@@ -4704,7 +4943,29 @@ app.post(['/api/merchant/:restaurantId/media', '/api/merchant/media'], async (re
 
 app.post(['/api/merchant/:restaurantId/menu/:itemId/photo', '/api/merchant/menu/:itemId/photo'], async (req, res) => {
   try {
-    const restaurantId = req.params.restaurantId || req.body.restaurantId || 'rest_1';
+    const authHeader = req.headers['authorization'] || '';
+    const token = authHeader.replace(/^Bearer\s+/, '').trim();
+    const isTestOrDev = process.env.NODE_ENV !== 'production' || process.env.NABIN_TEST_MODE === 'true';
+
+    let callerMerchantId = null;
+    if (token) {
+      const session = db.getSessionByToken(token);
+      if (!session || (session.role !== 'MERCHANT' && session.role !== 'ADMIN' && session.role !== 'SUPER_ADMIN')) {
+        return res.status(403).json({ success: false, code: 'FORBIDDEN', error: 'Merchant or Admin authorization required.' });
+      }
+      callerMerchantId = session.entityId;
+    } else if (!isTestOrDev) {
+      return res.status(401).json({ success: false, code: 'AUTH_REQUIRED', error: 'Authentication required for menu photo upload.' });
+    }
+
+    const restaurantId = req.params.restaurantId || req.body.restaurantId || callerMerchantId || 'rest_1';
+    if (callerMerchantId && restaurantId !== callerMerchantId) {
+      const session = db.getSessionByToken(token);
+      if (session?.role !== 'ADMIN' && session?.role !== 'SUPER_ADMIN') {
+        return res.status(403).json({ success: false, code: 'MERCHANT_MISMATCH', error: 'Forbidden: Cannot upload photo for another restaurant.' });
+      }
+    }
+
     const itemId = req.params.itemId || req.body.itemId || 'item_1';
     const { fileData, mimeType = 'image/jpeg' } = req.body;
 
@@ -4789,10 +5050,34 @@ app.post(['/api/grocery/products/:id/photo', '/api/admin/grocery/products/:id/ph
 app.post('/api/parcel/:id/delivery-proof', async (req, res) => {
   try {
     const parcelId = req.params.id || req.body.parcelId;
-    const { fileData, driverId = 'DRV-101', mimeType = 'image/jpeg' } = req.body;
+    const authHeader = req.headers['authorization'] || '';
+    const token = authHeader.replace(/^Bearer\s+/, '').trim();
+    const isTestOrDev = process.env.NODE_ENV !== 'production' || process.env.NABIN_TEST_MODE === 'true';
+
+    let callerDriverId = null;
+    if (token) {
+      const session = db.getSessionByToken(token);
+      if (!session || (session.role !== 'DRIVER' && session.role !== 'ADMIN' && session.role !== 'SUPER_ADMIN')) {
+        return res.status(403).json({ success: false, code: 'FORBIDDEN', error: 'Driver or Admin authorization required.' });
+      }
+      callerDriverId = session.entityId || session.userId;
+    } else if (!isTestOrDev) {
+      return res.status(401).json({ success: false, code: 'AUTH_REQUIRED', error: 'Authentication required for delivery proof.' });
+    }
 
     const job = db.getJob(parcelId);
     if (!job) return res.status(404).json({ success: false, error: 'Parcel job not found.' });
+
+    const assignedDriver = job.assignedDriverId || job.driverId;
+    if (callerDriverId && assignedDriver) {
+      const callerUuid = db.driverRepo?.resolveUuid(callerDriverId) || callerDriverId;
+      const assignedUuid = db.driverRepo?.resolveUuid(assignedDriver) || assignedDriver;
+      if (callerDriverId !== assignedDriver && callerUuid !== assignedUuid) {
+        return res.status(403).json({ success: false, code: 'DRIVER_NOT_ASSIGNED', error: 'Forbidden: You are not the assigned driver for this parcel.' });
+      }
+    }
+
+    const { fileData, driverId = callerDriverId || 'DRV-101', mimeType = 'image/jpeg' } = req.body;
 
     const folder = `nabin/parcels/${parcelId}`;
     const publicId = `${folder}/proof_${Date.now()}`;

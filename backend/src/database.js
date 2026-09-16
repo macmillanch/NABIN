@@ -4512,9 +4512,12 @@ class NabinDatabase {
     return alerts;
   }
 
-  resetAdminPassword({ identifier, newPassword }) {
+  resetAdminPassword({ identifier, newPassword, currentPassword, isSuperAdmin = false }) {
     if (!identifier || !newPassword) {
       throw new Error('Username/Email and new password are required.');
+    }
+    if (newPassword.length < 8) {
+      throw new Error('New password must be at least 8 characters long.');
     }
     const admin = this.adminUsers.find(a => 
       (a.username && a.username.toLowerCase() === identifier.toLowerCase().trim()) || 
@@ -4522,36 +4525,19 @@ class NabinDatabase {
     );
 
     if (!admin) {
-      // Auto-provision if muktachakma is requested
-      if (identifier.toLowerCase().includes('mukta')) {
-        const salt = crypto.randomBytes(16).toString('hex');
-        const passwordHash = crypto.scryptSync(newPassword, salt, 64).toString('hex');
-        const newAdmin = {
-          id: `adm_${Date.now().toString().slice(-4)}`,
-          username: 'muktachakma',
-          salt,
-          passwordHash,
-          name: 'Mukta Chakma',
-          role: 'SUPER_ADMIN',
-          email: 'muktachakma@nabin.in',
-          permissions: this.adminUsers[0].permissions
-        };
-        this.adminUsers.push(newAdmin);
-        this.createAuditLog({
-          adminId: newAdmin.id,
-          adminName: newAdmin.name,
-          role: newAdmin.role,
-          action: 'ADMIN_PROVISIONED_VIA_RESET',
-          module: 'AUTH',
-          targetEntityType: 'ADMIN_USER',
-          targetEntityId: newAdmin.id,
-          previousState: 'NONE',
-          newState: 'ACTIVE',
-          reason: 'Admin account created/reset via Password Recovery Gateway.'
-        });
-        return { success: true, message: `Password reset successfully for Mukta Chakma (muktachakma).`, admin: newAdmin };
-      }
       throw new Error(`Admin account not found for '${identifier}'.`);
+    }
+
+    if (!isSuperAdmin) {
+      if (!currentPassword) {
+        throw new Error('Current password is required to reset password.');
+      }
+      const testHash = crypto.scryptSync(currentPassword, admin.salt || '', 64).toString('hex');
+      const hashA = Buffer.from(testHash);
+      const hashB = Buffer.from(admin.passwordHash || '');
+      if (hashA.length !== hashB.length || !crypto.timingSafeEqual(hashA, hashB)) {
+        throw new Error('Current password does not match.');
+      }
     }
 
     const salt = crypto.randomBytes(16).toString('hex');
@@ -4570,7 +4556,7 @@ class NabinDatabase {
       targetEntityId: admin.id,
       previousState: 'ACTIVE',
       newState: 'ACTIVE',
-      reason: 'Administrator password reset via Password Recovery Gateway.'
+      reason: 'Administrator password reset via Authenticated Password Gateway.'
     });
 
     return { success: true, message: `Password reset successfully for ${admin.name} (${admin.username}).`, admin };
@@ -4775,13 +4761,18 @@ class NabinDatabase {
       reason: `Verification OTP dispatched for ${role} ${purpose} flow. Expires in 5 minutes.`
     });
 
-    return {
+    const isTestOrDev = process.env.NODE_ENV !== 'production' || process.env.NABIN_TEST_MODE === 'true';
+
+    const responsePayload = {
       success: true,
       message: `Verification code sent to ${normPhone}. Valid for 5 minutes.`,
       phone: normPhone,
-      expiresInSeconds: 300,
-      testOtp: otp
+      expiresInSeconds: 300
     };
+    if (isTestOrDev) {
+      responsePayload.testOtp = otp;
+    }
+    return responsePayload;
   }
 
   async verifyAuthOtp({ phone, otp, role = 'CUSTOMER', purpose = 'LOGIN' }) {
@@ -4795,8 +4786,9 @@ class NabinDatabase {
     let record = this.otpStore.get(key) || this.otpStore.get(fallbackKey);
     const now = Date.now();
 
-    // Support standard demo OTP 7729 for seeded accounts if no fresh OTP was explicitly requested
-    if (!record && (otp === '7729' || otp === '4892' || otp === '3184')) {
+    // Support standard demo OTP 7729 for seeded accounts ONLY in development / test mode
+    const isTestOrDev = process.env.NODE_ENV !== 'production' || process.env.NABIN_TEST_MODE === 'true';
+    if (!record && isTestOrDev && (otp === '7729' || otp === '4892' || otp === '3184')) {
       record = {
         phone: normPhone,
         otp,
@@ -5431,7 +5423,8 @@ class NabinDatabase {
       ownerType: asset.ownerType || 'PUBLIC',
       ownerId: asset.ownerId || 'system',
       mediaType: asset.mediaType || 'IMAGE',
-      cloudinaryPublicId: asset.public_id,
+      cloudinaryPublicId: asset.public_id || asset.cloudinaryPublicId,
+      public_id: asset.public_id || asset.cloudinaryPublicId,
       secureUrl: asset.secure_url,
       optimizedUrls: asset.optimized_urls || {},
       resourceType: asset.resource_type || 'image',
@@ -5445,7 +5438,7 @@ class NabinDatabase {
     };
 
     // Upsert by public_id or id
-    const existingIdx = this.mediaAssets.findIndex(m => m.cloudinaryPublicId === record.cloudinaryPublicId || m.id === record.id);
+    const existingIdx = this.mediaAssets.findIndex(m => m.cloudinaryPublicId === record.cloudinaryPublicId || m.public_id === record.public_id || m.id === record.id);
     if (existingIdx >= 0) {
       this.mediaAssets[existingIdx] = { ...this.mediaAssets[existingIdx], ...record, updatedAt: new Date().toISOString() };
     } else {
@@ -5471,7 +5464,7 @@ class NabinDatabase {
 
   getMediaAsset(idOrPublicId) {
     if (!this.mediaAssets) this.mediaAssets = [];
-    return this.mediaAssets.find(m => m.id === idOrPublicId || m.cloudinaryPublicId === idOrPublicId) || null;
+    return this.mediaAssets.find(m => m.id === idOrPublicId || m.cloudinaryPublicId === idOrPublicId || m.public_id === idOrPublicId) || null;
   }
 
   getMediaByOwner(ownerType, ownerId) {
@@ -5481,7 +5474,7 @@ class NabinDatabase {
 
   deleteMediaAsset(idOrPublicId) {
     if (!this.mediaAssets) this.mediaAssets = [];
-    const idx = this.mediaAssets.findIndex(m => m.id === idOrPublicId || m.cloudinaryPublicId === idOrPublicId);
+    const idx = this.mediaAssets.findIndex(m => m.id === idOrPublicId || m.cloudinaryPublicId === idOrPublicId || m.public_id === idOrPublicId);
     if (idx >= 0) {
       const removed = this.mediaAssets.splice(idx, 1)[0];
       this.createAuditLog({
