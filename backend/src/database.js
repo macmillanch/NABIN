@@ -11,6 +11,7 @@ const AuditLogRepository = require('./repositories/AuditLogRepository');
 const PromotionRepository = require('./repositories/PromotionRepository');
 const PricingRepository = require('./repositories/PricingRepository');
 const NotificationRepository = require('./repositories/NotificationRepository');
+const OrderRepository = require('./repositories/OrderRepository');
 
 // Shared relational store with durable persistence, crash recovery & double-entry accounting
 class NabinDatabase {
@@ -1776,6 +1777,7 @@ class NabinDatabase {
     this.promotionRepo = new PromotionRepository(this);
     this.pricingRepo = new PricingRepository(this);
     this.notificationRepo = new NotificationRepository(this);
+    this.orderRepo = new OrderRepository(this);
   }
 
   save() {
@@ -4163,7 +4165,7 @@ class NabinDatabase {
   }
 
   getMerchantInventory(merchantId) {
-    const items = this.merchantInventory.filter(inv => inv.merchantId === (merchantId || 'mcht_darkstore_1'));
+    const items = merchantId ? this.merchantInventory.filter(inv => inv.merchantId === merchantId) : this.merchantInventory;
     return items.map(inv => {
       const master = this.masterProducts.find(mp => mp.id === inv.masterProductId) || {};
       return {

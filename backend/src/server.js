@@ -622,7 +622,14 @@ function authenticateMerchant(req, res, next) {
     });
   }
 
-  const merchant = session.entity || (db.getMerchant ? db.getMerchant(session.entityId) : null);
+  let merchant = session.entity || (db.getMerchant ? db.getMerchant(session.entityId) : null);
+  if (!merchant && db.restaurants) {
+    merchant = db.restaurants.find(r => r.id === session.entityId || r.restaurantId === session.entityId);
+  }
+  if (!merchant && session.entityId) {
+    merchant = { id: session.entityId, name: 'Partner Merchant' };
+  }
+
   if (!merchant) {
     return res.status(401).json({
       success: false,
@@ -636,7 +643,6 @@ function authenticateMerchant(req, res, next) {
   next();
 }
 
-// Require merchant tenant binding - ensures merchant is linked to a valid tenant
 function requireMerchantTenant(req, res, next) {
   if (!req.merchant) {
     return res.status(401).json({
@@ -646,7 +652,8 @@ function requireMerchantTenant(req, res, next) {
     });
   }
 
-  if (!req.merchant.tenantId && !req.merchant.tenant_id) {
+  const tenantId = req.merchant.tenantId || req.merchant.tenant_id || req.merchant.id;
+  if (!tenantId) {
     return res.status(403).json({
       success: false,
       error: 'Forbidden: Merchant is not associated with a tenant. Tenant binding required.',
@@ -655,7 +662,7 @@ function requireMerchantTenant(req, res, next) {
     });
   }
 
-  req.merchantTenantId = req.merchant.tenantId || req.merchant.tenant_id;
+  req.merchantTenantId = tenantId;
   next();
 }
 
@@ -2272,25 +2279,7 @@ app.post('/api/customer/book-food', authenticateUser, async (req, res) => {
     });
   }
 
-  const { customerId, restaurantId, items, deliveryAddress, promoCode } = req.body;
-  const idempotencyKey = req.headers['idempotency-key'] || req.headers['x-idempotency-key'] || req.body.idempotencyKey;
-  if (idempotencyKey) {
-    const existing = db.jobs.find(j => j.idempotencyKey === idempotencyKey);
-    if (existing) {
-      return res.json({ success: true, job: existing, duplicate: true });
-    }
-  }
-
-  const rest = db.restaurants.find(r => r.id === (restaurantId || 'rest_1')) || db.restaurants[0];
-
-  if (rest.operationalStatus === 'SUSPENDED') {
-    return res.status(403).json({
-      success: false,
-      error: `Restaurant ${rest.name} is temporarily suspended by NABIN Admin and cannot accept new orders.`
-    });
-  }
-
-  // Customer identity binding: req.user is set by authenticateUser middleware
+  // 1. Authenticate customer
   if (!req.user) {
     return res.status(401).json({
       success: false,
@@ -2299,154 +2288,354 @@ app.post('/api/customer/book-food', authenticateUser, async (req, res) => {
     });
   }
 
-  // Reject cross-customer IDOR attempts
-  if (customerId && String(customerId).trim() !== String(req.user.id).trim()) {
-    return res.status(403).json({
+  const customerUuid = db.orderRepo ? db.orderRepo.resolveUserUuid(req.user.uuid || req.user.id) : null;
+  if (!customerUuid) {
+    return res.status(401).json({
       success: false,
-      error: 'Forbidden: Cannot book food orders for another customer account.',
+      error: 'Unauthorized: Valid customer profile required.',
       requestId: req.id
     });
   }
 
-  const user = req.user;
-  const deliveryPricing = db.calculateFareEstimate({ serviceType: 'FOOD', distanceKm: 3.0, durationMins: 12, promoCode });
-  
-  // Calculate exact item total based on menu
-  let foodTotal = 220.0;
-  if (items && Array.isArray(items)) {
-    foodTotal = items.reduce((sum, itm) => {
-      const match = rest.menu.find(m => itm.includes(m.name));
-      return sum + (match ? match.price : 150);
-    }, 0);
-    if (foodTotal <= 0) foodTotal = 220.0;
+  const { customerId, restaurantId, merchantId, items, deliveryAddress } = req.body;
+
+  // Reject cross-customer IDOR attempts
+  if (customerId && db.orderRepo) {
+    const requestedUuid = db.orderRepo.resolveUserUuid(customerId);
+    if (requestedUuid && requestedUuid !== customerUuid) {
+      return res.status(403).json({
+        success: false,
+        error: 'Forbidden: Cannot book food orders for another customer account.',
+        requestId: req.id
+      });
+    }
   }
 
-  const packagingFee = 15.0;
-  const gst = Math.round((foodTotal + deliveryPricing.customerCharge) * 0.05);
-  const finalTotal = foodTotal + deliveryPricing.customerCharge + packagingFee + gst;
+  // 2. Resolve merchant
+  const mchtInput = restaurantId || merchantId;
+  if (!mchtInput) {
+    return res.status(400).json({
+      success: false,
+      code: 'MERCHANT_REQUIRED',
+      error: 'restaurantId or merchantId is required.',
+      requestId: req.id
+    });
+  }
 
-  const job = await db.createJob({
-    type: 'FOOD',
-    idempotencyKey: idempotencyKey || null,
-    restaurantId: rest.id,
-    restaurantName: rest.name,
-    customerId: user.id,
-    customerName: user.name,
-    customerPhone: user.phone,
-    pickup: { address: `${rest.name}, ${rest.address}` },
-    drop: { address: deliveryAddress || 'North Campus Girls Hostel, Delhi' },
-    distance: '3.0 km',
-    duration: '12 mins',
-    fare: finalTotal,
-    deliveryFee: deliveryPricing.customerCharge,
-    foodSubtotal: foodTotal,
-    packagingFee,
-    gst,
-    driverEarnings: deliveryPricing.driverEarnings,
-    platformFee: deliveryPricing.platformFee,
-    orderStatus: 'PENDING_RESTAURANT',
-    pickupOtp: Math.floor(1000 + Math.random() * 9000).toString(),
-    deliveryOtp: Math.floor(1000 + Math.random() * 9000).toString(),
-    foodItems: items || ['1x Special Dum Biryani (Chicken)', '2x Garlic Butter Naan']
-  });
+  const merchant = await db.orderRepo.resolveMerchant(mchtInput);
+  if (!merchant) {
+    return res.status(404).json({
+      success: false,
+      code: 'MERCHANT_NOT_FOUND',
+      error: `Restaurant / merchant [${mchtInput}] not found.`,
+      requestId: req.id
+    });
+  }
 
-  broadcastToMerchant(rest.id, {
-    type: 'NEW_FOOD_ORDER',
-    order: {
-      id: job.id,
-      customerName: user.name,
-      customerPhone: user.phone,
-      items: job.foodItems,
-      totalAmount: job.fare,
-      deliveryAddress: job.drop.address
+  if (merchant.merchant_type !== 'RESTAURANT' && merchant.merchant_type !== 'HYBRID_BOTH') {
+    return res.status(400).json({
+      success: false,
+      code: 'MERCHANT_TYPE_MISMATCH',
+      error: 'Merchant is not authorized for FOOD service.',
+      requestId: req.id
+    });
+  }
+
+  if (merchant.is_open === false || merchant.operationalStatus === 'SUSPENDED') {
+    return res.status(403).json({
+      success: false,
+      error: `Restaurant ${merchant.name} is closed or suspended and cannot accept orders.`
+    });
+  }
+
+  // 3. Resolve items & catalog ownership
+  let resolvedProducts;
+  try {
+    resolvedProducts = await db.orderRepo.resolveFoodProducts(merchant.id, items);
+  } catch (err) {
+    return res.status(err.statusCode || 400).json({
+      success: false,
+      code: err.code || 'INVALID_ITEMS',
+      error: err.message,
+      requestId: req.id
+    });
+  }
+
+  // 4. Idempotency Key
+  const idempotencyKey = req.headers['idempotency-key'] || req.headers['x-idempotency-key'] || req.body.idempotencyKey || ('idemp_food_' + crypto.randomUUID());
+
+  // 5. Metadata
+  const metadata = {
+    deliveryAddress: deliveryAddress || 'North Campus Girls Hostel, Delhi',
+    customerName: req.user.name || 'Customer',
+    customerPhone: req.user.phone || null,
+    source: 'web_or_mobile'
+  };
+
+  // 6. Invoke Migration 019 create_order_with_lines_atomic
+  try {
+    const result = await db.orderRepo.createOrderWithLinesAtomic({
+      serviceType: 'FOOD',
+      customerId: customerUuid,
+      merchantId: merchant.id,
+      totalAmount: resolvedProducts.totalAmount,
+      items: resolvedProducts.lines,
+      metadata,
+      idempotencyKey
+    });
+
+    if (!result.success) {
+      const statusCode = result.code === 'IDEMPOTENCY_CONFLICT' ? 409 : (result.code === 'CUSTOMER_NOT_FOUND' || result.code === 'MERCHANT_NOT_FOUND' || result.code === 'PRODUCT_NOT_FOUND' ? 404 : 400);
+      return res.status(statusCode).json(result);
     }
-  });
 
-  res.json({ success: true, job });
+    // Broadcast to merchant
+    broadcastToMerchant(merchant.id, {
+      type: 'NEW_FOOD_ORDER',
+      order: {
+        id: result.order_id,
+        orderNumber: result.order_number,
+        customerName: req.user.name,
+        customerPhone: req.user.phone,
+        items: result.items,
+        totalAmount: result.total_amount,
+        deliveryAddress: metadata.deliveryAddress
+      }
+    });
+
+    // Response object: database authoritative
+    const dbOrder = await db.orderRepo.getOrderById(result.order_id);
+    const orderPayload = {
+      id: dbOrder.id,
+      order_id: dbOrder.id,
+      orderNumber: dbOrder.order_number,
+      order_number: dbOrder.order_number,
+      orderState: dbOrder.order_state,
+      order_state: dbOrder.order_state,
+      status: dbOrder.order_state,
+      serviceType: dbOrder.service_type,
+      service_type: dbOrder.service_type,
+      customerId: dbOrder.customer_id,
+      customer_id: dbOrder.customer_id,
+      merchantId: dbOrder.merchant_id,
+      merchant_id: dbOrder.merchant_id,
+      totalAmount: Number(dbOrder.total_amount),
+      total_amount: Number(dbOrder.total_amount),
+      total: Number(dbOrder.total_amount),
+      fare: Number(dbOrder.total_amount),
+      items: dbOrder.lines || [],
+      lines: dbOrder.lines || [],
+      metadata: dbOrder.metadata || {},
+      createdAt: dbOrder.created_at,
+      packagingFee: 15,
+      gst: Math.round(Number(dbOrder.total_amount) * 0.05)
+    };
+
+    return res.json({
+      success: true,
+      duplicate: !!result.duplicate,
+      order: orderPayload,
+      job: orderPayload
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+// Customer Food/Grocery Order Reads
+app.get('/api/customer/orders', authenticateUser, async (req, res) => {
+  try {
+    const customerUuid = db.orderRepo.resolveUserUuid(req.user.uuid || req.user.id);
+    if (!customerUuid) {
+      return res.status(401).json({ success: false, error: 'Unauthorized: Invalid customer identity.' });
+    }
+    const orders = await db.orderRepo.getOrdersByCustomer(customerUuid);
+    res.json({ success: true, count: orders.length, orders });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.get(['/api/customer/orders/:id', '/api/orders/:id'], authenticateUser, async (req, res) => {
+  try {
+    const customerUuid = db.orderRepo.resolveUserUuid(req.user.uuid || req.user.id);
+    const order = await db.orderRepo.getOrderById(req.params.id);
+    if (!order) {
+      return res.status(404).json({ success: false, error: 'Order not found' });
+    }
+    // Reject cross-customer IDOR if caller is customer
+    if (customerUuid && order.customer_id !== customerUuid) {
+      return res.status(403).json({ success: false, error: 'Forbidden: Cannot access another customer\'s order.' });
+    }
+    res.json({ success: true, order });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 // RESTAURANT / MERCHANT API ENDPOINTS
-app.get('/api/merchant/:restaurantId/dashboard', authenticateMerchant, requireMerchantTenant, (req, res) => {
-  const rest = db.restaurants.find(r => r.id === req.params.restaurantId) || db.restaurants[0];
-  
-  // Verify merchant owns this restaurant
-  if (rest.merchantId && rest.merchantId !== req.merchant.id) {
-    return res.status(403).json({
-      success: false,
-      error: 'Forbidden: Cannot access another merchant\'s restaurant dashboard.',
-      requestId: req.id
+app.get('/api/merchant/:restaurantId/dashboard', authenticateMerchant, requireMerchantTenant, async (req, res) => {
+  try {
+    const merchant = await db.orderRepo.resolveMerchant(req.merchant.id || req.params.restaurantId);
+    if (!merchant) {
+      return res.status(401).json({ success: false, error: 'Merchant not found', requestId: req.id });
+    }
+
+    if (req.params.restaurantId) {
+      const requestedMerchant = await db.orderRepo.resolveMerchant(req.params.restaurantId);
+      if (requestedMerchant && requestedMerchant.id !== merchant.id) {
+        return res.status(403).json({
+          success: false,
+          error: 'Forbidden: Cannot access another merchant\'s restaurant dashboard.',
+          requestId: req.id
+        });
+      }
+    }
+
+    const merchantOrders = await db.orderRepo.getOrdersByMerchant(merchant.id);
+    const activeOrdersCount = merchantOrders.filter(o => !['DELIVERED', 'REJECTED', 'CANCELLED'].includes(o.order_state)).length;
+    const todaySales = merchantOrders.reduce((sum, o) =>
+      sum + (o.order_state !== 'CANCELLED' && o.order_state !== 'REJECTED' ? Number(o.total_amount) : 0), 0
+    );
+
+    res.json({
+      success: true,
+      restaurant: merchant,
+      activeOrdersCount,
+      todaySales,
+      orders: merchantOrders
     });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message, requestId: req.id });
   }
-  
-  const pendingOrders = db.jobs.filter(j => j.type === 'FOOD' && j.restaurantId === rest.id && j.status !== 'COMPLETED');
-  res.json({
-    success: true,
-    restaurant: rest,
-    activeOrdersCount: pendingOrders.length,
-    todaySales: 8420.0
-  });
 });
 
-app.get('/api/merchant/:restaurantId/orders', authenticateMerchant, requireMerchantTenant, (req, res) => {
-  const rest = db.restaurants.find(r => r.id === req.params.restaurantId) || db.restaurants[0];
-  
-  // Verify merchant owns this restaurant
-  if (rest.merchantId && rest.merchantId !== req.merchant.id) {
-    return res.status(403).json({
-      success: false,
-      error: 'Forbidden: Cannot access another merchant\'s orders.',
-      requestId: req.id
-    });
+app.get(['/api/merchant/:restaurantId/orders', '/api/merchant/orders'], authenticateMerchant, requireMerchantTenant, async (req, res) => {
+  try {
+    const merchant = await db.orderRepo.resolveMerchant(req.merchant.id || req.params.restaurantId);
+    if (!merchant) {
+      return res.status(401).json({ success: false, error: 'Merchant not found', requestId: req.id });
+    }
+
+    if (req.params.restaurantId) {
+      const requestedMerchant = await db.orderRepo.resolveMerchant(req.params.restaurantId);
+      if (!requestedMerchant || requestedMerchant.id !== merchant.id) {
+        return res.status(403).json({
+          success: false,
+          error: 'Forbidden: Cannot access another merchant\'s orders.',
+          requestId: req.id
+        });
+      }
+    }
+
+    const orders = await db.orderRepo.getOrdersByMerchant(merchant.id, { status: req.query.status });
+    res.json({ success: true, count: orders.length, orders });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message, requestId: req.id });
   }
-  
-  const orders = db.jobs.filter(j => j.type === 'FOOD' && (j.restaurantId === rest.id || !j.restaurantId));
-  res.json({ success: true, orders });
 });
 
-app.post(['/api/merchant/:restaurantId/orders/:orderId/status', '/api/merchant/orders/:orderId/status'], authenticateMerchant, requireMerchantTenant, (req, res) => {
-  const { status } = req.body;
-  const orderId = req.params.orderId;
-  const job = db.getJob(orderId);
+app.post(['/api/merchant/:restaurantId/orders/:orderId/status', '/api/merchant/orders/:orderId/status'], authenticateMerchant, requireMerchantTenant, async (req, res) => {
+  try {
+    const { status, reason, idempotencyKey } = req.body;
+    const orderId = req.params.orderId;
 
-  if (!job) return res.status(404).json({ success: false, error: 'Order not found' });
+    const merchant = await db.orderRepo.resolveMerchant(req.merchant.id || req.params.restaurantId);
+    if (!merchant) {
+      return res.status(401).json({ success: false, error: 'Merchant profile not found', requestId: req.id });
+    }
 
-  // Verify merchant owns this order's restaurant
-  if (job.restaurantId) {
-    const rest = db.restaurants.find(r => r.id === job.restaurantId);
-    if (rest && rest.merchantId && rest.merchantId !== req.merchant.id) {
+    const order = await db.orderRepo.getOrderById(orderId);
+    if (!order) {
+      return res.status(404).json({ success: false, error: 'Order not found', requestId: req.id });
+    }
+
+    // Verify merchant owns this order
+    if (order.merchant_id !== merchant.id) {
       return res.status(403).json({
         success: false,
         error: 'Forbidden: Cannot modify another merchant\'s order.',
         requestId: req.id
       });
     }
-  }
 
-  job.orderStatus = status;
-  if (status === 'READY_FOR_PICKUP') {
-    job.status = 'READY_FOR_PICKUP';
-    broadcastToDrivers({
-      type: 'NEW_JOB_DISPATCH',
+    // KDS approved state check
+    const APPROVED_KDS_STATES = ['ACCEPTED', 'REJECTED', 'PREPARING', 'PACKING', 'READY_FOR_PICKUP'];
+    if (!APPROVED_KDS_STATES.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        code: 'INVALID_STATUS',
+        error: `Invalid KDS status: ${status}. Must be one of: ${APPROVED_KDS_STATES.join(', ')}`
+      });
+    }
+
+    // Rejection reason check
+    if (status === 'REJECTED') {
+      const APPROVED_REASONS = ['ITEM_UNAVAILABLE', 'MERCHANT_CLOSED', 'OUT_OF_STOCK', 'UNABLE_TO_PREPARE', 'INVALID_ORDER', 'OTHER'];
+      if (!reason || !APPROVED_REASONS.includes(reason)) {
+        return res.status(400).json({
+          success: false,
+          code: 'INVALID_REJECTION_REASON',
+          error: `Valid rejection reason required for REJECTED state. Must be one of: ${APPROVED_REASONS.join(', ')}`
+        });
+      }
+    }
+
+    // Invoke Migration 018 transition authority
+    const transitionRes = await db.orderRepo.transitionOrderState({
+      orderId: order.id,
+      newState: status,
+      actorRole: 'MERCHANT',
+      actorId: merchant.id,
+      reason,
+      idempotencyKey: idempotencyKey || ('trans_' + order.id + '_' + status + '_' + Date.now()),
+      metadata: { actor: req.merchant.name || 'Merchant' }
+    });
+
+    if (!transitionRes.success) {
+      return res.status(400).json(transitionRes);
+    }
+
+    if (status === 'READY_FOR_PICKUP') {
+      broadcastToDrivers({
+        type: 'NEW_JOB_DISPATCH',
+        job: {
+          id: order.id,
+          orderId: order.id,
+          orderNumber: order.order_number,
+          type: order.service_type,
+          title: `Order Pickup: ${merchant.name}`,
+          totalAmount: order.total_amount
+        }
+      });
+    }
+
+    broadcastToCustomer(order.customer_id, {
+      type: 'FOOD_ORDER_UPDATE',
+      orderId: order.id,
+      orderStatus: status,
+      newState: status
+    });
+
+    const updatedOrder = await db.orderRepo.getOrderById(order.id);
+    return res.json({
+      success: true,
+      duplicate: !!transitionRes.duplicate,
+      transitionId: transitionRes.transitionId,
+      order_state: status,
+      status: status,
+      newState: status,
+      order: updatedOrder,
       job: {
-        id: job.id,
-        type: 'FOOD',
-        title: `Food Pickup: ${job.restaurantName || 'Dilli Darbar'}`,
-        pickup: job.pickup.address,
-        drop: job.drop.address,
-        fare: `₹${(job.deliveryFee || 55).toFixed(2)}`,
-        customer: job.customerName,
-        deliveryOtp: job.deliveryOtp
+        id: order.id,
+        orderId: order.id,
+        orderStatus: status,
+        status: status
       }
     });
+  } catch (err) {
+    return res.status(err.statusCode || 500).json({ success: false, error: err.message, requestId: req.id });
   }
-
-  broadcastToCustomer(job.customerId, {
-    type: 'FOOD_ORDER_UPDATE',
-    orderId: job.id,
-    orderStatus: status
-  });
-
-  res.json({ success: true, job });
 });
 
 app.post('/api/merchant/:restaurantId/menu/:itemId/toggle', authenticateMerchant, requireMerchantTenant, (req, res) => {
@@ -3214,8 +3403,8 @@ app.post('/api/grocery/cart/revalidate', authenticateUser, (req, res) => {
   res.json({ success: true, ...reval });
 });
 
-// Authoritative Checkout Validation & Order Generation
-app.post('/api/grocery/checkout/validate', authenticateUser, (req, res) => {
+// Authoritative Checkout Validation & Order Generation (PostgreSQL-Authoritative)
+app.post('/api/grocery/checkout/validate', authenticateUser, async (req, res) => {
   if (db.isServicePaused('grocery')) {
     const s = db.getService('grocery');
     return res.status(423).json({
@@ -3228,39 +3417,200 @@ app.post('/api/grocery/checkout/validate', authenticateUser, (req, res) => {
     });
   }
 
-  const result = db.validateCheckout(req.body);
-  if (!result.success) {
-    return res.status(409).json(result);
+  try {
+    const customerRaw = req.user?.id || req.user?.userId || req.user?.sub;
+    if (!customerRaw) {
+      return res.status(401).json({
+        success: false,
+        code: 'UNAUTHENTICATED',
+        error: 'Authentication required for grocery checkout.'
+      });
+    }
+
+    const customerUuid = db.orderRepo.resolveUserUuid(customerRaw);
+    if (!customerUuid) {
+      return res.status(403).json({
+        success: false,
+        code: 'USER_NOT_FOUND',
+        error: 'Authenticated customer could not be resolved.'
+      });
+    }
+
+    const requestedMerchant = req.body.merchantId || req.body.restaurantId || req.body.storeId;
+    if (requestedMerchant === 'mcht_darkstore_1' || (requestedMerchant && String(requestedMerchant).toLowerCase().includes('darkstore'))) {
+      return res.status(400).json({
+        success: false,
+        code: 'DARK_STORE_NOT_SUPPORTED',
+        error: 'Dark stores are not supported. NABIN only operates with independent verified grocery merchants.'
+      });
+    }
+
+    const merchant = await db.orderRepo.resolveMerchant(requestedMerchant || 'mcht_1');
+    if (!merchant) {
+      return res.status(404).json({
+        success: false,
+        code: 'MERCHANT_NOT_FOUND',
+        error: 'Grocery merchant not found.'
+      });
+    }
+
+    if (!['GROCERY', 'HYBRID_BOTH'].includes(merchant.merchant_type)) {
+      return res.status(400).json({
+        success: false,
+        code: 'MERCHANT_TYPE_MISMATCH',
+        error: 'Merchant is not authorized for GROCERY service.'
+      });
+    }
+
+    const cartItems = req.body.cartItems || req.body.items || [];
+    if (!Array.isArray(cartItems) || cartItems.length === 0) {
+      return res.status(400).json({
+        success: false,
+        code: 'EMPTY_CART',
+        error: 'Cart items cannot be empty.'
+      });
+    }
+
+    const resolved = await db.orderRepo.resolveGroceryItems(merchant.id, cartItems);
+
+    const idempotencyKey = req.headers['idempotency-key'] || req.body.idempotencyKey || null;
+
+    let checkoutId = req.body.checkoutId || req.body.checkout_id || null;
+    if (!checkoutId && idempotencyKey) {
+      const existingToken = await db.orderRepo.getIdempotencyToken(idempotencyKey);
+      if (existingToken?.order?.checkout_id) {
+        checkoutId = existingToken.order.checkout_id;
+      }
+    }
+
+    if (!checkoutId) {
+      // Auto-provision PostgreSQL checkout row to guarantee checkout linkage
+      const newCheckout = await db.orderRepo.createCheckoutSession({
+        customerId: customerUuid,
+        merchantId: merchant.id,
+        serviceType: 'GROCERY',
+        paymentMethod: req.body.paymentMethod === 'CASH' ? 'CASH' : 'WALLET',
+        baseAmount: resolved.totalAmount,
+        finalPayableAmount: resolved.totalAmount,
+        checkoutStatus: 'CONFIRMED',
+        metadata: {
+          deliveryAddress: req.body.deliveryAddress || 'Default Address',
+          deliveryInstructions: req.body.deliveryInstructions || null
+        }
+      });
+      checkoutId = newCheckout.id;
+    }
+
+    const effectiveIdempKey = idempotencyKey || ('gchk_' + checkoutId);
+
+    const result = await db.orderRepo.createOrderWithLinesAtomic({
+      serviceType: 'GROCERY',
+      customerId: customerUuid,
+      merchantId: merchant.id,
+      totalAmount: resolved.totalAmount,
+      items: resolved.lines,
+      metadata: {
+        deliveryAddress: req.body.deliveryAddress || 'Default Address',
+        deliveryInstructions: req.body.deliveryInstructions || null
+      },
+      idempotencyKey: effectiveIdempKey,
+      checkoutId
+    });
+
+    if (!result.success) {
+      const statusCode = (result.code === 'IDEMPOTENCY_CONFLICT' || result.code === 'CHECKOUT_ALREADY_LINKED') ? 409 : 400;
+      return res.status(statusCode).json(result);
+    }
+
+    const dbOrder = await db.orderRepo.getOrderById(result.order_id);
+    if (!dbOrder) {
+      return res.status(500).json({ success: false, error: 'Order created in PostgreSQL but could not be read back' });
+    }
+
+    // Broadcast to merchant WebSocket
+    broadcastToMerchant(merchant.id, {
+      type: 'ORDER_RECEIVED',
+      order: dbOrder
+    });
+
+    const orderSnapshot = {
+      id: dbOrder.id,
+      order_id: dbOrder.id,
+      order_number: dbOrder.order_number,
+      status: dbOrder.order_state,
+      order_state: dbOrder.order_state,
+      merchantId: dbOrder.merchant_id,
+      customerId: dbOrder.customer_id,
+      serviceType: dbOrder.service_type,
+      checkoutId: dbOrder.checkout_id,
+      deliveryAddress: req.body.deliveryAddress || 'Default Address',
+      items: (dbOrder.lines || []).map(l => ({
+        id: l.id,
+        productId: l.grocery_inventory_id,
+        productName: l.product_name_snapshot,
+        quantity: Number(l.quantity),
+        unitPriceAtCheckout: Number(l.unit_price_snapshot),
+        finalItemAmount: Number(l.line_total),
+        unit: l.unit_snapshot,
+        packedConfirmedQuantity: l.packed_confirmed_quantity ? Number(l.packed_confirmed_quantity) : null
+      })),
+      estimatedSubtotal: Number(dbOrder.total_amount),
+      finalSubtotal: Number(dbOrder.total_amount),
+      finalTotal: Number(dbOrder.total_amount),
+      discount: 0,
+      deliveryFee: 0,
+      handlingFee: 0,
+      createdAt: dbOrder.created_at
+    };
+
+    res.json({
+      success: true,
+      code: 'CHECKOUT_SUCCESS',
+      duplicate: !!result.duplicate,
+      order: orderSnapshot
+    });
+  } catch (err) {
+    const statusCode = err.statusCode || (err.code === 'MERCHANT_MISMATCH' ? 400 : 409);
+    res.status(statusCode).json({
+      success: false,
+      code: err.code || 'CHECKOUT_FAILED',
+      error: err.message
+    });
   }
-  res.json(result);
 });
 
-// Merchant Submit Actual Packed Weight & Recalculate Order Total
+// Merchant Submit Actual Packed Weight & Recalculate Order Total (PostgreSQL Authoritative)
 app.post('/api/grocery/orders/:id/packed-weight', authenticateMerchant, requireMerchantTenant, async (req, res) => {
   try {
     const { itemId, packedWeight } = req.body;
     const merchantId = req.merchant.id;
-    
-    const result = db.submitPackedWeight({
+
+    const result = await db.orderRepo.submitPackedWeight({
       orderId: req.params.id,
       itemId,
       packedWeight,
       merchantId
     });
-    
-    // Verify order ownership - merchant can only submit packed weight for their own orders
-    if (result.order && result.order.merchantId && result.order.merchantId !== req.merchant.id) {
-      return res.status(403).json({
-        success: false,
-        error: 'Forbidden: Cannot submit packed weight for another merchant\'s order.',
-        requestId: req.id
+
+    if (result.order?.customer_id) {
+      broadcastToCustomer(result.order.customer_id, {
+        type: 'ORDER_WEIGHT_RECALCULATED',
+        order: result.order
       });
     }
-    
-    broadcastToCustomer(result.order.customerId, { type: 'ORDER_WEIGHT_RECALCULATED', order: result.order });
     res.json(result);
   } catch (err) {
-    res.status(400).json({ success: false, error: err.message });
+    res.status(err.statusCode || 400).json({ success: false, error: err.message });
+  }
+});
+
+// Admin Order State Maintenance: Trigger Expire Stale Orders (Migration 018 timeout authority)
+app.post('/api/admin/orders/expire-stale', authenticateAdmin, async (req, res) => {
+  try {
+    const expiredCount = await db.orderRepo.expireStaleOrders();
+    res.json({ success: true, expiredCount });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 

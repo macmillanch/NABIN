@@ -130,7 +130,7 @@ class _GroceryCheckoutScreenState extends State<GroceryCheckoutScreen> {
 
       if (mounted && data?['success'] == true) {
         _showOrderConfirmationModal(
-          orderId: data['order']?['id'] ?? 'ORD-EXPRESS-${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}',
+          orderId: data?['order']?['id'] ?? data?['order']?['order_id'] ?? data?['order']?['order_number'] ?? 'ORD-EXPRESS-${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}',
           etaMinutes: 9,
         );
       } else if (mounted) {
