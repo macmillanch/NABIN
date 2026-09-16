@@ -367,6 +367,27 @@ wss.on('connection', (ws, req) => {
       const heading = Number(data.heading ?? data.bearing ?? data.location?.heading ?? 0) || 0;
       const speed = Number(data.speed ?? data.speedKmph ?? data.location?.speed ?? 0) || 0;
       const jobId = data.jobId ?? data.activeJobId ?? data.location?.jobId ?? null;
+      if (jobId) {
+        const job = db.getJob(jobId);
+        if (!job) {
+          ws.send(JSON.stringify({
+            type: 'ERROR',
+            code: 'JOB_NOT_ASSIGNED_TO_DRIVER',
+            error: 'Cannot attach telemetry to an invalid or unassigned job.'
+          }));
+          return;
+        }
+        const callerUuid = db.driverRepo?.resolveUuid(driverId) || driverId;
+        const jobDriverUuid = db.driverRepo?.resolveUuid(job.driverId) || job.driverUuid || job.driverId;
+        if (job.driverId !== driverId && callerUuid !== jobDriverUuid) {
+          ws.send(JSON.stringify({
+            type: 'ERROR',
+            code: 'JOB_NOT_ASSIGNED_TO_DRIVER',
+            error: 'Cannot attach telemetry to a job not assigned to you.'
+          }));
+          return;
+        }
+      }
 
       if (rawLat === undefined || rawLng === undefined || isNaN(Number(rawLat)) || isNaN(Number(rawLng))) {
         ws.send(JSON.stringify({
@@ -2139,6 +2160,23 @@ app.post('/api/customer/book-ride', authenticateUser, async (req, res) => {
     passengerInfo: isSomeoneElse ? passengerInfo : null,
   });
 
+  // Create authoritative dispatch offers for active/eligible drivers
+  try {
+    if (db.dispatchRepo) {
+      const candidateDrivers = db.drivers.filter(d => d.operationalStatus !== 'SUSPENDED');
+      for (const d of candidateDrivers) {
+        await db.dispatchRepo.createOffer({
+          jobId: job.id,
+          driverId: d.id,
+          ttlSeconds: 60,
+          metadata: { serviceType: 'RIDE', vehicleType: job.vehicleType }
+        });
+      }
+    }
+  } catch (err) {
+    console.warn('[DISPATCH_OFFER_WARN] Could not persist dispatch offer:', err.message);
+  }
+
   broadcastToDrivers({
     type: 'NEW_JOB_DISPATCH',
     job: {
@@ -2248,6 +2286,23 @@ app.post('/api/customer/book-parcel', authenticateUser, async (req, res) => {
     appliedPromo: pricing.appliedPromo,
     deliveryOtp: Math.floor(1000 + Math.random() * 9000).toString()
   });
+
+  // Create authoritative dispatch offers for active/eligible drivers
+  try {
+    if (db.dispatchRepo) {
+      const candidateDrivers = db.drivers.filter(d => d.operationalStatus !== 'SUSPENDED');
+      for (const d of candidateDrivers) {
+        await db.dispatchRepo.createOffer({
+          jobId: job.id,
+          driverId: d.id,
+          ttlSeconds: 60,
+          metadata: { serviceType: 'PARCEL' }
+        });
+      }
+    }
+  } catch (err) {
+    console.warn('[DISPATCH_OFFER_WARN] Could not persist parcel dispatch offer:', err.message);
+  }
 
   broadcastToDrivers({
     type: 'NEW_JOB_DISPATCH',
@@ -2694,8 +2749,18 @@ app.post('/api/admin/drivers/:id/verify-payout-destination', authenticateAdmin, 
 });
 
 app.post('/api/driver/:driverId/toggle-online', authenticateDriver, (req, res) => {
-  const driver = db.getDriver(req.params.driverId);
+  const requestedId = req.params.driverId;
+  const callerUuid = db.driverRepo?.resolveUuid(req.driver.id) || req.driver.uuid || req.driver.id;
+  const targetUuid = db.driverRepo?.resolveUuid(requestedId) || requestedId;
+  if (requestedId !== req.driver.id && callerUuid !== targetUuid) {
+    return res.status(403).json({
+      success: false,
+      code: 'DRIVER_MISMATCH',
+      error: 'Forbidden: Cannot toggle online status for another driver.'
+    });
+  }
 
+  const driver = db.getDriver(req.driver.id);
   if (driver.operationalStatus === 'SUSPENDED') {
     return res.status(403).json({
       success: false,
@@ -2708,14 +2773,120 @@ app.post('/api/driver/:driverId/toggle-online', authenticateDriver, (req, res) =
 });
 
 app.get('/api/driver/:driverId/dashboard', authenticateDriver, (req, res) => {
-  const driver = db.getDriver(req.params.driverId) || req.driver || db.drivers[0];
+  const requestedId = req.params.driverId;
+  const callerUuid = db.driverRepo?.resolveUuid(req.driver.id) || req.driver.uuid || req.driver.id;
+  const targetUuid = db.driverRepo?.resolveUuid(requestedId) || requestedId;
+  if (requestedId !== req.driver.id && callerUuid !== targetUuid) {
+    return res.status(403).json({
+      success: false,
+      code: 'DRIVER_MISMATCH',
+      error: 'Forbidden: Cannot access another driver\'s dashboard.'
+    });
+  }
+
+  const driver = db.getDriver(req.driver.id) || req.driver;
   res.json({ success: true, driver });
 });
 
+// Authoritative Driver Dispatch Offers Endpoint
+app.get(['/api/driver/offers', '/api/driver/:driverId/offers'], authenticateDriver, async (req, res) => {
+  try {
+    const requestedId = req.params.driverId;
+    if (requestedId) {
+      const callerUuid = db.driverRepo?.resolveUuid(req.driver.id) || req.driver.uuid || req.driver.id;
+      const targetUuid = db.driverRepo?.resolveUuid(requestedId) || requestedId;
+      if (requestedId !== req.driver.id && callerUuid !== targetUuid) {
+        return res.status(403).json({
+          success: false,
+          code: 'DRIVER_MISMATCH',
+          error: 'Forbidden: Cannot view another driver\'s dispatch offers.'
+        });
+      }
+    }
+
+    const offers = await db.dispatchRepo.getOffersForDriver(req.driver.id);
+    res.json({ success: true, count: offers.length, offers });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Authoritative Offer Acceptance by Offer ID
+app.post('/api/driver/offers/:offerId/accept', authenticateDriver, async (req, res) => {
+  try {
+    const offerId = req.params.offerId;
+    const idempotencyKey = req.headers['idempotency-key'] || req.body?.idempotencyKey;
+
+    // Anti-spoofing verification if client supplies driverId in body
+    const bodyDriverId = req.body?.driverId || req.body?.driver_id || req.body?.driverUuid;
+    if (bodyDriverId) {
+      const callerUuid = db.driverRepo?.resolveUuid(req.driver.id) || req.driver.uuid || req.driver.id;
+      const targetUuid = db.driverRepo?.resolveUuid(bodyDriverId) || bodyDriverId;
+      if (bodyDriverId !== req.driver.id && callerUuid !== targetUuid) {
+        return res.status(403).json({
+          success: false,
+          code: 'IDENTITY_SPOOFING_REJECTED',
+          error: 'Driver impersonation rejected: driverId does not match authenticated credentials.'
+        });
+      }
+    }
+
+    const result = await db.dispatchRepo.acceptOfferAtomic({
+      offerId,
+      driverId: req.driver.id,
+      idempotencyKey
+    });
+
+    if (!result.success) {
+      const statusCode = result.code === 'OFFER_NOT_FOUND' ? 404 :
+        (result.code === 'DRIVER_MISMATCH' || result.code === 'DRIVER_SUSPENDED' ? 403 :
+        (result.code === 'JOB_ALREADY_ASSIGNED' ? 409 : 400));
+      return res.status(statusCode).json(result);
+    }
+
+    const targetJobId = result.job_id || result.job_uuid;
+    const job = db.jobRepo?.findById(targetJobId) || await db.jobRepo?.findByIdAsync(targetJobId);
+    const driver = db.getDriver(req.driver.id) || req.driver;
+
+    if (driver && job) {
+      driver.activeJobId = job.id;
+      broadcastToCustomer(job.customerId, {
+        type: 'DRIVER_ASSIGNED',
+        jobId: job.id,
+        driver: {
+          name: driver.name,
+          vehiclePlate: driver.vehiclePlate,
+          rating: driver.rating,
+          startOtp: job.startOtp
+        }
+      });
+    }
+
+    res.json({ success: true, duplicate: !!result.duplicate, job, driver, offer: result });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
 app.post('/api/driver/accept-job', authenticateDriver, async (req, res) => {
-  const { jobId, driverId } = req.body;
-  const effectiveDriverId = req.driver?.id || driverId || 'drv_1';
-  let driver = db.getDriver(effectiveDriverId);
+  const { jobId, offerId } = req.body;
+
+  // Anti-spoofing verification: client-supplied driverId must match session
+  const bodyDriverId = req.body?.driverId || req.body?.driver_id || req.body?.driverUuid;
+  if (bodyDriverId) {
+    const callerUuid = db.driverRepo?.resolveUuid(req.driver.id) || req.driver.uuid || req.driver.id;
+    const targetUuid = db.driverRepo?.resolveUuid(bodyDriverId) || bodyDriverId;
+    if (bodyDriverId !== req.driver.id && callerUuid !== targetUuid) {
+      return res.status(403).json({
+        success: false,
+        code: 'IDENTITY_SPOOFING_REJECTED',
+        error: 'Driver impersonation rejected: driverId does not match authenticated credentials.'
+      });
+    }
+  }
+
+  const effectiveDriverId = req.driver.id;
+  let driver = db.getDriver(effectiveDriverId) || req.driver;
 
   const { supabaseAdmin, isLivePostgres } = require('./supabase');
   if (isLivePostgres && supabaseAdmin) {
@@ -2742,8 +2913,34 @@ app.post('/api/driver/accept-job', authenticateDriver, async (req, res) => {
     return res.status(403).json({ success: false, error: 'Suspended driver cannot accept trips.' });
   }
 
-  const job = await db.updateJobStatus(jobId, 'ASSIGNED', driver.id);
-  if (job) {
+  try {
+    let job;
+    let duplicate = false;
+    if (isLivePostgres && supabaseAdmin) {
+      const result = await db.dispatchRepo.acceptJobAtomic({
+        jobId,
+        driverId: effectiveDriverId,
+        offerId
+      });
+
+      if (!result.success) {
+        const statusCode = result.code === 'JOB_NOT_FOUND' ? 404 :
+          (result.code === 'DRIVER_MISMATCH' || result.code === 'DRIVER_SUSPENDED' ? 403 :
+          (result.code === 'JOB_ALREADY_ASSIGNED' ? 409 : 400));
+        return res.status(statusCode).json(result);
+      }
+
+      duplicate = !!result.duplicate;
+      const targetJobId = result.job_id || jobId;
+      job = db.jobRepo?.findById(targetJobId) || await db.jobRepo?.findByIdAsync(targetJobId);
+    } else {
+      job = await db.updateJobStatus(jobId, 'ASSIGNED', driver.id);
+    }
+
+    if (!job) {
+      return res.status(404).json({ success: false, error: 'Job not found' });
+    }
+
     driver.activeJobId = job.id;
     broadcastToCustomer(job.customerId, {
       type: 'DRIVER_ASSIGNED',
@@ -2774,9 +2971,11 @@ app.post('/api/driver/accept-job', authenticateDriver, async (req, res) => {
       console.warn(`[NOTIF_DISPATCH_WARN] Failed to emit JOB_ACCEPTED for job ${job.id}:`, notifErr.message);
     }
 
-    res.json({ success: true, job, driver });
-  } else {
-    res.status(404).json({ success: false, error: 'Job not found' });
+    res.json({ success: true, duplicate, job, driver });
+  } catch (err) {
+    const isAssignErr = err.message && (err.message.includes('could not transition to ASSIGNED') || err.message.includes('assigned to another driver'));
+    const statusCode = isAssignErr ? 409 : 400;
+    res.status(statusCode).json({ success: false, error: err.message, code: isAssignErr ? 'JOB_ALREADY_ASSIGNED' : 'TRANSITION_FAILED' });
   }
 });
 
@@ -2784,38 +2983,71 @@ app.post('/api/driver/accept-job', authenticateDriver, async (req, res) => {
 app.post(['/api/driver/arrived', '/api/driver/arrive'], authenticateDriver, async (req, res) => {
   try {
     const { jobId } = req.body;
-    const effectiveDriverId = req.driver?.id || req.body.driverId || 'drv_1';
+    if (!jobId) {
+      return res.status(400).json({ success: false, error: 'jobId is required.' });
+    }
 
-    // Authoritative DRIVER_ARRIVED transition via db.updateJobStatus
-    const job = await db.updateJobStatus(jobId, 'DRIVER_ARRIVED', effectiveDriverId);
+    const bodyDriverId = req.body?.driverId || req.body?.driver_id || req.body?.driverUuid;
+    if (bodyDriverId) {
+      const callerUuid = db.driverRepo?.resolveUuid(req.driver.id) || req.driver.uuid || req.driver.id;
+      const targetUuid = db.driverRepo?.resolveUuid(bodyDriverId) || bodyDriverId;
+      if (bodyDriverId !== req.driver.id && callerUuid !== targetUuid) {
+        return res.status(403).json({
+          success: false,
+          code: 'IDENTITY_SPOOFING_REJECTED',
+          error: 'Driver impersonation rejected: driverId does not match authenticated credentials.'
+        });
+      }
+    }
+
+    const effectiveDriverId = req.driver.id;
+
+    // Verify job is assigned to this driver
+    const job = db.getJob(jobId) || await db.jobRepo?.findByIdAsync(jobId);
     if (!job) {
       return res.status(404).json({ success: false, error: 'Job not found' });
     }
 
-    broadcastToCustomer(job.customerId, {
+    const callerUuid = db.driverRepo?.resolveUuid(effectiveDriverId) || req.driver.uuid || effectiveDriverId;
+    const jobDriverUuid = db.driverRepo?.resolveUuid(job.driverId) || job.driverUuid || job.driverId;
+    if (job.driverId !== effectiveDriverId && callerUuid !== jobDriverUuid) {
+      return res.status(403).json({
+        success: false,
+        code: 'JOB_NOT_ASSIGNED_TO_DRIVER',
+        error: 'Forbidden: You are not assigned to this job.'
+      });
+    }
+
+    // Authoritative DRIVER_ARRIVED transition via db.updateJobStatus
+    const updatedJob = await db.updateJobStatus(jobId, 'DRIVER_ARRIVED', effectiveDriverId);
+    if (!updatedJob) {
+      return res.status(404).json({ success: false, error: 'Job not found' });
+    }
+
+    broadcastToCustomer(updatedJob.customerId, {
       type: 'DRIVER_ARRIVED',
-      jobId: job.id,
+      jobId: updatedJob.id,
       driverId: effectiveDriverId
     });
 
     // Phase 17 M4: Publish post-commit DRIVER_ARRIVED event
     try {
       notificationEventBus.publish('DRIVER_ARRIVED', {
-        jobId: job.id,
-        eventKey: `driver_arrived:${job.id}`,
-        customerId: job.customerId,
+        jobId: updatedJob.id,
+        eventKey: `driver_arrived:${updatedJob.id}`,
+        customerId: updatedJob.customerId,
         driverId: effectiveDriverId,
         title: 'Driver Arrived',
         body: 'Your driver has arrived at the pickup location.',
         notificationType: 'DRIVER_ARRIVED',
         priority: 'HIGH',
-        data: { jobId: job.id, driverId: effectiveDriverId }
+        data: { jobId: updatedJob.id, driverId: effectiveDriverId }
       });
     } catch (notifErr) {
-      console.warn(`[NOTIF_DISPATCH_WARN] Failed to emit DRIVER_ARRIVED for job ${job.id}:`, notifErr.message);
+      console.warn(`[NOTIF_DISPATCH_WARN] Failed to emit DRIVER_ARRIVED for job ${updatedJob.id}:`, notifErr.message);
     }
 
-    res.json({ success: true, job });
+    res.json({ success: true, job: updatedJob });
   } catch (err) {
     res.status(400).json({ success: false, error: err.message });
   }
@@ -2827,8 +3059,38 @@ app.post('/api/driver/verify-otp', authenticateDriver, async (req, res) => {
     const jobId = req.body.jobId;
     const otp = req.body.otp || req.body.enteredOtp;
     const otpType = req.body.otpType || 'START';
-    const effectiveDriverId = req.driver?.id || req.body.driverId || 'drv_1';
-    
+
+    const bodyDriverId = req.body?.driverId || req.body?.driver_id || req.body?.driverUuid;
+    if (bodyDriverId) {
+      const callerUuid = db.driverRepo?.resolveUuid(req.driver.id) || req.driver.uuid || req.driver.id;
+      const targetUuid = db.driverRepo?.resolveUuid(bodyDriverId) || bodyDriverId;
+      if (bodyDriverId !== req.driver.id && callerUuid !== targetUuid) {
+        return res.status(403).json({
+          success: false,
+          code: 'IDENTITY_SPOOFING_REJECTED',
+          error: 'Driver impersonation rejected: driverId does not match authenticated credentials.'
+        });
+      }
+    }
+
+    const effectiveDriverId = req.driver.id;
+
+    // Verify job is assigned to this driver
+    const job = db.getJob(jobId) || await db.jobRepo?.findByIdAsync(jobId);
+    if (!job) {
+      return res.status(404).json({ success: false, error: 'Job not found' });
+    }
+
+    const callerUuid = db.driverRepo?.resolveUuid(effectiveDriverId) || req.driver.uuid || effectiveDriverId;
+    const jobDriverUuid = db.driverRepo?.resolveUuid(job.driverId) || job.driverUuid || job.driverId;
+    if (job.driverId !== effectiveDriverId && callerUuid !== jobDriverUuid) {
+      return res.status(403).json({
+        success: false,
+        code: 'JOB_NOT_ASSIGNED_TO_DRIVER',
+        error: 'Forbidden: You are not assigned to this job.'
+      });
+    }
+
     const result = await db.validateAuthoritativeJobOtp({
       jobId,
       otp,
@@ -2887,28 +3149,45 @@ app.post('/api/driver/verify-otp', authenticateDriver, async (req, res) => {
 
 app.post('/api/driver/complete-trip', authenticateDriver, async (req, res) => {
   const { jobId, rating } = req.body;
-  const job = await db.updateJobStatus(jobId, 'COMPLETED');
-  if (job) {
-    broadcastToCustomer(job.customerId, { type: 'TRIP_COMPLETED', jobId: job.id, fare: job.fare, rating });
+  const effectiveDriverId = req.driver.id;
+
+  const job = db.getJob(jobId) || await db.jobRepo?.findByIdAsync(jobId);
+  if (!job) {
+    return res.status(404).json({ success: false, error: 'Job not found' });
+  }
+
+  const callerUuid = db.driverRepo?.resolveUuid(effectiveDriverId) || req.driver.uuid || effectiveDriverId;
+  const jobDriverUuid = db.driverRepo?.resolveUuid(job.driverId) || job.driverUuid || job.driverId;
+  if (job.driverId !== effectiveDriverId && callerUuid !== jobDriverUuid) {
+    return res.status(403).json({
+      success: false,
+      code: 'JOB_NOT_ASSIGNED_TO_DRIVER',
+      error: 'Forbidden: You are not assigned to this job.'
+    });
+  }
+
+  const updatedJob = await db.updateJobStatus(jobId, 'COMPLETED');
+  if (updatedJob) {
+    broadcastToCustomer(updatedJob.customerId, { type: 'TRIP_COMPLETED', jobId: updatedJob.id, fare: updatedJob.fare, rating });
 
     // Phase 17 M4: Publish post-commit RIDE_COMPLETED event
     try {
       notificationEventBus.publish('RIDE_COMPLETED', {
-        jobId: job.id,
-        eventKey: `ride_completed:${job.id}`,
-        customerId: job.customerId,
-        driverId: job.driverId || req.driver?.id,
+        jobId: updatedJob.id,
+        eventKey: `ride_completed:${updatedJob.id}`,
+        customerId: updatedJob.customerId,
+        driverId: updatedJob.driverId || req.driver?.id,
         title: 'Ride Completed',
-        body: `Your ride ${job.id} has completed successfully. Final fare: ₹${job.fare}.`,
+        body: `Your ride ${updatedJob.id} has completed successfully. Final fare: ₹${updatedJob.fare}.`,
         notificationType: 'RIDE_COMPLETED',
         priority: 'HIGH',
-        data: { jobId: job.id, fare: job.fare }
+        data: { jobId: updatedJob.id, fare: updatedJob.fare }
       });
     } catch (notifErr) {
-      console.warn(`[NOTIF_DISPATCH_WARN] Failed to emit RIDE_COMPLETED for job ${job.id}:`, notifErr.message);
+      console.warn(`[NOTIF_DISPATCH_WARN] Failed to emit RIDE_COMPLETED for job ${updatedJob.id}:`, notifErr.message);
     }
 
-    res.json({ success: true, job, driver: db.getDriver() });
+    res.json({ success: true, job: updatedJob, driver: db.getDriver(effectiveDriverId) || req.driver });
   } else {
     res.status(404).json({ success: false, error: 'Job not found' });
   }
@@ -2926,7 +3205,7 @@ app.post('/api/driver/payout-destination/request', authenticateDriver, async (re
 
 app.post('/api/driver/payout', authenticateDriver, async (req, res) => {
   const { amount } = req.body;
-  const effectiveDriverId = req.driver?.id || 'drv_1';
+  const effectiveDriverId = req.driver.id;
   const result = await db.recordPayout(effectiveDriverId, Number(amount) || 500);
   if (!result.success) {
     const statusCode = result.code === 'UNLINKED_DRIVER_ACCOUNT' ||
@@ -3681,24 +3960,56 @@ app.post(['/api/v1/admin/features', '/api/admin/features'], authenticateAdmin, (
 // HIGH-FREQUENCY LIVE FLEET TELEMETRY & SCOPED TRACKING (v1)
 // =========================================================================
 
-app.post(['/api/v1/driver/location', '/api/driver/location'], (req, res) => {
+app.post(['/api/v1/driver/location', '/api/driver/location'], authenticateDriver, (req, res) => {
   const { driverId, lat, lng, latitude, longitude, heading, bearing, speed, speedKmph, jobId, activeJobId, isOnline, status, serviceType } = req.body;
   const effectiveLat = lat !== undefined ? lat : latitude;
   const effectiveLng = lng !== undefined ? lng : longitude;
 
-  if (!driverId || effectiveLat === undefined || effectiveLng === undefined) {
-    return res.status(400).json({ success: false, code: 'INVALID_COORDINATES', message: 'driverId, lat, and lng are required.' });
+  if (effectiveLat === undefined || effectiveLng === undefined) {
+    return res.status(400).json({ success: false, code: 'INVALID_COORDINATES', message: 'lat and lng are required.' });
+  }
+
+  // Anti-spoofing check: client-supplied driverId must match session
+  if (driverId) {
+    const callerUuid = db.driverRepo?.resolveUuid(req.driver.id) || req.driver.uuid || req.driver.id;
+    const targetUuid = db.driverRepo?.resolveUuid(driverId) || driverId;
+    if (driverId !== req.driver.id && callerUuid !== targetUuid) {
+      return res.status(403).json({
+        success: false,
+        code: 'IDENTITY_SPOOFING_REJECTED',
+        error: 'Driver impersonation rejected: driverId does not match authenticated credentials.'
+      });
+    }
+  }
+
+  const effectiveDriverId = req.driver.id;
+  const targetJobId = jobId || activeJobId;
+
+  // Active job authorization: cannot attach telemetry to a job not assigned to this driver
+  if (targetJobId) {
+    const job = db.getJob(targetJobId);
+    if (job) {
+      const callerUuid = db.driverRepo?.resolveUuid(effectiveDriverId) || req.driver.uuid || effectiveDriverId;
+      const jobDriverUuid = db.driverRepo?.resolveUuid(job.driverId) || job.driverUuid || job.driverId;
+      if (job.driverId !== effectiveDriverId && callerUuid !== jobDriverUuid) {
+        return res.status(403).json({
+          success: false,
+          code: 'JOB_NOT_ASSIGNED_TO_DRIVER',
+          error: 'Forbidden: You cannot attach telemetry to a job not assigned to you.'
+        });
+      }
+    }
   }
 
   // Update in-memory / Redis fast store (Never writing raw high-frequency telemetry to PostgreSQL)
   const locationRecord = db.updateDriverLocation({
-    driverId,
+    driverId: effectiveDriverId,
     lat: effectiveLat,
     lng: effectiveLng,
     heading: heading || bearing,
     speed: speed || speedKmph,
-    jobId: jobId || activeJobId,
-    isOnline,
+    jobId: targetJobId,
+    isOnline: isOnline !== undefined ? isOnline : true,
     status,
     serviceType
   });
@@ -3708,19 +4019,19 @@ app.post(['/api/v1/driver/location', '/api/driver/location'], (req, res) => {
   broadcast({
     type: 'DRIVER_LOCATION_UPDATE',
     channel: 'admin:fleet',
-    driverId,
+    driverId: effectiveDriverId,
     location: locationRecord
   });
 
   // 2. If assigned to an active trip/delivery, broadcast strictly to the authorized customer/merchant channel
-  if (jobId) {
-    const job = db.getJob(jobId);
-    const channelName = job?.type === 'RIDE' ? `ride:${jobId}` : `delivery:${jobId}`;
+  if (targetJobId) {
+    const job = db.getJob(targetJobId);
+    const channelName = job?.type === 'RIDE' ? `ride:${targetJobId}` : `delivery:${targetJobId}`;
     broadcast({
       type: 'DRIVER_LOCATION_UPDATE',
       channel: channelName,
-      jobId,
-      driverId,
+      jobId: targetJobId,
+      driverId: effectiveDriverId,
       location: locationRecord
     });
   }
@@ -3735,35 +4046,93 @@ app.get(['/api/v1/fleet/locations', '/api/fleet/locations'], authenticateAdmin, 
   res.json({ success: true, count: fleet.length, fleet });
 });
 
-app.get(['/api/v1/tracking/:jobId', '/api/tracking/:jobId'], (req, res) => {
-  const jobId = req.params.jobId;
-  const job = db.getJob(jobId);
-  if (!job) {
-    return res.status(404).json({ success: false, code: 'JOB_NOT_FOUND', message: `Job ${jobId} not found.` });
+app.get(['/api/v1/tracking/:jobId', '/api/tracking/:jobId'], async (req, res) => {
+  try {
+    const jobId = req.params.jobId;
+    const job = await db.jobRepo?.findByIdAsync(jobId) || db.getJob(jobId);
+    if (!job) {
+      return res.status(404).json({ success: false, code: 'JOB_NOT_FOUND', message: `Job ${jobId} not found.` });
+    }
+
+    // Tenant Authentication & Authorization: Customer, Assigned Driver, or Admin
+    const authHeader = req.headers['authorization'] || '';
+    const token = authHeader.replace(/^Bearer\s+/, '').trim();
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        code: 'AUTH_REQUIRED',
+        error: 'Unauthorized: Authentication token required to track trip.'
+      });
+    }
+
+    const session = db.getSessionByToken(token);
+    if (!session) {
+      return res.status(401).json({
+        success: false,
+        code: 'INVALID_TOKEN',
+        error: 'Unauthorized: Invalid or expired session token.'
+      });
+    }
+
+    const role = (session.role || '').toUpperCase();
+    const callerId = session.entityId;
+    const isAdmin = role === 'ADMIN' || role === 'SUPER_ADMIN';
+
+    if (!isAdmin) {
+      if (role === 'CUSTOMER') {
+        const customerUuid = db.userRepo?.resolveUuid(callerId) || callerId;
+        const jobCustomerUuid = db.userRepo?.resolveUuid(job.customerId) || job.customerUuid || job.customerId;
+        if (callerId !== job.customerId && customerUuid !== jobCustomerUuid) {
+          return res.status(403).json({
+            success: false,
+            code: 'CUSTOMER_MISMATCH',
+            error: 'Forbidden: You cannot track another customer\'s trip.'
+          });
+        }
+      } else if (role === 'DRIVER') {
+        const driverUuid = db.driverRepo?.resolveUuid(callerId) || callerId;
+        const jobDriverUuid = db.driverRepo?.resolveUuid(job.driverId) || job.driverUuid || job.driverId;
+        if (callerId !== job.driverId && driverUuid !== jobDriverUuid) {
+          return res.status(403).json({
+            success: false,
+            code: 'DRIVER_MISMATCH',
+            error: 'Forbidden: You are not assigned to this trip.'
+          });
+        }
+      } else {
+        return res.status(403).json({
+          success: false,
+          code: 'FORBIDDEN_TRACKING_ACCESS',
+          error: 'Forbidden: Role not authorized for tracking.'
+        });
+      }
+    }
+
+    const effectiveDriverId = job.driverId || null;
+    const driverLocation = effectiveDriverId ? (db.getDriverLocation(effectiveDriverId) || {
+      driverId: effectiveDriverId,
+      lat: 28.6853,
+      lng: 77.2185,
+      heading: 90.0,
+      speed: 28.5
+    }) : null;
+
+    const driverObj = effectiveDriverId ? (db.getDriver(effectiveDriverId) || { id: effectiveDriverId, name: job.driverName || 'Rajesh Kumar', phone: '+91 98101 22334' }) : null;
+
+    res.json({
+      success: true,
+      jobId: job.id,
+      status: job.status,
+      type: job.type || job.serviceType,
+      channel: (job.type || job.serviceType) === 'RIDE' ? `ride:${job.id}` : `delivery:${job.id}`,
+      driver: driverObj ? { id: driverObj.id || effectiveDriverId, name: driverObj.name || 'Rajesh Kumar', phone: driverObj.phone || '+91 98101 22334' } : null,
+      location: driverLocation,
+      pickup: job.pickup,
+      drop: job.drop
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
   }
-
-  const effectiveDriverId = job.driverId || 'DRV-101';
-  const driverLocation = db.getDriverLocation(effectiveDriverId) || {
-    driverId: effectiveDriverId,
-    lat: 28.6853,
-    lng: 77.2185,
-    heading: 90.0,
-    speed: 28.5
-  };
-
-  const driverObj = db.getDriver(effectiveDriverId) || { id: effectiveDriverId, name: job.driverName || 'Rajesh Kumar', phone: '+91 98101 22334' };
-
-  res.json({
-    success: true,
-    jobId: job.id,
-    status: job.status,
-    type: job.type,
-    channel: job.type === 'RIDE' ? `ride:${job.id}` : `delivery:${job.id}`,
-    driver: { id: driverObj.id || effectiveDriverId, name: driverObj.name || 'Rajesh Kumar', phone: driverObj.phone || '+91 98101 22334' },
-    location: driverLocation,
-    pickup: job.pickup,
-    drop: job.drop
-  });
 });
 
 // -------------------------------------------------------------

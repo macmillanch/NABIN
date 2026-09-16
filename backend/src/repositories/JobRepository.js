@@ -1,5 +1,7 @@
 const { supabaseAdmin, isLivePostgres } = require('../supabase');
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 const VALID_JOB_TRANSITIONS = {
   'REQUESTED': [],
   'SEARCHING': ['REQUESTED'],
@@ -24,17 +26,18 @@ function mapRowToJob(row) {
   if (!row) return null;
   const meta = row.metadata || {};
   return {
+    ...meta,
     id: row.job_number || row.id,
     uuid: row.id,
     jobNumber: row.job_number,
     type: row.service_type,
     serviceType: row.service_type,
-    customerId: meta.customerId || row.customer_id,
+    customerId: row.customer_id || meta.customerId,
     customerUuid: row.customer_id,
     customerName: meta.customerName || 'Customer',
     customerPhone: meta.customerPhone || null,
     customerRating: meta.customerRating || 5.0,
-    driverId: meta.driverId || row.driver_id,
+    driverId: row.driver_id || meta.driverId || null,
     driverUuid: row.driver_id,
     merchantId: row.merchant_id,
     status: row.status,
@@ -66,8 +69,7 @@ function mapRowToJob(row) {
     restaurantId: meta.restaurantId || null,
     restaurantName: meta.restaurantName || null,
     createdAt: row.created_at || new Date().toISOString(),
-    updatedAt: row.updated_at || new Date().toISOString(),
-    ...meta
+    updatedAt: row.updated_at || new Date().toISOString()
   };
 }
 
@@ -88,22 +90,31 @@ class JobRepository {
   async findByIdAsync(id) {
     if (!id) return null;
     const cached = this.findById(id);
-    if (cached) return cached;
 
     if (isLivePostgres && supabaseAdmin) {
-      const { data, error } = await supabaseAdmin
-        .from('jobs')
-        .select('*')
-        .or(`job_number.eq.${id},id.eq.${id}`)
-        .maybeSingle();
+      const isUuid = UUID_REGEX.test(id);
+      let query = supabaseAdmin.from('jobs').select('*');
+      if (isUuid) {
+        query = query.eq('id', id);
+      } else {
+        query = query.eq('job_number', id);
+      }
+      const { data, error } = await query.maybeSingle();
 
       if (!error && data) {
         const job = mapRowToJob(data);
-        if (this.db.jobs) this.db.jobs.unshift(job);
+        if (this.db.jobs) {
+          const idx = this.db.jobs.findIndex(j => j.id === job.id || j.jobNumber === job.jobNumber);
+          if (idx !== -1) {
+            this.db.jobs[idx] = job;
+          } else {
+            this.db.jobs.unshift(job);
+          }
+        }
         return job;
       }
     }
-    return null;
+    return cached;
   }
 
   findByJobNumber(jobNumber) {
@@ -228,6 +239,26 @@ class JobRepository {
     const nowIso = new Date().toISOString();
     const targetJobNumber = job.jobNumber || job.id;
 
+    if (newStatus === 'ASSIGNED') {
+      if (isLivePostgres && supabaseAdmin && targetDriverUuid) {
+        const { data, error } = await supabaseAdmin.rpc('accept_job_assignment_atomic', {
+          p_job_identifier: String(targetJobNumber),
+          p_driver_id: targetDriverUuid
+        });
+        if (error) {
+          throw new Error(`PostgreSQL job status update failed: ${error.message}`);
+        }
+        if (!data || !data.success) {
+          throw new Error(`Atomic job transition rejected: ${data?.error || `Job ${jobId} could not transition to ASSIGNED`}`);
+        }
+        job.status = newStatus;
+        if (driverId) job.driverId = driverId;
+        job.updatedAt = data.accepted_at || nowIso;
+        Object.assign(job, extraFields);
+        return job;
+      }
+    }
+
     if (isLivePostgres && supabaseAdmin) {
       const updatePayload = {
         status: newStatus,
@@ -292,3 +323,4 @@ class JobRepository {
 }
 
 module.exports = JobRepository;
+module.exports.mapRowToJob = mapRowToJob;

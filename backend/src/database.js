@@ -12,6 +12,7 @@ const PromotionRepository = require('./repositories/PromotionRepository');
 const PricingRepository = require('./repositories/PricingRepository');
 const NotificationRepository = require('./repositories/NotificationRepository');
 const OrderRepository = require('./repositories/OrderRepository');
+const DispatchRepository = require('./repositories/DispatchRepository');
 
 // Shared relational store with durable persistence, crash recovery & double-entry accounting
 class NabinDatabase {
@@ -1778,6 +1779,7 @@ class NabinDatabase {
     this.pricingRepo = new PricingRepository(this);
     this.notificationRepo = new NotificationRepository(this);
     this.orderRepo = new OrderRepository(this);
+    this.dispatchRepo = new DispatchRepository(this);
   }
 
   save() {
