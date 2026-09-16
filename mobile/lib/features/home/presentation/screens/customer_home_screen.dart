@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/models/school_child_repository.dart';
+import '../../../../core/network/session_manager.dart';
+import '../../../../core/network/nabin_api_service.dart';
 
 class CustomerHomeScreen extends StatefulWidget {
   const CustomerHomeScreen({super.key});
@@ -13,11 +15,30 @@ class CustomerHomeScreen extends StatefulWidget {
 class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
   int _navIndex = 0;
   String _currentLocation = 'Civil Lines, Delhi';
+  Map<String, dynamic>? _features;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadFeatures();
+  }
+
+  Future<void> _loadFeatures() async {
+    final features = await NabinApiService.getPlatformFeatures();
+    if (mounted) {
+      setState(() {
+        _features = features;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final repo = SchoolChildRepository.instance;
     final primaryChild = repo.children.isNotEmpty ? repo.children.first : null;
+    final user = SessionManager.instance.currentUser;
+    final String firstName = user?['name']?.toString().split(' ').first ?? 'User';
+    final double walletBalance = (user?['wallet_balance'] as num?)?.toDouble() ?? 0.0;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
@@ -84,11 +105,11 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                 borderRadius: BorderRadius.circular(16),
                 border: Border.all(color: const Color(0xFF3C4890).withValues(alpha: 0.2)),
               ),
-              child: const Row(
+              child: Row(
                 children: [
-                  Icon(Icons.account_balance_wallet_rounded, color: Color(0xFF3C4890), size: 15),
-                  SizedBox(width: 5),
-                  Text('₹1,250', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12, color: Color(0xFF3C4890))),
+                  const Icon(Icons.account_balance_wallet_rounded, color: Color(0xFF3C4890), size: 15),
+                  const SizedBox(width: 5),
+                  Text('₹${walletBalance.toStringAsFixed(0)}', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12, color: Color(0xFF3C4890))),
                 ],
               ),
             ),
@@ -110,18 +131,18 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                child: const Row(
+                child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Good Morning, Rahul 👋',
-                          style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900, color: AppTheme.onSurface, letterSpacing: -0.4),
+                          'Good Morning, $firstName 👋',
+                          style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w900, color: AppTheme.onSurface, letterSpacing: -0.4),
                         ),
-                        SizedBox(height: 2),
-                        Text('Where would you like to travel or order today?', style: TextStyle(color: Color(0xFF64748B), fontSize: 12.5)),
+                        const SizedBox(height: 2),
+                        const Text('Where would you like to travel or order today?', style: TextStyle(color: Color(0xFF64748B), fontSize: 12.5)),
                       ],
                     ),
                   ],
@@ -248,7 +269,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
 
               // 1. Ride (Full Width Hero Card)
               GestureDetector(
-                onTap: () => context.push('/ride-booking'),
+                onTap: () => _handleServiceTap('FEATURE_RIDE', '/ride-booking'),
                 child: Container(
                   padding: const EdgeInsets.all(18),
                   decoration: BoxDecoration(
@@ -327,7 +348,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                   // Food Delivery Card
                   Expanded(
                     child: GestureDetector(
-                      onTap: () => context.push('/food-home'),
+                      onTap: () => _handleServiceTap('FEATURE_FOOD', '/food-home'),
                       child: Container(
                         padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
@@ -373,7 +394,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                   // 10-Min Grocery Express Card
                   Expanded(
                     child: GestureDetector(
-                      onTap: () => context.push('/grocery-home'),
+                      onTap: () => _handleServiceTap('FEATURE_GROCERY', '/grocery-home'),
                       child: Container(
                         padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
@@ -425,7 +446,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                   // Parcel Courier Card
                   Expanded(
                     child: GestureDetector(
-                      onTap: () => context.push('/parcel-booking'),
+                      onTap: () => _handleServiceTap('FEATURE_PARCEL', '/parcel-booking'),
                       child: Container(
                         padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
@@ -763,5 +784,22 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
         ),
       ),
     );
+  }
+
+  void _handleServiceTap(String featureKey, String route) {
+    // If features are not yet loaded, allow optimism or block. Let's allow for now if null.
+    if (_features != null) {
+      final isEnabled = _features![featureKey] == true;
+      if (!isEnabled) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('This service is currently unavailable in your area.'),
+            backgroundColor: Colors.orange.shade800,
+          ),
+        );
+        return;
+      }
+    }
+    context.push(route);
   }
 }

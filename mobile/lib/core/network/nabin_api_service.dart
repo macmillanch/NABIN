@@ -84,6 +84,18 @@ class NabinApiService {
     }
   }
 
+  static Future<Map<String, dynamic>?> getPlatformFeatures() async {
+    try {
+      final client = HttpClient();
+      final request = await client.getUrl(Uri.parse('$effectiveUrl/features'));
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      return jsonDecode(body) as Map<String, dynamic>;
+    } catch (e) {
+      return null;
+    }
+  }
+
   /// Get Current Authenticated Profile
   static Future<Map<String, dynamic>?> getProfile() async {
     try {
@@ -155,95 +167,7 @@ class NabinApiService {
     }
   }
 
-  /// Book Passenger Ride (Enforces Verified Identity & Server Authoritative Pricing)
-  static Future<Map<String, dynamic>?> bookRide({
-    required String customerId,
-    required String vehicleType,
-    required String pickupAddress,
-    required String dropAddress,
-    double? pickupLat,
-    double? pickupLng,
-    String? promoCode,
-    String? bookingType,
-    String? passengerCategory,
-    Map<String, dynamic>? passengerInfo,
-  }) async {
-    try {
-      final client = HttpClient();
-      final request = await client.postUrl(Uri.parse('$effectiveUrl/customer/book-ride'));
-      request.headers.set('content-type', 'application/json');
-      _attachAuthHeader(request);
-      request.add(utf8.encode(jsonEncode({
-        'customerId': customerId,
-        'vehicleType': vehicleType,
-        'pickup': {'address': pickupAddress, 'lat': pickupLat, 'lng': pickupLng},
-        'drop': {'address': dropAddress},
-        'promoCode': promoCode,
-        'bookingType': bookingType,
-        'passengerCategory': passengerCategory,
-        'passengerInfo': passengerInfo,
-      })));
-      final response = await request.close();
-      final body = await response.transform(utf8.decoder).join();
-      return jsonDecode(body) as Map<String, dynamic>;
-    } catch (e) {
-      return {'success': false, 'error': e.toString()};
-    }
-  }
 
-  /// Book Restaurant Food Order (Authoritative Menu Pricing & Dual-OTP)
-  static Future<Map<String, dynamic>?> bookFood({
-    required String customerId,
-    required String restaurantId,
-    required List<String> items,
-    required String deliveryAddress,
-    String? promoCode,
-  }) async {
-    try {
-      final client = HttpClient();
-      final request = await client.postUrl(Uri.parse('$effectiveUrl/customer/book-food'));
-      request.headers.set('content-type', 'application/json');
-      _attachAuthHeader(request);
-      request.add(utf8.encode(jsonEncode({
-        'customerId': customerId,
-        'restaurantId': restaurantId,
-        'items': items,
-        'deliveryAddress': deliveryAddress,
-        'promoCode': promoCode,
-      })));
-      final response = await request.close();
-      final body = await response.transform(utf8.decoder).join();
-      return jsonDecode(body) as Map<String, dynamic>;
-    } catch (e) {
-      return {'success': false, 'error': e.toString()};
-    }
-  }
-
-  /// Book Instant Parcel Courier (Dual-OTP Handover Security)
-  static Future<Map<String, dynamic>?> bookParcel({
-    required String customerId,
-    required String senderAddress,
-    required String recipientAddress,
-    String? promoCode,
-  }) async {
-    try {
-      final client = HttpClient();
-      final request = await client.postUrl(Uri.parse('$effectiveUrl/customer/book-parcel'));
-      request.headers.set('content-type', 'application/json');
-      _attachAuthHeader(request);
-      request.add(utf8.encode(jsonEncode({
-        'customerId': customerId,
-        'senderDetails': {'address': senderAddress},
-        'recipientDetails': {'address': recipientAddress},
-        'promoCode': promoCode,
-      })));
-      final response = await request.close();
-      final body = await response.transform(utf8.decoder).join();
-      return jsonDecode(body) as Map<String, dynamic>;
-    } catch (e) {
-      return {'success': false, 'error': e.toString()};
-    }
-  }
 
   // =========================================================================
   // 3. GROCERY & DYNAMIC PRICING APIS
@@ -508,5 +432,56 @@ class NabinApiService {
       return null;
     }
   }
-}
 
+  // =========================================================================
+  // 8. CUSTOMER BOOKINGS
+  // =========================================================================
+
+  static Future<Map<String, dynamic>?> bookRide(Map<String, dynamic> payload) async {
+    try {
+      final client = HttpClient();
+      final request = await client.postUrl(Uri.parse('$effectiveUrl/customer/book-ride'));
+      request.headers.set('content-type', 'application/json');
+      _attachAuthHeader(request);
+      request.add(utf8.encode(jsonEncode(payload)));
+      
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      return jsonDecode(body) as Map<String, dynamic>;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  static Future<Map<String, dynamic>?> bookFood(Map<String, dynamic> payload) async {
+    try {
+      final client = HttpClient();
+      final request = await client.postUrl(Uri.parse('$effectiveUrl/customer/book-food'));
+      request.headers.set('content-type', 'application/json');
+      _attachAuthHeader(request);
+      request.add(utf8.encode(jsonEncode(payload)));
+      
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      return jsonDecode(body) as Map<String, dynamic>;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  static Future<Map<String, dynamic>?> bookParcel(Map<String, dynamic> payload) async {
+    try {
+      final client = HttpClient();
+      final request = await client.postUrl(Uri.parse('$effectiveUrl/customer/book-parcel'));
+      request.headers.set('content-type', 'application/json');
+      _attachAuthHeader(request);
+      request.add(utf8.encode(jsonEncode(payload)));
+      
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      return jsonDecode(body) as Map<String, dynamic>;
+    } catch (e) {
+      return null;
+    }
+  }
+}

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../theme/grocery_theme.dart';
 import '../../../../core/network/nabin_api_service.dart';
-
+import '../../../../core/network/session_manager.dart';
 /// Dedicated 10-Minute Express Checkout Screen for NABIN Grocery App
 class GroceryCheckoutScreen extends StatefulWidget {
   final List<Map<String, dynamic>> cartItems;
@@ -102,9 +102,13 @@ class _GroceryCheckoutScreenState extends State<GroceryCheckoutScreen> {
   Future<void> _processCheckoutOrder() async {
     setState(() => _isSubmitting = true);
 
+    final user = SessionManager.instance.currentUser;
+    final customerName = user?['name'] ?? 'Rahul Sharma';
+    final customerPhone = user?['phone'] ?? '+91 98765 43210';
+
     final payload = {
-      'customerName': 'Rahul Sharma',
-      'customerPhone': '+91 98765 43210',
+      'customerName': customerName,
+      'customerPhone': customerPhone,
       'deliveryAddress': '$_selectedAddressLabel: $_selectedAddressDetails',
       'deliveryInstructions': _deliveryNoteController.text.trim(),
       'paymentMethod': _selectedPaymentMethod,

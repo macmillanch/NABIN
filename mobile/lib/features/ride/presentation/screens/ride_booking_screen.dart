@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../../../../core/network/nabin_api_service.dart';
+import '../../../../core/network/session_manager.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/driver_map_view.dart';
@@ -1002,7 +1004,7 @@ class _RideBookingScreenState extends State<RideBookingScreen> {
 
                   // Confirm Button
                   ElevatedButton(
-                    onPressed: () {
+                    onPressed: () async {
                       final selected = _vehicles[_selectedVehicleIndex];
                       final type = _selectedVehicleIndex == 0 ? '2W' : (_selectedVehicleIndex == 1 ? '3W' : '4W');
                       
@@ -1027,12 +1029,36 @@ class _RideBookingScreenState extends State<RideBookingScreen> {
                         startOtp: '7729',
                       );
 
-                      context.push('/active-ride', extra: {
+                      final user = SessionManager.instance.currentUser;
+                      final customerId = user?['id']?.toString() ?? 'cust_active';
+
+                      final payload = {
+                        'customerId': customerId,
                         'vehicleType': type,
-                        'vehicleName': selected['name'],
-                        'fare': selected['fare'],
-                        'passengerInfo': passengerInfo,
-                      });
+                        'pickup': {'address': _pickupAddress, 'lat': 28.7041, 'lng': 77.1025},
+                        'drop': {'address': _destinationAddress},
+                        'bookingType': _bookingType,
+                        'passengerCategory': _passengerCategory,
+                        'passengerInfo': passengerInfo.toJson(),
+                      };
+
+                      final res = await NabinApiService.bookRide(payload);
+
+                      if (!mounted) return;
+                      
+                      if (res != null && res['success'] == true) {
+                        context.pushReplacement('/active-ride', extra: {
+                          'vehicleType': type,
+                          'vehicleName': selected['name'],
+                          'fare': selected['fare'],
+                          'passengerInfo': passengerInfo,
+                          'jobId': res['job']?['id'] ?? 'TRIP-772',
+                        });
+                      } else {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text(res?['error'] ?? 'Ride booking failed')),
+                        );
+                      }
                     },
                     style: ElevatedButton.styleFrom(
                       backgroundColor: isSchoolChild ? const Color(0xFFFF6D00) : AppTheme.primaryContainer,

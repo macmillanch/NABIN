@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/theme/app_theme.dart';
-
+import '../../../../core/network/nabin_api_service.dart';
+import '../../../../core/network/session_manager.dart';
 class ParcelBookingScreen extends StatefulWidget {
   const ParcelBookingScreen({super.key});
 
@@ -11,6 +12,7 @@ class ParcelBookingScreen extends StatefulWidget {
 
 class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
   int _weightTier = 0; // 0: Up to 5kg, 1: 5-10kg, 2: 10-20kg
+  bool _isBooking = false;
 
   final List<Map<String, dynamic>> _tiers = [
     {
@@ -196,11 +198,32 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
               const SizedBox(height: 24),
 
               ElevatedButton(
-                onPressed: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Courier Dispatch Broadcasted! Driver assigned with Dual-OTP.')),
-                  );
-                  context.pop();
+                onPressed: _isBooking ? null : () async {
+                  setState(() => _isBooking = true);
+                  final user = SessionManager.instance.currentUser;
+                  final customerId = user?['id']?.toString() ?? 'cust_active';
+
+                  final payload = {
+                    'customerId': customerId,
+                    'senderAddress': 'Flat 402, Kamla Nagar, Delhi',
+                    'recipientAddress': 'Plot 18, Block B, Connaught Place, New Delhi',
+                  };
+
+                  final res = await NabinApiService.bookParcel(payload);
+
+                  if (!mounted) return;
+                  setState(() => _isBooking = false);
+
+                  if (res != null && res['success'] == true) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Courier Dispatch Broadcasted! Job ID: ${res['job']?['id']}')),
+                    );
+                    context.pop();
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text(res?['error'] ?? 'Booking failed')),
+                    );
+                  }
                 },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF00897B),
@@ -212,9 +235,13 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Text('Book Courier Delivery • ${_tiers[_weightTier]['fare']}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900)),
-                    const SizedBox(width: 8),
-                    const Icon(Icons.arrow_forward_rounded, size: 18),
+                    if (_isBooking)
+                      const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                    else ...[
+                      Text('Book Courier Delivery • ${_tiers[_weightTier]['fare']}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900)),
+                      const SizedBox(width: 8),
+                      const Icon(Icons.arrow_forward_rounded, size: 18),
+                    ],
                   ],
                 ),
               ),

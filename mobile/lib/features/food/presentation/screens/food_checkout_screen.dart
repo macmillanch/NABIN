@@ -1,7 +1,7 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:http/http.dart' as http;
+import '../../../../core/network/nabin_api_service.dart';
+import '../../../../core/network/session_manager.dart';
 import '../../../../core/theme/restaurant_theme.dart';
 
 class FoodCheckoutScreen extends StatefulWidget {
@@ -56,58 +56,45 @@ class _FoodCheckoutScreenState extends State<FoodCheckoutScreen> {
   Future<void> _placeOrder() async {
     setState(() => _isPlacingOrder = true);
 
-    try {
-      final payload = {
-        'restaurantId': 'rest-001',
-        'restaurantName': 'Dilli Darbar Mughlai Kitchen',
-        'customerName': 'Rahul Sharma',
-        'customerPhone': '+91 98765 43210',
-        'deliveryAddress': _deliveryAddress,
-        'instructions': _instructionCtrl.text.trim(),
-        'items': _items,
-        'itemTotal': _itemTotal,
-        'discount': _couponDiscount,
-        'grandTotal': _grandTotal,
-        'paymentMethod': _selectedPaymentMethod,
-      };
+    final user = SessionManager.instance.currentUser;
+    final customerId = user?['id']?.toString() ?? 'cust_active';
 
-      final res = await http.post(
-        Uri.parse('http://127.0.0.1:4000/api/customer/book-food'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode(payload),
-      ).timeout(const Duration(seconds: 4));
-
-      if (res.statusCode == 200 || res.statusCode == 201) {
-        final data = jsonDecode(res.body);
-        if (!mounted) return;
-        context.pushReplacement('/food-tracking', extra: {
-          'orderId': data['orderId'] ?? data['jobId'] ?? 'FD-88912',
-          'deliveryOtp': data['deliveryOtp'] ?? data['pickupOtp'] ?? '4892',
-          'restaurantName': 'Dilli Darbar Mughlai Kitchen',
-          'grandTotal': '₹$_grandTotal',
-          'items': _items,
-          'deliveryAddress': _deliveryAddress,
-          'driverName': 'Deepak Kumar (TVS Auto DL 1RA 4892)',
-        });
-      } else {
-        _fallbackSuccess();
-      }
-    } catch (_) {
-      _fallbackSuccess();
-    }
-  }
-
-  void _fallbackSuccess() {
-    if (!mounted) return;
-    context.pushReplacement('/food-tracking', extra: {
-      'orderId': 'FD-${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}',
-      'deliveryOtp': '4892',
-      'restaurantName': 'Dilli Darbar Mughlai Kitchen',
-      'grandTotal': '₹$_grandTotal',
-      'items': _items,
+    final payload = {
+      'customerId': customerId,
+      'restaurantId': 'rest-001',
       'deliveryAddress': _deliveryAddress,
-      'driverName': 'Deepak Kumar (TVS Auto DL 1RA 4892)',
-    });
+      'items': _items.map((e) => e['name'].toString()).toList(),
+      // Extra details for UI tracking, backend may ignore what it doesn't need
+      'instructions': _instructionCtrl.text.trim(),
+      'itemTotal': _itemTotal,
+      'discount': _couponDiscount,
+      'grandTotal': _grandTotal,
+      'paymentMethod': _selectedPaymentMethod,
+    };
+
+    final res = await NabinApiService.bookFood(payload);
+
+    if (!mounted) return;
+    setState(() => _isPlacingOrder = false);
+
+    if (res != null && res['success'] == true) {
+      final job = res['job'] ?? res['order'] ?? {};
+      context.pushReplacement('/food-tracking', extra: {
+        'orderId': job['id'] ?? 'FD-88912',
+        'deliveryOtp': job['deliveryOtp'] ?? job['pickupOtp'] ?? '4892',
+        'restaurantName': 'Dilli Darbar Mughlai Kitchen',
+        'grandTotal': '₹$_grandTotal',
+        'items': _items,
+        'deliveryAddress': _deliveryAddress,
+        'driverName': 'Assigning...',
+      });
+    } else {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(res?['error'] ?? 'Booking failed')),
+        );
+      }
+    }
   }
 
   @override

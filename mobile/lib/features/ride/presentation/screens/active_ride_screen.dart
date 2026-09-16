@@ -6,12 +6,14 @@ import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/driver_map_view.dart';
 import '../../../../core/models/passenger_booking_info.dart';
 import '../../../../core/network/nabin_ws_service.dart';
+import '../../../../core/network/session_manager.dart';
 
 class ActiveRideScreen extends StatefulWidget {
   final String vehicleType;
   final String vehicleName;
   final String fare;
   final PassengerBookingInfo? passengerInfo;
+  final String? jobId;
 
   const ActiveRideScreen({
     super.key,
@@ -19,6 +21,7 @@ class ActiveRideScreen extends StatefulWidget {
     this.vehicleName = 'Auto',
     this.fare = '₹85.00',
     this.passengerInfo,
+    this.jobId,
   });
 
   @override
@@ -40,7 +43,9 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
   }
 
   void _connectCustomerWs() {
-    NabinWsService.instance.connect(role: 'customer', userId: 'cust_active');
+    final user = SessionManager.instance.currentUser;
+    final userId = user?['id']?.toString() ?? 'cust_active';
+    NabinWsService.instance.connect(role: 'customer', userId: userId);
     _tripSub = NabinWsService.instance.onTripUpdate.listen((msg) {
       if (!mounted) return;
       final type = msg['type'] as String?;
