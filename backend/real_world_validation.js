@@ -1,9 +1,11 @@
 const https = require('https');
 const http = require('http');
 const WebSocket = require('ws');
+const crypto = require('crypto');
 
 const BASE_URL = process.env.NABIN_API_URL || 'http://localhost:4000';
 const WS_URL = process.env.NABIN_WS_URL || 'ws://localhost:4000';
+const WEBHOOK_SECRET = process.env.PAYMENT_WEBHOOK_SECRET || 'whsec_nabin_secure_beta_2026';
 
 function request(method, path, body, headers = {}) {
   return new Promise((resolve, reject) => {
@@ -228,21 +230,29 @@ async function runRealWorldValidation() {
   assert('Restaurant marks order READY_FOR_PICKUP -> alerts courier pool', kitchenReady.status === 200 && kitchenReady.body.success);
 
   console.log('\n--- 7. PAYMENT IDEMPOTENCY & GATEWAY CONTRACT ---');
-  const payWebhookRes1 = await request('POST', '/api/payments/webhook', {
+  const whPayload1 = {
     eventId: 'evt_real_test_8819',
     orderId: foodJob.id,
     amount: 560.0,
     status: 'captured',
     gatewayPaymentId: 'pay_rzp_8819'
+  };
+  const whSig1 = crypto.createHmac('sha256', WEBHOOK_SECRET).update(JSON.stringify(whPayload1)).digest('hex');
+  const payWebhookRes1 = await request('POST', '/api/payments/webhook', whPayload1, {
+    'x-razorpay-signature': whSig1
   });
   assert('Payment capture webhook records escrow credit', payWebhookRes1.status === 200 && payWebhookRes1.body.success);
 
-  const payWebhookRes2 = await request('POST', '/api/payments/webhook', {
+  const whPayload2 = {
     eventId: 'evt_real_test_8819',
     orderId: foodJob.id,
     amount: 560.0,
     status: 'captured',
     gatewayPaymentId: 'pay_rzp_8819'
+  };
+  const whSig2 = crypto.createHmac('sha256', WEBHOOK_SECRET).update(JSON.stringify(whPayload2)).digest('hex');
+  const payWebhookRes2 = await request('POST', '/api/payments/webhook', whPayload2, {
+    'x-razorpay-signature': whSig2
   });
   assert('Duplicate replay payment webhook handled idempotently', payWebhookRes2.status === 200 && (payWebhookRes2.body.duplicate === true || payWebhookRes2.body.idempotentReplay === true));
 

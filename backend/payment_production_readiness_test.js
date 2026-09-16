@@ -2,7 +2,7 @@ const crypto = require('crypto');
 const https = require('https');
 const http = require('http');
 
-const BASE_URL = process.env.NABIN_API_URL || 'http://localhost:4000';
+const BASE_URL = process.env.NABIN_API_URL || 'http://127.0.0.1:4000';
 const WEBHOOK_SECRET = process.env.PAYMENT_WEBHOOK_SECRET || 'whsec_nabin_secure_beta_2026';
 const KEY_SECRET = process.env.PAYMENT_KEY_SECRET || 'rzp_sec_nabin_beta_test_secret_2026';
 
@@ -71,23 +71,27 @@ async function runProductionReadinessAudit() {
     }
   }
 
+  // Setup Customer Auth
+  const custLogin = await request('POST', '/api/auth/send-otp', { phone: '9845011982', role: 'CUSTOMER', purpose: 'LOGIN' });
+  const custVerify = await request('POST', '/api/auth/verify-otp', { phone: '9845011982', otp: custLogin.body?.testOtp || '7729', role: 'CUSTOMER' });
+  const customerToken = custVerify.body?.token;
+  const authHeaders = customerToken ? { 'Authorization': `Bearer ${customerToken}` } : {};
+
   // --- TEST 1: Provider Order Creation with Currency & Positive Amount Validation ---
   console.log('--- 1. ORDER CREATION & AMOUNT/CURRENCY VALIDATION ---');
   const invalidZeroOrder = await request('POST', '/api/payments/create-order', {
-    customerId: 'usr_cust_1',
     amount: 0,
     currency: 'INR'
-  });
+  }, authHeaders);
   assert('Zero/negative amount is rejected with HTTP 400', invalidZeroOrder.status === 400);
 
   const validOrderRes = await request('POST', '/api/payments/create-order', {
-    customerId: 'usr_cust_1',
     amount: 350.0,
     currency: 'INR',
     serviceType: 'FOOD',
     jobId: 'JOB-FOOD-AUDIT-1',
     metadata: { restaurant: 'Dilli Darbar', itemsCount: 3 }
-  });
+  }, authHeaders);
   assert('Valid order session created in PAYMENT_PENDING state', 
     validOrderRes.status === 200 && validOrderRes.body.session?.status === 'PAYMENT_PENDING' && validOrderRes.body.session?.amount === 350.0,
     `Order: ${validOrderRes.body.session?.orderId}`
@@ -104,16 +108,16 @@ async function runProductionReadinessAudit() {
     paymentId,
     signature: 'fake_tampered_signature_xyz',
     status: 'SUCCESS'
-  });
-  // Must accept only valid signature or sandbox signature verification
-  assert('Checkout verification requires valid signature verification', tamperedSigRes.status === 200 || tamperedSigRes.status === 400);
+  }, authHeaders);
+  // Must reject invalid signature with 400
+  assert('Checkout verification requires valid signature verification', tamperedSigRes.status === 400);
 
   const validCheckoutRes = await request('POST', '/api/payments/verify-checkout', {
     orderId,
     paymentId,
     signature: validSignature,
     status: 'SUCCESS'
-  });
+  }, authHeaders);
   assert('Valid signature transitions session to PAYMENT_SUCCESS', validCheckoutRes.status === 200 && validCheckoutRes.body.session?.status === 'PAYMENT_SUCCESS');
 
   // --- TEST 3: Double-Credit Prevention & Idempotency ---
@@ -123,7 +127,7 @@ async function runProductionReadinessAudit() {
     paymentId,
     signature: validSignature,
     status: 'SUCCESS'
-  });
+  }, authHeaders);
   assert('Duplicate checkout verification returns duplicate flag without extra ledger entry', 
     duplicateCheckoutRes.status === 200 && (duplicateCheckoutRes.body.duplicate === true || duplicateCheckoutRes.body.session?.status === 'PAYMENT_SUCCESS')
   );
@@ -131,18 +135,17 @@ async function runProductionReadinessAudit() {
   // --- TEST 4: Failed Payment Handling ---
   console.log('\n--- 4. FAILED PAYMENT INTEGRITY ---');
   const failOrderRes = await request('POST', '/api/payments/create-order', {
-    customerId: 'usr_cust_2',
     amount: 500.0,
     serviceType: 'RIDE',
     jobId: 'JOB-RIDE-FAIL-AUDIT'
-  });
+  }, authHeaders);
   const failOrderId = failOrderRes.body.session?.orderId;
 
   const verifyFail = await request('POST', '/api/payments/verify-checkout', {
     orderId: failOrderId,
     status: 'FAILED',
     failureReason: 'Transaction declined: 3D Secure authentication failed'
-  });
+  }, authHeaders);
   assert('Failed payment marked PAYMENT_FAILED with reason captured', 
     verifyFail.body.session?.status === 'PAYMENT_FAILED',
     verifyFail.body.session?.failureReason
@@ -151,17 +154,16 @@ async function runProductionReadinessAudit() {
   // --- TEST 5: Cancelled Payment Handling ---
   console.log('\n--- 5. CANCELLED PAYMENT INTEGRITY ---');
   const cancelOrderRes = await request('POST', '/api/payments/create-order', {
-    customerId: 'usr_cust_3',
     amount: 180.0,
     serviceType: 'PARCEL',
     jobId: 'JOB-PARCEL-CANCEL-AUDIT'
-  });
+  }, authHeaders);
   const cancelOrderId = cancelOrderRes.body.session?.orderId;
 
   const verifyCancel = await request('POST', '/api/payments/verify-checkout', {
     orderId: cancelOrderId,
     status: 'CANCELLED'
-  });
+  }, authHeaders);
   assert('Cancelled payment marked PAYMENT_CANCELLED without financial debit',
     verifyCancel.body.session?.status === 'PAYMENT_CANCELLED'
   );

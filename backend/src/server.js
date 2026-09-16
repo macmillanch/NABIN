@@ -166,7 +166,11 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.json());
+app.use(express.json({
+  verify: (req, res, buf) => {
+    req.rawBody = buf;
+  }
+}));
 
 // Root API Discovery Endpoint
 app.get('/', (req, res) => {
@@ -3767,68 +3771,309 @@ app.get(['/api/v1/tracking/:jobId', '/api/tracking/:jobId'], (req, res) => {
 // -------------------------------------------------------------
 
 // 1. Create Sandbox/Live Payment Order Session
-app.post('/api/payments/create-order', (req, res) => {
+app.post('/api/payments/create-order', authenticateUser, async (req, res) => {
   try {
-    const { customerId, amount, currency = 'INR', serviceType = 'RIDE', jobId, metadata } = req.body;
-    const session = db.createPaymentSession({ customerId, amount, currency, serviceType, jobId, metadata });
+    const customerUuid = resolveCustomerUserUuid(req.user.id || req.user.uuid || req.user.userId);
+    if (!customerUuid) {
+      return res.status(401).json({
+        success: false,
+        error: 'Unauthorized: Authenticated customer identity could not be resolved.',
+        requestId: req.id
+      });
+    }
+
+    const { amount, currency = 'INR', serviceType = 'RIDE', jobId, metadata = {} } = req.body;
+
+    // Enforce tenant/identity isolation: reject spoofed customerId in payload
+    if (req.body.customerId) {
+      const declaredCustomerUuid = resolveCustomerUserUuid(req.body.customerId);
+      if (req.body.customerId !== req.user.id && declaredCustomerUuid !== customerUuid) {
+        return res.status(403).json({
+          success: false,
+          error: 'Forbidden: Cannot create payment session for another customer.',
+          code: 'CUSTOMER_MISMATCH',
+          requestId: req.id
+        });
+      }
+    }
+
+    // Amount integrity check
+    const numAmount = Number(amount);
+    if (isNaN(numAmount) || numAmount <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Valid positive transaction amount is required.',
+        requestId: req.id
+      });
+    }
+
+    // If a ride jobId is passed, verify job ownership and amount
+    if (jobId) {
+      const job = db.getJob ? db.getJob(jobId) : null;
+      if (job) {
+        const jobCustUuid = resolveCustomerUserUuid(job.customerId || job.customer_id);
+        if (jobCustUuid && jobCustUuid !== customerUuid) {
+          return res.status(403).json({
+            success: false,
+            error: 'Forbidden: You do not own this ride job.',
+            code: 'JOB_CUSTOMER_MISMATCH',
+            requestId: req.id
+          });
+        }
+        const expectedFare = Number(job.finalFare || job.fare || job.amount);
+        if (expectedFare && Math.abs(expectedFare - numAmount) > 0.01) {
+          return res.status(400).json({
+            success: false,
+            error: `Amount mismatch: job fare is ₹${expectedFare}, cannot request ₹${numAmount}.`,
+            code: 'AMOUNT_MISMATCH',
+            requestId: req.id
+          });
+        }
+      }
+    }
+
+    // If an orderId is attached in metadata, verify order ownership and amount
+    const orderRef = metadata.orderId || metadata.order_id;
+    if (orderRef && db.orderRepo) {
+      const order = await db.orderRepo.getOrderById(orderRef);
+      if (order) {
+        if (order.customer_id && order.customer_id !== customerUuid) {
+          return res.status(403).json({
+            success: false,
+            error: 'Forbidden: You do not own this order.',
+            code: 'ORDER_CUSTOMER_MISMATCH',
+            requestId: req.id
+          });
+        }
+        const orderTotal = Number(order.total_amount);
+        if (orderTotal && Math.abs(orderTotal - numAmount) > 0.01) {
+          return res.status(400).json({
+            success: false,
+            error: `Amount mismatch: order total is ₹${orderTotal}, cannot request ₹${numAmount}.`,
+            code: 'AMOUNT_MISMATCH',
+            requestId: req.id
+          });
+        }
+      }
+    }
+
+    const session = await db.createPaymentSession({
+      customerId: customerUuid,
+      amount: numAmount,
+      currency,
+      serviceType,
+      jobId,
+      metadata
+    });
+
     res.json({ success: true, session });
   } catch (err) {
-    res.status(400).json({ success: false, error: err.message, requestId: req.id });
+    const statusCode = err.statusCode || 400;
+    res.status(statusCode).json({ success: false, error: err.message, code: err.code, requestId: req.id });
   }
 });
 
 // 2. Verify Payment Checkout & Update Transaction State
-app.post('/api/payments/verify-checkout', async (req, res) => {
+app.post('/api/payments/verify-checkout', authenticateUser, async (req, res) => {
   try {
+    const customerUuid = resolveCustomerUserUuid(req.user.id || req.user.uuid || req.user.userId);
     const { orderId, paymentId, signature, status = 'SUCCESS', failureReason } = req.body;
-    const result = await db.verifyPaymentSession({ orderId, paymentId, signature, status, failureReason });
+
+    const result = await db.verifyPaymentSession({
+      orderId,
+      paymentId,
+      signature,
+      customerId: customerUuid,
+      status,
+      failureReason
+    });
+
     res.json(result);
   } catch (err) {
-    res.status(400).json({ success: false, error: err.message, requestId: req.id });
+    const statusCode = err.statusCode || (err.code === 'CUSTOMER_MISMATCH' ? 403 : 400);
+    res.status(statusCode).json({ success: false, error: err.message, code: err.code, requestId: req.id });
   }
 });
 
 // 3. Query Payment Session
-app.get('/api/payments/session/:orderId', (req, res) => {
-  const session = db.paymentSessions ? db.paymentSessions.get(req.params.orderId) : null;
-  if (!session) return res.status(404).json({ success: false, error: 'Payment session not found' });
-  res.json({ success: true, session });
+app.get('/api/payments/session/:orderId', async (req, res) => {
+  try {
+    const authHeader = req.headers['authorization'] || '';
+    const token = authHeader.replace(/^Bearer\s+/, '').trim();
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        error: 'Unauthorized: Authentication required to query payment session.',
+        requestId: req.id
+      });
+    }
+
+    let authUser = null;
+    let isAdmin = false;
+
+    if (activeAdminSessions && activeAdminSessions.has(token)) {
+      isAdmin = true;
+    } else {
+      const session = db.getSessionByToken(token);
+      if (!session) {
+        return res.status(401).json({
+          success: false,
+          error: 'Unauthorized: Invalid session token.',
+          requestId: req.id
+        });
+      }
+      if (session.role === 'ADMIN' || session.role === 'SUPER_ADMIN') {
+        isAdmin = true;
+      } else {
+        authUser = session.user || session.entity || { id: session.userId || session.id };
+      }
+    }
+
+    const session = await (db.paymentRepo ? db.paymentRepo.getPaymentSession(req.params.orderId) : (db.paymentSessions ? db.paymentSessions.get(req.params.orderId) : null));
+    if (!session) {
+      return res.status(404).json({ success: false, error: 'Payment session not found', requestId: req.id });
+    }
+
+    // If not admin, enforce customer tenant isolation
+    if (!isAdmin && authUser) {
+      const callerUuid = resolveCustomerUserUuid(authUser.id || authUser.uuid);
+      const sessionCustomerUuid = resolveCustomerUserUuid(session.customerId || session.customer_id);
+      if (callerUuid && sessionCustomerUuid && callerUuid !== sessionCustomerUuid) {
+        return res.status(403).json({
+          success: false,
+          error: 'Forbidden: You do not own this payment session.',
+          code: 'CUSTOMER_MISMATCH',
+          requestId: req.id
+        });
+      }
+    }
+
+    res.json({ success: true, session });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message, requestId: req.id });
+  }
 });
 
 // 4. Server-to-Server Webhook
 app.post('/api/payments/webhook', async (req, res) => {
   try {
     const signature = req.headers['x-razorpay-signature'] || req.headers['x-webhook-signature'] || '';
-    const secret = process.env.PAYMENT_WEBHOOK_SECRET || 'whsec_nabin_secure_beta_2026';
-    const bodyPayload = JSON.stringify(req.body);
-
-    if (signature) {
-      const expectedSignature = crypto.createHmac('sha256', secret).update(bodyPayload).digest('hex');
-      if (signature !== expectedSignature && process.env.NODE_ENV === 'production') {
-        return res.status(400).json({ success: false, error: 'Invalid webhook signature', requestId: req.id });
-      }
+    if (!signature) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing webhook signature header (x-razorpay-signature or x-webhook-signature required).',
+        code: 'MISSING_SIGNATURE',
+        requestId: req.id
+      });
     }
 
-    const eventId = req.headers['x-event-id'] || req.body.event_id || req.body.eventId || req.body.id || `evt_${Date.now()}`;
+    const secret = process.env.PAYMENT_WEBHOOK_SECRET || 'whsec_nabin_secure_beta_2026';
+    if (!process.env.PAYMENT_WEBHOOK_SECRET && process.env.NODE_ENV === 'production') {
+      return res.status(500).json({
+        success: false,
+        error: 'Payment webhook secret unconfigured in production environment.',
+        code: 'WEBHOOK_CONFIG_MISSING',
+        requestId: req.id
+      });
+    }
+
+    // Cryptographic constant-time HMAC-SHA256 signature verification
+    const rawPayload = req.rawBody ? req.rawBody : Buffer.from(JSON.stringify(req.body), 'utf8');
+    const expectedSignature = crypto.createHmac('sha256', secret).update(rawPayload).digest('hex');
+    const suppliedSignature = Buffer.from(signature, 'utf8');
+    const expectedSignatureBuffer = Buffer.from(expectedSignature, 'utf8');
+
+    if (
+      suppliedSignature.length !== expectedSignatureBuffer.length ||
+      !crypto.timingSafeEqual(suppliedSignature, expectedSignatureBuffer)
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid webhook signature.',
+        code: 'INVALID_SIGNATURE',
+        requestId: req.id
+      });
+    }
+
+    const eventId = req.headers['x-event-id'] || req.body.event_id || req.body.eventId || req.body.id;
+    if (!eventId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Event ID is required for idempotent webhook processing.',
+        code: 'MISSING_EVENT_ID',
+        requestId: req.id
+      });
+    }
+
     const eventType = req.body.event || req.body.type || 'payment.captured';
     const paymentData = req.body.payload?.payment?.entity || req.body.data || req.body;
-    const paymentId = paymentData.id || req.body.paymentId || `pay_${Date.now()}`;
-    const amount = (paymentData.amount ? paymentData.amount / 100 : req.body.amount) || 0;
+    const paymentId = paymentData.id || req.body.paymentId;
+    const orderId = paymentData.order_id || paymentData.orderId || req.body.orderId || req.body.order_id || null;
+    let amount = 0;
+    if (paymentData.amount !== undefined) {
+      amount = paymentData.amount > 100 && Number.isInteger(paymentData.amount)
+        ? paymentData.amount / 100
+        : Number(paymentData.amount);
+    } else if (req.body.amount !== undefined) {
+      amount = Number(req.body.amount);
+    }
     const status = paymentData.status || req.body.status || 'CAPTURED';
 
     const result = await db.recordPaymentWebhook({
       eventId,
       eventType,
       paymentId,
+      orderId,
       amount,
       status,
       signature,
-      payload: req.body
+      payload: req.body,
+      rawBody: req.rawBody
     });
+
+    if (result && result.code === 'SESSION_NOT_FOUND') {
+      return res.status(404).json({
+        success: false,
+        error: result.error || 'Payment session not found for order',
+        code: result.code,
+        requestId: req.id
+      });
+    }
+
+    if (result && result.code === 'CUSTOMER_MISMATCH') {
+      return res.status(403).json({
+        success: false,
+        error: 'Customer mismatch: payment session belongs to another customer',
+        code: result.code,
+        requestId: req.id
+      });
+    }
+
+    if (result && result.code === 'PAYMENT_FAILED') {
+      return res.status(200).json({
+        success: true,
+        status: 'FAILED',
+        code: 'PAYMENT_FAILED',
+        message: result.message || 'Payment failure webhook recorded',
+        orderId: result.orderId,
+        paymentId: result.paymentId,
+        requestId: req.id
+      });
+    }
+
+    if (result && !result.success && !result.duplicate) {
+      return res.status(400).json({
+        success: false,
+        error: result.error || 'Webhook processing failed',
+        code: result.code,
+        requestId: req.id
+      });
+    }
 
     res.json(result);
   } catch (err) {
-    res.status(400).json({ success: false, error: err.message, requestId: req.id });
+    const statusCode = err.statusCode || 400;
+    res.status(statusCode).json({ success: false, error: err.message, code: err.code, requestId: req.id });
   }
 });
 
