@@ -11,7 +11,7 @@ class RestaurantLoginScreen extends StatefulWidget {
 }
 
 class _RestaurantLoginScreenState extends State<RestaurantLoginScreen> {
-  final TextEditingController _phoneController = TextEditingController(text: '9876543210');
+  final TextEditingController _phoneController = TextEditingController();
   bool _isLoading = false;
 
   Future<void> _submitPhone() async {

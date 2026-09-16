@@ -31,10 +31,15 @@ class _RestaurantMainShellState extends State<RestaurantMainShell> {
     final user = SessionManager.instance.currentUser;
     if (user != null && user['restaurantId'] != null) {
       _restaurantId = user['restaurantId'] as String;
-    } else {
-      // Fallback for testing if session is missing
-      _restaurantId = 'rest_1';
+    } else if (!SessionManager.instance.isAuthenticated) {
+      // No authenticated session — redirect to login
+      if (mounted) {
+        context.go('/login');
+      }
+      return;
     }
+
+    if (_restaurantId.isEmpty) return;
 
     final res = await NabinApiService.getMerchantOrders(_restaurantId);
     if (mounted) {

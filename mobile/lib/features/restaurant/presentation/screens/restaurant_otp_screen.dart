@@ -13,7 +13,7 @@ class RestaurantOtpScreen extends StatefulWidget {
 }
 
 class _RestaurantOtpScreenState extends State<RestaurantOtpScreen> {
-  final TextEditingController _otpController = TextEditingController(text: '7729');
+  final TextEditingController _otpController = TextEditingController();
   bool _isLoading = false;
 
   Future<void> _verifyOtp() async {
