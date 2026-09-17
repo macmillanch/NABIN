@@ -399,13 +399,20 @@ class NabinApiService {
     required String restaurantId,
     required String orderId,
     required String status,
+    String? reason,
   }) async {
     try {
       final client = HttpClient();
       final request = await client.postUrl(Uri.parse('$effectiveUrl/merchant/$restaurantId/orders/$orderId/status'));
       request.headers.set('content-type', 'application/json');
       _attachAuthHeader(request);
-      request.add(utf8.encode(jsonEncode({'status': status})));
+      
+      final payload = {'status': status};
+      if (reason != null) {
+        payload['reason'] = reason;
+      }
+      
+      request.add(utf8.encode(jsonEncode(payload)));
       final response = await request.close();
       final body = await response.transform(utf8.decoder).join();
       return jsonDecode(body) as Map<String, dynamic>;
@@ -434,39 +441,7 @@ class NabinApiService {
   }
 
   // =========================================================================
-  // 7. MERCHANT INVENTORY APIS
-  // =========================================================================
-
-  static Future<Map<String, dynamic>?> getMerchantInventory(String merchantId) async {
-    try {
-      final client = HttpClient();
-      final request = await client.getUrl(Uri.parse('$effectiveUrl/merchant/inventory'));
-      _attachAuthHeader(request);
-      final response = await request.close();
-      final body = await response.transform(utf8.decoder).join();
-      return jsonDecode(body) as Map<String, dynamic>;
-    } catch (e) {
-      return null;
-    }
-  }
-
-  static Future<Map<String, dynamic>?> updateMerchantInventoryItem(Map<String, dynamic> payload) async {
-    try {
-      final client = HttpClient();
-      final request = await client.postUrl(Uri.parse('$effectiveUrl/merchant/inventory'));
-      request.headers.set('content-type', 'application/json');
-      _attachAuthHeader(request);
-      request.add(utf8.encode(jsonEncode(payload)));
-      final response = await request.close();
-      final body = await response.transform(utf8.decoder).join();
-      return jsonDecode(body) as Map<String, dynamic>;
-    } catch (e) {
-      return null;
-    }
-  }
-
-  // =========================================================================
-  // 8. CUSTOMER BOOKINGS
+  // 7. CUSTOMER BOOKINGS
   // =========================================================================
 
   static Future<Map<String, dynamic>?> bookRide(Map<String, dynamic> payload) async {
@@ -509,6 +484,403 @@ class NabinApiService {
       _attachAuthHeader(request);
       request.add(utf8.encode(jsonEncode(payload)));
       
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      return jsonDecode(body) as Map<String, dynamic>;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // =========================================================================
+  // 8. MERCHANT INVENTORY APIS
+  // =========================================================================
+
+  static Future<Map<String, dynamic>?> getMerchantInventory(String merchantId) async {
+    try {
+      final client = HttpClient();
+      final request = await client.getUrl(Uri.parse('$effectiveUrl/merchant/inventory'));
+      _attachAuthHeader(request);
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      return jsonDecode(body) as Map<String, dynamic>;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  static Future<Map<String, dynamic>?> updateMerchantInventoryItem(Map<String, dynamic> payload) async {
+    try {
+      final client = HttpClient();
+      final request = await client.postUrl(Uri.parse('$effectiveUrl/merchant/inventory'));
+      request.headers.set('content-type', 'application/json');
+      _attachAuthHeader(request);
+      request.add(utf8.encode(jsonEncode(payload)));
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      return jsonDecode(body) as Map<String, dynamic>;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // =========================================================================
+  // 8. ADMIN OPERATIONS APIS
+  // =========================================================================
+
+  static Future<Map<String, dynamic>?> getAdminProfile() async {
+    try {
+      final client = HttpClient();
+      final request = await client.getUrl(Uri.parse('$effectiveUrl/admin/me'));
+      _attachAuthHeader(request);
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      return jsonDecode(body) as Map<String, dynamic>;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  static Future<Map<String, dynamic>?> getAdminServicesStatus() async {
+    try {
+      final client = HttpClient();
+      final request = await client.getUrl(Uri.parse('$effectiveUrl/admin/services/status'));
+      _attachAuthHeader(request);
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      return jsonDecode(body) as Map<String, dynamic>;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  static Future<Map<String, dynamic>?> pauseAdminService(Map<String, dynamic> payload) async {
+    try {
+      final client = HttpClient();
+      final request = await client.postUrl(Uri.parse('$effectiveUrl/admin/services/pause'));
+      request.headers.set('content-type', 'application/json');
+      _attachAuthHeader(request);
+      request.add(utf8.encode(jsonEncode(payload)));
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      return jsonDecode(body) as Map<String, dynamic>;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  static Future<Map<String, dynamic>?> resumeAdminService(Map<String, dynamic> payload) async {
+    try {
+      final client = HttpClient();
+      final request = await client.postUrl(Uri.parse('$effectiveUrl/admin/services/resume'));
+      request.headers.set('content-type', 'application/json');
+      _attachAuthHeader(request);
+      request.add(utf8.encode(jsonEncode(payload)));
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      return jsonDecode(body) as Map<String, dynamic>;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  static Future<Map<String, dynamic>?> getAdminAuditLogs() async {
+    try {
+      final client = HttpClient();
+      final request = await client.getUrl(Uri.parse('$effectiveUrl/admin/audit-logs'));
+      _attachAuthHeader(request);
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      return jsonDecode(body) as Map<String, dynamic>;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  static Future<Map<String, dynamic>?> getAdminSupportTickets() async {
+    try {
+      final client = HttpClient();
+      final request = await client.getUrl(Uri.parse('$effectiveUrl/admin/support'));
+      _attachAuthHeader(request);
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      return jsonDecode(body) as Map<String, dynamic>;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  static Future<Map<String, dynamic>?> resolveAdminSupportTicket(String ticketId) async {
+    try {
+      final client = HttpClient();
+      final request = await client.postUrl(Uri.parse('$effectiveUrl/admin/support/$ticketId/resolve'));
+      request.headers.set('content-type', 'application/json');
+      _attachAuthHeader(request);
+      request.add(utf8.encode(jsonEncode({'status': 'RESOLVED'})));
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      return jsonDecode(body) as Map<String, dynamic>;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  static Future<Map<String, dynamic>?> getAdminFinanceMetrics() async {
+    try {
+      final client = HttpClient();
+      final request = await client.getUrl(Uri.parse('$effectiveUrl/admin/finance/metrics'));
+      _attachAuthHeader(request);
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      return jsonDecode(body) as Map<String, dynamic>;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  static Future<Map<String, dynamic>?> getAdminFinanceLedger() async {
+    try {
+      final client = HttpClient();
+      final request = await client.getUrl(Uri.parse('$effectiveUrl/admin/finance/ledger'));
+      _attachAuthHeader(request);
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      return jsonDecode(body) as Map<String, dynamic>;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  static Future<Map<String, dynamic>?> getAdminIdentityVerifications() async {
+    try {
+      final client = HttpClient();
+      final request = await client.getUrl(Uri.parse('$effectiveUrl/admin/identity-verifications'));
+      _attachAuthHeader(request);
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      return jsonDecode(body) as Map<String, dynamic>;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  static Future<Map<String, dynamic>?> getAdminFeatures() async {
+    try {
+      final client = HttpClient();
+      final request = await client.getUrl(Uri.parse('$effectiveUrl/admin/features'));
+      _attachAuthHeader(request);
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      return jsonDecode(body) as Map<String, dynamic>;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  static Future<Map<String, dynamic>?> updateAdminFeature(String key, Map<String, dynamic> payload) async {
+    try {
+      final client = HttpClient();
+      final request = await client.putUrl(Uri.parse('$effectiveUrl/admin/features/$key'));
+      request.headers.set('content-type', 'application/json');
+      _attachAuthHeader(request);
+      request.add(utf8.encode(jsonEncode(payload)));
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      return jsonDecode(body) as Map<String, dynamic>;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  static Future<Map<String, dynamic>?> getAdminFleetLocations() async {
+    try {
+      final client = HttpClient();
+      final request = await client.getUrl(Uri.parse('$effectiveUrl/v1/fleet/locations'));
+      _attachAuthHeader(request);
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      return jsonDecode(body) as Map<String, dynamic>;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  static Future<Map<String, dynamic>?> getAdminNotifications() async {
+    try {
+      final client = HttpClient();
+      final request = await client.getUrl(Uri.parse('$effectiveUrl/admin/notifications/broadcast'));
+      _attachAuthHeader(request);
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      return jsonDecode(body) as Map<String, dynamic>;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  static Future<Map<String, dynamic>?> broadcastAdminNotification(Map<String, dynamic> payload) async {
+    try {
+      final client = HttpClient();
+      final request = await client.postUrl(Uri.parse('$effectiveUrl/admin/notifications/broadcast'));
+      request.headers.set('content-type', 'application/json');
+      _attachAuthHeader(request);
+      request.add(utf8.encode(jsonEncode(payload)));
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      return jsonDecode(body) as Map<String, dynamic>;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  static Future<Map<String, dynamic>?> getAdminAccounts() async {
+    try {
+      final client = HttpClient();
+      final request = await client.getUrl(Uri.parse('$effectiveUrl/admin/accounts'));
+      _attachAuthHeader(request);
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      return jsonDecode(body) as Map<String, dynamic>;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  static Future<Map<String, dynamic>?> getAdminDrivers() async {
+    try {
+      final client = HttpClient();
+      final request = await client.getUrl(Uri.parse('$effectiveUrl/admin/drivers'));
+      _attachAuthHeader(request);
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      return jsonDecode(body) as Map<String, dynamic>;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  static Future<Map<String, dynamic>?> getAdminOrders() async {
+    try {
+      final client = HttpClient();
+      final request = await client.getUrl(Uri.parse('$effectiveUrl/admin/orders'));
+      _attachAuthHeader(request);
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      return jsonDecode(body) as Map<String, dynamic>;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  static Future<Map<String, dynamic>?> getAdminRestaurants() async {
+    try {
+      final client = HttpClient();
+      final request = await client.getUrl(Uri.parse('$effectiveUrl/admin/restaurants'));
+      _attachAuthHeader(request);
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      return jsonDecode(body) as Map<String, dynamic>;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  static Future<Map<String, dynamic>?> getAdminUsers() async {
+    try {
+      final client = HttpClient();
+      final request = await client.getUrl(Uri.parse('$effectiveUrl/admin/users'));
+      _attachAuthHeader(request);
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      return jsonDecode(body) as Map<String, dynamic>;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  static Future<Map<String, dynamic>?> getAdminPromotions() async {
+    try {
+      final client = HttpClient();
+      final request = await client.getUrl(Uri.parse('$effectiveUrl/admin/promotions'));
+      _attachAuthHeader(request);
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      return jsonDecode(body) as Map<String, dynamic>;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  static Future<Map<String, dynamic>?> getAdminAdvertisements() async {
+    try {
+      final client = HttpClient();
+      final request = await client.getUrl(Uri.parse('$effectiveUrl/admin/advertisements'));
+      _attachAuthHeader(request);
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      return jsonDecode(body) as Map<String, dynamic>;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  static Future<Map<String, dynamic>?> getAdminGeofences() async {
+    try {
+      final client = HttpClient();
+      final request = await client.getUrl(Uri.parse('$effectiveUrl/admin/geofences'));
+      _attachAuthHeader(request);
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      return jsonDecode(body) as Map<String, dynamic>;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  static Future<Map<String, dynamic>?> getAdminSurgeZones() async {
+    try {
+      final client = HttpClient();
+      final request = await client.getUrl(Uri.parse('$effectiveUrl/admin/surgezones'));
+      _attachAuthHeader(request);
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      return jsonDecode(body) as Map<String, dynamic>;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  static Future<Map<String, dynamic>?> getAdminPricing() async {
+    try {
+      final client = HttpClient();
+      final request = await client.getUrl(Uri.parse('$effectiveUrl/admin/pricing'));
+      _attachAuthHeader(request);
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      return jsonDecode(body) as Map<String, dynamic>;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  static Future<Map<String, dynamic>?> getAdminMasterCatalog() async {
+    try {
+      final client = HttpClient();
+      final request = await client.getUrl(Uri.parse('$effectiveUrl/admin/master-catalog'));
+      _attachAuthHeader(request);
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      return jsonDecode(body) as Map<String, dynamic>;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  static Future<Map<String, dynamic>?> getAdminGroceryPriceAlerts() async {
+    try {
+      final client = HttpClient();
+      final request = await client.getUrl(Uri.parse('$effectiveUrl/admin/grocery/price-alerts'));
+      _attachAuthHeader(request);
       final response = await request.close();
       final body = await response.transform(utf8.decoder).join();
       return jsonDecode(body) as Map<String, dynamic>;

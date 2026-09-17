@@ -43,9 +43,9 @@ class _GroceryMerchantOrderDetailScreenState extends ConsumerState<GroceryMercha
       // Fetch order details - use the merchant orders API with specific order lookup
       final result = await NabinApiService.getMerchantOrders(merchantId);
       
-      if (result?['success'] == true && result['orders'] != null) {
+      if (result != null && result['success'] == true && result['orders'] != null) {
         final orders = result['orders'] as List;
-        final order = orders.firstWhere((o) => o['id'] == widget.orderId || o['order_number'] == widget.orderId, orElse: () => orders.firstOrNull);
+        final order = orders.firstWhere((o) => o?['id'] == widget.orderId || o?['order_number'] == widget.orderId, orElse: () => orders.firstOrNull);
         
         if (order != null) {
           setState(() {

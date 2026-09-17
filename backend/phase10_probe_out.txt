@@ -1,0 +1,383 @@
+===== A. WRITE POLICIES (public schema) =====
+
+[advertisements] Admins full access ads cmd=ALL roles={public}
+   USING: ((auth.jwt() ->> 'role'::text) = ANY (ARRAY['SUPER_ADMIN'::text, 'service_role'::text]))
+
+[audit_logs] Audit logs insertable by service role and admins cmd=INSERT roles={public}
+   CHECK: (((auth.jwt() ->> 'role'::text) = ANY (ARRAY['SUPER_ADMIN'::text, 'KYC_SPECIALIST'::text, 'OPERATIONS'::text, 'FINANCE_AUDITOR'::text, 'SUPPORT_AGENT'::text, 'service_role'::text])) OR (auth.role() = 'service_role'::text) OR (auth.jwt() IS NOT NULL))
+
+[checkout_events] Admins view checkout events cmd=ALL roles={public}
+   USING: ((auth.jwt() ->> 'role'::text) = ANY (ARRAY['SUPER_ADMIN'::text, 'FINANCE_AUDITOR'::text, 'OPERATIONS'::text, 'service_role'::text]))
+
+[checkouts] Admins manage checkouts cmd=ALL roles={public}
+   USING: ((auth.jwt() ->> 'role'::text) = ANY (ARRAY['SUPER_ADMIN'::text, 'FINANCE_AUDITOR'::text, 'OPERATIONS'::text, 'service_role'::text]))
+
+[device_tokens] p_user_manage_device_tokens cmd=ALL roles={public}
+   USING: ((auth.uid() = user_id) OR (auth.role() = 'service_role'::text))
+   CHECK: ((auth.uid() = user_id) OR (auth.role() = 'service_role'::text))
+
+[dispatch_offers] service_role_dispatch_all cmd=ALL roles={service_role}
+   USING: true
+   CHECK: true
+
+[dispatch_offers] driver_dispatch_update cmd=UPDATE roles={authenticated}
+   USING: (((driver_uuid IS NOT NULL) AND (driver_uuid IN ( SELECT drivers.id
+   FROM drivers
+  WHERE (drivers.user_id = auth.uid())))) OR ((driver_id)::text = (auth.uid())::text) OR ((driver_id)::text IN ( SELECT (drivers.id)::text AS id
+   FROM drivers
+  WHERE (drivers.user_id = auth.uid()))))
+   CHECK: (((driver_uuid IS NOT NULL) AND (driver_uuid IN ( SELECT drivers.id
+   FROM drivers
+  WHERE (drivers.user_id = auth.uid())))) OR ((driver_id)::text = (auth.uid())::text) OR ((driver_id)::text IN ( SELECT (drivers.id)::text AS id
+   FROM drivers
+  WHERE (drivers.user_id = auth.uid()))))
+
+[drivers] Drivers can view and update own record cmd=ALL roles={public}
+   USING: (auth.uid() = id)
+
+[geo_fences] p_service_role_geofences cmd=ALL roles={service_role}
+   USING: true
+   CHECK: true
+
+[grocery_price_history] price_history_service_role_all cmd=ALL roles={service_role}
+   USING: true
+   CHECK: true
+
+[identity_documents] Users can submit own identity documents cmd=INSERT roles={public}
+   CHECK: (auth.uid() = user_id)
+
+[ledger_entries] Service role and admin full access to ledger cmd=ALL roles={public}
+   USING: (((auth.jwt() ->> 'role'::text) = 'service_role'::text) OR ((auth.jwt() ->> 'role'::text) = 'SUPER_ADMIN'::text) OR ((auth.jwt() ->> 'role'::text) = 'FINANCE_AUDITOR'::text))
+
+[master_grocery_catalog] master_catalog_admin_manage cmd=ALL roles={service_role}
+   USING: true
+   CHECK: true
+
+[merchant_grocery_inventory] inventory_service_role_all cmd=ALL roles={service_role}
+   USING: true
+   CHECK: true
+
+[merchant_grocery_inventory] inventory_merchant_insert cmd=INSERT roles={authenticated}
+   CHECK: (auth.uid() = merchant_id)
+
+[merchant_grocery_inventory] inventory_merchant_update cmd=UPDATE roles={authenticated}
+   USING: (auth.uid() = merchant_id)
+   CHECK: (auth.uid() = merchant_id)
+
+[merchants] Admins full access merchants cmd=ALL roles={public}
+   USING: ((auth.jwt() ->> 'role'::text) = ANY (ARRAY['SUPER_ADMIN'::text, 'service_role'::text]))
+
+[merchants] Merchants can view and manage own store cmd=ALL roles={public}
+   USING: (auth.uid() = id)
+
+[notification_deliveries] p_deliveries_service_and_admin cmd=ALL roles={service_role}
+   USING: true
+   CHECK: true
+
+[notification_preferences] p_user_manage_preferences cmd=ALL roles={public}
+   USING: ((auth.uid() = user_id) OR (auth.role() = 'service_role'::text))
+   CHECK: ((auth.uid() = user_id) OR (auth.role() = 'service_role'::text))
+
+[notification_templates] p_templates_service_role cmd=ALL roles={service_role}
+   USING: true
+   CHECK: true
+
+[notifications] p_service_role_notifications cmd=ALL roles={service_role}
+   USING: true
+   CHECK: true
+
+[notifications] p_user_update_own_notifications cmd=UPDATE roles={public}
+   USING: ((auth.uid() = user_id) OR (auth.uid() = recipient_user_id) OR (auth.role() = 'service_role'::text))
+   CHECK: ((auth.uid() = user_id) OR (auth.uid() = recipient_user_id) OR (auth.role() = 'service_role'::text))
+
+[order_creation_tokens] service_role_order_creation_tokens_all cmd=ALL roles={public}
+   USING: (auth.role() = 'service_role'::text)
+
+[order_lines] service_role_order_lines_all cmd=ALL roles={public}
+   USING: (auth.role() = 'service_role'::text)
+
+[order_lines] Admins delete order lines cmd=DELETE roles={public}
+   USING: ((auth.jwt() ->> 'role'::text) = ANY (ARRAY['SUPER_ADMIN'::text, 'OPERATIONS'::text, 'SUPPORT_AGENT'::text, 'KYC_SPECIALIST'::text, 'FINANCE_AUDITOR'::text, 'service_role'::text]))
+
+[order_lines] Customers cannot delete order lines cmd=DELETE roles={public}
+   USING: false
+
+[order_lines] Merchants cannot delete order lines cmd=DELETE roles={public}
+   USING: false
+
+[order_lines] Admins insert order lines cmd=INSERT roles={public}
+   CHECK: ((auth.jwt() ->> 'role'::text) = ANY (ARRAY['SUPER_ADMIN'::text, 'OPERATIONS'::text, 'SUPPORT_AGENT'::text, 'KYC_SPECIALIST'::text, 'FINANCE_AUDITOR'::text, 'service_role'::text]))
+
+[order_lines] Customers cannot insert order lines cmd=INSERT roles={public}
+   CHECK: false
+
+[order_lines] Merchants cannot insert order lines cmd=INSERT roles={public}
+   CHECK: false
+
+[order_lines] Admins update order lines cmd=UPDATE roles={public}
+   USING: ((auth.jwt() ->> 'role'::text) = ANY (ARRAY['SUPER_ADMIN'::text, 'OPERATIONS'::text, 'SUPPORT_AGENT'::text, 'KYC_SPECIALIST'::text, 'FINANCE_AUDITOR'::text, 'service_role'::text]))
+   CHECK: ((auth.jwt() ->> 'role'::text) = ANY (ARRAY['SUPER_ADMIN'::text, 'OPERATIONS'::text, 'SUPPORT_AGENT'::text, 'KYC_SPECIALIST'::text, 'FINANCE_AUDITOR'::text, 'service_role'::text]))
+
+[order_lines] Customers cannot update order lines cmd=UPDATE roles={public}
+   USING: false
+   CHECK: false
+
+[order_lines] Merchants cannot update order lines cmd=UPDATE roles={public}
+   USING: false
+   CHECK: false
+
+[order_transitions] service_role_order_transitions_all cmd=ALL roles={public}
+   USING: (auth.role() = 'service_role'::text)
+
+[order_transitions] Admins delete order transitions cmd=DELETE roles={public}
+   USING: ((auth.jwt() ->> 'role'::text) = ANY (ARRAY['SUPER_ADMIN'::text, 'OPERATIONS'::text, 'SUPPORT_AGENT'::text, 'KYC_SPECIALIST'::text, 'FINANCE_AUDITOR'::text, 'service_role'::text]))
+
+[order_transitions] Customers cannot delete order transitions cmd=DELETE roles={public}
+   USING: false
+
+[order_transitions] Merchants cannot delete order transitions cmd=DELETE roles={public}
+   USING: false
+
+[order_transitions] Admins insert order transitions cmd=INSERT roles={public}
+   CHECK: ((auth.jwt() ->> 'role'::text) = ANY (ARRAY['SUPER_ADMIN'::text, 'OPERATIONS'::text, 'SUPPORT_AGENT'::text, 'KYC_SPECIALIST'::text, 'FINANCE_AUDITOR'::text, 'service_role'::text]))
+
+[order_transitions] Customers cannot insert order transitions cmd=INSERT roles={public}
+   CHECK: false
+
+[order_transitions] Merchants cannot insert order transitions cmd=INSERT roles={public}
+   CHECK: false
+
+[order_transitions] Admins update order transitions cmd=UPDATE roles={public}
+   USING: ((auth.jwt() ->> 'role'::text) = ANY (ARRAY['SUPER_ADMIN'::text, 'OPERATIONS'::text, 'SUPPORT_AGENT'::text, 'KYC_SPECIALIST'::text, 'FINANCE_AUDITOR'::text, 'service_role'::text]))
+   CHECK: ((auth.jwt() ->> 'role'::text) = ANY (ARRAY['SUPER_ADMIN'::text, 'OPERATIONS'::text, 'SUPPORT_AGENT'::text, 'KYC_SPECIALIST'::text, 'FINANCE_AUDITOR'::text, 'service_role'::text]))
+
+[order_transitions] Customers cannot update order transitions cmd=UPDATE roles={public}
+   USING: false
+   CHECK: false
+
+[order_transitions] Merchants cannot update order transitions cmd=UPDATE roles={public}
+   USING: false
+   CHECK: false
+
+[orders] service_role_orders_all cmd=ALL roles={public}
+   USING: (auth.role() = 'service_role'::text)
+
+[orders] Admins delete orders cmd=DELETE roles={public}
+   USING: ((auth.jwt() ->> 'role'::text) = ANY (ARRAY['SUPER_ADMIN'::text, 'OPERATIONS'::text, 'SUPPORT_AGENT'::text, 'KYC_SPECIALIST'::text, 'FINANCE_AUDITOR'::text, 'service_role'::text]))
+
+[orders] Customers cannot delete orders cmd=DELETE roles={public}
+   USING: false
+
+[orders] Merchants cannot delete orders cmd=DELETE roles={public}
+   USING: false
+
+[orders] Admins insert orders cmd=INSERT roles={public}
+   CHECK: ((auth.jwt() ->> 'role'::text) = ANY (ARRAY['SUPER_ADMIN'::text, 'OPERATIONS'::text, 'SUPPORT_AGENT'::text, 'KYC_SPECIALIST'::text, 'FINANCE_AUDITOR'::text, 'service_role'::text]))
+
+[orders] Customers cannot insert orders cmd=INSERT roles={public}
+   CHECK: false
+
+[orders] Merchants cannot insert orders cmd=INSERT roles={public}
+   CHECK: false
+
+[orders] Admins update orders cmd=UPDATE roles={public}
+   USING: ((auth.jwt() ->> 'role'::text) = ANY (ARRAY['SUPER_ADMIN'::text, 'OPERATIONS'::text, 'SUPPORT_AGENT'::text, 'KYC_SPECIALIST'::text, 'FINANCE_AUDITOR'::text, 'service_role'::text]))
+   CHECK: ((auth.jwt() ->> 'role'::text) = ANY (ARRAY['SUPER_ADMIN'::text, 'OPERATIONS'::text, 'SUPPORT_AGENT'::text, 'KYC_SPECIALIST'::text, 'FINANCE_AUDITOR'::text, 'service_role'::text]))
+
+[orders] Customers cannot update orders cmd=UPDATE roles={public}
+   USING: false
+   CHECK: false
+
+[orders] Merchants cannot update orders cmd=UPDATE roles={public}
+   USING: false
+   CHECK: false
+
+[platform_settings] Admins write platform settings cmd=ALL roles={public}
+   USING: (((auth.jwt() ->> 'role'::text) = 'SUPER_ADMIN'::text) OR ((auth.jwt() ->> 'role'::text) = 'service_role'::text))
+
+[pricing_configurations] p_service_role_pricing_configs cmd=ALL roles={service_role}
+   USING: true
+   CHECK: true
+
+[products] Admins full access products cmd=ALL roles={public}
+   USING: ((auth.jwt() ->> 'role'::text) = ANY (ARRAY['SUPER_ADMIN'::text, 'service_role'::text]))
+
+[promotion_redemptions] Admins view all redemptions cmd=ALL roles={public}
+   USING: ((auth.jwt() ->> 'role'::text) = ANY (ARRAY['SUPER_ADMIN'::text, 'FINANCE_AUDITOR'::text, 'service_role'::text]))
+
+[promotions] Admins manage promotions cmd=ALL roles={public}
+   USING: ((auth.jwt() ->> 'role'::text) = ANY (ARRAY['SUPER_ADMIN'::text, 'OPERATIONS'::text, 'service_role'::text]))
+
+[saved_children] service_role_saved_children cmd=ALL roles={public}
+   USING: (auth.role() = 'service_role'::text)
+
+[saved_children] users_manage_own_children cmd=ALL roles={public}
+   USING: (auth.uid() = user_id)
+   CHECK: (auth.uid() = user_id)
+
+[saved_schools] service_role_saved_schools cmd=ALL roles={public}
+   USING: (auth.role() = 'service_role'::text)
+
+[saved_schools] users_manage_own_schools cmd=ALL roles={public}
+   USING: (auth.uid() = user_id)
+   CHECK: (auth.uid() = user_id)
+
+[support_tickets] p_admin_update_support_tickets cmd=UPDATE roles={public}
+   USING: (((auth.jwt() ->> 'role'::text) = ANY (ARRAY['SUPER_ADMIN'::text, 'SUPPORT_AGENT'::text, 'service_role'::text])) OR (auth.role() = 'service_role'::text))
+   CHECK: (((auth.jwt() ->> 'role'::text) = ANY (ARRAY['SUPER_ADMIN'::text, 'SUPPORT_AGENT'::text, 'service_role'::text])) OR (auth.role() = 'service_role'::text))
+
+[surge_zones] p_service_role_surge_zones cmd=ALL roles={service_role}
+   USING: true
+   CHECK: true
+
+[user_delegates] Users manage own delegates cmd=ALL roles={public}
+   USING: (auth.uid() = user_id)
+
+[user_saved_locations] Users manage own locations cmd=ALL roles={public}
+   USING: (auth.uid() = user_id)
+
+[users] Users can only read and update own profile cmd=ALL roles={public}
+   USING: (auth.uid() = id)
+
+
+===== B. COLUMN-LEVEL GRANTS on users (anon/authenticated) =====
+anon INSERT(account_status)
+anon INSERT(address)
+anon INSERT(created_at)
+anon INSERT(dob)
+anon INSERT(email)
+anon INSERT(id)
+anon INSERT(identity_status)
+anon INSERT(name)
+anon INSERT(phone)
+anon INSERT(rating)
+anon INSERT(updated_at)
+anon INSERT(wallet_balance)
+anon REFERENCES(account_status)
+anon REFERENCES(address)
+anon REFERENCES(created_at)
+anon REFERENCES(dob)
+anon REFERENCES(email)
+anon REFERENCES(id)
+anon REFERENCES(identity_status)
+anon REFERENCES(name)
+anon REFERENCES(phone)
+anon REFERENCES(rating)
+anon REFERENCES(updated_at)
+anon REFERENCES(wallet_balance)
+anon SELECT(account_status)
+anon SELECT(address)
+anon SELECT(created_at)
+anon SELECT(dob)
+anon SELECT(email)
+anon SELECT(id)
+anon SELECT(identity_status)
+anon SELECT(name)
+anon SELECT(phone)
+anon SELECT(rating)
+anon SELECT(updated_at)
+anon SELECT(wallet_balance)
+anon UPDATE(account_status)
+anon UPDATE(address)
+anon UPDATE(created_at)
+anon UPDATE(dob)
+anon UPDATE(email)
+anon UPDATE(id)
+anon UPDATE(identity_status)
+anon UPDATE(name)
+anon UPDATE(phone)
+anon UPDATE(rating)
+anon UPDATE(updated_at)
+anon UPDATE(wallet_balance)
+authenticated INSERT(account_status)
+authenticated INSERT(address)
+authenticated INSERT(created_at)
+authenticated INSERT(dob)
+authenticated INSERT(email)
+authenticated INSERT(id)
+authenticated INSERT(identity_status)
+authenticated INSERT(name)
+authenticated INSERT(phone)
+authenticated INSERT(rating)
+authenticated INSERT(updated_at)
+authenticated INSERT(wallet_balance)
+authenticated REFERENCES(account_status)
+authenticated REFERENCES(address)
+authenticated REFERENCES(created_at)
+authenticated REFERENCES(dob)
+authenticated REFERENCES(email)
+authenticated REFERENCES(id)
+authenticated REFERENCES(identity_status)
+authenticated REFERENCES(name)
+authenticated REFERENCES(phone)
+authenticated REFERENCES(rating)
+authenticated REFERENCES(updated_at)
+authenticated REFERENCES(wallet_balance)
+authenticated SELECT(account_status)
+authenticated SELECT(address)
+authenticated SELECT(created_at)
+authenticated SELECT(dob)
+authenticated SELECT(email)
+authenticated SELECT(id)
+authenticated SELECT(identity_status)
+authenticated SELECT(name)
+authenticated SELECT(phone)
+authenticated SELECT(rating)
+authenticated SELECT(updated_at)
+authenticated SELECT(wallet_balance)
+authenticated UPDATE(account_status)
+authenticated UPDATE(address)
+authenticated UPDATE(created_at)
+authenticated UPDATE(dob)
+authenticated UPDATE(email)
+authenticated UPDATE(id)
+authenticated UPDATE(identity_status)
+authenticated UPDATE(name)
+authenticated UPDATE(phone)
+authenticated UPDATE(rating)
+authenticated UPDATE(updated_at)
+authenticated UPDATE(wallet_balance)
+
+
+===== C. TABLE-LEVEL GRANTS on users/drivers/merchants (anon/authenticated) =====
+active_sessions -> anon: DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE
+active_sessions -> authenticated: DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE
+drivers -> anon: DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE
+drivers -> authenticated: DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE
+merchants -> anon: DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE
+merchants -> authenticated: DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE
+users -> anon: DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE
+users -> authenticated: DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE
+
+
+===== D. SECURITY DEFINER functions executable by anon/authenticated =====
+
+_transition_order_state_internal(p_order_id uuid, p_new_state character varying, p_verified_caller_role character varying, p_verified_caller_id character varying, p_reason text, p_idempotency_key character varying, p_metadata jsonb) definer=true search_path=search_path=public, extensions clientExec=NONE
+
+_transition_order_state_system(p_order_id uuid, p_new_state character varying, p_reason text, p_idempotency_key character varying, p_metadata jsonb) definer=true search_path=search_path=public, extensions clientExec=NONE
+
+accept_dispatch_offer_atomic(p_offer_id uuid, p_driver_id uuid, p_idempotency_key text) definer=true search_path=search_path=public, pg_temp clientExec=NONE
+
+accept_job_assignment_atomic(p_job_identifier text, p_driver_id uuid, p_offer_id uuid, p_idempotency_key text) definer=true search_path=search_path=public, pg_temp clientExec=NONE
+
+cancel_ride_atomic(p_job_id uuid, p_requester_id uuid, p_requester_role character varying, p_reason text, p_is_delayed_override boolean) definer=true search_path=search_path=public, extensions clientExec=NONE
+
+capture_payment_atomic(p_order_id text, p_payment_id text, p_customer uuid, p_service text, p_method text, p_signature_valid boolean, p_provider text, p_webhook_event_id text, p_declared_amount numeric) definer=true search_path=search_path=public clientExec=NONE
+
+create_dispatch_offer_atomic(p_job_uuid uuid, p_driver_uuid uuid, p_ttl_seconds integer, p_idempotency_key text, p_metadata jsonb) definer=true search_path=search_path=public, pg_temp clientExec=NONE
+
+create_order_with_lines_atomic(p_service_type character varying, p_customer_id uuid, p_merchant_id uuid, p_total_amount numeric, p_items jsonb, p_metadata jsonb, p_idempotency_key character varying, p_checkout_id uuid) definer=true search_path=search_path=public, extensions clientExec=NONE
+
+expire_stale_orders() definer=true search_path=search_path=public clientExec=NONE
+
+prevent_audit_log_mutation() definer=true search_path=search_path=public clientExec=anon,authenticated
+
+redeem_promotion_atomic(p_code character varying, p_user_id uuid, p_order_amount numeric, p_service_type character varying, p_job_id uuid, p_idempotency_key character varying, p_vehicle_type character varying, p_area_id character varying) definer=true search_path=search_path=public, extensions clientExec=NONE
+
+refund_payment_atomic(p_order_or_payment text, p_refund_event_id text, p_reason text, p_authorized_by text, p_provider text, p_declared_amount numeric, p_ticket_id text) definer=true search_path=search_path=public, extensions clientExec=NONE
+
+refund_payment_atomic(p_order_or_payment text, p_refund_event_id text, p_reason text, p_authorized_by text, p_provider text, p_declared_amount numeric) definer=true search_path=search_path=public clientExec=NONE
+
+transition_order_state(p_order_id uuid, p_new_state character varying, p_verified_caller_role character varying, p_verified_caller_id character varying, p_reason text, p_idempotency_key character varying, p_metadata jsonb) definer=true search_path=search_path=public, extensions clientExec=NONE
+
+validate_promotion_preview(p_code character varying, p_user_id uuid, p_order_amount numeric, p_service_type character varying, p_vehicle_type character varying, p_area_id character varying) definer=true search_path=search_path=public, extensions clientExec=NONE
