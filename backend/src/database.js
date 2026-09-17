@@ -2009,7 +2009,7 @@ class NabinDatabase {
               'promotion.create', 'promotion.edit', 'promotion.activate', 'geofence.view', 'geofence.create',
               'geofence.edit', 'geofence.delete', 'surge.view', 'surge.create', 'surge.edit', 'surge.activate',
               'audit.view', 'audit.export', 'services.view', 'services.pause', 'services.resume', 'services.emergency_killswitch',
-              'admin_accounts.create', 'admin_accounts.manage'
+              'admin_accounts.create', 'admin_accounts.manage', 'notification.view', 'notification.broadcast'
             ],
             KYC_SPECIALIST: [
               'identity_verification.view', 'identity_verification.review', 'identity_verification.approve', 'identity_verification.reject',
@@ -4064,7 +4064,8 @@ class NabinDatabase {
       SUPER_ADMIN: [
         'identity_verification.view', 'identity_verification.review', 'identity_verification.approve', 'identity_verification.reject',
         'fleet.manage', 'merchant.manage', 'finance.view', 'finance.refund', 'finance.adjust', 'support.resolve',
-        'promotion.create', 'geofence.create', 'surge.create', 'audit.view', 'admin_accounts.create', 'admin_accounts.manage'
+        'promotion.create', 'geofence.create', 'surge.create', 'audit.view', 'admin_accounts.create', 'admin_accounts.manage',
+        'notification.view', 'notification.broadcast'
       ],
       KYC_SPECIALIST: [
         'identity_verification.view', 'identity_verification.review', 'identity_verification.approve', 'identity_verification.reject',
