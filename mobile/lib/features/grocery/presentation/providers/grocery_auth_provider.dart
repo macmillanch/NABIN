@@ -1,5 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-
+import 'package:mobile/core/network/nabin_api_service.dart';
 enum GroceryAuthStatus {
   unauthenticated,
   authenticating,
@@ -49,32 +49,58 @@ class GroceryAuthNotifier extends StateNotifier<GroceryAuthState> {
   /// Send OTP to user phone number
   Future<bool> sendOtp(String phone) async {
     state = state.copyWith(status: GroceryAuthStatus.authenticating);
-    await Future.delayed(const Duration(milliseconds: 800)); // Simulate API delay
-    state = state.copyWith(
-      status: GroceryAuthStatus.unauthenticated,
-      phoneNumber: phone,
+    
+    final result = await NabinApiService.sendOtp(
+      phone: phone, 
+      role: 'CUSTOMER',
+      purpose: 'LOGIN'
     );
-    return true;
+
+    if (result != null && result['success'] == true) {
+      state = state.copyWith(
+        status: GroceryAuthStatus.unauthenticated,
+        phoneNumber: phone,
+      );
+      return true;
+    } else {
+      state = state.copyWith(
+        status: GroceryAuthStatus.unauthenticated,
+        errorMessage: result?['error'] ?? 'Failed to send OTP',
+      );
+      return false;
+    }
   }
 
-  /// Verify 6-digit OTP code
+  /// Verify OTP code
   Future<bool> verifyOtp(String otp) async {
     state = state.copyWith(status: GroceryAuthStatus.authenticating);
-    await Future.delayed(const Duration(milliseconds: 1000)); // Simulate verification
     
-    // Accept 123456 or any 6-digit pin for demo/testing
-    if (otp.length == 6) {
+    if (state.phoneNumber == null) {
+      state = state.copyWith(
+        status: GroceryAuthStatus.unauthenticated,
+        errorMessage: 'Phone number missing',
+      );
+      return false;
+    }
+
+    final result = await NabinApiService.verifyOtp(
+      phone: state.phoneNumber!, 
+      otp: otp, 
+      role: 'CUSTOMER'
+    );
+    
+    if (result != null && result['success'] == true) {
       state = GroceryAuthState(
         status: GroceryAuthStatus.authenticated,
-        phoneNumber: state.phoneNumber ?? '+91 98765 43210',
-        userName: 'NABIN Customer',
+        phoneNumber: state.phoneNumber,
+        userName: result['user']?['name'] ?? 'NABIN Customer',
         userRole: 'CUSTOMER',
       );
       return true;
     } else {
       state = state.copyWith(
         status: GroceryAuthStatus.unauthenticated,
-        errorMessage: 'Invalid OTP code. Enter 6 digits (e.g. 123456).',
+        errorMessage: result?['error'] ?? 'Invalid OTP code',
       );
       return false;
     }

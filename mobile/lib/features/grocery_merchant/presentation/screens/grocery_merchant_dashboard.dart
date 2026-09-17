@@ -46,7 +46,8 @@ class _GroceryMerchantDashboardState extends ConsumerState<GroceryMerchantDashbo
     try {
       // Get merchant ID from session
       final session = SessionManager.instance.currentUser;
-      final merchantId = session?['id'] ?? 'mcht_1'; // fallback for demo
+      final merchantId = session?['id'];
+      if (merchantId == null) throw Exception('No merchant session found');
 
       final result = await NabinApiService.getMerchantOrders(merchantId);
       
