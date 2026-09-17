@@ -37,4 +37,5 @@ export const bookingApi = {
   bookRide: (data: Record<string, unknown>) => api.post('/customer/book-ride', data),
   bookFood: (data: Record<string, unknown>) => api.post('/customer/book-food', data),
   bookParcel: (data: Record<string, unknown>) => api.post('/customer/book-parcel', data),
+  checkoutGrocery: (data: Record<string, unknown>) => api.post('/grocery/checkout/validate', data),
 };
