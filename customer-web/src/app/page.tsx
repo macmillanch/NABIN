@@ -64,9 +64,14 @@ export default function DashboardPage() {
           <h1 style={{ fontSize: "1.5rem", marginBottom: "0.25rem" }}>NABIN</h1>
           <p style={{ color: "var(--text-muted)", fontSize: "0.875rem" }}>Welcome back, {user.phone}</p>
         </div>
-        <Link href="/profile" style={{ padding: "0.5rem", color: "var(--text-muted)" }}>
-          Profile
-        </Link>
+        <div style={{ display: "flex", gap: "1rem" }}>
+          <Link href="/orders" style={{ padding: "0.5rem", color: "var(--text-muted)", textDecoration: "none" }}>
+            Orders
+          </Link>
+          <Link href="/profile" style={{ padding: "0.5rem", color: "var(--text-muted)", textDecoration: "none" }}>
+            Profile
+          </Link>
+        </div>
       </header>
 
       <main>
