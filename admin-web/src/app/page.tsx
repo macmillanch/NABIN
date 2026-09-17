@@ -74,14 +74,14 @@ export default function Dashboard() {
         {/* Metrics Grid */}
         <section>
           <h2 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
-            <Activity size={20} className="text-blue-600" /> Key Metrics
+            <Activity size={20} className="text-primary" /> Key Metrics
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <MetricCard 
               title="Active Customers" 
               value={metrics?.activeCustomers || '0'} 
-              icon={<Users size={24} className="text-blue-600" />}
-              bgColor="bg-blue-50" 
+              icon={<Users size={24} className="text-primary" />}
+              bgColor="bg-primary-50" 
             />
             <MetricCard 
               title="Active Drivers" 

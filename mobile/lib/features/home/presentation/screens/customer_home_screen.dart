@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/widgets/nabin_service_card.dart';
 import '../../../../core/models/school_child_repository.dart';
 import '../../../../core/network/session_manager.dart';
 import '../../../../core/network/nabin_api_service.dart';
@@ -268,76 +269,15 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
               const SizedBox(height: 10),
 
               // 1. Ride (Full Width Hero Card)
-              GestureDetector(
+              NabinServiceCard(
+                title: 'NABIN Ride',
+                subtitle: 'Bike (2W) • Auto (3W) • Car (4W)\nTransparent upfront fares & zero surge',
+                icon: Icons.electric_rickshaw_rounded,
+                primaryColor: AppTheme.primary,
+                tagText: '⚡ 2 MINS AWAY • NEARBY DRIVERS',
+                isEnabled: _features?['FEATURE_RIDE'] ?? true,
+                isHero: true,
                 onTap: () => _handleServiceTap('FEATURE_RIDE', '/ride-booking'),
-                child: Container(
-                  padding: const EdgeInsets.all(18),
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFF3C4890), Color(0xFF28316B)],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    borderRadius: BorderRadius.circular(22),
-                    boxShadow: [
-                      BoxShadow(color: const Color(0xFF3C4890).withValues(alpha: 0.28), blurRadius: 14, offset: const Offset(0, 5)),
-                    ],
-                  ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.2),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: const Text('⚡ 2 MINS AWAY • NEARBY DRIVERS', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: 0.5)),
-                            ),
-                            const SizedBox(height: 10),
-                            const Text('NABIN Ride', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: Colors.white)),
-                            const SizedBox(height: 2),
-                            const Text('Bike (2W) • Auto (3W) • Car (4W)\nTransparent upfront fares & zero surge', style: TextStyle(fontSize: 11.5, color: Color(0xFFD6E4FF), height: 1.3)),
-                            const SizedBox(height: 10),
-                            Row(
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                  decoration: BoxDecoration(
-                                    color: Colors.white,
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                  child: const Row(
-                                    children: [
-                                      Text('Book Ride', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: Color(0xFF3C4890))),
-                                      SizedBox(width: 4),
-                                      Icon(Icons.arrow_forward_rounded, size: 14, color: Color(0xFF3C4890)),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Container(
-                        width: 76,
-                        height: 76,
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.15),
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Center(
-                          child: Icon(Icons.electric_rickshaw_rounded, color: Colors.white, size: 44),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
               ),
 
               const SizedBox(height: 14),
@@ -347,92 +287,30 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                 children: [
                   // Food Delivery Card
                   Expanded(
-                    child: GestureDetector(
+                    child: NabinServiceCard(
+                      title: 'Food Delivery',
+                      subtitle: 'Top rated kitchens\n20–25 mins delivery',
+                      icon: Icons.restaurant_rounded,
+                      primaryColor: const Color(0xFFFF9030),
+                      tagText: '50% OFF',
+                      tagColor: const Color(0xFFEA580C),
+                      isEnabled: _features?['FEATURE_FOOD'] ?? true,
                       onTap: () => _handleServiceTap('FEATURE_FOOD', '/food-home'),
-                      child: Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: const Color(0xFFFFEDD5)),
-                          boxShadow: [
-                            BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 8, offset: const Offset(0, 3)),
-                          ],
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.all(10),
-                                  decoration: BoxDecoration(
-                                    gradient: const LinearGradient(colors: [Color(0xFFFF9030), Color(0xFFEA580C)]),
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: const Icon(Icons.restaurant_rounded, color: Colors.white, size: 20),
-                                ),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                  decoration: BoxDecoration(color: const Color(0xFFFFEDD5), borderRadius: BorderRadius.circular(6)),
-                                  child: const Text('50% OFF', style: TextStyle(fontSize: 8.5, fontWeight: FontWeight.w900, color: Color(0xFFEA580C))),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 12),
-                            const Text('Food Delivery', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: Color(0xFF111827))),
-                            const SizedBox(height: 2),
-                            const Text('Top rated kitchens\n20–25 mins delivery', style: TextStyle(fontSize: 11, color: Color(0xFF64748B), height: 1.25)),
-                          ],
-                        ),
-                      ),
                     ),
                   ),
                   const SizedBox(width: 12),
 
                   // 10-Min Grocery Express Card
                   Expanded(
-                    child: GestureDetector(
+                    child: NabinServiceCard(
+                      title: '10-Min Grocery',
+                      subtitle: 'Supermarket essentials\nFresh produce & snacks',
+                      icon: Icons.shopping_basket_rounded,
+                      primaryColor: const Color(0xFF22A447),
+                      tagText: '10 MINS',
+                      tagColor: const Color(0xFF15803D),
+                      isEnabled: _features?['FEATURE_GROCERY'] ?? true,
                       onTap: () => _handleServiceTap('FEATURE_GROCERY', '/grocery-home'),
-                      child: Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: const Color(0xFFDCFCE7)),
-                          boxShadow: [
-                            BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 8, offset: const Offset(0, 3)),
-                          ],
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.all(10),
-                                  decoration: BoxDecoration(
-                                    gradient: const LinearGradient(colors: [Color(0xFF22A447), Color(0xFF16A34A)]),
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: const Icon(Icons.shopping_basket_rounded, color: Colors.white, size: 20),
-                                ),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                  decoration: BoxDecoration(color: const Color(0xFFDCFCE7), borderRadius: BorderRadius.circular(6)),
-                                  child: const Text('10 MINS', style: TextStyle(fontSize: 8.5, fontWeight: FontWeight.w900, color: Color(0xFF15803D))),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 12),
-                            const Text('10-Min Grocery', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: Color(0xFF111827))),
-                            const SizedBox(height: 2),
-                            const Text('Supermarket essentials\nFresh produce & snacks', style: TextStyle(fontSize: 11, color: Color(0xFF64748B), height: 1.25)),
-                          ],
-                        ),
-                      ),
                     ),
                   ),
                 ],
@@ -445,46 +323,15 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                 children: [
                   // Parcel Courier Card
                   Expanded(
-                    child: GestureDetector(
+                    child: NabinServiceCard(
+                      title: 'Parcel Express',
+                      subtitle: 'Instant point-to-point\nPickup & Drop PINs',
+                      icon: Icons.inventory_2_rounded,
+                      primaryColor: AppTheme.primary,
+                      tagText: 'DUAL-OTP',
+                      tagColor: AppTheme.primary,
+                      isEnabled: _features?['FEATURE_PARCEL'] ?? true,
                       onTap: () => _handleServiceTap('FEATURE_PARCEL', '/parcel-booking'),
-                      child: Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: const Color(0xFFE0E7FF)),
-                          boxShadow: [
-                            BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 8, offset: const Offset(0, 3)),
-                          ],
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.all(10),
-                                  decoration: BoxDecoration(
-                                    gradient: const LinearGradient(colors: [Color(0xFF3C4890), Color(0xFF28316B)]),
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: const Icon(Icons.inventory_2_rounded, color: Colors.white, size: 20),
-                                ),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                  decoration: BoxDecoration(color: const Color(0xFFE0E7FF), borderRadius: BorderRadius.circular(6)),
-                                  child: const Text('DUAL-OTP', style: TextStyle(fontSize: 8.5, fontWeight: FontWeight.w900, color: Color(0xFF3C4890))),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 12),
-                            const Text('Parcel Express', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: Color(0xFF111827))),
-                            const SizedBox(height: 2),
-                            const Text('Instant point-to-point\nPickup & Drop PINs', style: TextStyle(fontSize: 11, color: Color(0xFF64748B), height: 1.25)),
-                          ],
-                        ),
-                      ),
                     ),
                   ),
                   const SizedBox(width: 12),

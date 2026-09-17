@@ -433,12 +433,14 @@ class _GroceryMerchantDashboardState extends ConsumerState<GroceryMerchantDashbo
 
   String _getOrderStatusText(String status) {
     switch (status) {
+      case 'NEW':
+        return 'New Order';
       case 'ACCEPTED':
         return 'Accepted';
       case 'REJECTED':
         return 'Rejected';
-      case 'PREPARING':
-        return 'Preparing';
+      case 'PICKING':
+        return 'Picking Items';
       case 'PACKING':
         return 'Packing';
       case 'READY_FOR_PICKUP':
@@ -454,12 +456,14 @@ class _GroceryMerchantDashboardState extends ConsumerState<GroceryMerchantDashbo
 
   Color _getOrderStatusColor(String status) {
     switch (status) {
+      case 'NEW':
+        return const Color(0xFFE11D48); // Rose 600
       case 'ACCEPTED':
         return GroceryMerchantTheme.primaryGreen;
       case 'REJECTED':
         return GroceryMerchantTheme.accentRose;
-      case 'PREPARING':
-        return GroceryMerchantTheme.accentAmber;
+      case 'PICKING':
+        return const Color(0xFF2563EB); // Blue 600
       case 'PACKING':
         return GroceryMerchantTheme.accentAmber;
       case 'READY_FOR_PICKUP':

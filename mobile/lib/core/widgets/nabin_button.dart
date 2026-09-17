@@ -66,21 +66,14 @@ class _NabinButtonState extends State<NabinButton> with SingleTickerProviderStat
           width: double.infinity,
           height: widget.height,
           decoration: BoxDecoration(
+            color: widget.color,
             borderRadius: BorderRadius.circular(widget.borderRadius),
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                widget.color,
-                widget.color.withValues(alpha: 0.85),
-              ],
-            ),
             boxShadow: [
               BoxShadow(
-                color: widget.color.withValues(alpha: 0.35),
-                blurRadius: 18,
-                offset: const Offset(0, 6),
-                spreadRadius: 1,
+                color: widget.color.withValues(alpha: 0.25),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+                spreadRadius: 0,
               ),
             ],
           ),

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/widgets/nabin_text_field.dart';
+import '../../../../core/widgets/nabin_button.dart';
 
 import '../../../../core/network/nabin_api_service.dart';
 
@@ -99,57 +101,28 @@ class _PhoneEntryScreenState extends State<PhoneEntryScreen> {
                       ),
                       const SizedBox(height: 28),
 
-                      // Phone Input Card
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                        decoration: BoxDecoration(
-                          color: AppTheme.surfaceContainerLowest,
-                          borderRadius: BorderRadius.circular(18),
-                          border: Border.all(color: AppTheme.outlineVariant),
-                          boxShadow: const [
-                            BoxShadow(color: Colors.black12, blurRadius: 10, offset: Offset(0, 3)),
-                          ],
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text('MOBILE NUMBER', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: AppTheme.onSurfaceVariant, letterSpacing: 1.0)),
-                            const SizedBox(height: 8),
-                            Row(
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                                  decoration: BoxDecoration(
-                                    color: AppTheme.surfaceContainerLow,
-                                    borderRadius: BorderRadius.circular(10),
-                                    border: Border.all(color: AppTheme.outlineVariant.withValues(alpha: 0.5)),
-                                  ),
-                                  child: const Row(
-                                    children: [
-                                      Text('🇮🇳 +91', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15, color: AppTheme.onSurface)),
-                                      SizedBox(width: 4),
-                                      Icon(Icons.expand_more, size: 16, color: AppTheme.onSurfaceVariant),
-                                    ],
-                                  ),
-                                ),
-                                const SizedBox(width: 14),
-                                Expanded(
-                                  child: TextField(
-                                    controller: _phoneController,
-                                    keyboardType: TextInputType.phone,
-                                    maxLength: 10,
-                                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: AppTheme.onSurface, letterSpacing: 1.5),
-                                    decoration: const InputDecoration(
-                                      hintText: '98765 43210',
-                                      border: InputBorder.none,
-                                      counterText: '',
-                                      isDense: true,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
+                      // Phone Input Field
+                      NabinTextField(
+                        label: 'MOBILE NUMBER',
+                        hintText: '98765 43210',
+                        controller: _phoneController,
+                        keyboardType: TextInputType.phone,
+                        prefix: Container(
+                          margin: const EdgeInsets.only(right: 12),
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: AppTheme.surfaceContainerLow,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: AppTheme.outlineVariant.withValues(alpha: 0.5)),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text('🇮🇳 +91', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15, color: AppTheme.onSurface)),
+                              SizedBox(width: 4),
+                              Icon(Icons.expand_more, size: 16, color: AppTheme.onSurfaceVariant),
+                            ],
+                          ),
                         ),
                       ),
                       const SizedBox(height: 16),
@@ -176,26 +149,12 @@ class _PhoneEntryScreenState extends State<PhoneEntryScreen> {
                       const SizedBox(height: 24),
 
                       // Continue Action Button
-                      ElevatedButton(
-                        onPressed: _isLoading ? null : _submit,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppTheme.primaryContainer,
-                          foregroundColor: Colors.white,
-                          minimumSize: const Size(double.infinity, 56),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                          elevation: 2,
-                          shadowColor: AppTheme.primary.withValues(alpha: 0.35),
-                        ),
-                        child: _isLoading
-                            ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5))
-                            : const Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Text('Continue', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900)),
-                                  SizedBox(width: 8),
-                                  Icon(Icons.arrow_forward, size: 18),
-                                ],
-                              ),
+                      NabinButton(
+                        text: 'Continue',
+                        onPressed: _submit,
+                        isLoading: _isLoading,
+                        icon: Icons.arrow_forward,
+                        isFullWidth: true,
                       ),
                       const SizedBox(height: 12),
                       const Center(

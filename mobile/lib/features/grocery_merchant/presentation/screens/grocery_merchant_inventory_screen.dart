@@ -125,22 +125,24 @@ class _GroceryMerchantInventoryScreenState extends ConsumerState<GroceryMerchant
     final status = item['status'] ?? 'UNKNOWN';
     final statusColor = _getStatusColor(status);
     final statusText = _getStatusText(status);
+    final inStock = status != 'OUT_OF_STOCK';
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: inStock ? Colors.white : GroceryMerchantTheme.bgOffWhite,
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.02),
-            blurRadius: 4,
-            offset: const Offset(0, 1),
-          ),
+          if (inStock)
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.03),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
         ],
         border: Border.all(
-          color: GroceryMerchantTheme.borderLight,
+          color: inStock ? GroceryMerchantTheme.borderLight : GroceryMerchantTheme.accentRose.withValues(alpha: 0.3),
           width: 1,
         ),
       ),
@@ -161,13 +163,25 @@ class _GroceryMerchantInventoryScreenState extends ConsumerState<GroceryMerchant
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  item['productName'] ?? 'Unknown Product',
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    color: GroceryMerchantTheme.textDark,
-                  ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        item['productName'] ?? 'Unknown Product',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                          color: inStock ? GroceryMerchantTheme.textDark : GroceryMerchantTheme.textMuted,
+                          decoration: inStock ? TextDecoration.none : TextDecoration.lineThrough,
+                        ),
+                      ),
+                    ),
+                    Icon(
+                      Icons.qr_code_scanner,
+                      size: 16,
+                      color: GroceryMerchantTheme.textMuted.withValues(alpha: 0.5),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 4),
                 Text(
@@ -177,30 +191,31 @@ class _GroceryMerchantInventoryScreenState extends ConsumerState<GroceryMerchant
                     color: GroceryMerchantTheme.textMuted,
                   ),
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 8),
                 Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                       decoration: BoxDecoration(
                         color: statusColor.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(8),
+                        borderRadius: BorderRadius.circular(6),
                       ),
                       child: Text(
                         statusText,
                         style: TextStyle(
                           fontSize: 11,
-                          fontWeight: FontWeight.w600,
+                          fontWeight: FontWeight.w700,
                           color: statusColor,
                         ),
                       ),
                     ),
-                    const SizedBox(width: 8),
                     Text(
                       '₹${item['price'] ?? 0}',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: GroceryMerchantTheme.textMuted,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        color: GroceryMerchantTheme.textDark,
                       ),
                     ),
                   ],
@@ -208,19 +223,37 @@ class _GroceryMerchantInventoryScreenState extends ConsumerState<GroceryMerchant
               ],
             ),
           ),
+          const SizedBox(width: 12),
           // Action Buttons
           Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              IconButton(
-                onPressed: () => _showUpdateQuantityDialog(item),
-                icon: const Icon(Icons.edit_outlined, color: GroceryMerchantTheme.textMuted, size: 20),
-                tooltip: 'Update Quantity',
+              Switch(
+                value: inStock,
+                activeColor: GroceryMerchantTheme.primaryGreen,
+                onChanged: (val) {
+                  _updateInventoryItem(item, quantity: val ? 10 : 0); // Quick toggle updates quantity
+                },
               ),
-              IconButton(
-                onPressed: () => _showUpdatePriceDialog(item),
-                icon: const Icon(Icons.price_change_outlined, color: GroceryMerchantTheme.textMuted, size: 20),
-                tooltip: 'Update Price',
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    onPressed: () => _showUpdateQuantityDialog(item),
+                    icon: const Icon(Icons.edit_outlined, color: GroceryMerchantTheme.textMuted, size: 20),
+                    tooltip: 'Update Quantity',
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    onPressed: () => _showUpdatePriceDialog(item),
+                    icon: const Icon(Icons.price_change_outlined, color: GroceryMerchantTheme.textMuted, size: 20),
+                    tooltip: 'Update Price',
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                  ),
+                ],
               ),
             ],
           ),

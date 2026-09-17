@@ -22,8 +22,9 @@ class _GroceryMerchantOrdersScreenState extends ConsumerState<GroceryMerchantOrd
 
   final List<String> _statusFilters = [
     'ALL',
+    'NEW',
     'ACCEPTED',
-    'PREPARING',
+    'PICKING',
     'PACKING',
     'READY_FOR_PICKUP',
     'DELIVERED',
@@ -340,7 +341,7 @@ class _GroceryMerchantOrdersScreenState extends ConsumerState<GroceryMerchantOrd
     final orderId = order['id'];
     final merchantId = order['merchant_id'] ?? 'mcht_1';
 
-    if (status == 'ACCEPTED') {
+    if (status == 'NEW') {
       return Row(
         children: [
           Expanded(
@@ -358,9 +359,26 @@ class _GroceryMerchantOrdersScreenState extends ConsumerState<GroceryMerchantOrd
           const SizedBox(width: 12),
           Expanded(
             child: ElevatedButton.icon(
-              onPressed: () => _updateOrderStatus(orderId, merchantId, 'PREPARING'),
-              icon: const Icon(Icons.restaurant, size: 16),
-              label: const Text('Start Preparing'),
+              onPressed: () => _updateOrderStatus(orderId, merchantId, 'ACCEPTED'),
+              icon: const Icon(Icons.check, size: 16),
+              label: const Text('Accept Order'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: GroceryMerchantTheme.primaryGreen,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+            ),
+          ),
+        ],
+      );
+    } else if (status == 'ACCEPTED') {
+      return Row(
+        children: [
+          Expanded(
+            child: ElevatedButton.icon(
+              onPressed: () => _updateOrderStatus(orderId, merchantId, 'PICKING'),
+              icon: const Icon(Icons.shopping_basket, size: 16),
+              label: const Text('Start Picking'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: GroceryMerchantTheme.accentAmber,
                 foregroundColor: Colors.white,
@@ -370,22 +388,9 @@ class _GroceryMerchantOrdersScreenState extends ConsumerState<GroceryMerchantOrd
           ),
         ],
       );
-    } else if (status == 'PREPARING') {
+    } else if (status == 'PICKING') {
       return Row(
         children: [
-          Expanded(
-            child: OutlinedButton.icon(
-              onPressed: () => _updateOrderStatus(orderId, merchantId, 'REJECTED'),
-              icon: const Icon(Icons.close, size: 16),
-              label: const Text('Reject'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: GroceryMerchantTheme.accentRose,
-                side: BorderSide(color: GroceryMerchantTheme.accentRose),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
           Expanded(
             child: ElevatedButton.icon(
               onPressed: () => _updateOrderStatus(orderId, merchantId, 'PACKING'),
@@ -403,19 +408,6 @@ class _GroceryMerchantOrdersScreenState extends ConsumerState<GroceryMerchantOrd
     } else if (status == 'PACKING') {
       return Row(
         children: [
-          Expanded(
-            child: OutlinedButton.icon(
-              onPressed: () => _updateOrderStatus(orderId, merchantId, 'REJECTED'),
-              icon: const Icon(Icons.close, size: 16),
-              label: const Text('Reject'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: GroceryMerchantTheme.accentRose,
-                side: BorderSide(color: GroceryMerchantTheme.accentRose),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
           Expanded(
             child: ElevatedButton.icon(
               onPressed: () => _updateOrderStatus(orderId, merchantId, 'READY_FOR_PICKUP'),
@@ -436,7 +428,7 @@ class _GroceryMerchantOrdersScreenState extends ConsumerState<GroceryMerchantOrd
   }
 
   bool _isActionableStatus(String status) {
-    return ['ACCEPTED', 'PREPARING', 'PACKING'].contains(status);
+    return ['NEW', 'ACCEPTED', 'PICKING', 'PACKING'].contains(status);
   }
 
   Future<void> _updateOrderStatus(String orderId, String merchantId, String newStatus) async {
@@ -535,12 +527,14 @@ class _GroceryMerchantOrdersScreenState extends ConsumerState<GroceryMerchantOrd
 
   String _getOrderStatusText(String status) {
     switch (status) {
+      case 'NEW':
+        return 'New Order';
       case 'ACCEPTED':
         return 'Accepted';
       case 'REJECTED':
         return 'Rejected';
-      case 'PREPARING':
-        return 'Preparing';
+      case 'PICKING':
+        return 'Picking Items';
       case 'PACKING':
         return 'Packing';
       case 'READY_FOR_PICKUP':
@@ -556,12 +550,14 @@ class _GroceryMerchantOrdersScreenState extends ConsumerState<GroceryMerchantOrd
 
   Color _getOrderStatusColor(String status) {
     switch (status) {
+      case 'NEW':
+        return const Color(0xFFE11D48); // Rose 600
       case 'ACCEPTED':
         return GroceryMerchantTheme.primaryGreen;
       case 'REJECTED':
         return GroceryMerchantTheme.accentRose;
-      case 'PREPARING':
-        return GroceryMerchantTheme.accentAmber;
+      case 'PICKING':
+        return const Color(0xFF2563EB); // Blue 600
       case 'PACKING':
         return GroceryMerchantTheme.accentAmber;
       case 'READY_FOR_PICKUP':

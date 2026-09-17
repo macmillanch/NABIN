@@ -172,12 +172,14 @@ class _GroceryMerchantOrderDetailScreenState extends ConsumerState<GroceryMercha
 
   String _getStatusText(String status) {
     switch (status) {
+      case 'NEW':
+        return 'New Order';
       case 'ACCEPTED':
         return 'Accepted';
       case 'REJECTED':
         return 'Rejected';
-      case 'PREPARING':
-        return 'Preparing';
+      case 'PICKING':
+        return 'Picking Items';
       case 'PACKING':
         return 'Packing';
       case 'READY_FOR_PICKUP':
@@ -193,12 +195,14 @@ class _GroceryMerchantOrderDetailScreenState extends ConsumerState<GroceryMercha
 
   Color _getStatusColor(String status) {
     switch (status) {
+      case 'NEW':
+        return const Color(0xFFE11D48); // Rose 600
       case 'ACCEPTED':
         return GroceryMerchantTheme.primaryGreen;
       case 'REJECTED':
         return GroceryMerchantTheme.accentRose;
-      case 'PREPARING':
-        return GroceryMerchantTheme.accentAmber;
+      case 'PICKING':
+        return const Color(0xFF2563EB); // Blue 600
       case 'PACKING':
         return GroceryMerchantTheme.accentAmber;
       case 'READY_FOR_PICKUP':
@@ -388,79 +392,102 @@ class _GroceryMerchantOrderDetailScreenState extends ConsumerState<GroceryMercha
   }
 
   Widget _buildOrderItem(Map<String, dynamic> item) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(10),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.02),
-            blurRadius: 3,
-            offset: const Offset(0, 1),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          // Item Image/Icon
-          Container(
-            width: 50,
-            height: 50,
-            decoration: BoxDecoration(
-              color: GroceryMerchantTheme.surfaceElevated,
-              borderRadius: BorderRadius.circular(8),
+    bool isPicked = false;
+    final isPickingState = _order?['order_state'] == 'PICKING' || _order?['order_state'] == 'PACKING';
+
+    return StatefulBuilder(
+      builder: (context, setState) {
+        return Container(
+          margin: const EdgeInsets.only(bottom: 12),
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: isPicked ? GroceryMerchantTheme.bgOffWhite : Colors.white,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: isPicked ? GroceryMerchantTheme.borderLight : Colors.transparent,
             ),
-            child: Icon(
-              Icons.shopping_bag_outlined,
-              size: 24,
-              color: GroceryMerchantTheme.primaryGreen,
-            ),
+            boxShadow: [
+              if (!isPicked)
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.02),
+                  blurRadius: 3,
+                  offset: const Offset(0, 1),
+                ),
+            ],
           ),
-          const SizedBox(width: 12),
-          // Item Details
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  item['product_name_snapshot'] ?? item['productName'] ?? 'Unknown Item',
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: GroceryMerchantTheme.textDark,
+          child: Row(
+            children: [
+              if (isPickingState) ...[
+                Checkbox(
+                  value: isPicked,
+                  activeColor: GroceryMerchantTheme.primaryGreen,
+                  onChanged: (val) {
+                    setState(() => isPicked = val ?? false);
+                  },
+                ),
+                const SizedBox(width: 4),
+              ] else ...[
+                // Item Image/Icon
+                Container(
+                  width: 50,
+                  height: 50,
+                  decoration: BoxDecoration(
+                    color: GroceryMerchantTheme.surfaceElevated,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    Icons.shopping_bag_outlined,
+                    size: 24,
+                    color: GroceryMerchantTheme.primaryGreen,
                   ),
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  'Qty: ${item['quantity'] ?? 1} × ₹${(item['unitPriceAtCheckout'] ?? item['price'] ?? 0).toStringAsFixed(0)}',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: GroceryMerchantTheme.textMuted,
-                  ),
-                ),
+                const SizedBox(width: 12),
               ],
-            ),
+              // Item Details
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      item['product_name_snapshot'] ?? item['productName'] ?? 'Unknown Item',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: isPicked ? GroceryMerchantTheme.textMuted : GroceryMerchantTheme.textDark,
+                        decoration: isPicked ? TextDecoration.lineThrough : TextDecoration.none,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Qty: ${item['quantity'] ?? 1} × ₹${(item['unitPriceAtCheckout'] ?? item['price'] ?? 0).toStringAsFixed(0)}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: GroceryMerchantTheme.textMuted,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              // Item Price
+              Text(
+                '₹${(item['finalItemAmount'] ?? (item['unitPriceAtCheckout'] ?? item['price'] ?? 0) * (item['quantity'] ?? 1)).toStringAsFixed(0)}',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: isPicked ? GroceryMerchantTheme.textMuted : GroceryMerchantTheme.primaryGreen,
+                ),
+              ),
+            ],
           ),
-          // Item Price
-          Text(
-            '₹${(item['finalItemAmount'] ?? (item['unitPriceAtCheckout'] ?? item['price'] ?? 0) * (item['quantity'] ?? 1)).toStringAsFixed(0)}',
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w700,
-              color: GroceryMerchantTheme.primaryGreen,
-            ),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 
   Widget _buildStatusActionButtons() {
     final status = _order?['order_state'] ?? '';
 
-    if (status == 'ACCEPTED') {
+    if (status == 'NEW') {
       return Row(
         children: [
           Expanded(
@@ -471,41 +498,48 @@ class _GroceryMerchantOrderDetailScreenState extends ConsumerState<GroceryMercha
               style: OutlinedButton.styleFrom(
                 foregroundColor: GroceryMerchantTheme.accentRose,
                 side: BorderSide(color: GroceryMerchantTheme.accentRose),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
               ),
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 16),
           Expanded(
             child: ElevatedButton.icon(
-              onPressed: () => _updateOrderStatus('PREPARING'),
-              icon: const Icon(Icons.restaurant, size: 16),
-              label: const Text('Start Preparing'),
+              onPressed: () => _updateOrderStatus('ACCEPTED'),
+              icon: const Icon(Icons.check, size: 16),
+              label: const Text('Accept Order'),
               style: ElevatedButton.styleFrom(
-                backgroundColor: GroceryMerchantTheme.accentAmber,
+                backgroundColor: GroceryMerchantTheme.primaryGreen,
                 foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
               ),
             ),
           ),
         ],
       );
-    } else if (status == 'PREPARING') {
+    } else if (status == 'ACCEPTED') {
       return Row(
         children: [
           Expanded(
-            child: OutlinedButton.icon(
-              onPressed: () => _updateOrderStatus('REJECTED'),
-              icon: const Icon(Icons.close, size: 16),
-              label: const Text('Reject'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: GroceryMerchantTheme.accentRose,
-                side: BorderSide(color: GroceryMerchantTheme.accentRose),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            child: ElevatedButton.icon(
+              onPressed: () => _updateOrderStatus('PICKING'),
+              icon: const Icon(Icons.shopping_basket, size: 16),
+              label: const Text('Start Picking'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: GroceryMerchantTheme.accentAmber,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
               ),
             ),
           ),
-          const SizedBox(width: 12),
+        ],
+      );
+    } else if (status == 'PICKING') {
+      return Row(
+        children: [
           Expanded(
             child: ElevatedButton.icon(
               onPressed: () => _updateOrderStatus('PACKING'),
@@ -514,7 +548,8 @@ class _GroceryMerchantOrderDetailScreenState extends ConsumerState<GroceryMercha
               style: ElevatedButton.styleFrom(
                 backgroundColor: GroceryMerchantTheme.primaryGreen,
                 foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
               ),
             ),
           ),
@@ -524,19 +559,6 @@ class _GroceryMerchantOrderDetailScreenState extends ConsumerState<GroceryMercha
       return Row(
         children: [
           Expanded(
-            child: OutlinedButton.icon(
-              onPressed: () => _updateOrderStatus('REJECTED'),
-              icon: const Icon(Icons.close, size: 16),
-              label: const Text('Reject'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: GroceryMerchantTheme.accentRose,
-                side: BorderSide(color: GroceryMerchantTheme.accentRose),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
             child: ElevatedButton.icon(
               onPressed: () => _updateOrderStatus('READY_FOR_PICKUP'),
               icon: const Icon(Icons.check_circle, size: 16),
@@ -544,7 +566,8 @@ class _GroceryMerchantOrderDetailScreenState extends ConsumerState<GroceryMercha
               style: ElevatedButton.styleFrom(
                 backgroundColor: GroceryMerchantTheme.primaryGreen,
                 foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
               ),
             ),
           ),
@@ -556,6 +579,6 @@ class _GroceryMerchantOrderDetailScreenState extends ConsumerState<GroceryMercha
   }
 
   bool _isActionableStatus(String status) {
-    return ['ACCEPTED', 'PREPARING', 'PACKING'].contains(status);
+    return ['NEW', 'ACCEPTED', 'PICKING', 'PACKING'].contains(status);
   }
 }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/widgets/nabin_button.dart';
 import '../../../../core/network/nabin_api_service.dart';
 import '../../../../core/network/session_manager.dart';
 
@@ -189,26 +190,12 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                       const Spacer(),
                       const SizedBox(height: 24),
 
-                      ElevatedButton(
-                        onPressed: _isLoading ? null : _verifyOtp,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppTheme.primaryContainer,
-                          foregroundColor: Colors.white,
-                          minimumSize: const Size(double.infinity, 56),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                          elevation: 2,
-                          shadowColor: AppTheme.primary.withValues(alpha: 0.35),
-                        ),
-                        child: _isLoading
-                            ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5))
-                            : const Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Text('Verify & Proceed', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900)),
-                                  SizedBox(width: 8),
-                                  Icon(Icons.arrow_forward, size: 18),
-                                ],
-                              ),
+                      NabinButton(
+                        text: 'Verify & Proceed',
+                        onPressed: _verifyOtp,
+                        isLoading: _isLoading,
+                        icon: Icons.arrow_forward,
+                        isFullWidth: true,
                       ),
                       const SizedBox(height: 16),
                     ],

@@ -536,10 +536,29 @@ class _RestaurantMainShellState extends State<RestaurantMainShell> {
 
         // Orders List
         Expanded(
-          child: ListView.builder(
-            padding: const EdgeInsets.all(16),
-            itemCount: _orders.length,
-            itemBuilder: (context, index) => _buildStitchOrderCard(_orders[index]),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              if (constraints.maxWidth > 600) {
+                // KDS Grid Layout for Tablets/Desktop
+                return GridView.builder(
+                  padding: const EdgeInsets.all(16),
+                  gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                    maxCrossAxisExtent: 400,
+                    mainAxisSpacing: 16,
+                    crossAxisSpacing: 16,
+                    mainAxisExtent: 350, // Fixed height for standard KDS ticket
+                  ),
+                  itemCount: _orders.length,
+                  itemBuilder: (context, index) => _buildStitchOrderCard(_orders[index]),
+                );
+              }
+              // List Layout for Mobile
+              return ListView.builder(
+                padding: const EdgeInsets.all(16),
+                itemCount: _orders.length,
+                itemBuilder: (context, index) => _buildStitchOrderCard(_orders[index]),
+              );
+            },
           ),
         ),
       ],
@@ -549,20 +568,28 @@ class _RestaurantMainShellState extends State<RestaurantMainShell> {
   Widget _buildStitchOrderCard(Map<String, dynamic> order) {
     Color statusBg = RestaurantTheme.neonOrangeLight;
     Color statusText = RestaurantTheme.neonOrangeDark;
+    Color borderColor = RestaurantTheme.border;
     String statusLabel = 'PREPARING';
+    double borderWidth = 1.0;
 
     final status = order['status'] as String;
     if (status == 'NEW') {
       statusBg = const Color(0xFFFFE4E6);
-      statusText = RestaurantTheme.nonVegRed;
+      statusText = const Color(0xFFE11D48); // Rose 600
+      borderColor = const Color(0xFFFDA4AF); // Rose 300
+      borderWidth = 2.0;
       statusLabel = 'NEW ORDER';
     } else if (status == 'ACCEPTED') {
       statusBg = const Color(0xFFFEF3C7);
-      statusText = const Color(0xFFB45309);
+      statusText = const Color(0xFFD97706); // Amber 600
+      borderColor = const Color(0xFFFCD34D); // Amber 300
+      borderWidth = 1.5;
       statusLabel = 'ACCEPTED';
     } else if (status == 'READY') {
-      statusBg = RestaurantTheme.vegGreen.withValues(alpha: 0.12);
-      statusText = RestaurantTheme.vegGreen;
+      statusBg = const Color(0xFFDCFCE7); // Green 100
+      statusText = const Color(0xFF16A34A); // Green 600
+      borderColor = const Color(0xFF86EFAC); // Green 300
+      borderWidth = 2.0;
       statusLabel = 'READY FOR PICKUP';
     } else if (status == 'COMPLETED') {
       statusBg = const Color(0xFFF1F5F9);
@@ -577,9 +604,12 @@ class _RestaurantMainShellState extends State<RestaurantMainShell> {
       decoration: BoxDecoration(
         color: RestaurantTheme.white,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: RestaurantTheme.border),
+        border: Border.all(color: borderColor, width: borderWidth),
         boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 6, offset: const Offset(0, 2)),
+          if (status == 'NEW' || status == 'READY')
+            BoxShadow(color: borderColor.withValues(alpha: 0.3), blurRadius: 8, offset: const Offset(0, 4))
+          else
+            BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 6, offset: const Offset(0, 2)),
         ],
       ),
       child: Column(
