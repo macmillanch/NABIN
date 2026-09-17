@@ -434,6 +434,38 @@ class NabinApiService {
   }
 
   // =========================================================================
+  // 7. MERCHANT INVENTORY APIS
+  // =========================================================================
+
+  static Future<Map<String, dynamic>?> getMerchantInventory(String merchantId) async {
+    try {
+      final client = HttpClient();
+      final request = await client.getUrl(Uri.parse('$effectiveUrl/merchant/inventory'));
+      _attachAuthHeader(request);
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      return jsonDecode(body) as Map<String, dynamic>;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  static Future<Map<String, dynamic>?> updateMerchantInventoryItem(Map<String, dynamic> payload) async {
+    try {
+      final client = HttpClient();
+      final request = await client.postUrl(Uri.parse('$effectiveUrl/merchant/inventory'));
+      request.headers.set('content-type', 'application/json');
+      _attachAuthHeader(request);
+      request.add(utf8.encode(jsonEncode(payload)));
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      return jsonDecode(body) as Map<String, dynamic>;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // =========================================================================
   // 8. CUSTOMER BOOKINGS
   // =========================================================================
 
