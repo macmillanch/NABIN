@@ -1,11 +1,13 @@
+/* eslint-disable react-hooks/set-state-in-effect */
 'use client';
 
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { authApi } from '@/lib/api';
 import { useRouter, usePathname } from 'next/navigation';
 
 interface AuthContextType {
-  user: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  user: Record<string, any> | null;
   loading: boolean;
   login: (password: string) => Promise<void>;
   logout: () => void;
@@ -14,16 +16,13 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType>({} as AuthContextType);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [user, setUser] = useState<Record<string, any> | null>(null);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
   const pathname = usePathname();
 
-  useEffect(() => {
-    checkAuth();
-  }, [pathname]);
-
-  const checkAuth = async () => {
+  const checkAuth = useCallback(async () => {
     try {
       const token = localStorage.getItem('nabin_admin_token');
       if (!token) throw new Error('No token');
@@ -34,7 +33,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } else {
         throw new Error('Auth failed');
       }
-    } catch (err) {
+    } catch {
       setUser(null);
       localStorage.removeItem('nabin_admin_token');
       if (pathname !== '/login') {
@@ -43,7 +42,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [pathname, router]);
+
+  useEffect(() => {
+    checkAuth();
+  }, [checkAuth]);
 
   const login = async (password: string) => {
     const res = await authApi.login(password);

@@ -14,8 +14,8 @@ export default function LoginPage() {
     e.preventDefault();
     try {
       await login(password);
-    } catch (err: any) {
-      setError(err.message || 'Invalid password');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Invalid password');
     }
   };
 

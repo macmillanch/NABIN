@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/set-state-in-effect */
 'use client';
 
 import React, { useEffect, useState } from 'react';
@@ -8,17 +9,11 @@ import { useRouter } from 'next/navigation';
 
 export default function Dashboard() {
   const { user, logout } = useAuth();
-  const [metrics, setMetrics] = useState<any>(null);
-  const [services, setServices] = useState<any[]>([]);
+  const [metrics, setMetrics] = useState<{ activeCustomers: number; activeDrivers: number; activeMerchants: number; activeJobs: number; } | null>(null);
+  const [services, setServices] = useState<{ name: string; isPaused: boolean; pausedReason?: string; }[]>([]);
   const router = useRouter();
 
-  useEffect(() => {
-    if (user) {
-      fetchData();
-    }
-  }, [user]);
-
-  const fetchData = async () => {
+  async function fetchData() {
     try {
       const [metricsRes, servicesRes] = await Promise.all([
         adminApi.getMetrics(),
@@ -26,12 +21,18 @@ export default function Dashboard() {
       ]);
       if (metricsRes.data.success) setMetrics(metricsRes.data.metrics);
       if (servicesRes.data.success) setServices(servicesRes.data.services);
-    } catch (err) {
-      console.error('Failed to fetch data', err);
+    } catch {
+      console.error('Failed to fetch data');
     }
-  };
+  }
 
-  const toggleService = async (serviceName: string, isPaused: boolean) => {
+  useEffect(() => {
+    if (user) {
+      fetchData();
+    }
+  }, [user]);
+
+  async function toggleService(serviceName: string, isPaused: boolean) {
     try {
       if (isPaused) {
         await adminApi.resumeService(serviceName);
@@ -39,10 +40,10 @@ export default function Dashboard() {
         await adminApi.pauseService(serviceName, 'Admin manually paused');
       }
       fetchData();
-    } catch (err) {
+    } catch {
       alert('Failed to toggle service');
     }
-  };
+  }
 
   if (!user) return null;
 
