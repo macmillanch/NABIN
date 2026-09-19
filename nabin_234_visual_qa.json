@@ -1,0 +1,83 @@
+{
+  "reportVersion": "1.0.0",
+  "generatedAt": "2026-09-19T18:04:24Z",
+  "totalScreens": 234,
+  "retrievedScreens": 234,
+  "downloadStatus": "completed",
+  "projects": [
+    {
+      "projectId": "8177350010716545885",
+      "projectName": "NABIN — Customer App",
+      "expectedScreens": 48,
+      "retrievedScreens": 48,
+      "downloadedHTML": 48,
+      "status": "verified"
+    },
+    {
+      "projectId": "8351986305462646918",
+      "projectName": "NABIN — Driver App",
+      "expectedScreens": 38,
+      "retrievedScreens": 38,
+      "downloadedHTML": 38,
+      "status": "verified"
+    },
+    {
+      "projectId": "6214000417822217011",
+      "projectName": "NABIN — Restaurant Merchant App",
+      "expectedScreens": 32,
+      "retrievedScreens": 32,
+      "downloadedHTML": 32,
+      "status": "verified"
+    },
+    {
+      "projectId": "14026068595233675473",
+      "projectName": "NABIN — Grocery Merchant App",
+      "expectedScreens": 30,
+      "retrievedScreens": 30,
+      "downloadedHTML": 30,
+      "status": "verified"
+    },
+    {
+      "projectId": "10226544365361646201",
+      "projectName": "NABIN — Admin App",
+      "expectedScreens": 28,
+      "retrievedScreens": 28,
+      "downloadedHTML": 28,
+      "status": "verified"
+    },
+    {
+      "projectId": "9754323984525516826",
+      "projectName": "NABIN — Customer Web",
+      "expectedScreens": 29,
+      "retrievedScreens": 29,
+      "downloadedHTML": 29,
+      "status": "verified"
+    },
+    {
+      "projectId": "17357153901300306716",
+      "projectName": "NABIN — Admin Web",
+      "expectedScreens": 29,
+      "retrievedScreens": 29,
+      "downloadedHTML": 29,
+      "status": "verified"
+    }
+  ],
+  "verificationMethod": {
+    "primary": "get_screen (authoritative existence verification)",
+    "secondary": "list_screens (indexing/reconciliation evidence)",
+    "note": "Do not mark valid screens invalid merely because list_screens is delayed"
+  },
+  "downloadDetails": {
+    "format": "HTML",
+    "storage": "Local cache for offline verification",
+    "timestamp": "2026-09-19T18:04:24Z"
+  },
+  "issues": [],
+  "summary": {
+    "total": 234,
+    "verified": 234,
+    "missing": 0,
+    "failed": 0,
+    "successRate": "100%"
+  }
+}

@@ -1,0 +1,154 @@
+{
+  "reportVersion": "1.0.0",
+  "generatedAt": "2026-09-19T18:04:24Z",
+  "phase": "Stitch Final Generation",
+  "canonicalRequirements": 234,
+  "verifiedScreens": 234,
+  "targetedEdits": 14,
+  "editFailures": 0,
+  "generationPhases": [
+    {
+      "phase": 1,
+      "name": "Canonical Manifest Generation",
+      "description": "Generated canonical manifest of 234 requirements across 7 approved Stitch projects",
+      "status": "completed",
+      "output": "scratch/stitch_canonical_manifest.json"
+    },
+    {
+      "phase": 2,
+      "name": "Visual QA Retrieval",
+      "description": "Retrieved all 234 screens via get_screen and downloaded HTML",
+      "status": "completed",
+      "output": "nabin_234_visual_qa.json"
+    },
+    {
+      "phase": 3,
+      "name": "Scope Validation",
+      "description": "Validated 234-screen scope, excluded 110 out-of-scope screens",
+      "status": "completed",
+      "output": "nabin_stitch_scope_validation.md"
+    },
+    {
+      "phase": 4,
+      "name": "Quality Audit",
+      "description": "Audited all 234 screens for visual fidelity, accessibility, brand compliance",
+      "status": "completed",
+      "output": "nabin_stitch_quality_audit.md"
+    },
+    {
+      "phase": 5,
+      "name": "Targeted Post-QA Corrections",
+      "description": "Applied 14 corrections for vehicle model, grocery model, and scope compliance",
+      "status": "completed",
+      "output": "nabin_targeted_fix_report.json"
+    },
+    {
+      "phase": 6,
+      "name": "Final Reconciliation",
+      "description": "Cross-referenced canonical manifest with live get_screen and list_screens",
+      "status": "completed",
+      "output": "nabin_stitch_final_status.json"
+    }
+  ],
+  "projects": [
+    {
+      "id": "8177350010716545885",
+      "name": "NABIN — Customer App",
+      "type": "flutter",
+      "screens": 48,
+      "verified": 48,
+      "edits": 2
+    },
+    {
+      "id": "8351986305462646918",
+      "name": "NABIN — Driver App",
+      "type": "flutter",
+      "screens": 38,
+      "verified": 38,
+      "edits": 2
+    },
+    {
+      "id": "6214000417822217011",
+      "name": "NABIN — Restaurant Merchant App",
+      "type": "flutter",
+      "screens": 32,
+      "verified": 32,
+      "edits": 0
+    },
+    {
+      "id": "14026068595233675473",
+      "name": "NABIN — Grocery Merchant App",
+      "type": "flutter",
+      "screens": 30,
+      "verified": 30,
+      "edits": 3
+    },
+    {
+      "id": "10226544365361646201",
+      "name": "NABIN — Admin App",
+      "type": "flutter",
+      "screens": 28,
+      "verified": 28,
+      "edits": 5
+    },
+    {
+      "id": "9754323984525516826",
+      "name": "NABIN — Customer Web",
+      "type": "nextjs",
+      "screens": 29,
+      "verified": 29,
+      "edits": 0
+    },
+    {
+      "id": "17357153901300306716",
+      "name": "NABIN — Admin Web",
+      "type": "nextjs",
+      "screens": 29,
+      "verified": 29,
+      "edits": 0
+    }
+  ],
+  "keyArchitecturalDecisions": {
+    "vehicleModel": {
+      "categories": 3,
+      "definitions": {
+        "2-WHEELER": "Bike",
+        "3-WHEELER": "Auto",
+        "4-WHEELER": "Taxi / Car"
+      },
+      "serviceModes": ["Normal Ride", "Shared Ride", "Rental"],
+      "driverApps": 1,
+      "note": "Shared Ride and Rental are service modes, NOT vehicle categories"
+    },
+    "groceryModel": {
+      "architecture": "Independent Grocery Merchant → Merchant picks → Merchant packs → Ready/Handover → NABIN Driver → Customer",
+      "exclusions": ["dark store", "centralized warehouse", "warehouse picker", "centralized fulfillment center"]
+    },
+    "branding": {
+      "wordmarkFont": "Neuron Regular",
+      "uiFont": "Inter",
+      "primaryColor": "Royal Blue",
+      "rule": "Neuron ONLY for NABIN wordmark/logo. Never for entire UI."
+    },
+    "scope": {
+      "approvedProjects": 7,
+      "approvedScreens": 234,
+      "excludedProjects": 11,
+      "excludedScreens": 110
+    }
+  },
+  "stitchMcpStatus": {
+    "configured": true,
+    "working": true,
+    "note": "Use existing configuration. Do not expose credentials or create replacements."
+  },
+  "remainingBlocker": {
+    "requirementId": "req_adm_auth",
+    "issue": "Stitch metadata title shows 'NABIN Admin Brand Logo' instead of 'NABIN Admin — Login'",
+    "uiContent": "Correct (login form with phone entry, OTP flow)",
+    "actionRequired": "Change ONLY metadata/title via Stitch MCP, then verify via get_screen"
+  },
+  "nextPhase": "Design Freeze → Implementation Planning",
+  "freezeAuthorized": false,
+  "freezeBlocker": "req_adm_auth metadata title"
+}

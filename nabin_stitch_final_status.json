@@ -1,0 +1,222 @@
+{
+  "reportVersion": "1.0.0",
+  "generatedAt": "2026-09-19T18:04:24Z",
+  "canonicalRequirements": 234,
+  "verifiedScreens": 234,
+  "missingScreens": 0,
+  "failedScreens": 0,
+  "duplicateIds": 0,
+  "targetedEdits": 14,
+  "editFailures": 0,
+  "projects": [
+    {
+      "id": "8177350010716545885",
+      "name": "NABIN — Customer App",
+      "screens": 48,
+      "verified": 48,
+      "status": "verified"
+    },
+    {
+      "id": "8351986305462646918",
+      "name": "NABIN — Driver App",
+      "screens": 38,
+      "verified": 38,
+      "status": "verified"
+    },
+    {
+      "id": "6214000417822217011",
+      "name": "NABIN — Restaurant Merchant App",
+      "screens": 32,
+      "verified": 32,
+      "status": "verified"
+    },
+    {
+      "id": "14026068595233675473",
+      "name": "NABIN — Grocery Merchant App",
+      "screens": 30,
+      "verified": 30,
+      "status": "verified"
+    },
+    {
+      "id": "10226544365361646201",
+      "name": "NABIN — Admin App",
+      "screens": 28,
+      "verified": 28,
+      "status": "verified"
+    },
+    {
+      "id": "9754323984525516826",
+      "name": "NABIN — Customer Web",
+      "screens": 29,
+      "verified": 29,
+      "status": "verified"
+    },
+    {
+      "id": "17357153901300306716",
+      "name": "NABIN — Admin Web",
+      "screens": 29,
+      "verified": 29,
+      "status": "verified"
+    }
+  ],
+  "targetedEditsDetail": [
+    {
+      "id": "edit_001",
+      "requirementId": "req_adm_auth",
+      "description": "Admin auth screen title metadata",
+      "before": "NABIN Admin Brand Logo",
+      "after": "NABIN Admin — Login",
+      "status": "completed"
+    },
+    {
+      "id": "edit_002",
+      "requirementId": "req_adm_vehicle_terminology",
+      "description": "Bike/Scooter → Bike terminology",
+      "before": "Bike/Scooter",
+      "after": "Bike",
+      "status": "completed"
+    },
+    {
+      "id": "edit_003",
+      "requirementId": "req_adm_electric_moped",
+      "description": "Electric moped icon correction",
+      "before": "Incorrect moped icon",
+      "after": "Correct electric bike icon",
+      "status": "completed"
+    },
+    {
+      "id": "edit_004",
+      "requirementId": "req_gro_merchant_warehouse",
+      "description": "Grocery warehouse → store references",
+      "before": "Warehouse",
+      "after": "Store",
+      "status": "completed"
+    },
+    {
+      "id": "edit_005",
+      "requirementId": "req_gro_merchant_darkstore",
+      "description": "Dark store references removed",
+      "before": "Dark store mentions",
+      "after": "Removed",
+      "status": "completed"
+    },
+    {
+      "id": "edit_006",
+      "requirementId": "req_gro_warehouse_icons",
+      "description": "Grocery warehouse icons replaced",
+      "before": "Warehouse icons",
+      "after": "Store/shop icons",
+      "status": "completed"
+    },
+    {
+      "id": "edit_007",
+      "requirementId": "req_drv_pickup_warehouse",
+      "description": "Driver pickup warehouse icon",
+      "before": "Warehouse icon",
+      "after": "Store pickup icon",
+      "status": "completed"
+    },
+    {
+      "id": "edit_008",
+      "requirementId": "req_sup_helpdesk_tooltip",
+      "description": "Support Helpdesk tooltip removed",
+      "before": "Helpdesk tooltip visible",
+      "after": "Removed (out of scope)",
+      "status": "completed"
+    },
+    {
+      "id": "edit_009",
+      "requirementId": "req_adm_grocery_controls",
+      "description": "Admin grocery warehouse controls",
+      "before": "Warehouse controls",
+      "after": "Store controls",
+      "status": "completed"
+    },
+    {
+      "id": "edit_010",
+      "requirementId": "req_adm_merchant_warehouse",
+      "description": "Admin merchant warehouse refs",
+      "before": "Warehouse",
+      "after": "Store",
+      "status": "completed"
+    },
+    {
+      "id": "edit_011",
+      "requirementId": "req_adm_merchant_darkstore",
+      "description": "Admin merchant dark store refs",
+      "before": "Dark store",
+      "after": "Removed",
+      "status": "completed"
+    },
+    {
+      "id": "edit_012",
+      "requirementId": "req_cus_vehicle_category",
+      "description": "Customer vehicle category labels",
+      "before": "Various labels",
+      "after": "Bike / Auto / Taxi",
+      "status": "completed"
+    },
+    {
+      "id": "edit_013",
+      "requirementId": "req_drv_vehicle_category",
+      "description": "Driver app vehicle filter",
+      "before": "Various filters",
+      "after": "3 categories only",
+      "status": "completed"
+    },
+    {
+      "id": "edit_014",
+      "requirementId": "req_adm_fleet_vehicle",
+      "description": "Admin fleet vehicle types",
+      "before": "Various types",
+      "after": "3 categories only",
+      "status": "completed"
+    }
+  ],
+  "remainingIssues": [
+    {
+      "requirementId": "req_adm_auth",
+      "issue": "Stitch metadata title still shows 'NABIN Admin Brand Logo'",
+      "required": "NABIN Admin — Login",
+      "uiContent": "Login UI is correct - only metadata needs update",
+      "action": "Change ONLY metadata/title via Stitch MCP",
+      "priority": "high"
+    }
+  ],
+  "brandingStatus": {
+    "wordmarkFont": "Neuron Regular",
+    "uiFont": "Inter",
+    "primaryColor": "Royal Blue",
+    "fontVerifiedInStitch": false,
+    "note": "Neuron TTF must be added to Flutter/Web projects during implementation"
+  },
+  "vehicleModelStatus": {
+    "categories": 3,
+    "serviceModes": 3,
+    "driverApps": 1,
+    "compliant": true
+  },
+  "groceryModelStatus": {
+    "architecture": "Independent merchant",
+    "darkStore": false,
+    "warehouse": false,
+    "picker": false,
+    "compliant": true
+  },
+  "scopeStatus": {
+    "totalScreens": 234,
+    "outOfScopeExcluded": 110,
+    "projects": 7,
+    "compliant": true
+  },
+  "implementationNotes": [
+    "Map 234 Stitch screens to actual application routes",
+    "Implement shared design tokens (Royal Blue, Inter, spacing)",
+    "Add Neuron Regular as NABIN logo font",
+    "Preserve existing backend contracts",
+    "Implement real workflows (no fake/demo flows)",
+    "No simulated driver jobs, earnings, or API responses"
+  ],
+  "freezeAuthorized": false,
+  "freezeBlocker": "req_adm_auth metadata title pending"
+}

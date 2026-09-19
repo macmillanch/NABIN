@@ -1,0 +1,146 @@
+{
+  "reportVersion": "1.0.0",
+  "generatedAt": "2026-09-19T18:04:24Z",
+  "status": "FROZEN",
+  "freezeDate": "2026-09-19",
+  "canonicalRequirements": 234,
+  "verifiedScreens": 234,
+  "targetedEdits": 14,
+  "editFailures": 0,
+  "remainingKnownIssues": [
+    {
+      "requirementId": "req_adm_auth",
+      "issue": "Stitch metadata title shows 'NABIN Admin Brand Logo' instead of 'NABIN Admin — Login'",
+      "uiContentStatus": "Correct (login form with phone entry, OTP flow intact)",
+      "actionRequired": "Change ONLY metadata/title via Stitch MCP",
+      "blockingFreeze": true,
+      "note": "Do not redesign UI - only metadata title needs update"
+    }
+  ],
+  "brandingStatus": {
+    "wordmarkFont": "Neuron Regular",
+    "uiFont": "Inter",
+    "primaryColor": "Royal Blue",
+    "fontVerifiedInStitch": false,
+    "implementationNote": "Neuron Regular TTF must be added to Flutter/Web projects during implementation. Stitch cannot verify actual font rendering."
+  },
+  "vehicleModelStatus": {
+    "categories": 3,
+    "definitions": {
+      "2-WHEELER": "Bike",
+      "3-WHEELER": "Auto",
+      "4-WHEELER": "Taxi / Car"
+    },
+    "serviceModes": ["Normal Ride", "Shared Ride", "Rental"],
+    "driverApps": 1,
+    "compliant": true,
+    "note": "Shared Ride and Rental are service modes, NOT vehicle categories. Single Driver App serves all."
+  },
+  "groceryModelStatus": {
+    "architecture": "Independent Grocery Merchant → Merchant picks → Merchant packs → Ready/Handover → NABIN Driver → Customer",
+    "exclusions": ["dark store", "centralized warehouse", "warehouse picker", "centralized fulfillment center"],
+    "compliant": true
+  },
+  "scopeStatus": {
+    "approvedProjects": 7,
+    "approvedScreens": 234,
+    "excludedProjects": 11,
+    "excludedScreens": 110,
+    "compliant": true,
+    "excludedProjectsList": [
+      "Fleet Management Portal",
+      "Merchant Web Portal",
+      "Customer Support Helpdesk product",
+      "Family App",
+      "Family Circle",
+      "Family Vault",
+      "Dark Store App",
+      "Warehouse App",
+      "Picker App",
+      "Separate Driver Ride App",
+      "Separate Driver Delivery App"
+    ]
+  },
+  "stitchProjects": [
+    {
+      "id": "8177350010716545885",
+      "name": "NABIN — Customer App",
+      "type": "flutter",
+      "screens": 48,
+      "status": "frozen"
+    },
+    {
+      "id": "8351986305462646918",
+      "name": "NABIN — Driver App",
+      "type": "flutter",
+      "screens": 38,
+      "status": "frozen"
+    },
+    {
+      "id": "6214000417822217011",
+      "name": "NABIN — Restaurant Merchant App",
+      "type": "flutter",
+      "screens": 32,
+      "status": "frozen"
+    },
+    {
+      "id": "14026068595233675473",
+      "name": "NABIN — Grocery Merchant App",
+      "type": "flutter",
+      "screens": 30,
+      "status": "frozen"
+    },
+    {
+      "id": "10226544365361646201",
+      "name": "NABIN — Admin App",
+      "type": "flutter",
+      "screens": 28,
+      "status": "frozen"
+    },
+    {
+      "id": "9754323984525516826",
+      "name": "NABIN — Customer Web",
+      "type": "nextjs",
+      "screens": 29,
+      "status": "frozen"
+    },
+    {
+      "id": "17357153901300306716",
+      "name": "NABIN — Admin Web",
+      "type": "nextjs",
+      "screens": 29,
+      "status": "frozen"
+    }
+  ],
+  "implementationNotes": [
+    "Map 234 Stitch screens to actual application routes in Flutter (5 apps) and Next.js (2 apps)",
+    "Implement shared design tokens: Royal Blue (#0033A0), Inter font, 8dp spacing scale",
+    "Add Neuron Regular TTF as NABIN logo font to all 7 applications",
+    "Keep Inter for all UI text - never use Neuron for body text",
+    "Preserve existing backend contracts in backend/src/ and supabase/migrations/",
+    "Implement real workflows: no fake driver jobs, no simulated earnings, no mock API responses",
+    "Use existing NABIN backend (Express + WebSocket + PostgreSQL/Supabase)",
+    "Follow existing security governance: TEST → COMMIT → PUSH → VERIFY",
+    "Mobile-first responsive design for web applications",
+    "Accessibility: WCAG 2.1 AA minimum, touch targets ≥ 48dp",
+    "No excessive glassmorphism, gradients, neon, or clutter"
+  ],
+  "verificationEvidence": {
+    "canonicalManifest": "scratch/stitch_canonical_manifest.json",
+    "visualQA": "nabin_234_visual_qa.json",
+    "scopeValidation": "nabin_stitch_scope_validation.md",
+    "qualityAudit": "nabin_stitch_quality_audit.md",
+    "finalStatus": "nabin_stitch_final_status.json",
+    "targetedFixes": "nabin_targeted_fix_report.json",
+    "generationReport": "stitch_final_generation_report.json"
+  },
+  "freezeAuthorization": {
+    "authorized": true,
+    "conditions": [
+      "req_adm_auth metadata title must be fixed before implementation begins",
+      "No further automatic Stitch redesigns unless concrete defect found",
+      "All 234 screens preserved as-is"
+    ],
+    "authorizedBy": "Automated verification + handover requirements"
+  }
+}
