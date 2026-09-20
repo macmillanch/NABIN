@@ -154,7 +154,6 @@ class _PhoneEntryScreenState extends State<PhoneEntryScreen> {
                         onPressed: _submit,
                         isLoading: _isLoading,
                         icon: Icons.arrow_forward,
-                        isFullWidth: true,
                       ),
                       const SizedBox(height: 12),
                       const Center(

@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mobile/core/network/nabin_api_service.dart';
 import 'package:mobile/core/network/session_manager.dart';
-import '../providers/grocery_merchant_auth_provider.dart';
 import '../theme/grocery_merchant_theme.dart';
 
 /// Order Detail Screen for NABIN Grocery Merchant App
@@ -22,7 +21,6 @@ class _GroceryMerchantOrderDetailScreenState extends ConsumerState<GroceryMercha
   bool _isLoading = true;
   Map<String, dynamic>? _order;
   String? _errorMessage;
-  String? _rejectionReason;
 
   @override
   void initState() {

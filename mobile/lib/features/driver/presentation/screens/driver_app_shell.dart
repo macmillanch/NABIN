@@ -527,6 +527,9 @@ class _DriverAppShellState extends State<DriverAppShell> with SingleTickerProvid
           const SizedBox(height: 12),
           const Divider(height: 1),
           const SizedBox(height: 10),
+        ],
+      ),
+    );
   }
 
   Widget _buildActiveJobCard() {

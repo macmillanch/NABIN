@@ -180,7 +180,7 @@ class _AdminFeatureControlsScreenState extends ConsumerState<AdminFeatureControl
                       Icon(
                         isGlobal ? Icons.language : Icons.extension_outlined,
                         size: 18,
-                        color: isGlobal ? AdminTheme.primaryDark : AdminTheme.textMuted,
+                        color: isGlobal ? AdminTheme.primaryBlue : AdminTheme.textMuted,
                       ),
                       const SizedBox(width: 8),
                       Text(

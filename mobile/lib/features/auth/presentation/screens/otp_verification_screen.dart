@@ -195,7 +195,6 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                         onPressed: _verifyOtp,
                         isLoading: _isLoading,
                         icon: Icons.arrow_forward,
-                        isFullWidth: true,
                       ),
                       const SizedBox(height: 16),
                     ],

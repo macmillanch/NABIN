@@ -887,7 +887,9 @@ class NabinApiService {
     } catch (e) {
       return null;
     }
-    // =========================================================================
+  }
+
+  // =========================================================================
   // 12. ADMIN MANAGEMENT APIS
   // =========================================================================
 
@@ -904,19 +906,6 @@ class NabinApiService {
     }
   }
 
-  static Future<Map<String, dynamic>?> getAdminDrivers() async {
-    try {
-      final client = HttpClient();
-      final request = await client.getUrl(Uri.parse('$effectiveUrl/admin/drivers'));
-      _attachAuthHeader(request);
-      final response = await request.close();
-      final body = await response.transform(utf8.decoder).join();
-      return jsonDecode(body) as Map<String, dynamic>;
-    } catch (e) {
-      return {'success': false, 'error': e.toString()};
-    }
-  }
-
   static Future<Map<String, dynamic>?> updateDriverStatus(String driverId, String status) async {
     try {
       final client = HttpClient();
@@ -924,19 +913,6 @@ class NabinApiService {
       request.headers.set('content-type', 'application/json');
       _attachAuthHeader(request);
       request.add(utf8.encode(jsonEncode({'status': status})));
-      final response = await request.close();
-      final body = await response.transform(utf8.decoder).join();
-      return jsonDecode(body) as Map<String, dynamic>;
-    } catch (e) {
-      return {'success': false, 'error': e.toString()};
-    }
-  }
-
-  static Future<Map<String, dynamic>?> getAdminRestaurants() async {
-    try {
-      final client = HttpClient();
-      final request = await client.getUrl(Uri.parse('$effectiveUrl/admin/restaurants'));
-      _attachAuthHeader(request);
       final response = await request.close();
       final body = await response.transform(utf8.decoder).join();
       return jsonDecode(body) as Map<String, dynamic>;
