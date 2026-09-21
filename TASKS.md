@@ -372,3 +372,204 @@ festival code, no push, no deploy, no production or hosted-Supabase access.
       limit violations; per-job settlement still shows exactly 3 over-booked jobs —
       the 3 chaos runs at 98–100 postings (₹10,388/₹10,600) against a ₹106
       entitlement, next to healthy jobs at exactly 2 postings / ₹298.
+
+## PHASE 2 (client render pass + cache package) — 2026-09-21 → 2026-09-22
+
+Scope: make the Flutter client a renderer for what Phase 1 publishes, and give it
+an on-device cache. No migration, no new table, no push, no deploy, no
+production or hosted-Supabase access. Phase 3 (`campaigns` / themes / banners ⇒
+migration 027) was NOT started.
+
+- [x] **Server side of the theme (completes Phase 1 item 2).**
+      `backend/src/services/AppConfigService.js` now composes `sections.theme`
+      from the same `platform_settings` row the generic writer publishes
+      (`APP_CONFIG_THEME`): a 15-token allow-list, `/^#[0-9a-fA-F]{6}$/` only,
+      values uppercased, offenders named in `rejectedTokens`, and
+      `remoteOnly: ['colours']` / `notRemote: ['fonts','logos','layout','icons']`
+      so the feed cannot imply more than it delivers. Degraded branch when PG is
+      down. Verified live: `test_suite.js` AC-15..AC-19 (publish mixed-valid
+      object → only the 3 allow-listed hexes are exposed, `#0f4c81` →
+      `#0F4C81`; `primaryTextColor: 'rgb(0, 0, 0)'` and `notARealToken` rejected
+      and `rgb(` never appears in the payload; teardown `{}` →
+      `available: false, tokens: {}`). No new table, no migration.
+- [x] **Cache package.** `shared_preferences: ^2.5.5` is the only new dependency.
+      New `mobile/lib/core/config/`: `nabin_app_config.dart` (parsed snapshot,
+      every field optional, anything dropped is named in `rejected`),
+      `nabin_config_repository.dart` (conditional `GET` with `if-none-match`,
+      ETag reuse, fallback ladder live → `304`-validated cache → stored cache →
+      bundled, `NabinConfigUnavailableException` when there is nothing to fall
+      back to), `nabin_config_controller.dart` (Riverpod `StateNotifier` that
+      keeps the last good answer when a refresh fails, plus `nabinPaletteOf(ref)`),
+      `nabin_config_lifecycle.dart` (re-read on foreground resume, so a phone that
+      slept through a pause does not keep selling it).
+      `PreferencesNabinConfigStore` degrades to process lifetime when the plugin
+      is absent — every widget test and desktop target — instead of throwing.
+- [x] **Colours are runtime data.** `NabinPalette` is a `ThemeExtension`;
+      `NabinTheme.light/dark` take a palette and install it as the extension; all
+      7 entrypoints (`main* .dart`) are `ConsumerWidget`s that resolve their theme
+      through `nabinPaletteOf(ref)`, so the five role apps and both merchant
+      variants follow a publication. 9 files call `NabinPalette.of(context)`: the
+      whole shared widget kit (`nabin_button`, `nabin_card`,
+      `nabin_status_chip`, `nabin_text_field`, `glass_container`,
+      `nabin_service_card`) plus the customer home and the two new banner
+      surfaces. Proven end to end against the LOCAL stack with no stub:
+      publishing `APP_CONFIG_THEME {brand:#0f4c81, canvas:#F4F7FB,
+      groceryAccent:#1B7F4B}` made the customer home paint
+      `brand=ff0f4c81`, `canvas=fff4f7fb`, `groceryAccent=ff1b7f4b`,
+      `ColorScheme.primary=ff0f4c81`, `publishedTokens=[brand,canvas,groceryAccent]`,
+      `source=remote`, `dataSource=postgres`, 15 feature flags, 6 service rows,
+      `clockSkew≈14ms`, `rejected=[]`.
+- [x] **A real contrast bug the remote palette exposed, and a visible behaviour
+      change.** `NabinTheme.on()` compared `1/contrast` against `contrast`, so it
+      returned white for nearly every light fill — the exact failure its own
+      docstring says it exists to prevent. It now measures WCAG ratios against the
+      palette in use. Consequence: a light brand or accent carries dark ink instead
+      of white. `#FFFDE7` as brand renders `onPrimary = NabinColor.onSurface`.
+- [x] **Banner slot + killswitch gating on the customer home**
+      (`customer_home_screen.dart`, now a `ConsumerStatefulWidget`; the local
+      `_features` fetch and `_handleServiceTap` are gone):
+      `NabinRemoteBanner` renders up to 3 campaigns for a placement and nothing at
+      all while loading, when the slot is empty and when the feed failed — an ad
+      slot is not information the customer asked for, so a placeholder box would be
+      a lie; the creative is a real `Image.network` with an `errorBuilder`, and the
+      only label is `Promoted` because the frozen shape has no sponsor column.
+      `NabinPlatformNotice` shows the published pause / degraded / lockdown state
+      with the operator's own `broadcastNotice` and the server's `resumeAt`
+      remaining minutes; nothing is inferred from a device timer. Each tile is
+      gated on BOTH the uppercase `FEATURE_*` flag and its lowercase service row
+      (`rides`/`food`/`grocery`/`parcel`) — checking only one would silently never
+      fire — plus the platform killswitch. Verified live with a stored
+      `HOME_BANNER` row (`dataSource: postgres, persisted: true`): the tile painted
+      for a real campaign inside its window; after deleting it the slot renders
+      nothing. Scratch harness deleted after the run per practice.
+- [x] **The killswitch gate was dead code and is now not.** The client only
+      looked for a row with status `EMERGENCY_STOP`, but the switchboard never
+      writes that: a lockdown is `summary.platformStatus:
+      'EMERGENCY_LOCKDOWN'` with every service row still present. `NabinAppConfig`
+      now reads the published summary (`platformStatus`) as well as a row that
+      spells it, and `NabinPlatformNotice` renders from either. The gate is a
+      mirror of the server's own rather than a guess at it:
+      `backend/src/database.js:2017` sets `platformStatus: 'EMERGENCY_LOCKDOWN'`
+      exactly when `paused === total && total > 0`, and `backend/src/server.js:276`
+      refuses work on that same field — so the client stops the tiles precisely
+      when the platform stops answering them.
+- [x] **Tests: 41 widget/unit cases, 23 of them new** — `test/remote_config_test.dart`
+      (14: parsing, server-time authority, the fallback ladder, and 6 painted-pixel
+      render assertions) and `test/customer_home_config_test.dart` (9: the
+      lockdown rollup from the summary, an operational platform showing no notice
+      and no offline tile, one paused service darkening only its own tile and
+      quoting its own notice, a `FEATURE_*` flag overriding a running service, an
+      emergency stop taking all 4 tiles offline, an unlisted service row staying
+      on the flag, a campaign inside its window painting while an expired one
+      does not, a dead banner feed leaving no placeholder, nothing published
+      painting no slot). `flutter test` 41/41; `flutter analyze --no-pub` 67
+      issues with 0 errors and 0 warnings (the pre-existing baseline was 69).
+      No assertion was weakened; `app_flow_test.dart` needed no change.
+- [x] **Honest limit (the part that must not be overstated).** A published theme
+      changes what the surfaces listed above paint, and the copy/banners/flags
+      that come from the feed change without a release. Everything else still
+      needs an APK: `lib/` outside `core/theme` still carries 450 `AppTheme.*`
+      compile-time references across 17 files and 278 inline `Color(0x…)`
+      literals; fonts, logos, icons and layout are bundled by design (the feed
+      says so in `notRemote`); campaign schedules and coupon rules are
+      server-owned, but any new screen, new token or new interaction is a
+      release. The customer home itself keeps 11 deliberate literals: the
+      SafeRide amber ramp, the support slate gradient and the restaurant-pairing
+      orange, none of which has a token in the published vocabulary.
+- [ ] **Remaining render-pass work (not claimed as done)**: the driver, grocery,
+      restaurant, grocery-merchant and admin screens still resolve compile-time
+      constants; the checkout/search-banner placements are modelled
+      (`SEARCH_INLINE`, `CHECKOUT`, `DRIVER_IDLE`) but not yet mounted on those
+      surfaces; `sections.offers` is published but no screen renders offer copy
+      from it yet.
+- [ ] **No build has been produced for this refactor, and this machine cannot
+      produce one.** `flutter doctor`: Android cmdline-tools are missing and the
+      SDK licenses are unaccepted (so `flutter build apk` fails before compiling),
+      Windows desktop needs Visual Studio (not installed), and the web target is
+      closed to these apps because `core/network/nabin_api_service.dart` imports
+      `dart:io`. `flutter analyze` (0 errors / 0 warnings) plus `flutter test`
+      (41/41, including painted-pixel assertions from a live widget harness) are
+      therefore the strongest gates available here — the statement that this
+      code "ships in an APK" remains unverified until someone builds it.
+
+## CRITICAL trip settlement race — root cause and database-level fix (2026-09-22)
+
+The chaos audit's CH-02 flagged that concurrent `POST /api/driver/complete-trip`
+requests could settle one trip many times. The guard existed but was built
+wrong, and the money path behind it had two further defects. No migration was
+needed: every primitive required already exists in the frozen schema.
+
+- [x] **Root cause: a compare-and-set that accepted its own target state.**
+      `JobRepository.updateStatus` wrote the new status with
+      `.in('status', [...VALID_JOB_TRANSITIONS[newStatus], newStatus])`. The
+      `newStatus` term is the bug: under READ COMMITTED the 2nd…50th concurrent
+      request each re-match the row the 1st request had just settled, so each
+      one "wins" the transition and settles again. `COMPLETED` is now in a
+      `NON_REPEATABLE_TRANSITIONS` set whose SQL allowlist excludes the target
+      state, whose pre-check throws `JOB_ALREADY_SETTLED` when the row is
+      already there, and whose zero-row update throws the same code — that is
+      the atomic claim: PostgreSQL matches the row once, and the loser sees 0
+      updated rows. Repeatable transitions (e.g. `CANCELLED` from several
+      parents) keep their idempotent allowlist untouched.
+- [x] **Second defect, found in the local books: a settlement never recorded
+      platform revenue.** Both movements of a settlement were posted under one
+      randomly generated `journal_transactions.transaction_id`, which is UNIQUE,
+      so the commission insert collided with the earnings insert and the error
+      was swallowed. Net effect: no trip in the durable ledger has ever carried
+      `PLATFORM_COMMISSION_REVENUE`, and the redundant second header double
+      credited `DRIVER_EARNINGS_PAYABLE`. Fixed by dropping the duplicate
+      posting and giving each movement a deterministic id
+      (`RIDE-SETTLEMENT-<job>:NET` / `-COMMISSION`).
+- [x] **Third layer: database idempotency rather than HTTP politeness.**
+      `LedgerRepository.recordDoubleEntry` accepts an `idempotencyKey` and maps
+      a `23505` unique violation on it to `{ duplicate: true }`; `adjustWallet`
+      maps the same code to `IDEMPOTENT_SKIPPED`. `DriverRepository.updateEarnings`
+      derives `RIDE_SETTLEMENT:<jobRef>:DRIVER_EARNINGS` and reports
+      `{ driver, duplicate, posted }`, so `database.js` skips the in-memory
+      wallet bump when `adjust_wallet_atomic` already posted the movement and
+      returns the job without booking twice. Keys are derived from the job
+      reference, not from a request id, so a duplicate cannot be re-keyed.
+- [x] **HTTP surface states the truth.** `POST /api/driver/complete-trip`
+      recognises an already-`COMPLETED` trip *before* the OTP gate and answers
+      `409 TRIP_ALREADY_SETTLED` — a duplicate is not a missing OTP proof — and
+      `verify-otp` distinguishes the same code from a genuine transition
+      rejection. Both keep their previous shape for every other error.
+- [x] **Regression test MODULE 32 (CONC-00…CONC-09): 50 concurrent completions
+      of one real trip.** Books a ride, assigns it, verifies the START OTP,
+      snapshots `jobs`/`drivers`, fires `Promise.all` of 50 completions, then
+      asserts on the ledger rather than on responses: exactly one `200`, one
+      settlement per intended movement, one `DRIVER_EARNINGS_PAYABLE` and one
+      `PLATFORM_COMMISSION_REVENUE` credit, `total_debit == fare`, four balanced
+      lines, the driver wallet moved by exactly one net earning, the job
+      `COMPLETED`, and a replayed 9th request that changes nothing. Each
+      assertion carries a `details` diagnostic (status/`code` histogram, ledger
+      rows) so a future failure explains itself instead of just going red.
+- [x] **Verified at the database level, not through the HTTP layer alone.** A
+      standalone 50-way harness (deleted after the run) drove the race directly
+      and read PostgreSQL itself: `{"200:success":1,"409:TRIP_ALREADY_SETTLED":49}`,
+      `fare=144 booked=144 postings=2 lines=4`,
+      `credits=[DRIVER_EARNINGS_PAYABLE=122, PLATFORM_COMMISSION_REVENUE=22]`,
+      wallet `1022 → 1144` (delta exactly the net earning), replay
+      `409 TRIP_ALREADY_SETTLED` with `postingsAfterReplay=2`.
+- [x] **Full re-verification chain, solo clean runs (2026-09-21 20:31→20:41Z, local
+      stack only).** `test_suite.js` → **329 passed / 1 failed of 330**, exit 1; the
+      single failure is the pre-existing `gprod_5` revalidate seeding gap that also
+      fails at `HEAD`, so every financial assertion is green including
+      CONC-00…CONC-09 and the GEO-07 surge teardown. `restart_test.js` →
+      **33 passed / 0 failed**, exit 0. `chaos_audit.js` → `PASS=15 FINDING=1
+      BLOCKED=3 FAIL=2`: **CH-02 now PASSES** (`50 concurrent completions of one
+      ₹89 trip → 1 accepted, 2 settlement postings totalling ₹105, status=COMPLETED`),
+      CH-07 confirms the already-settled 409, and the financial invariants FI-01…FI-07
+      are green (2,121 headers all reconciling, ₹287,704 both sides, 0 over-refunds,
+      0 checkout/order arithmetic mismatches, 0 negative wallets, 0 promotion limit
+      violations). `flutter test` 41/41; `flutter analyze --no-pub` 67 issues,
+      0 errors / 0 warnings.
+- [ ] **Two failures remain open and neither is this fix.** `FI-08` still reports
+      exactly the same 3 jobs (`JOB-92412647-611`, `JOB-92768166-552`,
+      `JOB-93587159-696`) over-booked at 98/98/100 postings — their ledger rows were
+      written at 12:06, 12:12 and 12:26 UTC today by the *pre-fix* chaos runs, and
+      cleaning them means deleting financial history, so it is a decision to make,
+      not a step to take silently. `CH-08` remains a separate medium finding:
+      `POST /api/driver/location` accepts impossible or stale fixes that the socket
+      path rejects with `COORDINATES_OUT_OF_RANGE`.
+

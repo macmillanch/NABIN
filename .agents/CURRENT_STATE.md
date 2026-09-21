@@ -1,7 +1,8 @@
 # NABIN — Current Repository State
 
-**Last Updated**: 2026-09-21
-**Mode**: IMPLEMENTATION — verified work committed and pushed
+**Last Updated**: 2026-09-22
+**Mode**: IMPLEMENTATION — verified work is committed LOCALLY only; `main` is ahead of
+`origin/main` (`c974fc9`) and nothing newer has been pushed
 **Status**: AUTHORITATIVE SNAPSHOT
 
 > **Re-baseline note (2026-09-21):** the 2026-09-20 snapshot below-left stale.
@@ -64,7 +65,62 @@
 > warnings. Post-chaos books reconcile: 1,996 journal headers, 0 unbalanced,
 > ₹270,069.00 both sides, 0 checkout/order arithmetic mismatches, 0 negative
 > wallets, 0 promotion limit violations.
-> Phase 2 and Phase 3 were not started; nothing was pushed.
+>
+> **Phase 2 of the server-driven architecture (2026-09-22, committed locally as
+> `a0bd024` + `b4803e5`, NOT pushed):** the client is now a renderer for what Phase 1 publishes. New
+> `mobile/lib/core/config/` (validated snapshot, ETag/304 conditional GET, the
+> live → validated-cache → cache → bundled fallback ladder, a `StateNotifier` that
+> keeps the last good answer when a refresh fails, re-read on resume) with
+> `shared_preferences` as the only new dependency; `NabinPalette` is a
+> `ThemeExtension` installed by `NabinTheme.light/dark`, all 7 entrypoints resolve
+> through `nabinPaletteOf(ref)`, and the shared widget kit plus the customer home
+> paint from it. The customer home gained `NabinRemoteBanner` (renders stored
+> campaigns, renders nothing when the slot is empty, loading or failed) and
+> `NabinPlatformNotice` (the operator's own pause/lockdown words and the server's
+> resume time), and every service tile is gated on its `FEATURE_*` flag **and** its
+> lowercase service row **and** the platform killswitch. Two real defects fixed on
+> the way: `NabinTheme.on()` had an inverted contrast test that returned white on
+> nearly every light fill (light published accents now carry dark ink), and the
+> killswitch gate was dead code — a lockdown is published as
+> `summary.platformStatus: 'EMERGENCY_LOCKDOWN'`, never as an `EMERGENCY_STOP` row.
+> Verified against the local stack with no stub: publishing three colour tokens made
+> the home paint `#0F4C81` as both `palette.brand` and `ColorScheme.primary`, and a
+> stored `HOME_BANNER` row painted a real campaign tile that disappears when the row
+> is deleted. Backend `sections.theme` is allow-listed hex only, with AC-15..AC-19
+> in `test_suite.js` proving rejection and unpublish. `flutter test` 41/41,
+> `flutter analyze --no-pub` 67 issues / 0 errors / 0 warnings. What is still NOT
+> remote, stated plainly: 450 `AppTheme.*` references across 17 files and 278 inline
+> `Color(0x…)` literals outside `core/theme`, plus fonts, logos, icons, layout and
+> every new screen — those still ship in an APK.
+>
+> **CRITICAL trip settlement race — fixed at the database level (2026-09-22,
+> committed locally as `80940c2` + `8e8a30e`, NOT pushed):** the chaos audit's CH-02 was right, and the cause was
+> not a missing lock. `JobRepository.updateStatus` built its compare-and-set as
+> `WHERE status IN (prior states…, newStatus)` — listing the target state means the
+> 2nd…50th concurrent completion each re-match the row the 1st one just settled under
+> READ COMMITTED and each settles again. `COMPLETED` is now a non-repeatable
+> transition whose allowlist excludes its own target, whose zero-row update throws
+> `JOB_ALREADY_SETTLED`, and whose ledger movements carry job-derived idempotency
+> keys (`RIDE_SETTLEMENT:<job>:DRIVER_EARNINGS` / `:PLATFORM_COMMISSION`) that
+> PostgreSQL's UNIQUE `journal_transactions.idempotency_key` refuses twice. Two more
+> money defects surfaced while proving it: both movements of a settlement shared one
+> random `transaction_id` (UNIQUE), so the commission insert collided with the
+> earnings insert and was swallowed — no trip ever booked
+> `PLATFORM_COMMISSION_REVENUE` — and the redundant second header double credited
+> `DRIVER_EARNINGS_PAYABLE`. `POST /api/driver/complete-trip` now answers an
+> already-`COMPLETED` trip with `409 TRIP_ALREADY_SETTLED` before the OTP gate. No
+> migration was involved; every primitive needed already exists in the frozen schema.
+> Verified by driving 50 concurrent completions and reading PostgreSQL directly (1
+> success, 49 conflicts, 2 postings, `booked == fare`, wallet moved once) and by
+> MODULE 32 (CONC-00…CONC-09) in `test_suite.js`, which asserts on the ledger rather
+> than on responses and prints its diagnostics on failure. Chain: `test_suite.js`
+> 329/1 (the 1 being the pre-existing `gprod_5` gap that also fails at `HEAD`),
+> `restart_test.js` 33/0, `chaos_audit.js` CH-02 PASS with FI-01…FI-07 green,
+> `flutter test` 41/41, `flutter analyze --no-pub` 67 issues / 0 errors / 0 warnings.
+> Still open and not this fix: FI-08's 3 jobs were over-booked by the *pre-fix* chaos
+> runs (cleaning them deletes financial history — a decision, not a step), and CH-08
+> shows the REST `/api/driver/location` path accepting fixes the socket rejects.
+> Phase 3 and migration 027 were not started.
 
 ---
 
@@ -72,9 +128,9 @@
 
 | Field | Value |
 |-------|-------|
-| **Current HEAD** | `f759dd3` (advertisements) + this docs commit, on top of `46ab58a` (chaos harness) and `904acd2` (coupons + app config) |
+| **Current HEAD** | this docs commit, on top of `b4803e5` (Phase 2 client render pass), `8e8a30e` (MODULE 32 + AC-15..19 + GEO-07 teardown), `80940c2` (exactly-once settlement) and `a0bd024` (`sections.theme`) — which sit on `d628d0c`, `5824f36`, `f759dd3` (advertisements), `46ab58a` (chaos harness) and `904acd2` (coupons + app config) |
 | **origin/main** | `c974fc9` |
-| **HEAD == origin/main** | NO — `main` is **4 commits ahead locally and NOT pushed** |
+| **HEAD == origin/main** | NO — `main` is **10 commits ahead locally and NOT pushed** |
 | **Branch** | main |
 
 ### Untracked files of record (re-verified 2026-09-22, `git status --porcelain`)
