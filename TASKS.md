@@ -75,7 +75,13 @@ mobile notifications feed, `c974fc9` docs) landed on top of it.
 - [ ] admin-web logout still uses `window.location.href = '/'` (lint warning) — a
       hard redirect instead of `router.push`, left alone as out of scope.
 - [ ] M0: web→backend port fix (`NEXT_PUBLIC_API_URL`, both merchant web apps) — §13.2 of gap report
-- [ ] Junk root artifact deletion (mcp_out.txt, readme.txt, pasted-filename files)
+- [x] Junk root artifact deletion (2026-09-22, approved): the 11 mangled/pasted
+      root files and `mcp_out.txt`/`readme.txt` were moved out of the repo to
+      `../nabin-quarantine-2026-09-21/` with a `MANIFEST.json`, not deleted, so
+      the action is reversible. Also removed from Git: `.git_diff_full.txt`,
+      `.git_diff_stat.txt`, `.git_status.txt` (committed `git status`/diff dumps
+      that rot on the next commit) and `mobile/p10_mobile.txt` (0 bytes,
+      referenced nowhere). `.kilo/` stays: it holds two registered worktrees.
 - [ ] Dark-store/legacy fixture cleanup in `backend/src/database.js`
 - [x] Reviewed and deleted `IMPLEMENTATION_PLAN.md` (2026-09-21, approved): 0 bytes,
       never tracked by git, no code reads the path, and it shadowed nothing — the

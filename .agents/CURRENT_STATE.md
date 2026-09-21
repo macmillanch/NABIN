@@ -77,16 +77,19 @@
 | **HEAD == origin/main** | NO — `main` is **4 commits ahead locally and NOT pushed** |
 | **Branch** | main |
 
-### Untracked files of record (re-verified 2026-09-21, `git status --porcelain`)
+### Untracked files of record (re-verified 2026-09-22, `git status --porcelain`)
 
-- `.kilo/agents/` — never commit (standing rule)
-- Junk root artifacts, still unreleased pending USER approval: `mcp_out.txt`,
-  `readme.txt`, and 9 pasted/truncated-filename files
-  (`ersmacmiDocumentsnabin`, `pacing scale`, `ion 1.0.0`, `to Implement (38 total)`,
-  `tomer-facing features`, `tomer App  Flutter  48 …`, `plan transitions NABIN …`,
-  `e Stitch Design → Application Implementation`, `:`)
-- `scratch/` (including `grocery_e2e.sh`, the live grocery E2E probe) is
-  gitignored at `.gitignore:31`, so it never appears here
+- `.kilo/agents/` — never commit (standing rule). `.kilo/` also holds two
+  **registered git worktrees** (`bejewled-august`, `shiny-oboe`), so the folder
+  cannot simply be deleted — that needs `git worktree remove` first.
+- Everything else that used to litter the root is gone as of 2026-09-22: the 11
+  mangled/pasted files and `mcp_out.txt`/`readme.txt` were **moved** to
+  `C:/Users/macmi/Documents/nabin-quarantine-2026-09-21/` (with `MANIFEST.json`),
+  not deleted, and `.git_diff_full.txt`, `.git_diff_stat.txt`, `.git_status.txt`
+  and `mobile/p10_mobile.txt` were removed from Git in this commit.
+- `scratch/` (live probes, manifests and the rice fixture backup) and
+  `backend/data/` (the JSON store path `persistentStore.js` creates on demand) are
+  gitignored at `.gitignore:31-32`, so they never appear here
 - The 2026-09-20 list — `nabin_repository_inventory.md`,
   `nabin_234_implementation_gap.md`, `admin-web/src/components/AdminLayout.tsx`,
   `customer-web/src/components/`, `mobile/.../driver_job_offer_card.dart` — is now

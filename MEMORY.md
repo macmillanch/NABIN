@@ -41,8 +41,14 @@ money-path scope. The earlier notes in this file about the 2026-09-21 push
 - Merchant web apps now **exist**: `restaurant-merchant-web/` (login, orders,
   menu) and `grocery-merchant-web/` (login, orders, inventory). Neither has
   CI, Docker or a deploy definition.
-- Junk root artifacts exist (mcp_out.txt, readme.txt, pasted filenames) — delete
-  only after approval. Never commit `.kilo/` or `backend/.env`.
+- Repo root hygiene, 2026-09-22: the mangled/pasted root artifacts and
+  `mcp_out.txt`/`readme.txt` were **quarantined** to
+  `C:/Users/macmi/Documents/nabin-quarantine-2026-09-21/` (moved, not deleted;
+  `MANIFEST.json` lists them). `.kilo/` must stay put — it holds two
+  **registered git worktrees** (`bejewled-august`, `shiny-oboe`); removing the
+  folder without `git worktree remove` would corrupt `.git/worktrees`. Never
+  commit `.kilo/` or `backend/.env`. Empty `backend/data/` and `backend/scratch/`
+  are runtime dirs created on demand, not junk.
 - Supabase, 2026-09-21: the **local Docker** project is the live database for
   dev/bugfix. The earlier 2026-09-20 "BLOCKED — DNS FAILURE" note was about the
   **hosted** project; hosted test/production remain untouched and unverified.
