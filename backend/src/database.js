@@ -2502,7 +2502,7 @@ class NabinDatabase {
   }
 
   // --- Pricing Calculation Engine with Live Coordinate Geofencing ---
-  calculateFareEstimate({ serviceType = '3W', distanceKm = 4.0, durationMins = 12, pickupLat = null, pickupLng = null, zoneId = null, promoCode = null }) {
+  calculateFareEstimate({ serviceType = '3W', distanceKm = 4.0, durationMins = 12, pickupLat = null, pickupLng = null, zoneId = null, couponDiscount = null }) {
     const config = this.pricingConfig[serviceType] || this.pricingConfig['3W'];
     let base = config.baseFare;
     let distanceCost = (distanceKm || 1) * config.perKmRate;
@@ -2540,17 +2540,20 @@ class NabinDatabase {
 
     let customerFare = Math.round(subtotal * surgeMultiplier + config.bookingFee);
 
-    let discount = 0;
-    if (promoCode) {
-      const promoResult = this.validateAndApplyCoupon(promoCode, customerFare, serviceType);
-      if (promoResult.success) {
-        discount = promoResult.discount;
-      }
-    }
+    // A coupon is validated and redeemed by the promotion layer (migration 009
+    // RPCs) before this engine runs, so only an already-authoritative amount can
+    // change the price here. Clamping at the pre-discount charge keeps
+    // `baseCharge - discount === customerCharge` exact for ledger reconciliation.
+    const discount = Math.min(
+      customerFare,
+      Math.max(0, Math.round((Number(couponDiscount) || 0) * 100) / 100)
+    );
 
-    const finalCustomerCharge = Math.max(config.minFare, customerFare - discount);
+    const finalCustomerCharge = discount > 0
+      ? Math.round((customerFare - discount) * 100) / 100
+      : Math.max(config.minFare, customerFare);
     const platformFee = Math.round((finalCustomerCharge * (config.commissionPercent || 15)) / 100);
-    const driverEarnings = finalCustomerCharge - platformFee;
+    const driverEarnings = Math.round((finalCustomerCharge - platformFee) * 100) / 100;
 
     return {
       serviceType,
@@ -2561,6 +2564,7 @@ class NabinDatabase {
       activeZoneName,
       matchedGeofence,
       bookingFee: config.bookingFee,
+      baseCharge: customerFare,
       discount,
       customerCharge: finalCustomerCharge,
       driverEarnings,
@@ -3035,35 +3039,43 @@ class NabinDatabase {
   }
 
   // --- Promotions & Coupons Methods ---
-  validateAndApplyCoupon(code, orderAmount, service) {
-    if (!code) return { success: false, error: 'Coupon code required' };
+  /**
+   * Redeem a customer coupon through the PostgreSQL promotion authority
+   * (`redeem_promotion_atomic`, migration 009): validity window, usage limit,
+   * per-user limit and duplicate/concurrent redemption are all enforced under a
+   * row lock. The amount discounted is the server-computed order total, so a
+   * client-supplied discount is never read.
+   */
+  async redeemCoupon({ code, customerId, orderAmount, service, jobId = null, idempotencyKey }) {
+    const baseAmount = Math.round((Number(orderAmount) || 0) * 100) / 100;
+    if (!code) return { applied: false, discount: 0, finalAmount: baseAmount };
 
-    const promo = this.promotions.find(p => p.code.toUpperCase() === code.trim().toUpperCase() && (p.status === 'ACTIVE' || p.isActive === true));
-    if (!promo) return { success: false, error: 'Invalid or expired promo code.' };
+    const redemption = await this.promotionRepo.redeem({
+      code,
+      userId: customerId,
+      orderAmount: baseAmount,
+      service,
+      jobId,
+      idempotencyKey
+    });
 
-    if (promo.eligibleService && promo.eligibleService !== 'ALL' && promo.eligibleService !== service) {
-      return { success: false, error: `Coupon code is only valid for ${promo.eligibleService} orders.` };
+    if (!redemption.success) {
+      return {
+        applied: false,
+        error: redemption.error || 'Coupon could not be redeemed.',
+        discount: 0,
+        finalAmount: baseAmount
+      };
     }
 
-    const amt = Number(orderAmount) || 0;
-    if (amt < (promo.minOrderAmount || 0)) {
-      return { success: false, error: `Minimum order amount of ₹${promo.minOrderAmount} required for this coupon.` };
-    }
-
-    let discount = 0;
-    if (promo.discountType === 'PERCENTAGE') {
-      discount = Math.min(promo.maxDiscount || Infinity, Math.round((amt * promo.discountValue) / 100));
-    } else {
-      discount = Math.min(promo.maxDiscount || Infinity, promo.discountValue);
-    }
-
-    // Read-only validation: usage_count is only incremented during authoritative redemption
     return {
-      success: true,
-      code: promo.code,
-      discount,
-      finalAmount: Math.max(0, amt - discount),
-      name: promo.name
+      applied: true,
+      duplicate: Boolean(redemption.duplicate),
+      code: redemption.code,
+      promotionId: redemption.promotionId,
+      redemptionId: redemption.redemptionId,
+      discount: Math.round((Number(redemption.discount) || 0) * 100) / 100,
+      finalAmount: Math.round((Number(redemption.finalAmount) || 0) * 100) / 100
     };
   }
 
@@ -4558,71 +4570,6 @@ class NabinDatabase {
       priceChanged,
       status: priceChanged ? 'PRICE_CHANGED' : 'VALIDATED',
       items: revalidatedItems
-    };
-  }
-
-  validateCheckout({ cartItems = [], couponCode = null, deliveryAddress = 'Default Address' }) {
-    const reval = this.revalidateCart(cartItems);
-    if (reval.priceChanged) {
-      return {
-        success: false,
-        code: 'PRICE_CHANGED',
-        message: 'Some product prices have changed. Please review and confirm your cart.',
-        cartValidation: reval
-      };
-    }
-
-    let subtotal = 0;
-    const validatedItems = reval.items.map(item => {
-      const itemSubtotal = item.serverPrice * item.quantity;
-      subtotal += itemSubtotal;
-      return {
-        productId: item.productId,
-        productName: item.productName,
-        unit: item.unit,
-        pricingType: item.pricingType,
-        isWeightBased: item.isWeightBased,
-        requestedQtyKg: item.isWeightBased ? item.requestedQtyKg : null,
-        requestedQty: !item.isWeightBased ? item.quantity : null,
-        unitPriceAtCheckout: item.serverPrice,
-        estimatedAmount: itemSubtotal,
-        finalItemAmount: itemSubtotal,
-        weightAdjustmentStatus: item.isWeightBased ? 'CUSTOMER_ESTIMATED_QUANTITY' : 'NOT_APPLICABLE'
-      };
-    });
-
-    let discount = 0;
-    if (couponCode) {
-      const promoResult = this.validateAndApplyCoupon(couponCode, subtotal, 'GROCERY');
-      if (promoResult.success) {
-        discount = promoResult.discount;
-      }
-    }
-
-    const deliveryFee = 0.0;
-    const handlingFee = 2.0;
-    const finalTotal = Math.max(0, subtotal - discount + deliveryFee + handlingFee);
-
-    const orderSnapshot = {
-      id: `GORD-${Math.floor(1000 + Math.random() * 9000)}`,
-      status: 'CONFIRMED',
-      merchantId: 'mcht_darkstore_1',
-      deliveryAddress,
-      items: validatedItems,
-      estimatedSubtotal: subtotal,
-      finalSubtotal: subtotal,
-      discount,
-      deliveryFee,
-      handlingFee,
-      finalTotal,
-      createdAt: new Date().toISOString()
-    };
-
-    this.groceryOrders.unshift(orderSnapshot);
-    return {
-      success: true,
-      code: 'CHECKOUT_SUCCESS',
-      order: orderSnapshot
     };
   }
 

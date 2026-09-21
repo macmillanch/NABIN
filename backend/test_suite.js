@@ -1615,6 +1615,158 @@ async function runAllTests() {
       inactivePreview.status === 400 && inactivePreview.data.success === false
     );
 
+    // --- 25b. MODULE 23b: Server-Authoritative Coupon Application At Checkout ---
+    console.log('\n--- 25b. MODULE 23b: Server-Authoritative Coupons At Checkout ---');
+    // These checks cover the part PROMO-01..13 does not: that a discount is
+    // computed and persisted by the server during a real checkout, that a replay
+    // cannot burn a second redemption, and that client-supplied money is ignored.
+    const chkSuffix = Date.now().toString().slice(-6);
+    const CART_LINE = [{ productId: 'gprod_3', quantity: 2, price: 56.0 }];
+    const chkAddress = 'Flat 402, Civil Lines Hub, North Delhi';
+
+    // CHK-01: Baseline checkout with no coupon establishes the server's gross total
+    const chkBaseline = await request('POST', '/api/grocery/checkout/validate', {
+      cartItems: CART_LINE, deliveryAddress: chkAddress
+    }, { 'Authorization': `Bearer ${priyaToken}`, 'Idempotency-Key': `chk_base_${chkSuffix}` });
+    const chkGross = Number(chkBaseline.data.order?.finalTotal);
+    assert('CHK-01: Uncouponed checkout locks the server gross total',
+      chkBaseline.status === 200 && chkGross >= 100 && Number(chkBaseline.data.order?.discount) === 0
+    );
+
+    // CHK-02: Admin creates a GROCERY-scoped percentage coupon for this run
+    const chkCode = `CHK_GROC_${chkSuffix}`;
+    const chkCreate = await request('POST', '/api/admin/promotions', {
+      code: chkCode,
+      name: 'Checkout authority coupon',
+      discountType: 'PERCENTAGE',
+      discountValue: 30,
+      maxDiscount: 90.0,
+      minOrderAmount: 100.0,
+      serviceType: 'GROCERY',
+      perUserLimit: 1
+    }, { 'Authorization': `Bearer ${superToken}` });
+    const chkPromoId = chkCreate.data.promotion?.id;
+    assert('CHK-02: GROCERY-scoped coupon created for checkout',
+      chkCreate.status === 200 && chkCreate.data.success && !!chkPromoId
+    );
+
+    // CHK-03 & CHK-04: The checkout response carries the server's discount math
+    const chkKey = `chk_apply_${chkSuffix}`;
+    const chkApplied = await request('POST', '/api/grocery/checkout/validate', {
+      cartItems: CART_LINE, couponCode: chkCode, deliveryAddress: chkAddress
+    }, { 'Authorization': `Bearer ${priyaToken}`, 'Idempotency-Key': chkKey });
+    const chkAppliedOrder = chkApplied.data.order || {};
+    const chkDiscount = Number(chkAppliedOrder.discount);
+    const chkExpectedDiscount = Math.min(Math.round(chkGross * 30) / 100, 90);
+    assert('CHK-03: Checkout discount is computed server-side from the gross total',
+      chkApplied.status === 200 && chkApplied.data.success &&
+      Math.abs(chkDiscount - chkExpectedDiscount) < 0.01,
+      `discount=${chkDiscount} expected=${chkExpectedDiscount}`
+    );
+    assert('CHK-04: Invariant payable total == gross - discount with gross still reported',
+      Math.abs((Number(chkAppliedOrder.finalTotal) + chkDiscount) - chkGross) < 0.01 &&
+      Number(chkAppliedOrder.estimatedSubtotal) === chkGross
+    );
+
+    // CHK-05: Replaying the idempotency key returns the same order, no second redemption
+    const chkReplay = await request('POST', '/api/grocery/checkout/validate', {
+      cartItems: CART_LINE, couponCode: chkCode, deliveryAddress: chkAddress
+    }, { 'Authorization': `Bearer ${priyaToken}`, 'Idempotency-Key': chkKey });
+    assert('CHK-05: Idempotent replay returns the same order and same discounted total',
+      chkReplay.status === 200 && chkReplay.data.duplicate === true &&
+      (chkReplay.data.order?.order_number || chkReplay.data.order?.orderNumber) ===
+        (chkAppliedOrder.order_number || chkAppliedOrder.orderNumber) &&
+      Number(chkReplay.data.order?.finalTotal) === Number(chkAppliedOrder.finalTotal)
+    );
+
+    // CHK-06: A new key cannot be used to redeem the same coupon twice
+    const chkSecond = await request('POST', '/api/grocery/checkout/validate', {
+      cartItems: CART_LINE, couponCode: chkCode, deliveryAddress: chkAddress
+    }, { 'Authorization': `Bearer ${priyaToken}`, 'Idempotency-Key': `chk_second_${chkSuffix}` });
+    assert('CHK-06: Second redemption past per-user limit rejected and no order created',
+      chkSecond.status === 400 && chkSecond.data.code === 'INVALID_PROMO_CODE' && !chkSecond.data.order
+    );
+
+    // CHK-07: Exactly one redemption was recorded for a single effective checkout
+    const chkPromoList = await request('GET', '/api/admin/promotions', null, { 'Authorization': `Bearer ${superToken}` });
+    const chkPromoRow = (chkPromoList.data.promotions || []).find(p => p.id === chkPromoId || p.code === chkCode);
+    assert('CHK-07: usage_count is exactly 1 after a checkout plus its replay',
+      Number(chkPromoRow?.usageCount) === 1
+    );
+    const chkRedemptions = await request('GET', `/api/admin/promotions/${chkPromoId}/redemptions`, null, { 'Authorization': `Bearer ${superToken}` });
+    assert('CHK-08: Redemption row is scoped to the grocery checkout, not to a job',
+      chkRedemptions.status === 200 && (chkRedemptions.data.redemptions || []).length === 1 &&
+      Math.abs(Number(chkRedemptions.data.redemptions[0].orderAmount) - chkGross) < 0.01
+    );
+
+    // CHK-09: A RIDE-only coupon must not discount a grocery cart
+    const chkRideCode = `CHK_RIDE_${chkSuffix}`;
+    await request('POST', '/api/admin/promotions', {
+      code: chkRideCode, name: 'Ride only checkout coupon', discountType: 'FLAT',
+      discountValue: 10.0, minOrderAmount: 0.0, serviceType: 'RIDE'
+    }, { 'Authorization': `Bearer ${superToken}` });
+    const chkWrongService = await request('POST', '/api/grocery/checkout/validate', {
+      cartItems: CART_LINE, couponCode: chkRideCode, deliveryAddress: chkAddress
+    }, { 'Authorization': `Bearer ${priyaToken}`, 'Idempotency-Key': `chk_wrong_${chkSuffix}` });
+    assert('CHK-09: Service-scoped coupon rejected on the wrong service at checkout',
+      chkWrongService.status === 400 && chkWrongService.data.code === 'INVALID_PROMO_CODE'
+    );
+
+    // CHK-10: A fabricated client discount must not reach the order total
+    const chkSpoofed = await request('POST', '/api/grocery/checkout/validate', {
+      cartItems: CART_LINE, discount: 999, finalTotal: 1, deliveryAddress: chkAddress
+    }, { 'Authorization': `Bearer ${priyaToken}`, 'Idempotency-Key': `chk_spoof_${chkSuffix}` });
+    assert('CHK-10: Client-supplied discount and finalTotal are ignored by the server',
+      chkSpoofed.status === 200 && Number(chkSpoofed.data.order?.finalTotal) === chkGross &&
+      Number(chkSpoofed.data.order?.discount) === 0
+    );
+
+    // CHK-11: Ride booking fails loudly rather than charging full fare on a bad code
+    const chkBadRide = await request('POST', '/api/customer/book-ride', {
+      vehicleType: '3W',
+      pickup: { lat: 28.6853, lng: 77.2185, address: 'Civil Lines Hub, North Delhi' },
+      drop: { lat: 28.6328, lng: 77.2197, address: 'Connaught Place Outer Circle, New Delhi' },
+      promoCode: `CHK_MISSING_${chkSuffix}`
+    }, { 'Authorization': `Bearer ${priyaToken}`, 'Idempotency-Key': `chk_badride_${chkSuffix}` });
+    assert('CHK-11: Ride booking with an invalid coupon returns 400 INVALID_PROMO_CODE',
+      chkBadRide.status === 400 && chkBadRide.data.code === 'INVALID_PROMO_CODE'
+    );
+
+    // CHK-12 & CHK-13: Quotes preview a coupon read-only, so they cannot burn usage
+    const chkQuoteCode = `CHK_QUOTE_${chkSuffix}`;
+    await request('POST', '/api/admin/promotions', {
+      code: chkQuoteCode, name: 'Quote coupon', discountType: 'FLAT',
+      discountValue: 25.0, minOrderAmount: 0.0, serviceType: 'ALL'
+    }, { 'Authorization': `Bearer ${superToken}` });
+    const QUOTE_BODY = { serviceType: '3W', distanceKm: 4, durationMins: 12 };
+    const chkQuoteBase = await request('POST', '/api/pricing/estimate', QUOTE_BODY);
+    const chkQuoteWithCode = await request('POST', '/api/pricing/estimate', {
+      ...QUOTE_BODY, promoCode: chkQuoteCode
+    });
+    const chkQuoteSecond = await request('POST', '/api/pricing/estimate', {
+      ...QUOTE_BODY, promoCode: chkQuoteCode
+    });
+    const chkBaseCharge = Number(chkQuoteBase.data.estimate?.customerCharge);
+    assert('CHK-12: Quote shows the server-validated discount without trusting the client',
+      chkQuoteWithCode.status === 200 &&
+      Number(chkQuoteWithCode.data.estimate?.baseCharge) === chkBaseCharge &&
+      Math.abs((chkBaseCharge - Number(chkQuoteWithCode.data.estimate?.customerCharge)) - 25) < 0.01 &&
+      chkQuoteWithCode.data.appliedPromo?.code === chkQuoteCode
+    );
+    assert('CHK-13: Quote is read-only (repeatable, and usage_count stays 0)',
+      Number(chkQuoteSecond.data.estimate?.customerCharge) === chkBaseCharge - 25 &&
+      Number((await request('GET', '/api/admin/promotions', null, { 'Authorization': `Bearer ${superToken}` }))
+        .data.promotions?.find(p => p.code === chkQuoteCode)?.usageCount) === 0
+    );
+
+    // CHK-14: An invalid code on a quote is rejected, not silently ignored
+    const chkBadQuote = await request('POST', '/api/pricing/estimate', {
+      ...QUOTE_BODY, promoCode: `CHK_NOPE_${chkSuffix}`
+    });
+    assert('CHK-14: Quote with an invalid coupon rejected with 400',
+      chkBadQuote.status === 400 && chkBadQuote.data.code === 'INVALID_PROMO_CODE'
+    );
+
     // --- 26. MODULE 24: Geofences, Dynamic Surge & Spatial Pricing Persistence Bridge ---
     console.log('\n--- 26. MODULE 24: Geofences, Dynamic Surge & Spatial Pricing Persistence Bridge ---');
 
@@ -3384,6 +3536,143 @@ async function runAllTests() {
 
     driverWs.close();
     adminWs.close();
+
+    // --- 35. MODULE 31: Server-Driven App Configuration (data only) ---
+    console.log('\n--- 35. MODULE 31: Server-Driven App Configuration ---');
+
+    // AC-01: The public config feed is served from PostgreSQL with server time
+    const acConfig = await request('GET', '/api/app/config');
+    const acSections = acConfig.data.config?.sections || acConfig.data.sections;
+    assert('AC-01: GET /api/app/config returns composed sections from PostgreSQL',
+      acConfig.status === 200 && acConfig.data.success &&
+      acConfig.data.dataSource === 'postgres' &&
+      !!acConfig.data.configVersion && acConfig.data.cacheSeconds >= 1 &&
+      !!acConfig.data.serverTime && Number.isFinite(acConfig.data.serverTimeEpochMs) &&
+      !!acSections && ['services', 'features', 'offers', 'settings'].every(s => acSections[s])
+    );
+
+    // AC-02: Conditional requests are honoured, so cold apps stay cheap
+    const acNotModified = await request('GET', '/api/app/config', null, {
+      'If-None-Match': `W/"${acConfig.data.configVersion}"`
+    });
+    assert('AC-02: If-None-Match with the current configVersion returns 304',
+      acNotModified.status === 304
+    );
+
+    // AC-03: Service state is published for display, without operator internals
+    assert('AC-03: Services section exposes platform status without operator identity',
+      !!acSections.services.summary.platformStatus &&
+      Array.isArray(acSections.services.services) &&
+      acSections.services.services.every(s => s.name && s.status) &&
+      !JSON.stringify(acSections.services).includes('pausedBy') &&
+      !JSON.stringify(acSections.services).includes('pauseHistory')
+    );
+
+    // AC-04: Offers are marketing copy only. A published coupon code would be a
+    // redemption any reader could spend, so the code column must never appear.
+    const acOffersRaw = JSON.stringify(acSections.offers);
+    assert('AC-04: Offers section carries promotion copy without leaking coupon codes',
+      acSections.offers.available === true &&
+      acSections.offers.items.length > 0 &&
+      acSections.offers.items.length <= 10 &&
+      acSections.offers.truncated === acSections.offers.totalActive - acSections.offers.items.length &&
+      !/"code"/.test(acOffersRaw) &&
+      acSections.offers.items.every(i => i.id && i.name && i.validUntil)
+    );
+
+    // AC-05: Admin settings reads are authenticated
+    const acSettingsUnauth = await request('GET', '/api/admin/platform-settings');
+    assert('AC-05: Unauthenticated GET /api/admin/platform-settings rejected with 401',
+      acSettingsUnauth.status === 401
+    );
+
+    // AC-06: A non-SUPER_ADMIN administrator cannot read or publish settings
+    const acSettingsForbidden = await request('GET', '/api/admin/platform-settings', null, { 'Authorization': `Bearer ${kycToken}` });
+    const acWriteForbidden = await request('PUT', '/api/admin/platform-settings/APP_CONFIG_AC_TEST', { value: { x: 1 } }, { 'Authorization': `Bearer ${kycToken}` });
+    assert('AC-06: Non-SUPER_ADMIN admin rejected from settings read and write with 403',
+      acSettingsForbidden.status === 403 && acWriteForbidden.status === 403
+    );
+
+    // AC-07: SUPER_ADMIN publishes a plain-data key and the feed picks it up.
+    // PostgreSQL jsonb keeps object members in its own order, so compare canonically.
+    const acCanonical = obj => JSON.stringify(Object.keys(obj).sort().reduce((acc, k) => { acc[k] = obj[k]; return acc; }, {}));
+    // A stable key with a per-run nonce: the value always changes, so the version
+    // check is meaningful, and repeated runs do not accumulate test rows.
+    const acKey = 'APP_CONFIG_AC_REGRESSION';
+    const acBadge = {
+      headline: 'Fresh produce in 30 minutes',
+      accentColor: '#22A447',
+      slots: 3,
+      enabled: true,
+      runId: Date.now().toString()
+    };
+    const acWrite = await request('PUT', `/api/admin/platform-settings/${acKey}`, {
+      value: acBadge, description: 'App config regression test key', reason: 'Phase 1 app config verification'
+    }, { 'Authorization': `Bearer ${superToken}` });
+    assert('AC-07: SUPER_ADMIN publishes an APP_CONFIG_ setting',
+      acWrite.status === 200 && acWrite.data.success &&
+      acWrite.data.setting.setting_key === acKey &&
+      acCanonical(acWrite.data.setting.setting_value) === acCanonical(acBadge)
+    );
+
+    const acConfigAfter = await request('GET', '/api/app/config');
+    const acSectionsAfter = acConfigAfter.data.sections;
+    assert('AC-08: Published setting reaches the config feed and changes configVersion',
+      acCanonical(acSectionsAfter.settings.values[acKey]) === acCanonical(acBadge) &&
+      acConfigAfter.data.configVersion !== acConfig.data.configVersion
+    );
+
+    // AC-09/AC-10: Reserved keys belong to dedicated controls; writing them here
+    // would let one endpoint silently clobber the killswitch or a feature flag.
+    const acReserved = await request('PUT', '/api/admin/platform-settings/FEATURE_RIDE', { value: { enabled: false } }, { 'Authorization': `Bearer ${superToken}` });
+    const acKillswitchKey = await request('PUT', '/api/admin/platform-settings/PLATFORM_SERVICE_STATE', { value: { services: {} } }, { 'Authorization': `Bearer ${superToken}` });
+    assert('AC-09: Reserved FEATURE_ key rejected with INVALID_SETTING_KEY',
+      acReserved.status === 400 && acReserved.data.code === 'INVALID_SETTING_KEY'
+    );
+    assert('AC-10: PLATFORM_SERVICE_STATE cannot be written through settings',
+      acKillswitchKey.status === 400 && acKillswitchKey.data.code === 'INVALID_SETTING_KEY'
+    );
+
+    // AC-11: Only plain data is publishable — depth and size are capped
+    const acTooDeep = await request('PUT', '/api/admin/platform-settings/APP_CONFIG_AC_DEEP', {
+      value: { a: { b: { c: { d: { e: { f: { g: 'too deep' } } } } } } }
+    }, { 'Authorization': `Bearer ${superToken}` });
+    const acTooLong = await request('PUT', '/api/admin/platform-settings/APP_CONFIG_AC_LONG', {
+      value: { text: 'x'.repeat(2500) }
+    }, { 'Authorization': `Bearer ${superToken}` });
+    const acNoValue = await request('PUT', '/api/admin/platform-settings/APP_CONFIG_AC_EMPTY', { description: 'no value field' }, { 'Authorization': `Bearer ${superToken}` });
+    assert('AC-11: Non-plain-data values rejected with INVALID_SETTING_VALUE',
+      acTooDeep.status === 400 && acTooDeep.data.code === 'INVALID_SETTING_VALUE' &&
+      acTooLong.status === 400 && acTooLong.data.code === 'INVALID_SETTING_VALUE' &&
+      acNoValue.status === 400 && acNoValue.data.code === 'INVALID_SETTING_VALUE'
+    );
+
+    // AC-12: The rejected writes must not have been persisted
+    const acAllSettings = await request('GET', '/api/admin/platform-settings', null, { 'Authorization': `Bearer ${superToken}` });
+    const acStoredKeys = (acAllSettings.data.settings || []).map(row => row.setting_key);
+    assert('AC-12: Rejected setting writes were not persisted',
+      acAllSettings.status === 200 &&
+      !acStoredKeys.includes('APP_CONFIG_AC_DEEP') &&
+      !acStoredKeys.includes('APP_CONFIG_AC_LONG') &&
+      !acStoredKeys.includes('APP_CONFIG_AC_EMPTY') &&
+      acStoredKeys.includes(acKey)
+    );
+
+    // AC-13: Every published setting is audited
+    const acAudit = await request('GET', '/api/admin/audit-logs?module=PLATFORM_SETTINGS', null, { 'Authorization': `Bearer ${superToken}` });
+    const acAuditRow = (acAudit.data.logs || []).find(l => l.targetEntityId === acKey);
+    assert('AC-13: Publishing a setting writes an audit record',
+      acAudit.status === 200 && !!acAuditRow &&
+      /PLATFORM_SETTINGS_(CREATED|UPDATED)/.test(acAuditRow.action) &&
+      !!acAuditRow.adminName
+    );
+
+    // AC-14: The advertisements section stays a pointer until it is PostgreSQL-backed
+    const acAds = acSectionsAfter.advertisements;
+    assert('AC-14: Advertisements section points at its own endpoint and admits it is not durable',
+      acAds && acAds.durable === false && acAds.source === 'in_memory' &&
+      acAds.endpoint === '/api/advertisements' && !!acAds.reason
+    );
   } catch (err) {
     console.error('Fatal Test Suite Exception:', err);
     failed++;

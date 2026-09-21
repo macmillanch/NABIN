@@ -140,6 +140,10 @@ class JobRepository {
     const driverUuid = this.db.driverRepo?.resolveUuid(jobData.driverId) || null;
 
     const fare = Number(jobData.fare || 0);
+    const discountAmount = Math.round((Number(jobData.discountAmount || 0)) * 100) / 100;
+    // fare_subtotal stays the pre-discount charge so the row satisfies
+    // final_total = fare_subtotal - discount_amount for settlement audits.
+    const fareSubtotal = Math.round((fare + discountAmount) * 100) / 100;
     const packagingFee = Number(jobData.packagingFee || 0);
     const platformFee = Number(jobData.platformFee !== undefined ? jobData.platformFee : Math.round(fare * 0.15));
     const driverEarnings = Number(jobData.driverEarnings !== undefined ? jobData.driverEarnings : (fare - platformFee));
@@ -172,8 +176,8 @@ class JobRepository {
       drop_lat: jobData.drop?.lat || 28.6250,
       drop_lng: jobData.drop?.lng || 77.2150,
       distance_km: Number(jobData.distanceKm || 0.0),
-      fare_subtotal: fare,
-      discount_amount: Number(jobData.discountAmount || 0.0),
+      fare_subtotal: fareSubtotal,
+      discount_amount: discountAmount,
       surge_multiplier: Number(jobData.surgeMultiplier || 1.0),
       surge_amount: Number(jobData.surgeAmount || 0.0),
       tax_amount: Number(jobData.taxAmount || 0.0),

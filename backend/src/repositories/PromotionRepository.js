@@ -94,7 +94,13 @@ class PromotionRepository {
     const maxDiscount = payload.maxDiscount !== undefined && payload.maxDiscount !== null ? Number(payload.maxDiscount) : null;
     const minOrderAmount = Number(payload.minOrderAmount) || 0;
     const totalUsageLimit = payload.totalUsageLimit !== undefined ? Number(payload.totalUsageLimit) : (payload.usageLimit !== undefined ? Number(payload.usageLimit) : null);
-    const validFrom = payload.validFrom || (payload.startDate ? new Date(payload.startDate).toISOString() : new Date().toISOString());
+    // An unscheduled promotion starts today, not at the app host's sub-second
+    // "now": eligibility is judged by the PostgreSQL clock, and the host and the
+    // container clocks disagree by a few hundred ms, which made a freshly created
+    // coupon answer "This promotion has not started yet." for its first seconds.
+    const validFrom = payload.validFrom || (payload.startDate
+      ? new Date(payload.startDate).toISOString()
+      : `${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
     const validUntil = payload.validUntil || (payload.endDate ? new Date(payload.endDate).toISOString() : new Date(Date.now() + 365 * 86400000).toISOString());
     const isActive = payload.status !== undefined ? (payload.status === 'ACTIVE') : (payload.isActive !== undefined ? Boolean(payload.isActive) : true);
     const perUserLimit = Number(payload.perUserLimit) || 1;

@@ -520,6 +520,15 @@ class OrderRepository {
   /**
    * Create an authoritative checkout session in PostgreSQL
    */
+  /**
+   * Map a legacy fixture product reference (e.g. `gprod_3`) onto its PostgreSQL
+   * UUID. Real clients already send UUIDs, which pass through untouched.
+   */
+  resolveGroceryRefId(id) {
+    const clean = (id === undefined || id === null) ? '' : String(id).trim();
+    return LEGACY_GROCERY_PROD_MAP[clean] || clean;
+  }
+
   async createCheckoutSession({
     customerId,
     merchantId,
@@ -528,6 +537,10 @@ class OrderRepository {
     baseAmount = 0,
     finalPayableAmount = 0,
     checkoutStatus = 'CONFIRMED',
+    discountAmount = 0,
+    appliedPromoCode = null,
+    promotionId = null,
+    redemptionId = null,
     metadata = {}
   }) {
     if (!supabaseAdmin) {
@@ -543,6 +556,10 @@ class OrderRepository {
         service_type: serviceType,
         payment_method: paymentMethod,
         base_amount: baseAmount,
+        discount_amount: Number(discountAmount) || 0,
+        applied_promo_code: appliedPromoCode,
+        promotion_id: promotionId && UUID_REGEX.test(promotionId) ? promotionId : null,
+        redemption_id: redemptionId && UUID_REGEX.test(redemptionId) ? redemptionId : null,
         final_payable_amount: finalPayableAmount,
         checkout_status: checkoutStatus,
         metadata: metadata

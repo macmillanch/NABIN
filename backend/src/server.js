@@ -11,6 +11,7 @@ const cloudinaryService = require('./services/cloudinaryService');
 const { MockSandboxPushProvider, FcmV1PushProvider, PushNotificationService } = require('./services/PushNotificationService');
 const { notificationEventBus, NOTIFICATION_EVENTS } = require('./services/NotificationEventBus');
 const featureControlService = require('./services/FeatureControlService');
+const appConfigService = require('./services/AppConfigService');
 
 const pushProvider = (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL)
   ? new FcmV1PushProvider()
@@ -36,6 +37,13 @@ function resolveCustomerUserUuid(customerId) {
   if (user?.id && UUID_REGEX.test(user.id)) return user.id;
   if (user?.userId && UUID_REGEX.test(user.userId)) return user.userId;
   return null;
+}
+
+// promotions.service_type is a coarse domain ('RIDE'/'PARCEL'/'FOOD'/'GROCERY'/
+// 'ALL'), while the pricing engine keys on vehicle types like '3W' or 'LUX'.
+function couponServiceOf(pricingServiceType) {
+  const t = String(pricingServiceType || '').toUpperCase();
+  return t === 'PARCEL' ? 'PARCEL' : 'RIDE';
 }
 
 async function resolveDriverUserUuid(driverId) {
@@ -787,6 +795,18 @@ function requirePermission(requiredPerm) {
       requestId: req.id
     });
   };
+}
+
+function requireSuperAdmin(req, res, next) {
+  if (!req.admin) {
+    return res.status(401).json({ success: false, error: 'Authentication required', requestId: req.id });
+  }
+  if (req.admin.role === 'SUPER_ADMIN') return next();
+  return res.status(403).json({
+    success: false,
+    error: `Access Denied: This control is restricted to SUPER_ADMIN. Current role: ${req.admin.role}`,
+    requestId: req.id
+  });
 }
 
 // -------------------------------------------------------------
@@ -1948,18 +1968,51 @@ app.post('/api/geofence/reverse-geocode', (req, res) => {
 });
 
 // Centralized Pricing Estimate (Integrates Live Coordinates, Geo-fences & Surge)
-app.post('/api/pricing/estimate', (req, res) => {
-  const { serviceType, distanceKm, durationMins, pickupLat, pickupLng, zoneId, promoCode } = req.body;
-  const estimate = db.calculateFareEstimate({
-    serviceType: serviceType || '3W',
-    distanceKm: Number(distanceKm) || 4.0,
-    durationMins: Number(durationMins) || 12,
-    pickupLat: pickupLat !== undefined ? Number(pickupLat) : null,
-    pickupLng: pickupLng !== undefined ? Number(pickupLng) : null,
-    zoneId,
-    promoCode
-  });
-  res.json({ success: true, estimate });
+// A coupon on a quote is validated by the PostgreSQL promotion authority and shown
+// without being consumed: `validate_promotion_preview` is read-only, so quoting a
+// discount cannot burn a redemption. Per-user limits are enforced again by the
+// atomic redemption at booking time, because this endpoint is public.
+app.post('/api/pricing/estimate', async (req, res) => {
+  try {
+    const { serviceType, distanceKm, durationMins, pickupLat, pickupLng, zoneId, promoCode } = req.body;
+    const pricingInput = {
+      serviceType: serviceType || '3W',
+      distanceKm: Number(distanceKm) || 4.0,
+      durationMins: Number(durationMins) || 12,
+      pickupLat: pickupLat !== undefined ? Number(pickupLat) : null,
+      pickupLng: pickupLng !== undefined ? Number(pickupLng) : null,
+      zoneId
+    };
+    const base = db.calculateFareEstimate(pricingInput);
+
+    let discount = 0;
+    let appliedPromo = null;
+    if (promoCode) {
+      const preview = await db.promotionRepo.preview({
+        code: promoCode,
+        orderAmount: base.customerCharge,
+        service: couponServiceOf(base.serviceType)
+      });
+      if (!preview.success) {
+        return res.status(400).json({
+          success: false,
+          code: 'INVALID_PROMO_CODE',
+          error: preview.error,
+          estimate: base
+        });
+      }
+      discount = preview.discount;
+      appliedPromo = { code: preview.code, promotionId: preview.promotionId, name: preview.name, discount };
+    }
+
+    const estimate = discount > 0
+      ? db.calculateFareEstimate({ ...pricingInput, couponDiscount: discount })
+      : base;
+
+    res.json({ success: true, estimate, appliedPromo });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message, requestId: req.id });
+  }
 });
 
 app.get('/api/admin/pricing', authenticateAdmin, requirePermission('pricing.edit'), async (req, res) => {
@@ -2276,16 +2329,48 @@ app.post('/api/customer/book-ride', authenticateUser, async (req, res) => {
   // Server-Side Authoritative Pricing Calculation (Zero Trust of client-supplied fare)
   const pickupLat = pickup?.lat !== undefined ? Number(pickup.lat) : 28.6853;
   const pickupLng = pickup?.lng !== undefined ? Number(pickup.lng) : 77.2185;
-  const pricing = db.calculateFareEstimate({
+  const pricingInput = {
     serviceType: vehicleType || '3W',
     distanceKm: 3.8,
     durationMins: 11,
     pickupLat,
     pickupLng,
-    zoneId,
-    promoCode
-  });
-  
+    zoneId
+  };
+  const basePricing = db.calculateFareEstimate(pricingInput);
+
+  // A coupon is redeemed through `redeem_promotion_atomic`, which enforces the
+  // validity window, global and per-user limits under a row lock. An unusable code
+  // rejects the booking instead of silently charging the full fare, and the
+  // deterministic key lets a replay reuse the same redemption instead of burning a
+  // second one.
+  let pricing = basePricing;
+  let appliedPromo = null;
+  if (promoCode) {
+    const redemption = await db.redeemCoupon({
+      code: promoCode,
+      customerId: user.id,
+      orderAmount: basePricing.customerCharge,
+      service: 'RIDE',
+      idempotencyKey: `ride_coupon:${idempotencyKey || crypto.randomUUID()}`
+    });
+    if (!redemption.applied) {
+      return res.status(400).json({
+        success: false,
+        code: 'INVALID_PROMO_CODE',
+        error: redemption.error,
+        requestId: req.id
+      });
+    }
+    appliedPromo = {
+      code: redemption.code,
+      promotionId: redemption.promotionId,
+      redemptionId: redemption.redemptionId,
+      discount: redemption.discount
+    };
+    pricing = db.calculateFareEstimate({ ...pricingInput, couponDiscount: redemption.discount });
+  }
+
   const finalFare = pricing.customerCharge;
   const isSomeoneElse = bookingType === 'FOR_SOMEONE_ELSE';
   const isSchoolChild = isSomeoneElse && passengerCategory === 'SCHOOL_CHILD';
@@ -2303,10 +2388,11 @@ app.post('/api/customer/book-ride', authenticateUser, async (req, res) => {
     distance: isSchoolChild ? '3.8 km' : '4.2 km',
     duration: isSchoolChild ? '11 mins' : '14 mins',
     fare: finalFare,
+    discountAmount: pricing.discount,
     driverEarnings: pricing.driverEarnings,
     platformFee: pricing.platformFee,
     surgeMultiplier: pricing.surgeMultiplier,
-    appliedPromo: pricing.appliedPromo,
+    appliedPromo,
     isForSomeoneElse: isSomeoneElse,
     isSchoolChild: isSchoolChild,
     passengerCategory: passengerCategory || 'ADULT',
@@ -2429,12 +2515,39 @@ app.post('/api/customer/book-parcel', authenticateUser, async (req, res) => {
   const user = req.user;
 
   // Authoritative server-side pricing
-  const pricing = db.calculateFareEstimate({
+  const parcelPricingInput = {
     serviceType: 'PARCEL',
     distanceKm: 6.1,
-    durationMins: 18,
-    promoCode
-  });
+    durationMins: 18
+  };
+  const basePricing = db.calculateFareEstimate(parcelPricingInput);
+
+  let pricing = basePricing;
+  let appliedPromo = null;
+  if (promoCode) {
+    const redemption = await db.redeemCoupon({
+      code: promoCode,
+      customerId: user.id,
+      orderAmount: basePricing.customerCharge,
+      service: 'PARCEL',
+      idempotencyKey: `parcel_coupon:${idempotencyKey || crypto.randomUUID()}`
+    });
+    if (!redemption.applied) {
+      return res.status(400).json({
+        success: false,
+        code: 'INVALID_PROMO_CODE',
+        error: redemption.error,
+        requestId: req.id
+      });
+    }
+    appliedPromo = {
+      code: redemption.code,
+      promotionId: redemption.promotionId,
+      redemptionId: redemption.redemptionId,
+      discount: redemption.discount
+    };
+    pricing = db.calculateFareEstimate({ ...parcelPricingInput, couponDiscount: redemption.discount });
+  }
 
   const job = await db.createJob({
     type: 'PARCEL',
@@ -2447,9 +2560,10 @@ app.post('/api/customer/book-parcel', authenticateUser, async (req, res) => {
     distance: '6.1 km',
     duration: '18 mins',
     fare: pricing.customerCharge,
+    discountAmount: pricing.discount,
     driverEarnings: pricing.driverEarnings,
     platformFee: pricing.platformFee,
-    appliedPromo: pricing.appliedPromo,
+    appliedPromo,
     deliveryOtp: Math.floor(1000 + Math.random() * 9000).toString()
   });
 
@@ -2598,12 +2712,46 @@ app.post('/api/customer/book-food', authenticateUser, async (req, res) => {
   // 4. Idempotency Key
   const idempotencyKey = req.headers['idempotency-key'] || req.headers['x-idempotency-key'] || req.body.idempotencyKey || ('idemp_food_' + crypto.randomUUID());
 
+  // 4b. Server-authoritative coupon: the discount comes from
+  // `redeem_promotion_atomic`, never from the client's `discount`/`grandTotal`.
+  const foodCouponCode = req.body.couponCode || req.body.promoCode || null;
+  const grossFoodAmount = Math.round((Number(resolvedProducts.totalAmount) || 0) * 100) / 100;
+  let foodCoupon = { applied: false, discount: 0, finalAmount: grossFoodAmount };
+  if (foodCouponCode) {
+    foodCoupon = await db.redeemCoupon({
+      code: foodCouponCode,
+      customerId: customerUuid,
+      orderAmount: grossFoodAmount,
+      service: 'FOOD',
+      idempotencyKey: `food_coupon:${idempotencyKey}`
+    });
+    if (!foodCoupon.applied) {
+      return res.status(400).json({
+        success: false,
+        code: 'INVALID_PROMO_CODE',
+        error: foodCoupon.error,
+        requestId: req.id
+      });
+    }
+  }
+  const foodFinalAmount = Math.round((grossFoodAmount - foodCoupon.discount) * 100) / 100;
+
   // 5. Metadata
   const metadata = {
     deliveryAddress: deliveryAddress || 'North Campus Girls Hostel, Delhi',
     customerName: req.user.name || 'Customer',
     customerPhone: req.user.phone || null,
-    source: 'web_or_mobile'
+    source: 'web_or_mobile',
+    ...(foodCoupon.applied ? {
+      coupon: {
+        code: foodCoupon.code,
+        promotionId: foodCoupon.promotionId,
+        redemptionId: foodCoupon.redemptionId,
+        discount: foodCoupon.discount,
+        grossAmount: grossFoodAmount,
+        payableAmount: foodFinalAmount
+      }
+    } : {})
   };
 
   // 6. Invoke Migration 019 create_order_with_lines_atomic
@@ -2612,7 +2760,7 @@ app.post('/api/customer/book-food', authenticateUser, async (req, res) => {
       serviceType: 'FOOD',
       customerId: customerUuid,
       merchantId: merchant.id,
-      totalAmount: resolvedProducts.totalAmount,
+      totalAmount: foodFinalAmount,
       items: resolvedProducts.lines,
       metadata,
       idempotencyKey
@@ -2661,6 +2809,13 @@ app.post('/api/customer/book-food', authenticateUser, async (req, res) => {
       lines: dbOrder.lines || [],
       metadata: dbOrder.metadata || {},
       createdAt: dbOrder.created_at,
+      discount: foodCoupon.discount,
+      appliedPromo: foodCoupon.applied ? {
+        code: foodCoupon.code,
+        promotionId: foodCoupon.promotionId,
+        redemptionId: foodCoupon.redemptionId,
+        discount: foodCoupon.discount
+      } : null,
       packagingFee: 15,
       gst: Math.round(Number(dbOrder.total_amount) * 0.05)
     };
@@ -4292,7 +4447,7 @@ app.post('/api/grocery/cart/revalidate', authenticateUser, async (req, res) => {
 
   try {
     const requestedIds = [...new Set(cartItems
-      .map((item) => (item.productId || item.id || '').toString().trim())
+      .map((item) => db.orderRepo.resolveGroceryRefId(item.productId || item.id || ''))
       .filter((id) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)))];
 
     const inventoryById = new Map();
@@ -4311,7 +4466,7 @@ app.post('/api/grocery/cart/revalidate', authenticateUser, async (req, res) => {
     let priceChanged = false;
     const items = cartItems.map((item) => {
       const sentId = (item.productId || item.id || '').toString().trim();
-      const row = inventoryById.get(sentId);
+      const row = inventoryById.get(sentId) || inventoryById.get(db.orderRepo.resolveGroceryRefId(sentId));
       const catalog = row?.master_grocery_catalog || {};
       const quantity = Number(item.quantity || item.requestedQtyKg || 1);
 
@@ -4444,6 +4599,7 @@ app.post('/api/grocery/checkout/validate', authenticateUser, async (req, res) =>
     }
 
     const resolved = await db.orderRepo.resolveGroceryItems(merchant.id, cartItems);
+    const grossAmount = Math.round((Number(resolved.totalAmount) || 0) * 100) / 100;
 
     const idempotencyKey = req.headers['idempotency-key'] || req.body.idempotencyKey || null;
 
@@ -4455,6 +4611,29 @@ app.post('/api/grocery/checkout/validate', authenticateUser, async (req, res) =>
       }
     }
 
+    // The client's own `discount`/`finalTotal` fields are never read: the coupon is
+    // redeemed against the PostgreSQL-resolved cart total and the atomic order RPC
+    // re-reads every unit price from the database.
+    const couponCode = req.body.couponCode || req.body.promoCode || null;
+    let coupon = { applied: false, discount: 0, finalAmount: grossAmount };
+    if (couponCode) {
+      coupon = await db.redeemCoupon({
+        code: couponCode,
+        customerId: customerUuid,
+        orderAmount: grossAmount,
+        service: 'GROCERY',
+        idempotencyKey: `grocery_coupon:${idempotencyKey || crypto.randomUUID()}`
+      });
+      if (!coupon.applied) {
+        return res.status(400).json({
+          success: false,
+          code: 'INVALID_PROMO_CODE',
+          error: coupon.error
+        });
+      }
+    }
+    const payableAmount = Math.round((grossAmount - coupon.discount) * 100) / 100;
+
     if (!checkoutId) {
       // Auto-provision PostgreSQL checkout row to guarantee checkout linkage
       const newCheckout = await db.orderRepo.createCheckoutSession({
@@ -4462,8 +4641,12 @@ app.post('/api/grocery/checkout/validate', authenticateUser, async (req, res) =>
         merchantId: merchant.id,
         serviceType: 'GROCERY',
         paymentMethod: req.body.paymentMethod === 'CASH' ? 'CASH' : 'WALLET',
-        baseAmount: resolved.totalAmount,
-        finalPayableAmount: resolved.totalAmount,
+        baseAmount: grossAmount,
+        discountAmount: coupon.discount,
+        appliedPromoCode: coupon.applied ? coupon.code : null,
+        promotionId: coupon.applied ? coupon.promotionId : null,
+        redemptionId: coupon.applied ? coupon.redemptionId : null,
+        finalPayableAmount: payableAmount,
         checkoutStatus: 'CONFIRMED',
         metadata: {
           deliveryAddress: req.body.deliveryAddress || 'Default Address',
@@ -4479,11 +4662,21 @@ app.post('/api/grocery/checkout/validate', authenticateUser, async (req, res) =>
       serviceType: 'GROCERY',
       customerId: customerUuid,
       merchantId: merchant.id,
-      totalAmount: resolved.totalAmount,
+      totalAmount: payableAmount,
       items: resolved.lines,
       metadata: {
         deliveryAddress: req.body.deliveryAddress || 'Default Address',
-        deliveryInstructions: req.body.deliveryInstructions || null
+        deliveryInstructions: req.body.deliveryInstructions || null,
+        ...(coupon.applied ? {
+          coupon: {
+            code: coupon.code,
+            promotionId: coupon.promotionId,
+            redemptionId: coupon.redemptionId,
+            discount: coupon.discount,
+            grossAmount,
+            payableAmount
+          }
+        } : {})
       },
       idempotencyKey: effectiveIdempKey,
       checkoutId
@@ -4540,10 +4733,16 @@ app.post('/api/grocery/checkout/validate', authenticateUser, async (req, res) =>
         unit: l.unit_snapshot,
         packedConfirmedQuantity: l.packed_confirmed_quantity ? Number(l.packed_confirmed_quantity) : null
       })),
-      estimatedSubtotal: Number(dbOrder.total_amount),
-      finalSubtotal: Number(dbOrder.total_amount),
+      estimatedSubtotal: grossAmount,
+      finalSubtotal: grossAmount,
       finalTotal: Number(dbOrder.total_amount),
-      discount: 0,
+      discount: coupon.discount,
+      appliedPromo: coupon.applied ? {
+        code: coupon.code,
+        promotionId: coupon.promotionId,
+        redemptionId: coupon.redemptionId,
+        discount: coupon.discount
+      } : null,
       deliveryFee: 0,
       handlingFee: 0,
       createdAt: dbOrder.created_at
@@ -4745,6 +4944,116 @@ app.put('/api/admin/features/:key', authenticateAdmin, async (req, res) => {
     res.json({ success: true, feature: { setting_key: key, setting_value: newValue } });
   } catch (error) {
     res.status(500).json({ success: false, error: 'Failed to update feature' });
+  }
+});
+
+// =========================================================================
+// SERVER-DRIVEN APP CONFIGURATION (data only, never code)
+// =========================================================================
+
+app.get(['/api/app/config', '/api/v1/app/config'], async (req, res) => {
+  try {
+    const { etag, config } = await appConfigService.getConfig();
+    res.setHeader('Cache-Control', `public, max-age=${config.cacheSeconds}`);
+    res.setHeader('ETag', etag);
+    if (req.headers['if-none-match'] === etag) return res.status(304).end();
+    res.json({ success: true, ...config });
+  } catch (error) {
+    console.error('⚠️ /api/app/config failed:', error.message);
+    res.status(503).json({
+      success: false,
+      code: 'APP_CONFIG_UNAVAILABLE',
+      error: 'Configuration is temporarily unavailable. Use the defaults bundled with the app.',
+      requestId: req.id
+    });
+  }
+});
+
+app.get('/api/admin/platform-settings', authenticateAdmin, requireSuperAdmin, async (req, res) => {
+  try {
+    if (!supabaseHelper.isLivePostgres) {
+      return res.json({ success: false, dataSource: 'fixture', degraded: true, error: 'PostgreSQL is unavailable.' });
+    }
+    let query = supabaseHelper.supabaseAdmin
+      .from('platform_settings')
+      .select('setting_key, setting_value, description, updated_by, updated_at')
+      .order('setting_key', { ascending: true });
+
+    if (req.query.key) query = query.eq('setting_key', String(req.query.key));
+    if (req.query.prefix) query = query.like('setting_key', `${String(req.query.prefix)}%`);
+
+    const { data, error } = await query;
+    if (error) return res.status(400).json({ success: false, error: error.message });
+    res.json({ success: true, dataSource: 'postgres', settings: data || [] });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message, requestId: req.id });
+  }
+});
+
+app.put('/api/admin/platform-settings/:key', authenticateAdmin, requireSuperAdmin, async (req, res) => {
+  const key = req.params.key;
+  const keyError = appConfigService.validateSettingKey(key);
+  if (keyError) {
+    return res.status(400).json({ success: false, code: 'INVALID_SETTING_KEY', error: keyError, requestId: req.id });
+  }
+
+  const valueError = appConfigService.validateSettingValue(req.body?.value);
+  if (valueError) {
+    return res.status(400).json({ success: false, code: 'INVALID_SETTING_VALUE', error: valueError, requestId: req.id });
+  }
+
+  try {
+    if (!supabaseHelper.isLivePostgres) {
+      return res.status(503).json({ success: false, code: 'DATABASE_UNAVAILABLE', error: 'PostgreSQL is unavailable, so the setting was not written.' });
+    }
+
+    const { data: existing } = await supabaseHelper.supabaseAdmin
+      .from('platform_settings')
+      .select('setting_key, updated_by, updated_at')
+      .eq('setting_key', key)
+      .maybeSingle();
+
+    const description = typeof req.body?.description === 'string'
+      ? req.body.description.slice(0, 500)
+      : (existing?.description ?? null);
+
+    const { data, error } = await supabaseHelper.supabaseAdmin
+      .from('platform_settings')
+      .upsert({
+        setting_key: key,
+        setting_value: req.body.value,
+        description,
+        updated_by: req.admin.id,
+        updated_at: new Date().toISOString()
+      }, { onConflict: 'setting_key' })
+      .select('setting_key, setting_value, description, updated_by, updated_at')
+      .single();
+
+    if (error) return res.status(400).json({ success: false, error: error.message, requestId: req.id });
+
+    appConfigService.invalidate();
+
+    await db.createAuditLog({
+      adminId: req.admin.id,
+      adminName: req.admin.name,
+      role: req.admin.role,
+      action: existing ? 'PLATFORM_SETTINGS_UPDATED' : 'PLATFORM_SETTINGS_CREATED',
+      module: 'PLATFORM_SETTINGS',
+      targetEntityType: 'PLATFORM_SETTING',
+      targetEntityId: key,
+      previousState: existing ? 'EXISTING' : 'ABSENT',
+      newState: 'PUBLISHED',
+      reason: req.body?.reason ? String(req.body.reason).slice(0, 500) : `Configuration key ${key} published.`,
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+      requestId: req.id,
+      metadata: { key, valueSha256: crypto.createHash('sha256').update(JSON.stringify(req.body.value)).digest('hex').slice(0, 16) }
+    });
+
+    res.json({ success: true, dataSource: 'postgres', setting: data });
+  } catch (error) {
+    console.error('⚠️ PUT /api/admin/platform-settings failed:', error.message);
+    res.status(500).json({ success: false, error: 'Failed to update platform setting', requestId: req.id });
   }
 });
 
