@@ -4368,6 +4368,58 @@ class NabinDatabase {
     return inv;
   }
 
+  // Removing a merchant's own listing. `order_lines.grocery_inventory_id` is
+  // ON DELETE RESTRICT, so a product that has already been sold cannot be
+  // deleted — the merchant hides it with `isAvailable: false` instead, and the
+  // `grocery_price_history` rows survive either way as the audit trail.
+  async deleteMerchantInventoryItem({ merchantId, masterProductId }) {
+    const { supabaseAdmin, isLivePostgres } = require('./supabase');
+    if (isLivePostgres && supabaseAdmin) {
+      const productId = await this.resolveMasterProductId(masterProductId);
+      if (!productId) {
+        throw new Error('That product is not in the NABIN master grocery catalogue.');
+      }
+
+      const { data: row, error: readErr } = await supabaseAdmin
+        .from('merchant_grocery_inventory')
+        .select('id')
+        .eq('merchant_id', merchantId)
+        .eq('product_id', productId)
+        .maybeSingle();
+      if (readErr) throw new Error(`Inventory read failed: ${readErr.message}`);
+      if (!row) throw new Error('That product is not stocked in your store.');
+
+      const { count, error: countErr } = await supabaseAdmin
+        .from('order_lines')
+        .select('id', { count: 'exact', head: true })
+        .eq('grocery_inventory_id', row.id);
+      if (countErr) throw new Error(`Could not check this product's order history: ${countErr.message}`);
+      if ((count || 0) > 0) {
+        throw new Error(
+          `${count} order${count === 1 ? '' : 's'} already bought this product, so its listing ` +
+          'stays on the record. Switch its availability off to stop selling it.'
+        );
+      }
+
+      const { error } = await supabaseAdmin
+        .from('merchant_grocery_inventory')
+        .delete()
+        .eq('id', row.id)
+        .eq('merchant_id', merchantId);
+      if (error) throw new Error(`Inventory delete failed: ${error.message}`);
+      return { inventoryId: row.id, masterProductId: productId };
+    }
+
+    const before = this.merchantInventory.length;
+    this.merchantInventory = this.merchantInventory.filter(
+      i => !(i.merchantId === merchantId && i.masterProductId === masterProductId)
+    );
+    if (this.merchantInventory.length === before) {
+      throw new Error('That product is not stocked in your store.');
+    }
+    return { masterProductId };
+  }
+
   // --- Dynamic Grocery Pricing & Revalidation Methods ---
   getGroceryProducts(filters = {}) {
     let products = [...this.groceryProducts];

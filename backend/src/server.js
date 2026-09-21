@@ -65,6 +65,15 @@ notificationEventBus.subscribe('*', async (event) => {
     if (!event || !event.eventType) return;
 
     let recipientUserId = event.recipientUserId;
+    // A merchant has no owning `users` row — `merchants` never grew the link — so
+    // a merchant notification is keyed by its own `merchants.id`, which is what
+    // `notifications.user_type` allows 'MERCHANT' for (Migration 012).
+    let recipientUserType = event.userType ? String(event.userType).toUpperCase() : null;
+    if (!recipientUserId && !event.customerId && !event.driverId &&
+        (recipientUserType === 'MERCHANT' || event.merchantId)) {
+      recipientUserId = event.merchantId;
+      recipientUserType = 'MERCHANT';
+    }
     if (!recipientUserId) {
       const driverEvents = ['PAYOUT_SETTLED', 'KYC_APPROVED', 'KYC_REJECTED', 'VPA_VERIFIED', 'payout:settled', 'kyc:approved', 'kyc:rejected', 'vpa:verified'];
       if (driverEvents.includes(event.eventType) || (event.driverId && !event.customerId)) {
@@ -98,15 +107,24 @@ notificationEventBus.subscribe('*', async (event) => {
 
     const notifRes = await db.notificationRepo.createNotification({
       recipientUserId,
+      userType: recipientUserType || 'CUSTOMER',
       title: event.title || event.eventType,
       body: event.body || '',
       notificationType: event.notificationType || event.eventType,
       priority: event.priority || 'NORMAL',
       data: event.data || {},
+      relatedEntityType: event.relatedEntityType || null,
+      relatedEntityId: event.relatedEntityId || null,
       eventKey: event.eventKey
     });
 
     if (notifRes && notifRes.success && notifRes.notification && !notifRes.duplicate) {
+      if (recipientUserType === 'MERCHANT') {
+        broadcastToMerchant(recipientUserId, {
+          type: 'NOTIFICATION',
+          notification: notifRes.notification
+        });
+      }
       if (db.pushNotificationService) {
         await db.pushNotificationService.dispatchNotification(notifRes.notification);
       }
@@ -4184,6 +4202,21 @@ app.post('/api/merchant/inventory', authenticateMerchant, requireMerchantTenant,
   }
 });
 
+// Un-stock a listing the merchant added themselves. The store is taken from the
+// bearer token, so an id in the URL can only ever address the caller's own shelf.
+app.delete('/api/merchant/inventory/:masterProductId', authenticateMerchant, requireMerchantTenant, async (req, res) => {
+  try {
+    const result = await db.deleteMerchantInventoryItem({
+      merchantId: req.merchant.id,
+      masterProductId: req.params.masterProductId
+    });
+    broadcastToAdmins({ type: 'GROCERY_PRODUCT_UNSTOCKED', merchantId: req.merchant.id, ...result });
+    res.json({ success: true, ...result });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
 // --- MERCHANT CATALOGUE READS (PostgreSQL authoritative) ---
 // The legacy in-memory menu is a different store from the `products` table that the
 // order path resolves against, so merchant clients read the real catalogue here.
@@ -4466,6 +4499,20 @@ app.post('/api/grocery/checkout/validate', authenticateUser, async (req, res) =>
     broadcastToMerchant(merchant.id, {
       type: 'ORDER_RECEIVED',
       order: dbOrder
+    });
+
+    // Persisted feed entry as well as the socket push, so a store that was closed
+    // when the order landed still sees it after signing back in.
+    notificationEventBus.publish('MERCHANT_NEW_GROCERY_ORDER', {
+      merchantId: merchant.id,
+      userType: 'MERCHANT',
+      orderId: dbOrder.id,
+      title: 'New grocery order',
+      body: `Order ${dbOrder.order_number || dbOrder.id} is waiting to be accepted.`,
+      notificationType: 'ORDER_RECEIVED',
+      relatedEntityType: 'ORDER',
+      relatedEntityId: dbOrder.id,
+      priority: 'HIGH'
     });
 
     const orderSnapshot = {
