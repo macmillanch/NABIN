@@ -53,14 +53,19 @@ orders, order detail, inventory, master catalogue, price management.
   `imageUrl: https://example.com/milk.jpg`, while the customer browse path nulls exactly those
   `example.com` hosts. Nothing renders it today, so it is invisible — but any future tile must not
   trust these URLs. The catalogue screen ignores `standard_image_url` for this reason.
-- 11 of the 14 active master rows are duplicate "Test Basmati Rice" fixtures from earlier test
-  runs, so a fresh store's "Not stocked" list is mostly noise until the seed data is cleaned up.
-  They cannot simply be deleted: each is the only listing of its own `Test Supermarket M2` store, and
-  `order_lines.grocery_inventory_id` is `ON DELETE RESTRICT` while `merchant_grocery_inventory.product_id`
-  is `ON DELETE CASCADE` — 22 order lines sit behind those rows, so a `DELETE` on the master row is
-  refused, and if it were not it would empty 11 stores and orphan order history. The owner has not
-  yet chosen between `is_active = false` (reversible, but hides those stores' only product) and
-  re-pointing the fixtures at one canonical rice row.
+- 11 of the 12 duplicate "Test Basmati Rice" master rows were deactivated
+  (`is_active = false`) on 2026-09-21 with the owner's approval, keeping
+  `6e617e3a…` — the row `Test Supermarket M2` actually sells — active. They could not be deleted:
+  `merchant_grocery_inventory.product_id` is `ON DELETE CASCADE` while
+  `order_lines.grocery_inventory_id` is `ON DELETE RESTRICT`, with 26 order lines behind them, and
+  the order rows are immutable under the financial guard. A fresh store's "Not stocked" list is now
+  3 master rows instead of 14. `GET /api/grocery/products` had to gain a
+  `master_grocery_catalog!inner(...) … .eq('master_grocery_catalog.is_active', true)` filter for the
+  flag to mean anything on the customer side — without `!inner` PostgREST keeps the parent row and
+  only nulls the embed, which briefly rendered those listings as "Grocery item".
+- Known hole from the same change: the flag is honoured on reads, not on writes.
+  `resolveMasterProductId` and the revalidate/checkout path do not check `is_active`, so a retired
+  master product is still adoptable and orderable by direct id.
 
 ## BLOCKED
 
@@ -76,8 +81,9 @@ orders, order detail, inventory, master catalogue, price management.
 1. Add a read endpoint for `grocery_price_history` scoped to the signed-in store.
 2. Build the merchant notifications screen on `GET /api/notifications`, and give `NabinWsService` a
    `NOTIFICATION` case so a live order can update the badge without polling.
-3. Decide what to do with the duplicate "Test Basmati Rice" master rows (see NOTES) — deletion is
-   blocked by `order_lines`' `ON DELETE RESTRICT`, so this needs an owner's call, not an improvisation.
+3. Enforce `master_grocery_catalog.is_active` on the write path as well, so a retired product cannot
+   be adopted or ordered by direct id. The duplicate rice fixtures themselves are resolved — see
+   NOTES; deletion stays blocked by `order_lines`' `ON DELETE RESTRICT`.
 
 Previously item 3 — "give the store a way to remove a stocked line" — shipped on 2026-09-21 as
 `DELETE /api/merchant/inventory/:masterProductId`, and item 2 — resolving merchant notification

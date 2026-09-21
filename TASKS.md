@@ -107,6 +107,15 @@ status notes, plus the pre-existing `6494b25`), and `55a1836` re-baselined
       token. Not done on purpose: this app has no feed screen and `NabinWsService` has
       no `NOTIFICATION` case, so there is still nothing to consume them.
 
+- [x] Duplicate "Test Basmati Rice" fixtures (approved 2026-09-21, "Deactivate 11, keep the used
+      one"): `is_active = false` on the 11 duplicates, `6e617e3a…` kept active because
+      `Test Supermarket M2` sells it and 26 order lines sit behind the set. Deletion was not
+      possible (see gap report NOTES). A fresh store's master-catalogue list went 14 rows → 3.
+      This needed `GET /api/grocery/products` to start honouring the flag: without
+      `master_grocery_catalog!inner(...)` PostgREST keeps the parent listing and only nulls the
+      embed, which turned those rows into "Grocery item" tiles — caught by re-reading the live
+      browse response, not by reading the query.
+
 ## BACKLOG (ranked, each needs its own approval — gap report §13.4)
 
 1. Durable advertising: `advertising_campaigns` is migrated but unused;
@@ -116,12 +125,10 @@ status notes, plus the pre-existing `6494b25`), and `55a1836` re-baselined
    `GET /api/notifications`, and a `NOTIFICATION` case in `NabinWsService`. The
    backend half (recipient resolution, idempotent insert, socket push) shipped on
    2026-09-21; nothing in this app consumes it yet.
-4. Grocery Merchant App: decide the fate of the 12 duplicate "Test Basmati Rice"
-   master rows that now dominate the not-stocked list. Direct deletion is
-   FK-blocked (`order_lines` → `ON DELETE RESTRICT`, 22 order lines behind them) and
-   each row is its store's only listing, so this needs an owner's call between
-   `is_active = false` and re-pointing the fixtures at one canonical row. The
-   un-stock route shipped instead.
+4. Grocery Merchant App: enforce `master_grocery_catalog.is_active` on the write path — reads
+   honour it now, but `resolveMasterProductId` and revalidate/checkout do not, so a retired product
+   is still adoptable and orderable by direct id. The 11 duplicate rice rows were deactivated on
+   2026-09-21; the `Test Supermarket M2` store clones that own them are still to clean up.
 5. Restaurant Merchant Web: `/orders/[id]` detail route + a persistent menu
    write path; no CI/Docker/deploy definition exists for either merchant web app.
 6. Redis/table backing for OTP + rate limits (both in-memory, lost on restart).

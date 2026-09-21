@@ -35,8 +35,8 @@
 
 | Field | Value |
 |-------|-------|
-| **Current HEAD** | `239c134` (this §1 update lands on top of it as a docs commit) |
-| **origin/main** | `51ad0ea` before this push; parity is restored by it |
+| **Current HEAD** | `dc11941` (this §1 update lands on top of it as a docs commit) |
+| **origin/main** | `9f0b4e9` before this push; parity is restored by it |
 | **HEAD == origin/main** | After the push carrying this commit: YES |
 | **Working tree** | CLEAN of tracked modifications; untracked: `.kilo/agents/` + 11 junk root files |
 | **Branch** | main |
@@ -58,6 +58,8 @@
 
 ### Recent Git History
 ```
+dc11941 fix(backend): make a retired grocery master product disappear from customer browse
+9f0b4e9 docs: record the un-stock route and merchant notification pass
 239c134 feat(mobile): give the grocery inventory screen a remove action
 1b128e7 feat(backend): let a grocery store un-stock a line and receive its own notifications
 51ad0ea docs: record the master-catalogue stocking milestone
@@ -121,6 +123,16 @@ d7ef7f5 feat(phase-16): implement postgres kyc, verified vpa, partial refund and
 - Migrations 001–015 establish: `users`, `drivers`, `jobs`, `payments`, `ledger_accounts`, `journal_transactions`, `journal_lines`, `geo_fences`, `surge_zones`, `promotions`, `support_tickets`, `audit_logs`, `notifications`, `checkouts`, `dispatch_offers`, `merchants`, `products`, `grocery_catalog`, etc.
 - Migration 016 adds: `verified_upi_id`, `payout_upi_verified`, `kyc_status`, `user_id` on `drivers` table (present in authorized Git baseline via c0cdf47)
 - Migration 017 is absent; menu customization, kitchen workflow, tax configs are NOT in current schema
+
+### Local data changes made this session (2026-09-21, local Docker only)
+- `master_grocery_catalog`: 11 duplicate "Test Basmati Rice" rows set to `is_active = false` with the
+  owner's approval; `6e617e3a-e377-4d7b-ae2c-0e8de0208a77` left active because `Test Supermarket M2`
+  sells it. No row was deleted — `order_lines` is `ON DELETE RESTRICT` and orders are immutable.
+  Previous ids/flags: `scratch/rice_master_backup_2026-09-21.txt` (gitignored).
+- 4 grocery orders were placed against the local database to prove the notification and un-stock
+  paths (`ORD-00000318`, `ORD-00000319` and the earlier pair); they are permanent records by design.
+- A stocking/un-stocking round trip ran through `POST`/`DELETE /api/merchant/inventory` only, and
+  the test listing was removed, so `Test Supermarket M2` is back to its single seeded row.
 
 ### Remote Supabase
 - OFF LIMITS
