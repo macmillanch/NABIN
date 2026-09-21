@@ -11,6 +11,19 @@ const SETTINGS_PREFIX = 'APP_CONFIG_';
 const RESERVED_PREFIXES = ['FEATURE_'];
 const RESERVED_KEYS = ['PLATFORM_SERVICE_STATE', 'service_status', 'surge_multiplier'];
 
+// A client theme is remote only if the server can say which tokens exist. An
+// allow-list keeps an operator typo from silently repainting the wrong surface,
+// and a hex pattern keeps the value data: no expression can survive either gate.
+const THEME_SETTING_KEY = `${SETTINGS_PREFIX}THEME`;
+const THEME_TOKENS = [
+  'brand', 'brandTint', 'onBrand',
+  'canvas', 'surface', 'surfaceMuted', 'surfaceEmphasized',
+  'onSurface', 'onSurfaceMuted', 'divider',
+  'success', 'warning', 'danger',
+  'foodAccent', 'groceryAccent'
+];
+const THEME_HEX = /^#[0-9a-fA-F]{6}$/;
+
 const CACHE_SECONDS = Math.max(1, Number(process.env.APP_CONFIG_CACHE_SECONDS) || 30);
 const PUBLISHED_OFFER_LIMIT = 10;
 const MAX_SETTING_KEY_LENGTH = 100;
@@ -183,6 +196,52 @@ class AppConfigService {
     };
   }
 
+  // Composed from the same platform_settings row the generic writer publishes,
+  // so a palette change needs no new table and no release. Colours only: font
+  // files and logos stay bundled, and this section says so rather than implying
+  // the whole visual identity is remote.
+  buildThemeSection(settings) {
+    const base = { source: `platform_settings:${THEME_SETTING_KEY}`, knownTokens: THEME_TOKENS };
+    const raw = settings && settings.values ? settings.values[THEME_SETTING_KEY] : undefined;
+    if (raw === undefined) {
+      return {
+        ...base,
+        available: false,
+        tokens: {},
+        rejectedTokens: [],
+        reason: 'No theme has been published, so clients render their bundled palette.'
+      };
+    }
+    if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+      return {
+        ...base,
+        available: false,
+        tokens: {},
+        rejectedTokens: [THEME_SETTING_KEY],
+        reason: `The ${THEME_SETTING_KEY} setting must be an object of token names to #RRGGBB colours.`
+      };
+    }
+
+    const tokens = {};
+    const rejectedTokens = [];
+    for (const [key, value] of Object.entries(raw)) {
+      if (!THEME_TOKENS.includes(key) || typeof value !== 'string' || !THEME_HEX.test(value)) {
+        rejectedTokens.push(key);
+        continue;
+      }
+      tokens[key] = value.toUpperCase();
+    }
+
+    return {
+      ...base,
+      available: Object.keys(tokens).length > 0,
+      tokens,
+      rejectedTokens,
+      remoteOnly: ['colours'],
+      notRemote: ['fonts', 'logos', 'layout', 'icons']
+    };
+  }
+
   async buildSections() {
     const sections = {
       services: this.buildServiceSection(),
@@ -193,12 +252,22 @@ class AppConfigService {
       const reason = 'PostgreSQL is unavailable, so server-stored configuration could not be read.';
       sections.offers = { available: false, degraded: true, items: [], reason };
       sections.settings = { available: false, degraded: true, values: {}, reason };
+      sections.theme = {
+        source: `platform_settings:${THEME_SETTING_KEY}`,
+        knownTokens: THEME_TOKENS,
+        available: false,
+        degraded: true,
+        tokens: {},
+        rejectedTokens: [],
+        reason: 'PostgreSQL is unavailable, so no published theme could be read.'
+      };
       return sections;
     }
 
     const [offers, settings] = await Promise.all([this.loadOffers(), this.loadSettings()]);
     sections.offers = offers;
     sections.settings = settings;
+    sections.theme = this.buildThemeSection(settings);
     return sections;
   }
 
