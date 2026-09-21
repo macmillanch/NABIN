@@ -60,8 +60,9 @@ pushed.**
       state synchronously; `useCallback` deps on `merchant?.id` made React Compiler
       bail on the whole component); the rest are explained narrow disables, because
       the rule cannot see through an `await`.
-- [ ] **Push** — `main` is now 5 ahead of `origin/main` (was already 1 ahead at
-      `6494b25`). Nothing pushed; that needs its own approval.
+- [x] **Push** — done 2026-09-21: `9b2804c..dac61ec` fast-forwarded to
+      `origin/main`, 5 commits (`e7a7d31` backend, `c35306d` mobile, `7c1fe53` web,
+      `19c9041` docs, `dac61ec` lint fixes).
 - [ ] admin-web logout still uses `window.location.href = '/'` (lint warning) — a
       hard redirect instead of `router.push`, left alone as out of scope.
 - [ ] M0: web→backend port fix (`NEXT_PUBLIC_API_URL`, both merchant web apps) — §13.2 of gap report
