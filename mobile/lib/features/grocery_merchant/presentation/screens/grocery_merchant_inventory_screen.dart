@@ -315,6 +315,15 @@ class _GroceryMerchantInventoryScreenState extends ConsumerState<GroceryMerchant
                     padding: EdgeInsets.zero,
                     constraints: const BoxConstraints(),
                   ),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    onPressed: busy ? null : () => _confirmRemove(item),
+                    icon: Icon(Icons.delete_outline,
+                        color: GroceryMerchantTheme.accentRose.withValues(alpha: 0.8), size: 20),
+                    tooltip: 'Remove from store',
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                  ),
                 ],
               ),
             ],
@@ -428,6 +437,61 @@ class _GroceryMerchantInventoryScreenState extends ConsumerState<GroceryMerchant
         _showMessage('${item['masterName'] ?? 'Item'} updated.', color: GroceryMerchantTheme.primaryGreen);
       } else {
         _showMessage(result?['error'] ?? 'The store rejected this update.', isError: true);
+      }
+    } catch (e) {
+      _showMessage('Network error. The change was not saved.', isError: true);
+    } finally {
+      if (mounted) setState(() => _busyId = null);
+    }
+  }
+
+  void _confirmRemove(Map<String, dynamic> item) {
+    final name = item['masterName'] ?? 'This product';
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Remove from your store?'),
+        content: Text(
+          '$name leaves your shelf and the customer app. If it has already been '
+          'ordered the store keeps it on the record and this will be refused.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(dialogContext);
+              _removeInventoryItem(item);
+            },
+            child: const Text(
+              'Remove',
+              style: TextStyle(color: GroceryMerchantTheme.accentRose),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _removeInventoryItem(Map<String, dynamic> item) async {
+    final masterProductId = item['masterProductId'];
+    if (masterProductId == null) {
+      _showMessage('This item has no master catalogue product, so it cannot be removed.',
+          isError: true);
+      return;
+    }
+
+    setState(() => _busyId = masterProductId);
+    try {
+      final result =
+          await NabinApiService.deleteMerchantInventoryItem(masterProductId.toString());
+      if (result?['success'] == true) {
+        await _loadInventory(silent: true);
+        _showMessage('${item['masterName'] ?? 'Item'} removed from your store.');
+      } else {
+        _showMessage(result?['error'] ?? 'The store rejected this removal.', isError: true);
       }
     } catch (e) {
       _showMessage('Network error. The change was not saved.', isError: true);

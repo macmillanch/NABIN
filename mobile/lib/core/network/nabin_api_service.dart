@@ -525,6 +525,23 @@ class NabinApiService {
     }
   }
 
+  /// Removes one of the signed-in store's own listings. The backend refuses when
+  /// orders already reference the product, so callers must show the returned
+  /// `error` instead of assuming success.
+  static Future<Map<String, dynamic>?> deleteMerchantInventoryItem(String masterProductId) async {
+    try {
+      final client = HttpClient();
+      final request = await client.deleteUrl(Uri.parse(
+          '$effectiveUrl/merchant/inventory/${Uri.encodeComponent(masterProductId)}'));
+      _attachAuthHeader(request);
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      return jsonDecode(body) as Map<String, dynamic>;
+    } catch (e) {
+      return null;
+    }
+  }
+
   // =========================================================================
   // 8. ADMIN OPERATIONS APIS
   // =========================================================================
