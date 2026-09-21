@@ -4,8 +4,8 @@ Audited from `mobile/lib/features/grocery_merchant/` against `backend/src/server
 PostgreSQL schema on 2026-09-21. Each IMPLEMENTED line below was exercised against the running
 stack in this session, not read off a screen name.
 
-Surface: Flutter app `main_grocery_merchant.dart`, 8 screens — splash, login, OTP, dashboard,
-orders, order detail, inventory, price management.
+Surface: Flutter app `main_grocery_merchant.dart`, 9 screens — splash, login, OTP, dashboard,
+orders, order detail, inventory, master catalogue, price management.
 
 ## IMPLEMENTED (verified end to end this session)
 
@@ -22,6 +22,7 @@ orders, order detail, inventory, price management.
 | Failure reporting | Every write path now surfaces the server's `error` string; the previous `if (success) …` with no `else` silently swallowed rejections. |
 | Dashboard | Now calls `GET /api/merchant/:id/dashboard`. It previously called the orders endpoint and read `todaySales`/`activeOrdersCount` from it — fields that response never contains — so both KPI tiles were permanently `₹0` / `0`. Figures are computed from GROCERY lines only and labelled "Sales on record", because the server field named `todaySales` actually sums all orders. |
 | Session hygiene | Expired session shows "Your session has expired. Please sign in again." instead of falling back to a hard-coded `mcht_1`. Logout confirms and clears to `/login`. |
+| Stocking a new product | `/catalogue` (`grocery_merchant_catalog_screen.dart`) diffs `GET /api/merchant/master-catalog` against `GET /api/merchant/inventory`, and a bottom sheet posts `{masterProductId, currentPrice, stockQty, isAvailable}` to `POST /api/merchant/inventory`. Verified live as `Test Supermarket M2`: the store held 1 of 14 master rows, "Amul Taaza Milk" was adopted at ₹42.50 / 25 and re-read as `status: AVAILABLE`, then removed so the seed state is unchanged. Reached from the inventory app bar and its empty state, which is now a real action rather than advice. The price field is required because `updateMerchantInventoryItem` lands an omitted `currentPrice` at 0. |
 
 ## PARTIAL
 
@@ -32,10 +33,10 @@ orders, order detail, inventory, price management.
 
 ## MISSING
 
-1. **Stocking a new product.** `GET /api/merchant/master-catalog` exists and the inventory empty
-   state tells the merchant to "Add products from the NABIN master catalogue", but no screen calls
-   it and `POST /api/merchant/inventory` is never invoked from the app. A store that has not been
-   seeded by hand cannot list a single item. **This is the largest functional gap.**
+1. **Un-stocking a product.** `POST /api/merchant/inventory` upserts; there is no delete route. The
+   catalogue screen's "List in my store" switch and a zero quantity get a row out of the customer's
+   way (`INACTIVE` / `OUT_OF_STOCK`), but the row stays in the store. Nothing was lost while building
+   this — it is the reason the live test row had to be removed directly from the local database.
 2. **Price history view.** `grocery_price_history` is written on every price change but has no read
    endpoint, so the app cannot show it. (Note: `GET /api/grocery/products/:id/history` reads the
    in-memory fixture store, not that table.)
@@ -45,6 +46,15 @@ orders, order detail, inventory, price management.
    its open/closed state, so the dashboard exposes three destinations that all work instead of a
    dead Settings tab.
 5. **Support ticket screen** for merchants. Absent.
+
+## NOTES FOR THE NEXT READER
+
+- Merchant catalogue reads hand back placeholder artwork: `GET /api/merchant/inventory` returned
+  `imageUrl: https://example.com/milk.jpg`, while the customer browse path nulls exactly those
+  `example.com` hosts. Nothing renders it today, so it is invisible — but any future tile must not
+  trust these URLs. The catalogue screen ignores `standard_image_url` for this reason.
+- 12 of the 14 active master rows are duplicate "Test Basmati Rice" fixtures from earlier test
+  runs, so a fresh store's "Not stocked" list is mostly noise until the seed data is cleaned up.
 
 ## BLOCKED
 
@@ -57,6 +67,10 @@ orders, order detail, inventory, price management.
 
 ## Recommended next work, in order
 
-1. Build "add products" on top of `/api/merchant/master-catalog` + `POST /api/merchant/inventory`.
-2. Add a read endpoint for `grocery_price_history` scoped to the signed-in store.
-3. Resolve merchant notifications by joining `merchants` to its owning `users` row.
+1. Add a read endpoint for `grocery_price_history` scoped to the signed-in store.
+2. Resolve merchant notifications by joining `merchants` to its owning `users` row.
+3. Give the store a way to remove an stocked line, and clean the duplicate "Test Basmati Rice"
+   master rows out of the seed data.
+
+Previously item 1 — "build add products on top of `/api/merchant/master-catalog` +
+`POST /api/merchant/inventory`" — shipped on 2026-09-21 as the `/catalogue` screen.

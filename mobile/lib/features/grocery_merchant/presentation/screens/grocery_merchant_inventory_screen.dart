@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:mobile/core/network/nabin_api_service.dart';
 import '../theme/grocery_merchant_theme.dart';
 
@@ -71,6 +72,14 @@ class _GroceryMerchantInventoryScreenState extends ConsumerState<GroceryMerchant
           ),
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.add, color: Colors.white),
+            tooltip: 'Add products',
+            onPressed: () async {
+              await context.push('/catalogue');
+              if (mounted) await _loadInventory(silent: true);
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.refresh, color: Colors.white),
             onPressed: _loadInventory,
@@ -147,6 +156,21 @@ class _GroceryMerchantInventoryScreenState extends ConsumerState<GroceryMerchant
             'Add products from the NABIN master catalogue to start selling.',
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 14, color: GroceryMerchantTheme.textMuted),
+          ),
+          const SizedBox(height: 24),
+          Center(
+            child: ElevatedButton.icon(
+              onPressed: () async {
+                await context.push('/catalogue');
+                if (mounted) await _loadInventory(silent: true);
+              },
+              icon: const Icon(Icons.add),
+              label: const Text('Browse the master catalogue'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: GroceryMerchantTheme.primaryGreen,
+                foregroundColor: Colors.white,
+              ),
+            ),
           ),
         ],
       ),
