@@ -262,6 +262,22 @@ async function runRestartTest() {
     assert('Surge zone created before restart', preRestartSurge.status === 200 && preRestartSurge.data.surgeZone.id);
 
     console.log('\n--- 🛑 SIMULATING BACKEND TERMINATION & RESTART ---');
+    // 6d. Publish an advertisement campaign before the restart so persistence is
+    //     proven against the real `advertisements` table, not a memory map.
+    const preRestartAd = await request('POST', '/api/admin/advertisements', {
+      title: `Restart persistence campaign ${Date.now().toString().slice(-6)}`,
+      placement: 'HOME_BANNER',
+      imageUrl: 'https://nabin.example.com/ads/restart-probe.png',
+      targetUrl: '/grocery',
+      status: 'ACTIVE',
+      startDate: '2026-09-01T00:00:00.000Z',
+      endDate: '2026-12-31T23:59:59.000Z'
+    }, { 'Authorization': `Bearer ${adminToken}` });
+    const preRestartAdId = preRestartAd.data?.advertisement?.id;
+    assert('Advertisement campaign published before restart and labelled persisted',
+      preRestartAd.status === 200 && preRestartAd.data.success
+      && preRestartAd.data.dataSource === 'postgres' && preRestartAd.data.persisted === true && !!preRestartAdId);
+
     // Terminate existing server listening on port 4000 (do not kill test runner itself)
     try {
       execSync('powershell -Command "Get-NetTCPConnection -LocalPort 4000 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }"');
@@ -297,6 +313,17 @@ async function runRestartTest() {
     const postJobsRes = await request('GET', '/api/admin/jobs', null, { 'Authorization': `Bearer ${postAdminToken}` });
     const persistedJob = postJobsRes.data.jobs ? postJobsRes.data.jobs.find(j => j.id === rideJob.id) : null;
     assert(`Completed ride ${rideJob.id} survived server restart with status COMPLETED`, persistedJob && persistedJob.status === 'COMPLETED');
+
+    // 9b. The campaign must still be readable from PostgreSQL after a cold start,
+    //     then be removed again so repeated runs do not accumulate rows.
+    const postAds = await request('GET', '/api/advertisements?placement=HOME_BANNER');
+    const survivedAd = (postAds.data?.advertisements || []).find(ad => ad.id === preRestartAdId);
+    assert('Advertisement campaign survived the restart and is served from PostgreSQL',
+      postAds.status === 200 && postAds.data.dataSource === 'postgres'
+      && postAds.data.persisted === true && !!survivedAd && survivedAd.status === 'ACTIVE');
+    const postAdCleanup = await request('DELETE', `/api/admin/advertisements/${preRestartAdId}`, null,
+      { 'Authorization': `Bearer ${postAdminToken}` });
+    assert('Restart-probe advertisement cleaned up', postAdCleanup.status === 200 && postAdCleanup.data.success);
 
     // 10. Verify Driver Balance STILL EXISTS after restart
     const postDrvOtpSend = await request('POST', '/api/auth/send-otp', { phone: '9810122910', role: 'DRIVER', purpose: 'LOGIN' });

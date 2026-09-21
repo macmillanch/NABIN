@@ -12,6 +12,7 @@ const { MockSandboxPushProvider, FcmV1PushProvider, PushNotificationService } = 
 const { notificationEventBus, NOTIFICATION_EVENTS } = require('./services/NotificationEventBus');
 const featureControlService = require('./services/FeatureControlService');
 const appConfigService = require('./services/AppConfigService');
+const AdvertisementRepository = require('./repositories/AdvertisementRepository');
 
 const pushProvider = (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL)
   ? new FcmV1PushProvider()
@@ -1776,75 +1777,169 @@ app.get('/api/admin/promotions/:id/redemptions', authenticateAdmin, requirePermi
 // -------------------------------------------------------------
 // ADVERTISEMENTS & SPONSORED CAMPAIGNS API
 // -------------------------------------------------------------
-app.get('/api/advertisements', (req, res) => {
-  const { slot, service } = req.query;
-  const ads = db.getAdvertisements({ slot, service, activeOnly: true });
+app.get('/api/advertisements', async (req, res) => {
+  try {
+    const { slot, placement, service } = req.query;
+    const result = await db.listAdvertisements({
+      placement: placement || slot || null,
+      activeOnly: true
+    });
 
-  // Record impressions
-  ads.forEach(ad => db.recordAdImpression(ad.id));
+    // Serving a placement counts as an impression. Counters live in
+    // `advertisements.clicks|impressions` and are best-effort (see
+    // AdvertisementRepository.bumpCounter), so this is capped at the page size
+    // and never blocks the response.
+    const counted = result.advertisements.slice(0, 10);
+    Promise.all(counted.map(ad => db.recordAdImpression(ad.id))).catch(() => {});
 
-  // Campaigns live in the in-memory store: the `advertising_campaigns` table is
-  // migrated but unused, so impressions/clicks reset on restart and admin
-  // campaign writes are not durable. `persisted: false` says so explicitly.
-  res.json({
-    success: true,
-    count: ads.length,
-    advertisements: ads,
-    dataSource: 'in_memory',
-    persisted: false
-  });
-});
-
-app.post('/api/advertisements/:id/click', (req, res) => {
-  const ad = db.recordAdClick(req.params.id);
-  if (!ad) return res.status(404).json({ success: false, error: 'Advertisement not found' });
-  res.json({ success: true, clicks: ad.clicks, message: 'Click recorded' });
-});
-
-app.get('/api/admin/advertisements', authenticateAdmin, (req, res) => {
-  const ads = db.getAdvertisements({ activeOnly: false });
-  const totalImpressions = ads.reduce((acc, a) => acc + (a.impressions || 0), 0);
-  const totalClicks = ads.reduce((acc, a) => acc + (a.clicks || 0), 0);
-  const totalRevenue = ads.reduce((acc, a) => acc + (((a.impressions || 0) / 1000) * (a.bidRateCpm || 50)), 0);
-
-  res.json({
-    success: true,
-    advertisements: ads,
-    metrics: {
-      totalCampaigns: ads.length,
-      activeCampaigns: ads.filter(a => a.status === 'ACTIVE').length,
-      totalImpressions,
-      totalClicks,
-      overallCtr: totalImpressions > 0 ? ((totalClicks / totalImpressions) * 100).toFixed(2) + '%' : '0.00%',
-      adRevenueEstimate: Math.round(totalRevenue)
+    res.json({
+      success: true,
+      count: result.advertisements.length,
+      advertisements: result.advertisements,
+      dataSource: result.dataSource,
+      persisted: result.persisted,
+      ...(result.degraded ? { degraded: true } : {}),
+      placement: result.placementFilter,
+      requestedSlot: result.requestedSlot,
+      ordering: result.ordering,
+      supportedPlacements: AdvertisementRepository.PLACEMENTS,
+      ...(service ? {
+        serviceFilter: {
+          requested: service,
+          applied: false,
+          reason: 'advertisements has no service column; every stored campaign is served to every service.'
+        }
+      } : {})
+    });
+  } catch (err) {
+    if (err.code === 'INVALID_PLACEMENT') {
+      return res.status(400).json({
+        success: false,
+        code: err.code,
+        error: err.message,
+        supportedPlacements: err.details.supportedPlacements,
+        legacySlotAliases: err.details.legacySlotAliases
+      });
     }
-  });
-});
-
-app.post('/api/admin/advertisements', authenticateAdmin, (req, res) => {
-  try {
-    const newAd = db.createAdvertisement(req.body, req.admin.id, req.admin.name);
-    res.json({ success: true, advertisement: newAd });
-  } catch (err) {
-    res.status(400).json({ success: false, error: err.message });
+    console.error('[advertisements] list failed:', err);
+    res.status(500).json({ success: false, error: 'Failed to load advertisements.' });
   }
 });
 
-app.put('/api/admin/advertisements/:id', authenticateAdmin, (req, res) => {
+app.post('/api/advertisements/:id/click', async (req, res) => {
   try {
-    const updated = db.updateAdvertisement(req.params.id, req.body, req.admin.id, req.admin.name);
-    res.json({ success: true, advertisement: updated });
+    const result = await db.recordAdClick(req.params.id);
+    if (!result.advertisement) {
+      return res.status(404).json({ success: false, error: 'Advertisement not found' });
+    }
+    res.json({
+      success: true,
+      clicks: result.advertisement.clicks,
+      dataSource: result.dataSource,
+      persisted: result.persisted,
+      message: 'Click recorded'
+    });
   } catch (err) {
-    res.status(400).json({ success: false, error: err.message });
+    console.error('[advertisements] click failed:', err);
+    res.status(500).json({ success: false, error: 'Failed to record click.' });
   }
 });
 
-app.delete('/api/admin/advertisements/:id', authenticateAdmin, (req, res) => {
+app.get('/api/admin/advertisements', authenticateAdmin, async (req, res) => {
   try {
-    const deleted = db.deleteAdvertisement(req.params.id, req.admin.id, req.admin.name);
-    res.json({ success: true, deleted });
+    const result = await db.listAdvertisements({ activeOnly: false });
+    const ads = result.advertisements;
+    const totalImpressions = ads.reduce((acc, a) => acc + (a.impressions || 0), 0);
+    const totalClicks = ads.reduce((acc, a) => acc + (a.clicks || 0), 0);
+
+    res.json({
+      success: true,
+      advertisements: ads,
+      dataSource: result.dataSource,
+      persisted: result.persisted,
+      ...(result.degraded ? { degraded: true } : {}),
+      metrics: {
+        totalCampaigns: ads.length,
+        activeCampaigns: ads.filter(a => a.status === 'ACTIVE').length,
+        pausedCampaigns: ads.filter(a => a.status === 'PAUSED').length,
+        expiredCampaigns: ads.filter(a => a.status === 'EXPIRED').length,
+        totalImpressions,
+        totalClicks,
+        overallCtr: totalImpressions > 0 ? ((totalClicks / totalImpressions) * 100).toFixed(2) + '%' : '0.00%',
+        // Deliberately not a number: `advertisements` stores no bid rate or price,
+        // so any revenue figure would be invented.
+        monetization: {
+          available: false,
+          reason: 'No bid-rate or price column exists on advertisements, so revenue cannot be computed from stored data. Adding one requires a new migration.'
+        }
+      }
+    });
   } catch (err) {
-    res.status(400).json({ success: false, error: err.message });
+    console.error('[advertisements] admin list failed:', err);
+    res.status(500).json({ success: false, error: 'Failed to load campaigns.' });
+  }
+});
+
+app.post('/api/admin/advertisements', authenticateAdmin, async (req, res) => {
+  try {
+    const result = await db.createAdvertisement(req.body, req.admin.id, req.admin.name);
+    appConfigService.invalidate();
+    res.json({
+      success: true,
+      advertisement: result.advertisement,
+      dataSource: result.dataSource,
+      persisted: result.persisted,
+      ...(result.degraded ? { degraded: true } : {})
+    });
+  } catch (err) {
+    res.status(err.code === 'ADVERTISEMENT_NOT_FOUND' ? 404 : 400).json({
+      success: false,
+      ...(err.code ? { code: err.code } : {}),
+      error: err.message,
+      ...(err.details ? { details: err.details } : {})
+    });
+  }
+});
+
+app.put('/api/admin/advertisements/:id', authenticateAdmin, async (req, res) => {
+  try {
+    const result = await db.updateAdvertisement(req.params.id, req.body, req.admin.id, req.admin.name);
+    appConfigService.invalidate();
+    res.json({
+      success: true,
+      advertisement: result.advertisement,
+      dataSource: result.dataSource,
+      persisted: result.persisted,
+      ...(result.degraded ? { degraded: true } : {})
+    });
+  } catch (err) {
+    res.status(err.code === 'ADVERTISEMENT_NOT_FOUND' ? 404 : 400).json({
+      success: false,
+      ...(err.code ? { code: err.code } : {}),
+      error: err.message,
+      ...(err.details ? { details: err.details } : {})
+    });
+  }
+});
+
+app.delete('/api/admin/advertisements/:id', authenticateAdmin, async (req, res) => {
+  try {
+    const result = await db.deleteAdvertisement(req.params.id, req.admin.id, req.admin.name);
+    appConfigService.invalidate();
+    res.json({
+      success: true,
+      deleted: result.deleted,
+      dataSource: result.dataSource,
+      persisted: result.persisted,
+      ...(result.degraded ? { degraded: true } : {})
+    });
+  } catch (err) {
+    res.status(err.code === 'ADVERTISEMENT_NOT_FOUND' ? 404 : 400).json({
+      success: false,
+      ...(err.code ? { code: err.code } : {}),
+      error: err.message,
+      ...(err.details ? { details: err.details } : {})
+    });
   }
 });
 

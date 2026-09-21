@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const database = require('../database');
 const { supabaseAdmin, isLivePostgres } = require('../supabase');
 const featureControlService = require('./FeatureControlService');
+const AdvertisementRepository = require('../repositories/AdvertisementRepository');
 
 // Remote configuration is published to clients as plain data only. Operator-owned
 // keys are namespaced so a settings write can never overwrite state another
@@ -215,17 +216,18 @@ class AppConfigService {
       }
     }
 
-    // The advertisements section stays a pointer to its own endpoint: Phase 1
-    // item 1 (durable ads) is not done, so duplicating ad payloads here would be
-    // a second source of truth.
+    // Advertisements stay a pointer to their own endpoint: the rows are durable in
+    // PostgreSQL now, but duplicating the campaign payloads here would create a
+    // second source of truth that this 30-second cache could serve stale.
     const sections = {
       ...this.sections,
       advertisements: {
         available: true,
-        durable: false,
-        source: 'in_memory',
+        durable: true,
+        source: 'postgres:advertisements',
         endpoint: '/api/advertisements',
-        reason: 'Advertisements are served from the existing endpoint but are not yet PostgreSQL-backed.'
+        supportedPlacements: AdvertisementRepository.PLACEMENTS,
+        limitation: 'The stored shape has no priority, brand, creative or bid-rate column, and several client slot names share one placement.'
       }
     };
 

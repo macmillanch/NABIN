@@ -469,60 +469,144 @@ async function runAllTests() {
       revGeoRes.status === 200 && revGeoRes.data.success && revGeoRes.data.locality.includes('Connaught Place')
     );
 
-    // --- 10. MODULE 8: Sponsored Advertisements & In-App Placements ---
-    console.log('\n--- 10. MODULE 8: Sponsored Advertisements & In-App Placements ---');
+    // --- 10. MODULE 8: Advertisement Placements on the PostgreSQL `advertisements` table ---
+    console.log('\n--- 10. MODULE 8: Advertisement Placements & Campaign Persistence ---');
 
-    // 1. Client App queries active Grocery Hero Carousel ads
-    const heroAds = await request('GET', '/api/advertisements?slot=GROCERY_HERO_CAROUSEL&service=GROCERY');
-    assert('GET /api/advertisements returns active sponsored ads for Grocery Hero slot',
-      heroAds.status === 200 && heroAds.data.success && heroAds.data.advertisements.length >= 2
-    );
+    // The four placements are what `004_missing_entities_schema.sql` allows, and
+    // they are the only campaign fields the table can store. Assertions below test
+    // that shape rather than the richer one the in-memory engine pretended to have.
+    const adHousePayload = (title, placement, extra = {}) => ({
+      title,
+      placement,
+      imageUrl: 'https://nabin.example.com/ads/house-campaign.png',
+      targetUrl: '/grocery',
+      status: 'ACTIVE',
+      startDate: '2026-09-01T00:00:00.000Z',
+      endDate: '2026-12-31T23:59:59.000Z',
+      ...extra
+    });
 
-    // 2. Client App queries in-feed sponsored ads
-    const inFeedAds = await request('GET', '/api/advertisements?slot=GROCERY_IN_FEED_BANNER&service=GROCERY');
-    assert('GET /api/advertisements returns active in-feed sponsored spotlight ads',
-      inFeedAds.status === 200 && inFeedAds.data.success && inFeedAds.data.advertisements.length >= 1
-    );
+    // 1. Admin publishes a NABIN house campaign and it lands in PostgreSQL.
+    const createdAd = await request('POST', '/api/admin/advertisements',
+      adHousePayload('NABIN Grocery: milk, fruit and vegetables from stores near you', 'HOME_BANNER'),
+      { 'Authorization': `Bearer ${superToken}` });
+    const createdAdId = createdAd.data?.advertisement?.id;
+    assert('AD-01: Admin publishes a campaign into PostgreSQL and gets a UUID row back',
+      createdAd.status === 200 && createdAd.data.success
+      && createdAd.data.dataSource === 'postgres' && createdAd.data.persisted === true
+      && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(createdAdId || '')
+      && createdAd.data.advertisement.placement === 'HOME_BANNER',
+      JSON.stringify(createdAd.data).slice(0, 220));
 
-    // 3. Client logs ad click event
-    const clickRes = await request('POST', `/api/advertisements/${heroAds.data.advertisements[0].id}/click`);
-    assert('POST /api/advertisements/:id/click records user click interaction',
-      clickRes.status === 200 && clickRes.data.success && clickRes.data.clicks >= 1
-    );
+    // 2. The client-facing read answers from PostgreSQL and includes that campaign.
+    const heroAds = await request('GET', '/api/advertisements?placement=HOME_BANNER');
+    assert('AD-02: GET /api/advertisements serves ACTIVE campaigns from PostgreSQL',
+      heroAds.status === 200 && heroAds.data.success
+      && heroAds.data.dataSource === 'postgres' && heroAds.data.persisted === true
+      && heroAds.data.advertisements.some(ad => ad.id === createdAdId),
+      JSON.stringify(heroAds.data).slice(0, 220));
 
-    // 4. Admin queries all ad campaigns and monetization metrics
-    const adminAds = await request('GET', '/api/admin/advertisements', null, { 'Authorization': `Bearer ${superToken}` });
-    assert('Admin can view all campaigns with CTR and estimated CPM monetization revenue',
-      adminAds.status === 200 && adminAds.data.success && adminAds.data.metrics.totalCampaigns >= 6 && adminAds.data.metrics.overallCtr !== undefined
-    );
+    // 3. Apps that still ask for the pre-schema slot names keep working, and the
+    //    response says which placement it resolved to.
+    const aliasAds = await request('GET', '/api/advertisements?slot=GROCERY_HERO_CAROUSEL&service=GROCERY');
+    assert('AD-03: Legacy slot names resolve to a real placement and say so',
+      aliasAds.status === 200 && aliasAds.data.placement === 'HOME_BANNER'
+      && aliasAds.data.requestedSlot === 'GROCERY_HERO_CAROUSEL'
+      && aliasAds.data.serviceFilter && aliasAds.data.serviceFilter.applied === false
+      && !!aliasAds.data.serviceFilter.reason,
+      JSON.stringify(aliasAds.data).slice(0, 220));
 
-    // 5. Admin deploys new sponsored brand campaign for external third-party company
-    const createAdRes = await request('POST', '/api/admin/advertisements', {
+    // 4. A slot the schema cannot represent is refused instead of silently empty.
+    const badPlacement = await request('GET', '/api/advertisements?placement=GROCERY_HERO_CAROUSEL_XYZ');
+    assert('AD-04: An unknown placement is rejected with the supported list',
+      badPlacement.status === 400 && badPlacement.data.code === 'INVALID_PLACEMENT'
+      && Array.isArray(badPlacement.data.supportedPlacements)
+      && badPlacement.data.supportedPlacements.length === 4,
+      JSON.stringify(badPlacement.data).slice(0, 220));
+
+    // 5. Creative/bidding fields the table has no column for are rejected loudly.
+    const unsupportedWrite = await request('POST', '/api/admin/advertisements', {
+      ...adHousePayload('Third-party brand campaign', 'HOME_BANNER'),
       brand: 'Sony PlayStation India',
-      industryCategory: 'ENTERTAINMENT',
-      sponsorBadge: 'GAMING PARTNER',
-      title: 'PlayStation 5 Slim 1TB Console Bundle',
-      tagline: 'Get ₹7,500 Instant Cashback with Free Horizon Forbidden West Pass',
-      slot: 'GROCERY_HERO_CAROUSEL',
-      service: 'ALL',
-      ctaText: 'Buy PS5 Bundle →',
-      ctaLink: 'https://playstation.com',
       bidRateCpm: 95.0,
-      status: 'ACTIVE'
+      priority: 10
     }, { 'Authorization': `Bearer ${superToken}` });
-    assert('Admin successfully deploys new third-party external brand campaign to client apps',
-      createAdRes.status === 200 && createAdRes.data.success && createAdRes.data.advertisement.brand === 'Sony PlayStation India'
-    );
+    assert('AD-05: A campaign write naming unstashable fields is refused, not half-saved',
+      unsupportedWrite.status === 400
+      && unsupportedWrite.data.code === 'ADVERTISEMENT_FIELD_UNSUPPORTED'
+      && ['brand', 'bidRateCpm', 'priority'].every(f => unsupportedWrite.data.details.unsupportedFields.includes(f)),
+      JSON.stringify(unsupportedWrite.data).slice(0, 220));
 
-    // 6. Admin modifies/updates existing ad campaign (Industry category, creative, redirect URL, CPM bid rate)
-    const updateAdRes = await request('PUT', `/api/admin/advertisements/${createAdRes.data.advertisement.id}`, {
-      bidRateCpm: 110.0,
-      tagline: 'Updated: Special Festive Weekend Price • ₹10,000 Off',
-      status: 'ACTIVE'
-    }, { 'Authorization': `Bearer ${superToken}` });
-    assert('Admin updates campaign details (creative, bid rate, redirect link) live from admin dashboard',
-      updateAdRes.status === 200 && updateAdRes.data.success && updateAdRes.data.advertisement.bidRateCpm === 110.0
-    );
+    // 6. Invalid dates and a bad status are rejected server-side.
+    const badDates = await request('POST', '/api/admin/advertisements',
+      adHousePayload('Backwards campaign window', 'CHECKOUT', { startDate: '2026-12-01T00:00:00.000Z', endDate: '2026-11-01T00:00:00.000Z' }),
+      { 'Authorization': `Bearer ${superToken}` });
+    const badStatus = await request('POST', '/api/admin/advertisements',
+      adHousePayload('Impossible status', 'CHECKOUT', { status: 'LIVE_FOREVER' }),
+      { 'Authorization': `Bearer ${superToken}` });
+    assert('AD-06: endDate-before-startDate and an out-of-enum status are rejected',
+      badDates.status === 400 && badDates.data.code === 'ADVERTISEMENT_VALIDATION_FAILED'
+      && badStatus.status === 400 && badStatus.data.code === 'ADVERTISEMENT_VALIDATION_FAILED',
+      `${badDates.status}/${badStatus.status} ${JSON.stringify(badDates.data).slice(0, 120)}`);
+
+    // 7. Clicks are counted in the row, not in a map that dies on restart.
+    const clickRes = await request('POST', `/api/advertisements/${createdAdId}/click`);
+    assert('AD-07: POST /api/advertisements/:id/click persists the counter in PostgreSQL',
+      clickRes.status === 200 && clickRes.data.success && clickRes.data.clicks >= 1
+      && clickRes.data.dataSource === 'postgres' && clickRes.data.persisted === true,
+      JSON.stringify(clickRes.data).slice(0, 220));
+
+    // 8. A campaign whose window has not opened is invisible to clients but still
+    //    manageable by an admin.
+    const futureAd = await request('POST', '/api/admin/advertisements',
+      adHousePayload('Campaign that has not started yet', 'SEARCH_INLINE',
+        { startDate: '2027-01-01T00:00:00.000Z', endDate: '2027-01-31T00:00:00.000Z' }),
+      { 'Authorization': `Bearer ${superToken}` });
+    const futureAdId = futureAd.data?.advertisement?.id;
+    const publicInline = await request('GET', '/api/advertisements?placement=SEARCH_INLINE');
+    assert('AD-08: A future-dated campaign is excluded from the public feed by the server clock',
+      !!futureAdId && publicInline.status === 200
+      && !publicInline.data.advertisements.some(ad => ad.id === futureAdId),
+      JSON.stringify(publicInline.data).slice(0, 200));
+
+    // 9. Editing and deleting an ACTIVE campaign both persist.
+    const pausedAd = await request('PUT', `/api/admin/advertisements/${createdAdId}`, { status: 'PAUSED' },
+      { 'Authorization': `Bearer ${superToken}` });
+    const afterPause = await request('GET', '/api/advertisements?placement=HOME_BANNER');
+    assert('AD-09: Pausing a campaign writes through and hides it from clients',
+      pausedAd.status === 200 && pausedAd.data.advertisement.status === 'PAUSED'
+      && pausedAd.data.persisted === true
+      && !afterPause.data.advertisements.some(ad => ad.id === createdAdId),
+      JSON.stringify(pausedAd.data).slice(0, 200));
+
+    // 10. Admin metrics come from the stored rows and do not invent revenue.
+    const adminAds = await request('GET', '/api/admin/advertisements', null, { 'Authorization': `Bearer ${superToken}` });
+    assert('AD-10: Admin metrics report real counts and CTR, and admit revenue is uncomputable',
+      adminAds.status === 200 && adminAds.data.dataSource === 'postgres'
+      && adminAds.data.metrics.totalCampaigns >= 2
+      && typeof adminAds.data.metrics.overallCtr === 'string'
+      && adminAds.data.metrics.monetization.available === false
+      && !!adminAds.data.metrics.monetization.reason
+      && adminAds.data.metrics.adRevenueEstimate === undefined,
+      JSON.stringify(adminAds.data.metrics).slice(0, 220));
+
+    // 11. Ad campaigns are audited like every other money-adjacent admin action.
+    const adAudit = await request('GET', '/api/admin/audit-logs?module=PROMOTIONS', null, { 'Authorization': `Bearer ${superToken}` });
+    const adAuditRows = (adAudit.data.logs || []).filter(l => l.targetEntityId === createdAdId);
+    const adAuditActions = adAuditRows.map(l => l.action);
+    assert('AD-11: Campaign create and update writes leave audit records',
+      adAudit.status === 200
+      && adAuditActions.includes('ADVERTISEMENT_CAMPAIGN_CREATED')
+      && adAuditActions.includes('ADVERTISEMENT_CAMPAIGN_UPDATED'),
+      JSON.stringify(adAuditActions).slice(0, 220));
+
+    const cleanupAd1 = await request('DELETE', `/api/admin/advertisements/${createdAdId}`, null, { 'Authorization': `Bearer ${superToken}` });
+    const cleanupAd2 = await request('DELETE', `/api/admin/advertisements/${futureAdId}`, null, { 'Authorization': `Bearer ${superToken}` });
+    const emptyAfterCleanup = await request('GET', '/api/advertisements?placement=HOME_BANNER');
+    assert('AD-12: Deleting a campaign removes the row, so test runs do not accumulate',
+      cleanupAd1.data.success && cleanupAd2.data.success && cleanupAd1.data.persisted === true
+      && !emptyAfterCleanup.data.advertisements.some(ad => ad.id === createdAdId),
+      `${cleanupAd1.status}/${cleanupAd2.status}`);
 
     // --- 11. MODULE 9: Centralized Auth, Phone OTP Generation & Lockout ---
     console.log('\n--- 11. MODULE 9: Centralized Auth, Phone OTP Security & Lockout ---');
@@ -3667,11 +3751,14 @@ async function runAllTests() {
       !!acAuditRow.adminName
     );
 
-    // AC-14: The advertisements section stays a pointer until it is PostgreSQL-backed
+    // AC-14: Advertisements are durable now, but stay a pointer so the config cache
+    // never becomes a second copy of the campaign table.
     const acAds = acSectionsAfter.advertisements;
-    assert('AC-14: Advertisements section points at its own endpoint and admits it is not durable',
-      acAds && acAds.durable === false && acAds.source === 'in_memory' &&
-      acAds.endpoint === '/api/advertisements' && !!acAds.reason
+    assert('AC-14: Advertisements section points at its own endpoint and reports the durable store',
+      acAds && acAds.durable === true && acAds.source === 'postgres:advertisements' &&
+      acAds.endpoint === '/api/advertisements' &&
+      Array.isArray(acAds.supportedPlacements) && acAds.supportedPlacements.length === 4 &&
+      !!acAds.limitation
     );
   } catch (err) {
     console.error('Fatal Test Suite Exception:', err);

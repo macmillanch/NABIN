@@ -13,6 +13,7 @@ const PricingRepository = require('./repositories/PricingRepository');
 const NotificationRepository = require('./repositories/NotificationRepository');
 const OrderRepository = require('./repositories/OrderRepository');
 const DispatchRepository = require('./repositories/DispatchRepository');
+const AdvertisementRepository = require('./repositories/AdvertisementRepository');
 
 // Shared relational store with durable persistence, crash recovery & double-entry accounting
 class NabinDatabase {
@@ -640,295 +641,86 @@ class NabinDatabase {
       }
     ];
 
-    // Advertisements & Sponsored Brand Campaigns Engine (Supports any 3rd-Party Brand/Industry)
+    // Degradation fallback only: these render when PostgreSQL is unreachable. They
+    // are NABIN's own house campaigns (no invented third-party brands, no
+    // fabricated impression counts) and every route serving them labels the
+    // response `dataSource: 'fixture', persisted: false`.
     this.advertisements = [
       {
-        id: 'ad_groc_1',
-        title: 'Amul Fresh Gold & Taaza Milk',
-        tagline: 'Farm-Fresh Milk & Butter Delivered in 10 Mins • ₹10 Instant Cash',
-        brand: 'Amul India',
-        industryCategory: 'FMCG_GROCERY',
-        sponsorBadge: 'SPONSORED BRAND',
+        id: 'ad_house_grocery_hero',
+        title: 'NABIN Grocery: milk, fruit and vegetables from stores near you',
+        tagline: 'Ordered in the app, delivered by a NABIN driver.',
+        brand: 'NABIN',
+        industryCategory: 'NABIN_HOUSE',
+        sponsorBadge: 'NABIN',
         service: 'GROCERY',
-        slot: 'GROCERY_HERO_CAROUSEL',
-        imageUrl: 'https://images.unsplash.com/photo-1550583724-b2692b85b150?w=800&q=80',
-        bgGradient: 'from-emerald-900 via-slate-900 to-green-950',
-        accentColor: '#10B981',
-        ctaText: 'Shop Amul Fresh →',
-        targetCategory: 'DAIRY',
-        ctaLink: '/grocery?cat=DAIRY',
-        bidRateCpm: 45.0,
-        impressions: 48290,
-        clicks: 3420,
-        startDate: '2026-01-01',
-        endDate: '2026-12-31',
+        slot: 'HOME_BANNER',
+        imageUrl: 'https://nabin.example.com/ads/grocery-hero.png',
+        accentColor: '#22A447',
+        ctaText: 'Browse grocery →',
+        ctaLink: '/grocery',
         status: 'ACTIVE',
-        priority: 10,
-        createdAt: new Date(Date.now() - 86400000 * 30).toISOString()
+        startDate: '2026-09-01',
+        endDate: '2026-12-31',
+        impressions: 0,
+        clicks: 0
       },
       {
-        id: 'ad_tech_1',
-        title: 'Samsung Galaxy S26 Ultra 5G',
-        tagline: 'Experience Next-Gen Galaxy AI with ₹12,000 Instant Exchange Bonus',
-        brand: 'Samsung Electronics',
-        industryCategory: 'TECH_ELECTRONICS',
-        sponsorBadge: 'GLOBAL TECH PARTNER',
-        service: 'ALL',
-        slot: 'GROCERY_HERO_CAROUSEL',
-        imageUrl: 'https://images.unsplash.com/photo-1610945265064-0e34e5519bbf?w=800&q=80',
-        bgGradient: 'from-indigo-950 via-slate-900 to-purple-950',
-        accentColor: '#818CF8',
-        ctaText: 'Explore Galaxy AI →',
-        targetCategory: 'ALL',
-        ctaLink: 'https://samsung.com/galaxy-s26',
-        bidRateCpm: 85.0,
-        impressions: 89400,
-        clicks: 7650,
-        startDate: '2026-01-01',
-        endDate: '2026-12-31',
+        id: 'ad_house_food_hero',
+        title: 'NABIN Restaurant: meals from the 27 kitchens listed near you',
+        tagline: 'Live preparation status from the merchant app.',
+        brand: 'NABIN',
+        industryCategory: 'NABIN_HOUSE',
+        sponsorBadge: 'NABIN',
+        service: 'FOOD',
+        slot: 'HOME_BANNER',
+        imageUrl: 'https://nabin.example.com/ads/food-hero.png',
+        accentColor: '#FF9030',
+        ctaText: 'Browse restaurants →',
+        ctaLink: '/food',
         status: 'ACTIVE',
-        priority: 10,
-        createdAt: new Date(Date.now() - 86400000 * 22).toISOString()
+        startDate: '2026-09-01',
+        endDate: '2026-12-31',
+        impressions: 0,
+        clicks: 0
       },
       {
-        id: 'ad_fin_1',
-        title: 'PolicyBazaar ₹1 Cr Term Life Shield',
-        tagline: 'Secure your family’s future for ₹490/month • Zero Medical Checkups',
-        brand: 'PolicyBazaar',
-        industryCategory: 'FINTECH_INSURANCE',
-        sponsorBadge: 'FINANCIAL SPONSOR',
-        service: 'ALL',
-        slot: 'GROCERY_HERO_CAROUSEL',
-        imageUrl: 'https://images.unsplash.com/photo-1450133064473-71024230f91b?w=800&q=80',
-        bgGradient: 'from-blue-950 via-slate-900 to-cyan-950',
-        accentColor: '#38BDF8',
-        ctaText: 'Calculate Free Quote →',
-        targetCategory: 'ALL',
-        ctaLink: 'https://policybazaar.com',
-        bidRateCpm: 75.0,
-        impressions: 71200,
-        clicks: 5890,
-        startDate: '2026-01-01',
-        endDate: '2026-12-31',
-        status: 'ACTIVE',
-        priority: 9,
-        createdAt: new Date(Date.now() - 86400000 * 18).toISOString()
-      },
-      {
-        id: 'ad_ott_1',
-        title: 'Netflix Premium Family 4K Pass',
-        tagline: 'Stream 10,000+ Blockbusters & Exclusive Series in Ultra HD',
-        brand: 'Netflix India',
-        industryCategory: 'ENTERTAINMENT',
-        sponsorBadge: 'OTT ENTERTAINMENT',
-        service: 'ALL',
-        slot: 'GROCERY_IN_FEED_BANNER',
-        imageUrl: 'https://images.unsplash.com/photo-1522869635100-9f4c5e86aa37?w=800&q=80',
-        bgGradient: 'from-rose-950 via-slate-900 to-red-950',
-        accentColor: '#E11D48',
-        ctaText: 'Get 30-Day Family Pass →',
-        targetCategory: 'ALL',
-        ctaLink: 'https://netflix.com',
-        bidRateCpm: 90.0,
-        impressions: 64300,
-        clicks: 6120,
-        startDate: '2026-01-01',
-        endDate: '2026-12-31',
-        status: 'ACTIVE',
-        priority: 9,
-        createdAt: new Date(Date.now() - 86400000 * 14).toISOString()
-      },
-      {
-        id: 'ad_edtech_1',
-        title: 'UpGrad AI & Machine Learning PG',
-        tagline: 'Master Generative AI & Cloud Architecture with 100% Placement Support',
-        brand: 'upGrad Learning',
-        industryCategory: 'EDUCATION',
-        sponsorBadge: 'EDTECH PARTNER',
-        service: 'ALL',
-        slot: 'GROCERY_HERO_CAROUSEL',
-        imageUrl: 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=800&q=80',
-        bgGradient: 'from-violet-950 via-slate-900 to-indigo-950',
-        accentColor: '#A78BFA',
-        ctaText: 'Apply with 30% Scholarship →',
-        targetCategory: 'ALL',
-        ctaLink: 'https://upgrad.com',
-        bidRateCpm: 65.0,
-        impressions: 42100,
-        clicks: 3450,
-        startDate: '2026-01-01',
-        endDate: '2026-12-31',
-        status: 'ACTIVE',
-        priority: 8,
-        createdAt: new Date(Date.now() - 86400000 * 10).toISOString()
-      },
-      {
-        id: 'ad_realestate_1',
-        title: 'DLF CyberCity Sky Mansions',
-        tagline: 'Ultra-Luxury 4 BHK Living in Gurugram • 0% Brokerage & Pre-EMI Waiver',
-        brand: 'DLF Luxury Real Estate',
-        industryCategory: 'REAL_ESTATE',
-        sponsorBadge: 'LUXURY LIVING',
-        service: 'ALL',
-        slot: 'RIDE_HERO_BANNER',
-        imageUrl: 'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?w=800&q=80',
-        bgGradient: 'from-amber-950 via-slate-900 to-stone-950',
-        accentColor: '#F59E0B',
-        ctaText: 'Book VIP Site Visit →',
-        targetCategory: '4W',
-        ctaLink: 'https://dlf.in',
-        bidRateCpm: 120.0,
-        impressions: 34100,
-        clicks: 2980,
-        startDate: '2026-01-01',
-        endDate: '2026-12-31',
-        status: 'ACTIVE',
-        priority: 10,
-        createdAt: new Date(Date.now() - 86400000 * 8).toISOString()
-      },
-      {
-        id: 'ad_travel_1',
-        title: 'MakeMyTrip International Holidays',
-        tagline: 'Flat 25% Instant Savings on Dubai, Bali & Thailand All-Inclusive Flights',
-        brand: 'MakeMyTrip',
-        industryCategory: 'TRAVEL',
-        sponsorBadge: 'HOLIDAY SPONSOR',
-        service: 'ALL',
-        slot: 'RIDE_HERO_BANNER',
-        imageUrl: 'https://images.unsplash.com/photo-1436491865332-7a61a109cc05?w=800&q=80',
-        bgGradient: 'from-sky-950 via-slate-900 to-blue-950',
-        accentColor: '#38BDF8',
-        ctaText: 'Book Holiday Pass →',
-        targetCategory: '4W',
-        ctaLink: 'https://makemytrip.com',
-        bidRateCpm: 80.0,
-        impressions: 48900,
-        clicks: 4120,
-        startDate: '2026-01-01',
-        endDate: '2026-12-31',
-        status: 'ACTIVE',
-        priority: 9,
-        createdAt: new Date(Date.now() - 86400000 * 16).toISOString()
-      },
-      {
-        id: 'ad_groc_2',
-        title: 'Tata Tea Gold Festive Blend',
-        tagline: 'Rich Royal Aroma with 15% Long Leaves • Special 25% Off Today',
-        brand: 'Tata Consumer',
-        industryCategory: 'FMCG_GROCERY',
-        sponsorBadge: 'FEATURED PARTNER',
+        id: 'ad_house_grocery_inline',
+        title: 'Add a second item and NABIN keeps the delivery fee',
+        tagline: 'In-feed house placement.',
+        brand: 'NABIN',
+        industryCategory: 'NABIN_HOUSE',
+        sponsorBadge: 'NABIN',
         service: 'GROCERY',
-        slot: 'GROCERY_HERO_CAROUSEL',
-        imageUrl: 'https://images.unsplash.com/photo-1576092768241-dec231879fc3?w=800&q=80',
-        bgGradient: 'from-amber-950 via-slate-900 to-orange-950',
-        accentColor: '#F59E0B',
-        ctaText: 'Buy Tata Tea →',
-        targetCategory: 'SNACKS',
-        ctaLink: '/grocery?cat=SNACKS',
-        bidRateCpm: 50.0,
-        impressions: 39120,
-        clicks: 2890,
-        startDate: '2026-01-01',
-        endDate: '2026-12-31',
+        slot: 'SEARCH_INLINE',
+        imageUrl: 'https://nabin.example.com/ads/grocery-inline.png',
+        accentColor: '#3C4890',
+        ctaText: 'See offers →',
+        ctaLink: '/grocery',
         status: 'ACTIVE',
-        priority: 8,
-        createdAt: new Date(Date.now() - 86400000 * 20).toISOString()
+        startDate: '2026-09-01',
+        endDate: '2026-12-31',
+        impressions: 0,
+        clicks: 0
       },
       {
-        id: 'ad_groc_3',
-        title: 'Organic India Cold-Pressed Juices',
-        tagline: '100% Certified Organic & Immunity Boosting • Buy 1 Get 1 Free',
-        brand: 'Organic India',
-        industryCategory: 'FMCG_GROCERY',
-        sponsorBadge: 'SPONSORED SPOTLIGHT',
-        service: 'GROCERY',
-        slot: 'GROCERY_IN_FEED_BANNER',
-        imageUrl: 'https://images.unsplash.com/photo-1613478223719-2ab802602423?w=800&q=80',
-        bgGradient: 'from-lime-950 via-emerald-950 to-slate-900',
-        accentColor: '#84CC16',
-        ctaText: 'Shop Wellness Essentials →',
-        targetCategory: 'FRUITS',
-        ctaLink: '/grocery?cat=FRUITS',
-        bidRateCpm: 40.0,
-        impressions: 29400,
-        clicks: 1980,
-        startDate: '2026-01-01',
-        endDate: '2026-12-31',
+        id: 'ad_house_driver_idle',
+        title: 'Drive with NABIN: you keep 85% of every fare',
+        tagline: 'Shown on the driver idle screen.',
+        brand: 'NABIN',
+        industryCategory: 'NABIN_HOUSE',
+        sponsorBadge: 'NABIN',
+        service: 'ALL',
+        slot: 'DRIVER_IDLE',
+        imageUrl: 'https://nabin.example.com/ads/driver-idle.png',
+        accentColor: '#3C4890',
+        ctaText: 'How earnings work →',
+        ctaLink: '/driver',
         status: 'ACTIVE',
-        priority: 9,
-        createdAt: new Date(Date.now() - 86400000 * 15).toISOString()
-      },
-      {
-        id: 'ad_groc_4',
-        title: 'HDFC Bank PayZapp UPI Offer',
-        tagline: 'Flat ₹50 Instant Cashback on 3 Orders via PayZapp UPI or Cards',
-        brand: 'HDFC Bank',
-        industryCategory: 'FINTECH_INSURANCE',
-        sponsorBadge: 'BANK PARTNER',
-        service: 'GROCERY',
-        slot: 'GROCERY_CHECKOUT_CARD',
-        imageUrl: 'https://images.unsplash.com/photo-1559526324-4b87b5e36e44?w=800&q=80',
-        bgGradient: 'from-blue-950 via-indigo-950 to-slate-900',
-        accentColor: '#3B82F6',
-        ctaText: 'Apply ₹50 PayZapp Discount',
-        targetCategory: 'ALL',
-        ctaLink: '#checkout',
-        bidRateCpm: 60.0,
-        impressions: 54100,
-        clicks: 4120,
-        startDate: '2026-01-01',
+        startDate: '2026-09-01',
         endDate: '2026-12-31',
-        status: 'ACTIVE',
-        priority: 10,
-        createdAt: new Date(Date.now() - 86400000 * 25).toISOString()
-      },
-      {
-        id: 'ad_ride_1',
-        title: 'Nabin Green EV Mobility Fleet',
-        tagline: 'Zero-Emission 100% AC Cabs with Zero Driver Cancellation',
-        brand: 'Tata Motors EV & Nabin',
-        industryCategory: 'AUTOMOTIVE',
-        sponsorBadge: 'ECO SPONSOR',
-        service: 'RIDE',
-        slot: 'RIDE_HERO_BANNER',
-        imageUrl: 'https://images.unsplash.com/photo-1593941707882-a5bba14938c7?w=800&q=80',
-        bgGradient: 'from-teal-950 via-slate-900 to-emerald-950',
-        accentColor: '#14B8A6',
-        ctaText: 'Book Green EV Cab →',
-        targetCategory: '4W',
-        ctaLink: '/rides',
-        bidRateCpm: 55.0,
-        impressions: 62400,
-        clicks: 5310,
-        startDate: '2026-01-01',
-        endDate: '2026-12-31',
-        status: 'ACTIVE',
-        priority: 10,
-        createdAt: new Date(Date.now() - 86400000 * 40).toISOString()
-      },
-      {
-        id: 'ad_ride_2',
-        title: 'Starbucks Coffee In-Transit Express',
-        tagline: 'Order ahead on your commute route & get 15% off at CyberCity',
-        brand: 'Tata Starbucks',
-        industryCategory: 'FMCG_GROCERY',
-        sponsorBadge: 'IN-TRANSIT EXCLUSIVE',
-        service: 'RIDE',
-        slot: 'RIDE_TRACKING_SPONSOR',
-        imageUrl: 'https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?w=800&q=80',
-        bgGradient: 'from-amber-950 via-stone-900 to-slate-950',
-        accentColor: '#D97706',
-        ctaText: 'Pre-Order Coffee (15% Off) →',
-        targetCategory: 'RIDE',
-        ctaLink: '#starbucks',
-        bidRateCpm: 70.0,
-        impressions: 31200,
-        clicks: 2940,
-        startDate: '2026-01-01',
-        endDate: '2026-12-31',
-        status: 'ACTIVE',
-        priority: 9,
-        createdAt: new Date(Date.now() - 86400000 * 12).toISOString()
+        impressions: 0,
+        clicks: 0
       }
     ];
 
@@ -1780,6 +1572,7 @@ class NabinDatabase {
     this.notificationRepo = new NotificationRepository(this);
     this.orderRepo = new OrderRepository(this);
     this.dispatchRepo = new DispatchRepository(this);
+    this.adRepo = new AdvertisementRepository(this);
   }
 
   save() {
@@ -4724,56 +4517,185 @@ class NabinDatabase {
     return { success: true, message: `Password reset successfully for ${admin.name} (${admin.username}).`, admin };
   }
 
-  // --- Advertisement & Sponsored Brand Placement Methods ---
-  getAdvertisements({ slot = null, service = null, activeOnly = true } = {}) {
-    return this.advertisements.filter(ad => {
-      if (activeOnly && ad.status !== 'ACTIVE') return false;
-      if (slot && ad.slot !== slot) return false;
-      if (service && ad.service !== service && ad.service !== 'ALL') return false;
+  // --- Advertisement placement methods (PostgreSQL `advertisements` first) ---
+  //
+  // The frozen 004 schema stores: title, merchant_id, placement, image_url,
+  // target_url, status, start_date, end_date, clicks, impressions. It has no
+  // column for brand, tagline, cta text, service scope, priority or bid rate, so
+  // those are never reported as stored and writes that name them are rejected.
+  async listAdvertisements({ placement = null, status = null, activeOnly = true } = {}) {
+    const requested = placement || null;
+    const resolved = AdvertisementRepository.resolvePlacement(requested);
+    if (requested && !resolved.placement) {
+      const error = new Error(`Unknown placement "${resolved.rejected}".`);
+      error.code = 'INVALID_PLACEMENT';
+      error.details = {
+        supportedPlacements: AdvertisementRepository.PLACEMENTS,
+        legacySlotAliases: AdvertisementRepository.LEGACY_SLOT_ALIASES
+      };
+      throw error;
+    }
+
+    if (this.adRepo.live) {
+      try {
+        const advertisements = await this.adRepo.fetchAdvertisements({
+          placement: resolved.placement,
+          status: activeOnly ? 'ACTIVE' : (status || null),
+          withinDateWindow: activeOnly
+        });
+        return {
+          advertisements,
+          dataSource: 'postgres',
+          persisted: true,
+          placementFilter: resolved.placement,
+          requestedSlot: resolved.aliasOf || null,
+          ordering: 'start_date_desc'
+        };
+      } catch (err) {
+        console.warn(`[advertisements] PostgreSQL read failed, serving the in-memory fallback: ${err.message}`);
+      }
+    }
+
+    const advertisements = this.advertisements.filter(ad => {
+      if (activeOnly) {
+        if (ad.status !== 'ACTIVE') return false;
+        const now = Date.now();
+        if (ad.startDate && new Date(ad.startDate).getTime() > now) return false;
+        if (ad.endDate && new Date(ad.endDate).getTime() < now) return false;
+      } else if (status && ad.status !== status) {
+        return false;
+      }
+      if (resolved.placement) {
+        const adPlacement = AdvertisementRepository.resolvePlacement(ad.slot || ad.placement).placement;
+        if (adPlacement !== resolved.placement) return false;
+      }
       return true;
     }).sort((a, b) => (b.priority || 0) - (a.priority || 0));
+
+    return {
+      advertisements,
+      dataSource: 'fixture',
+      degraded: true,
+      persisted: false,
+      placementFilter: resolved.placement,
+      requestedSlot: resolved.aliasOf || null,
+      ordering: 'priority_desc'
+    };
   }
 
-  recordAdImpression(adId) {
-    const ad = this.advertisements.find(a => a.id === adId);
-    if (ad) {
-      ad.impressions = (ad.impressions || 0) + 1;
+  async getAdvertisement(id) {
+    if (this.adRepo.live) {
+      try {
+        const ad = await this.adRepo.getAdvertisement(id);
+        if (ad) return { advertisement: ad, dataSource: 'postgres', persisted: true };
+      } catch (err) {
+        console.warn(`[advertisements] PostgreSQL read of ${id} failed: ${err.message}`);
+      }
     }
+    const ad = this.advertisements.find(a => a.id === id);
+    return ad
+      ? { advertisement: ad, dataSource: 'fixture', persisted: false }
+      : { advertisement: null, dataSource: this.adRepo.live ? 'postgres' : 'fixture', persisted: false };
+  }
+
+  async recordAdImpression(adId) {
+    if (this.adRepo.live) {
+      try {
+        const ad = await this.adRepo.bumpCounter(adId, 'impressions');
+        if (ad) return ad;
+      } catch (err) {
+        console.warn(`[advertisements] impression write failed: ${err.message}`);
+      }
+    }
+    const ad = this.advertisements.find(a => a.id === adId);
+    if (ad) ad.impressions = (ad.impressions || 0) + 1;
     return ad;
   }
 
-  recordAdClick(adId) {
+  async recordAdClick(adId) {
+    if (this.adRepo.live) {
+      try {
+        const ad = await this.adRepo.bumpCounter(adId, 'clicks');
+        if (ad) return { advertisement: ad, dataSource: 'postgres', persisted: true };
+      } catch (err) {
+        console.warn(`[advertisements] click write failed: ${err.message}`);
+      }
+    }
     const ad = this.advertisements.find(a => a.id === adId);
     if (ad) {
       ad.clicks = (ad.clicks || 0) + 1;
+      return { advertisement: ad, dataSource: 'fixture', persisted: false };
     }
-    return ad;
+    return { advertisement: null, dataSource: this.adRepo.live ? 'postgres' : 'fixture', persisted: false };
   }
 
-  createAdvertisement(payload, adminId = 'adm_super', adminName = 'Super Admin') {
+  async createAdvertisement(payload, adminId = 'adm_super', adminName = 'Super Admin') {
+    const unsupported = AdvertisementRepository.pickUnsupported(payload);
+    if (unsupported.length) {
+      const error = new Error(
+        `The advertisements table cannot store: ${unsupported.join(', ')}.`
+      );
+      error.code = 'ADVERTISEMENT_FIELD_UNSUPPORTED';
+      error.details = {
+        unsupportedFields: unsupported,
+        supportedFields: ['title', 'placement', 'merchantId', 'imageUrl', 'targetUrl', 'status', 'startDate', 'endDate'],
+        note: 'No campaign creative, service scope, priority or bid-rate column exists; adding one needs a new migration.'
+      };
+      throw error;
+    }
+    const unknown = AdvertisementRepository.pickUnknown(payload);
+    if (unknown.length) {
+      const error = new Error(`Unknown advertisement field(s): ${unknown.join(', ')}.`);
+      error.code = 'ADVERTISEMENT_FIELD_UNKNOWN';
+      error.details = { unknownFields: unknown };
+      throw error;
+    }
+
+    if (this.adRepo.live) {
+      try {
+        const created = await this.adRepo.createAdvertisement(payload);
+        if (created) {
+          this.createAuditLog({
+            adminId,
+            adminName,
+            role: 'SUPER_ADMIN',
+            action: 'ADVERTISEMENT_CAMPAIGN_CREATED',
+            module: 'PROMOTIONS',
+            targetEntityType: 'ADVERTISEMENT',
+            targetEntityId: created.id,
+            previousState: 'NONE',
+            newState: created.status,
+            reason: `Ad campaign created in placement ${created.placement} (${created.title})`
+          });
+          return { advertisement: created, dataSource: 'postgres', persisted: true };
+        }
+      } catch (err) {
+        if (err.code === 'ADVERTISEMENT_VALIDATION_FAILED' || String(err.message).includes('violates check constraint')) {
+          err.code = err.code || 'ADVERTISEMENT_VALIDATION_FAILED';
+          throw err;
+        }
+        console.warn(`[advertisements] PostgreSQL create failed, falling back to memory: ${err.message}`);
+      }
+    }
+
     const newAd = {
       id: `ad_${Date.now().toString().slice(-6)}`,
-      title: payload.title || 'Sponsored Campaign',
-      tagline: payload.tagline || 'Special Sponsored Offer',
-      brand: payload.brand || 'Partner Brand',
-      industryCategory: payload.industryCategory || 'GENERAL',
-      sponsorBadge: payload.sponsorBadge || 'SPONSORED',
-      service: payload.service || 'GROCERY',
-      slot: payload.slot || 'GROCERY_HERO_CAROUSEL',
-      imageUrl: payload.imageUrl || 'https://images.unsplash.com/photo-1550583724-b2692b85b150?w=800&q=80',
-      bgGradient: payload.bgGradient || 'from-slate-900 to-blue-950',
-      accentColor: payload.accentColor || '#3B82F6',
-      ctaText: payload.ctaText || 'Learn More →',
-      targetCategory: payload.targetCategory || 'ALL',
-      ctaLink: payload.ctaLink || '#',
-      bidRateCpm: Number(payload.bidRateCpm) || 50.0,
+      title: (payload.title || 'NABIN house campaign').slice(0, 150),
+      brand: 'NABIN',
+      sponsorBadge: 'NABIN',
+      service: 'ALL',
+      slot: AdvertisementRepository.resolvePlacement(payload.placement || payload.slot).placement
+        || 'HOME_BANNER',
+      imageUrl: payload.imageUrl || '',
+      ctaText: payload.ctaText || 'Open →',
+      ctaLink: payload.targetUrl || payload.ctaLink || '#',
       impressions: 0,
       clicks: 0,
-      startDate: payload.startDate || new Date().toISOString().split('T')[0],
-      endDate: payload.endDate || '2026-12-31',
+      startDate: payload.startDate || new Date().toISOString(),
+      endDate: payload.endDate || '2026-12-31T23:59:59.000Z',
       status: payload.status || 'ACTIVE',
-      priority: Number(payload.priority) || 5,
-      createdBy: adminName,
+      priority: null,
+      bidRateCpm: null,
       createdAt: new Date().toISOString()
     };
 
@@ -4788,33 +4710,73 @@ class NabinDatabase {
       targetEntityType: 'ADVERTISEMENT',
       targetEntityId: newAd.id,
       previousState: 'NONE',
-      newState: 'ACTIVE',
-      reason: `Ad campaign created for ${newAd.brand} (${newAd.title}) in slot ${newAd.slot}`
+      newState: newAd.status,
+      reason: `Ad campaign created in memory only (${newAd.title})`
     });
 
-    return newAd;
+    return { advertisement: newAd, dataSource: 'fixture', degraded: true, persisted: false };
   }
 
-  updateAdvertisement(adId, updates, adminId = 'adm_super', adminName = 'Super Admin') {
+  async updateAdvertisement(adId, updates, adminId = 'adm_super', adminName = 'Super Admin') {
+    const unsupported = AdvertisementRepository.pickUnsupported(updates);
+    if (unsupported.length) {
+      const error = new Error(
+        `The advertisements table cannot store: ${unsupported.join(', ')}.`
+      );
+      error.code = 'ADVERTISEMENT_FIELD_UNSUPPORTED';
+      error.details = {
+        unsupportedFields: unsupported,
+        supportedFields: ['title', 'placement', 'merchantId', 'imageUrl', 'targetUrl', 'status', 'startDate', 'endDate']
+      };
+      throw error;
+    }
+
+    if (this.adRepo.live) {
+      try {
+        const updated = await this.adRepo.updateAdvertisement(adId, updates);
+        if (updated) {
+          this.createAuditLog({
+            adminId,
+            adminName,
+            role: 'SUPER_ADMIN',
+            action: 'ADVERTISEMENT_CAMPAIGN_UPDATED',
+            module: 'PROMOTIONS',
+            targetEntityType: 'ADVERTISEMENT',
+            targetEntityId: updated.id,
+            previousState: 'PREVIOUS',
+            newState: updated.status,
+            reason: `Ad campaign ${updated.id} updated in PostgreSQL (${Object.keys(updates).join(', ')})`
+          });
+          return { advertisement: updated, dataSource: 'postgres', persisted: true };
+        }
+        const missing = new Error(`Advertisement ${adId} not found.`);
+        missing.code = 'ADVERTISEMENT_NOT_FOUND';
+        throw missing;
+      } catch (err) {
+        if (err.code === 'ADVERTISEMENT_VALIDATION_FAILED' || err.code === 'ADVERTISEMENT_NOT_FOUND') throw err;
+        console.warn(`[advertisements] PostgreSQL update failed, falling back to memory: ${err.message}`);
+      }
+    }
+
     const ad = this.advertisements.find(a => a.id === adId);
-    if (!ad) throw new Error(`Advertisement ${adId} not found.`);
+    if (!ad) {
+      const error = new Error(`Advertisement ${adId} not found.`);
+      error.code = 'ADVERTISEMENT_NOT_FOUND';
+      throw error;
+    }
 
     const prevStatus = ad.status;
-    if (updates.brand !== undefined) ad.brand = updates.brand;
-    if (updates.industryCategory !== undefined) ad.industryCategory = updates.industryCategory;
-    if (updates.sponsorBadge !== undefined) ad.sponsorBadge = updates.sponsorBadge;
-    if (updates.title !== undefined) ad.title = updates.title;
-    if (updates.tagline !== undefined) ad.tagline = updates.tagline;
-    if (updates.slot !== undefined) ad.slot = updates.slot;
-    if (updates.service !== undefined) ad.service = updates.service;
-    if (updates.ctaText !== undefined) ad.ctaText = updates.ctaText;
-    if (updates.ctaLink !== undefined) ad.ctaLink = updates.ctaLink;
+    if (updates.title !== undefined) ad.title = String(updates.title).slice(0, 150);
+    if (updates.placement !== undefined || updates.slot !== undefined) {
+      ad.slot = AdvertisementRepository.resolvePlacement(updates.placement || updates.slot).placement || ad.slot;
+    }
     if (updates.imageUrl !== undefined) ad.imageUrl = updates.imageUrl;
-    if (updates.bgGradient !== undefined) ad.bgGradient = updates.bgGradient;
-    if (updates.accentColor !== undefined) ad.accentColor = updates.accentColor;
-    if (updates.bidRateCpm !== undefined) ad.bidRateCpm = Number(updates.bidRateCpm);
+    if (updates.targetUrl !== undefined || updates.ctaLink !== undefined) {
+      ad.ctaLink = updates.targetUrl ?? updates.ctaLink;
+    }
     if (updates.status !== undefined) ad.status = updates.status;
-    if (updates.targetCategory !== undefined) ad.targetCategory = updates.targetCategory;
+    if (updates.startDate !== undefined) ad.startDate = updates.startDate;
+    if (updates.endDate !== undefined) ad.endDate = updates.endDate;
 
     this.createAuditLog({
       adminId,
@@ -4826,15 +4788,42 @@ class NabinDatabase {
       targetEntityId: ad.id,
       previousState: prevStatus,
       newState: ad.status,
-      reason: `Ad campaign ${ad.id} (${ad.brand}) updated by ${adminName}`
+      reason: `Ad campaign ${ad.id} updated in memory only by ${adminName}`
     });
 
-    return ad;
+    return { advertisement: ad, dataSource: 'fixture', degraded: true, persisted: false };
   }
 
-  deleteAdvertisement(adId, adminId = 'adm_super', adminName = 'Super Admin') {
+  async deleteAdvertisement(adId, adminId = 'adm_super', adminName = 'Super Admin') {
+    if (this.adRepo.live) {
+      try {
+        const deleted = await this.adRepo.deleteAdvertisement(adId);
+        if (deleted) {
+          this.createAuditLog({
+            adminId,
+            adminName,
+            role: 'SUPER_ADMIN',
+            action: 'ADVERTISEMENT_CAMPAIGN_DELETED',
+            module: 'PROMOTIONS',
+            targetEntityType: 'ADVERTISEMENT',
+            targetEntityId: deleted.id,
+            previousState: deleted.status,
+            newState: 'DELETED',
+            reason: `Ad campaign ${deleted.id} deleted from PostgreSQL`
+          });
+          return { deleted, dataSource: 'postgres', persisted: true };
+        }
+      } catch (err) {
+        console.warn(`[advertisements] PostgreSQL delete failed, falling back to memory: ${err.message}`);
+      }
+    }
+
     const idx = this.advertisements.findIndex(a => a.id === adId);
-    if (idx === -1) throw new Error(`Advertisement ${adId} not found.`);
+    if (idx === -1) {
+      const error = new Error(`Advertisement ${adId} not found.`);
+      error.code = 'ADVERTISEMENT_NOT_FOUND';
+      throw error;
+    }
 
     const deleted = this.advertisements.splice(idx, 1)[0];
 
@@ -4848,10 +4837,10 @@ class NabinDatabase {
       targetEntityId: deleted.id,
       previousState: deleted.status,
       newState: 'DELETED',
-      reason: `Ad campaign ${deleted.id} archived`
+      reason: `Ad campaign ${deleted.id} removed from memory only`
     });
 
-    return deleted;
+    return { deleted, dataSource: 'fixture', degraded: true, persisted: false };
   }
 
   // =========================================================================
