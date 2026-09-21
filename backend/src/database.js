@@ -2170,6 +2170,8 @@ class NabinDatabase {
       }
 
       console.log(`✅ Authoritative PostgreSQL state synchronized (${this.users.length} users, ${this.drivers.length} drivers, ${this.jobs.length} jobs, ${this.ledgerEntries.length} ledger entries, ${this.adminUsers.length} admin accounts, ${this.supportTickets.length} support tickets, ${this.auditLogs.length} audit logs, ${this.promotions.length} promotions, ${Object.keys(this.pricingConfig).length} pricing configs, ${this.geoFences.length} geofences, ${this.surgeZones.length} surge zones).`);
+
+      await this.restoreServiceState();
     } catch (err) {
       console.warn('⚠️ initPostgres notice:', err.message);
     }
@@ -4209,7 +4211,65 @@ class NabinDatabase {
     };
   }
 
-  getMerchantInventory(merchantId) {
+  // Merchant grocery inventory. PostgreSQL is authoritative whenever it is live:
+  // the in-memory `merchantInventory` fixtures are keyed by legacy store ids, so a
+  // UUID merchant would otherwise see an empty shelf and edits would not reach orders.
+  async resolveMasterProductId(ref) {
+    if (!ref) return null;
+    const { supabaseAdmin, isLivePostgres } = require('./supabase');
+    if (!isLivePostgres || !supabaseAdmin) return ref;
+
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const LEGACY_MASTER_MAP = {
+      gprod_1: '00000000-0000-0000-0000-000000000401',
+      gprod_3: '00000000-0000-0000-0000-000000000402'
+    };
+    const candidate = LEGACY_MASTER_MAP[ref] || ref;
+    if (UUID_RE.test(candidate)) {
+      const { data } = await supabaseAdmin.from('master_grocery_catalog').select('id').eq('id', candidate).maybeSingle();
+      if (data) return data.id;
+      return null;
+    }
+    const { data: byName } = await supabaseAdmin
+      .from('master_grocery_catalog')
+      .select('id, name')
+      .ilike('name', `%${String(ref).replace(/[%_]/g, '')}%`)
+      .limit(1);
+    return byName && byName[0] ? byName[0].id : null;
+  }
+
+  async getMerchantInventory(merchantId) {
+    const { supabaseAdmin, isLivePostgres } = require('./supabase');
+    if (isLivePostgres && supabaseAdmin) {
+      const { data, error } = await supabaseAdmin
+        .from('merchant_grocery_inventory')
+        .select('id, product_id, store_price, stock_quantity, is_available, status, updated_at, master_grocery_catalog(name, category, subcategory, brand, standard_unit, pack_size, pricing_model, standard_image_url)')
+        .eq('merchant_id', merchantId)
+        .order('updated_at', { ascending: false });
+      if (error) throw new Error(`Inventory read failed: ${error.message}`);
+      return (data || []).map((row) => {
+        const catalog = row.master_grocery_catalog || {};
+        return {
+          id: row.id,
+          inventoryId: row.id,
+          merchantId,
+          masterProductId: row.product_id,
+          currentPrice: Number(row.store_price),
+          stockQty: row.stock_quantity,
+          isAvailable: row.is_available,
+          status: row.status,
+          updatedAt: row.updated_at,
+          masterName: catalog.name || 'Master Product',
+          category: catalog.category || 'Grocery',
+          brand: catalog.brand || 'NABIN Select',
+          imageUrl: catalog.standard_image_url || '',
+          unit: catalog.standard_unit || 'pack',
+          packSize: catalog.pack_size || '1 unit',
+          pricingModel: catalog.pricing_model || 'FIXED_PRICE'
+        };
+      });
+    }
+
     const items = merchantId ? this.merchantInventory.filter(inv => inv.merchantId === merchantId) : this.merchantInventory;
     return items.map(inv => {
       const master = this.masterProducts.find(mp => mp.id === inv.masterProductId) || {};
@@ -4226,7 +4286,67 @@ class NabinDatabase {
     });
   }
 
-  updateMerchantInventoryItem({ merchantId, masterProductId, currentPrice, mrp, stockQty, isAvailable }) {
+  async updateMerchantInventoryItem({ merchantId, masterProductId, currentPrice, mrp, stockQty, isAvailable }) {
+    const { supabaseAdmin, isLivePostgres } = require('./supabase');
+    if (isLivePostgres && supabaseAdmin) {
+      const productId = await this.resolveMasterProductId(masterProductId);
+      if (!productId) {
+        throw new Error('That product is not in the NABIN master grocery catalogue.');
+      }
+
+      const { data: existing } = await supabaseAdmin
+        .from('merchant_grocery_inventory')
+        .select('id, store_price')
+        .eq('merchant_id', merchantId)
+        .eq('product_id', productId)
+        .maybeSingle();
+
+      const patch = { updated_at: new Date().toISOString() };
+      if (currentPrice !== undefined) patch.store_price = parseFloat(currentPrice);
+      if (stockQty !== undefined) patch.stock_quantity = parseInt(stockQty);
+      if (isAvailable !== undefined) patch.is_available = Boolean(isAvailable);
+
+      const nextPrice = patch.store_price ?? (existing ? Number(existing.store_price) : 0);
+      const nextStock = patch.stock_quantity ?? (existing ? existing.stock_quantity : 0);
+      const nextAvailable = patch.is_available ?? (existing ? existing.is_available : true);
+      if (patch.is_available === false) {
+        patch.status = 'INACTIVE';
+      } else if (nextStock <= 0) {
+        patch.status = 'OUT_OF_STOCK';
+      } else {
+        patch.status = nextStock <= 20 ? 'LOW_STOCK' : 'AVAILABLE';
+      }
+
+      const { data: row, error } = await supabaseAdmin
+        .from('merchant_grocery_inventory')
+        .upsert(
+          { merchant_id: merchantId, product_id: productId, store_price: nextPrice, stock_quantity: nextStock, is_available: nextAvailable, ...patch },
+          { onConflict: 'merchant_id,product_id' }
+        )
+        .select('id, product_id, store_price, stock_quantity, is_available, status, updated_at')
+        .single();
+      if (error) throw new Error(`Inventory write failed: ${error.message}`);
+
+      const previousPrice = existing ? Number(existing.store_price) : null;
+      if (currentPrice !== undefined && previousPrice !== Number(nextPrice)) {
+        const { data: catalogRow } = await supabaseAdmin
+          .from('master_grocery_catalog').select('standard_unit').eq('id', productId).maybeSingle();
+        await supabaseAdmin.from('grocery_price_history').insert({
+          merchant_id: merchantId,
+          product_id: productId,
+          previous_price: previousPrice ?? nextPrice,
+          new_price: nextPrice,
+          unit: catalogRow?.standard_unit || 'pack',
+          changed_by: `merchant:${merchantId}`,
+          reason: 'Merchant price change'
+        });
+      }
+
+      return this.getMerchantInventory(merchantId).then(list =>
+        list.find(item => item.inventoryId === row.id) || row
+      );
+    }
+
     let inv = this.merchantInventory.find(i => i.merchantId === merchantId && i.masterProductId === masterProductId);
     if (!inv) {
       inv = {
@@ -5013,7 +5133,27 @@ class NabinDatabase {
         }
       }
     } else if (role === 'MERCHANT') {
-      entity = this.restaurants[0];
+      entity = this.restaurants.find(r => this.normalizePhone(r.phone) === normPhone);
+      if (isLivePostgres && supabaseAdmin) {
+        const { data: merchantRows } = await supabaseAdmin
+          .from('merchants')
+          .select('*')
+          .eq('phone', normPhone)
+          .order('created_at', { ascending: true })
+          .limit(1);
+        if (merchantRows && merchantRows[0]) {
+          // The PostgreSQL row is authoritative: the session must carry this store's own
+          // uuid, otherwise every tenant guard and order broadcast resolves to the seeded
+          // `rest_1` restaurant and merchants can read each other's orders.
+          entity = { ...entity, ...merchantRows[0] };
+        }
+      }
+      if (!entity) {
+        if (process.env.NODE_ENV === 'production') {
+          throw new Error('No merchant account is registered for this number.');
+        }
+        entity = this.restaurants[0];
+      }
     } else if (role === 'ADMIN' || role === 'SUPER_ADMIN') {
       entity = this.adminUsers[0];
     }
@@ -5031,7 +5171,9 @@ class NabinDatabase {
       createdAt: new Date().toISOString(),
       expiresAt: new Date(Date.now() + 30 * 86400000).toISOString()
     };
-    this.activeSessions.set(token, sessionObj);
+    await this.registerSession(sessionObj);
+
+
 
     this.createAuditLog({
       adminId: entity?.id || 'SYSTEM_AUTH',
@@ -5058,19 +5200,189 @@ class NabinDatabase {
   getSessionByToken(token) {
     if (!token) return null;
     const clean = token.replace(/^Bearer\s+/, '').trim();
-    const session = this.activeSessions.get(clean) || null;
-    if (!session) return null;
-    if (session.expiresAt && Date.parse(session.expiresAt) <= Date.now()) {
+    // Sessions are keyed by token hash, so a token issued by any instance (or before
+    // a restart) resolves through the same lookup. The plaintext fallback keeps the
+    // hard-coded development fixtures working.
+    const key = this.hashSessionToken(clean);
+    const found = this.activeSessions.get(key) || this.activeSessions.get(clean);
+    if (!found) return null;
+    if (found.expiresAt && Date.parse(found.expiresAt) <= Date.now()) {
+      this.activeSessions.delete(key);
       this.activeSessions.delete(clean);
       return null;
     }
-    return session;
+    return found;
   }
 
   invalidateSession(token) {
     if (!token) return false;
     const clean = token.replace(/^Bearer\s+/, '').trim();
-    return this.activeSessions.delete(clean);
+    this.forgetSession(clean);
+    const removed = this.activeSessions.delete(this.hashSessionToken(clean));
+    this.activeSessions.delete(clean);
+    return removed;
+  }
+
+  // --- Durable session store -------------------------------------------------
+  // Bearer tokens are stored in PostgreSQL as SHA-256 hashes so a restart keeps users
+  // signed in and a second instance can authorise the same traffic. The Map stays the
+  // hot path (getSessionByToken is synchronous and called from every guarded route);
+  // hydrateSessions() loads it at boot and reconcileSessions() converges it with the
+  // database, which is how logouts and revocations propagate between instances.
+
+  hashSessionToken(token) {
+    return crypto.createHash('sha256').update(String(token)).digest('hex');
+  }
+
+  liveStore() {
+    const { isLivePostgres, supabaseAdmin } = require('./supabase');
+    return isLivePostgres && supabaseAdmin ? supabaseAdmin : null;
+  }
+
+  registerSession(sessionObj) {
+    this.activeSessions.set(this.hashSessionToken(sessionObj.token), sessionObj);
+    return this.persistSession(sessionObj);
+  }
+
+  async persistSession(sessionObj) {
+    const store = this.liveStore();
+    if (!store || !sessionObj?.token) return;
+    const { error } = await store.from('backend_sessions').upsert({
+      token_hash: this.hashSessionToken(sessionObj.token),
+      role: sessionObj.role,
+      entity_id: String(sessionObj.entityId ?? 'anon'),
+      phone: sessionObj.phone || null,
+      entity: sessionObj.entity ?? null,
+      expires_at: sessionObj.expiresAt
+    }, { onConflict: 'token_hash' });
+    if (error) {
+      console.error('⚠️ Could not persist session:', error.message);
+      if (process.env.NODE_ENV === 'production') {
+        throw new Error('Session could not be persisted to PostgreSQL.');
+      }
+    }
+  }
+
+  async forgetSession(token) {
+    const store = this.liveStore();
+    if (!store) return;
+    const { error } = await store
+      .from('backend_sessions')
+      .delete()
+      .eq('token_hash', this.hashSessionToken(token));
+    if (error) console.error('⚠️ Could not revoke session:', error.message);
+  }
+
+  async hydrateSessions() {
+    const store = this.liveStore();
+    if (!store) return 0;
+    const { data, error } = await store
+      .from('backend_sessions')
+      .select('token_hash, role, entity_id, phone, entity, created_at, expires_at')
+      .gt('expires_at', new Date().toISOString());
+    if (error) {
+      console.error('⚠️ Could not load persisted sessions:', error.message);
+      return 0;
+    }
+    for (const row of data || []) this.restoreSession(row);
+    console.log(`🔑 Restored ${(data || []).length} authentication session(s) from PostgreSQL`);
+    return (data || []).length;
+  }
+
+  restoreSession(row) {
+    this.activeSessions.set(row.token_hash, {
+      // The plaintext token is never stored, so restored entries carry the hash as
+      // their handle. Authorization only compares hashes, which both forms satisfy.
+      token: row.token_hash,
+      role: row.role,
+      entityId: row.entity_id,
+      phone: row.phone,
+      entity: row.entity,
+      createdAt: row.created_at,
+      expiresAt: row.expires_at
+    });
+  }
+
+  async reconcileSessions() {
+    const store = this.liveStore();
+    if (!store) return;
+    const nowIso = new Date().toISOString();
+
+    const { error: pruneError } = await store.from('backend_sessions').delete().lte('expires_at', nowIso);
+    if (pruneError) console.error('⚠️ Session prune failed:', pruneError.message);
+
+    const { data, error } = await store
+      .from('backend_sessions')
+      .select('token_hash, role, entity_id, phone, entity, created_at, expires_at')
+      .gt('expires_at', nowIso);
+    if (error) {
+      console.error('⚠️ Session reconcile skipped:', error.message);
+      return;
+    }
+
+    const live = new Set((data || []).map((row) => row.token_hash));
+    for (const [key, session] of Array.from(this.activeSessions.entries())) {
+      if (session.expiresAt && Date.parse(session.expiresAt) <= Date.now()) {
+        this.activeSessions.delete(key);
+        continue;
+      }
+      const isDevFixture = /^(usr|drv|mcht)_session_/.test(key);
+      if (isDevFixture || /^[0-9a-f]{64}$/.test(key)) continue;
+      // Keyed by plaintext token => issued by this instance after boot.
+      if (!live.has(this.hashSessionToken(key))) this.activeSessions.delete(key);
+    }
+
+    for (const row of data || []) {
+      if (!this.activeSessions.has(row.token_hash)) this.restoreSession(row);
+    }
+  }
+
+  // --- Durable platform service controls ------------------------------------
+  // The emergency killswitch used to live only in this process, so a backend restart
+  // quietly reported OPERATIONAL while operators believed services were suspended.
+  // State is mirrored into platform_settings and re-applied at boot.
+
+  async persistServiceState() {
+    const store = this.liveStore();
+    if (!store) return;
+    const { error } = await store.from('platform_settings').upsert({
+      setting_key: 'PLATFORM_SERVICE_STATE',
+      setting_value: {
+        services: this.platformServices,
+        pauseHistory: this.servicePauseHistory.slice(-100)
+      },
+      updated_by: 'BACKEND',
+      updated_at: new Date().toISOString()
+    }, { onConflict: 'setting_key' });
+    if (error) console.error('⚠️ Could not persist platform service state:', error.message);
+  }
+
+  async restoreServiceState() {
+    const store = this.liveStore();
+    if (!store) return false;
+    const { data, error } = await store
+      .from('platform_settings')
+      .select('setting_value')
+      .eq('setting_key', 'PLATFORM_SERVICE_STATE')
+      .maybeSingle();
+    if (error) {
+      console.error('⚠️ Could not read platform service state:', error.message);
+      return false;
+    }
+    const snapshot = data?.setting_value;
+    if (!snapshot?.services) return false;
+
+    for (const [id, saved] of Object.entries(snapshot.services)) {
+      const target = this.platformServices[id];
+      // Merge onto the seeded object so a service added in code keeps its defaults.
+      if (target) Object.assign(target, saved);
+    }
+    if (Array.isArray(snapshot.pauseHistory) && snapshot.pauseHistory.length) {
+      this.servicePauseHistory = snapshot.pauseHistory;
+    }
+    const status = this.getServicesStatus();
+    console.log(`🛠 Restored platform service state from PostgreSQL: ${status.summary.platformStatus}`);
+    return true;
   }
 
   // Authoritative OTP Verification for Job Lifecycle Progression (Rides, Parcels, Food, Grocery)

@@ -1,0 +1,35 @@
+# Build context is the repository root (see dockerContext in render.yaml). Everything
+# listed here stays out of the context; the backend image only needs backend/src,
+# backend/scripts and supabase/migrations.
+.git
+.github
+mobile
+admin-web
+customer-web
+restaurant-merchant-web
+grocery-merchant-web
+docs
+scratch
+scripts
+node_modules
+**/node_modules
+**/.next
+**/.turbo
+**/.dart_tool
+**/build
+coverage
+**/coverage
+**/*.log
+**/.env
+**/.env.*
+!**/.env.example
+backend/data
+backend/test_suite.js
+backend/restart_test.js
+backend/smoke_test.js
+backend/phase*_*.js
+backend/*_test.js
+backend/apply_local_migration.js
+backend/verify_*.js
+mcp_out.txt
+**/.DS_Store

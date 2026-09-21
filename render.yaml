@@ -11,10 +11,10 @@ services:
     name: nabin-backend-prod
     runtime: docker
     dockerfilePath: ./backend/Dockerfile
-    dockerContext: ./backend
+    dockerContext: .
     region: singapore
     plan: starter
-    healthCheckPath: /api/health
+    healthCheckPath: /api/ready
     envVars:
       - key: NODE_ENV
         value: production
@@ -40,8 +40,10 @@ services:
         sync: false # Set in Render Dashboard
       - key: SUPABASE_ANON_KEY
         sync: false # Set in Render Dashboard
-      - key: REDIS_URL
-        sync: false # Set in Render Dashboard
+      - key: DATABASE_URL
+        sync: false # Postgres session-pooler string; scripts/migrate.js applies the schema on start
+      - key: SUPABASE_POSTGRES_LIVE
+        value: "true"
       - key: JWT_SECRET
         generateValue: true
       - key: WEBHOOK_SECRET
@@ -56,10 +58,10 @@ services:
     name: nabin-beta-api
     runtime: docker
     dockerfilePath: ./backend/Dockerfile
-    dockerContext: ./backend
+    dockerContext: .
     region: singapore
     plan: starter
-    healthCheckPath: /api/health
+    healthCheckPath: /api/ready
     envVars:
       - key: NODE_ENV
         value: production
@@ -85,8 +87,10 @@ services:
         sync: false
       - key: SUPABASE_ANON_KEY
         sync: false
-      - key: REDIS_URL
+      - key: DATABASE_URL
         sync: false
+      - key: SUPABASE_POSTGRES_LIVE
+        value: "true"
       - key: JWT_SECRET
         generateValue: true
       - key: WEBHOOK_SECRET

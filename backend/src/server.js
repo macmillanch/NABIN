@@ -132,11 +132,17 @@ process.on('uncaughtException', (error) => {
 // Environment-Specific Whitelisted CORS
 const allowedOrigins = [
   'http://localhost:3000',
+  'http://localhost:3001',
+  'http://localhost:3002',
+  'http://localhost:3003',
   'http://localhost:4000',
   'http://localhost:5000',
   'http://localhost:5173',
   'http://localhost:8080',
   'http://127.0.0.1:3000',
+  'http://127.0.0.1:3001',
+  'http://127.0.0.1:3002',
+  'http://127.0.0.1:3003',
   'http://127.0.0.1:4000',
   'http://127.0.0.1:5000',
   'http://127.0.0.1:5173',
@@ -208,25 +214,48 @@ app.get('/admin', (req, res) => {
 });
 
 // Health & Readiness Endpoints
-app.get('/api/health', (req, res) => {
+app.get('/api/health', async (req, res) => {
+  // Liveness only: the process answers even while PostgreSQL is unreachable, so
+  // orchestrators do not restart-loop during a database blip. Readiness is /api/ready.
+  const connection = await supabaseHelper.checkSupabaseConnection().catch((err) => ({
+    configured: supabaseHelper.isConfigured,
+    connected: false,
+    mode: 'POSTGRES_ERROR',
+    error: err.message
+  }));
   res.json({
     status: 'ONLINE',
     service: 'NABIN Unified Multi-App Backend',
     version: '1.1.0',
     environment: process.env.NODE_ENV || 'development',
     timestamp: new Date().toISOString(),
+    database: {
+      configured: connection.configured,
+      connected: connection.connected,
+      mode: connection.mode,
+      ...(connection.error ? { error: connection.error } : {})
+    },
     activeDrivers: db.drivers.filter(d => d.isOnline).length,
     activeJobs: db.jobs.filter(j => j.status !== 'COMPLETED').length,
     pendingIdentityVerifications: db.identityApplications.filter(a => a.status === 'IDENTITY_VERIFICATION_PENDING').length
   });
 });
 
-app.get('/api/ready', (req, res) => {
+app.get('/api/ready', async (req, res) => {
+  const connection = await supabaseHelper
+    .checkSupabaseConnection()
+    .catch((err) => ({ ready: false, connected: false, error: err.message }));
   const status = db.getServicesStatus();
-  const ready = status.summary.platformStatus !== 'EMERGENCY_LOCKDOWN';
+  const locked = status.summary.platformStatus === 'EMERGENCY_LOCKDOWN';
+  const ready = Boolean(connection.ready) && !locked;
   res.status(ready ? 200 : 503).json({
     ready,
     platformStatus: status.summary.platformStatus,
+    database: {
+      connected: connection.connected,
+      mode: connection.mode,
+      ...(connection.error ? { error: connection.error } : {})
+    },
     services: status.summary,
     timestamp: new Date().toISOString()
   });
@@ -786,7 +815,9 @@ app.get('/api/auth/me', (req, res) => {
     success: true,
     role: session.role,
     user: session.entity,
-    token: session.token,
+    // Echo the caller's own credential: restored sessions are keyed by token hash,
+    // so session.token is not something the client can present again.
+    token,
     expiresAt: session.expiresAt
   });
 });
@@ -811,7 +842,7 @@ app.post('/api/auth/refresh-token', (req, res) => {
   if (!session) {
     return res.status(401).json({ success: false, error: 'Session token invalid or expired.' });
   }
-  res.json({ success: true, valid: true, session });
+  res.json({ success: true, valid: true, session: { ...session, token } });
 });
 
 // -------------------------------------------------------------
@@ -825,7 +856,7 @@ app.get('/api/admin/services/status', authenticateAdmin, (req, res) => {
   res.json(db.getServicesStatus());
 });
 
-app.post('/api/admin/services/pause', authenticateAdmin, requirePermission('services.pause'), (req, res) => {
+app.post('/api/admin/services/pause', authenticateAdmin, requirePermission('services.pause'), async (req, res) => {
   try {
     const { serviceId, reason, durationMinutes, region, broadcastNotice } = req.body;
     if (!serviceId) {
@@ -839,6 +870,7 @@ app.post('/api/admin/services/pause', authenticateAdmin, requirePermission('serv
       broadcastNotice,
       adminUser: req.admin
     });
+    await db.persistServiceState();
 
     const statusObj = db.getServicesStatus();
     broadcastAll({
@@ -864,7 +896,7 @@ app.post('/api/admin/services/pause', authenticateAdmin, requirePermission('serv
   }
 });
 
-app.post('/api/admin/services/resume', authenticateAdmin, requirePermission('services.resume'), (req, res) => {
+app.post('/api/admin/services/resume', authenticateAdmin, requirePermission('services.resume'), async (req, res) => {
   try {
     const { serviceId, reason } = req.body;
     if (!serviceId) {
@@ -875,6 +907,7 @@ app.post('/api/admin/services/resume', authenticateAdmin, requirePermission('ser
       reason,
       adminUser: req.admin
     });
+    await db.persistServiceState();
 
     const statusObj = db.getServicesStatus();
     broadcastAll({
@@ -898,7 +931,7 @@ app.post('/api/admin/services/resume', authenticateAdmin, requirePermission('ser
   }
 });
 
-app.post('/api/admin/services/emergency-killswitch', authenticateAdmin, requirePermission('services.emergency_killswitch'), (req, res) => {
+app.post('/api/admin/services/emergency-killswitch', authenticateAdmin, requirePermission('services.emergency_killswitch'), async (req, res) => {
   try {
     const { activate, reason } = req.body;
     let result;
@@ -915,6 +948,7 @@ app.post('/api/admin/services/emergency-killswitch', authenticateAdmin, requireP
         adminUser: req.admin
       });
     }
+    await db.persistServiceState();
 
     const statusObj = db.getServicesStatus();
     broadcastAll({
@@ -1079,7 +1113,8 @@ app.post('/api/admin/login', async (req, res) => {
 
   console.log('[DEBUG] Login successful, creating session');
   const admin = authResult.admin;
-  const token = `adm_token_${Date.now()}_${Math.random().toString(36).substring(2, 18)}`;
+  // Bearer credential: must come from a CSPRNG, not Date.now()+Math.random().
+  const token = `adm_token_${require('crypto').randomBytes(32).toString('base64url')}`;
   const session = {
     token,
     role: admin.role,
@@ -1091,7 +1126,7 @@ app.post('/api/admin/login', async (req, res) => {
 
   console.log('[DEBUG] Setting session');
   activeAdminSessions.set(token, admin);
-  db.activeSessions.set(token, session);
+  await db.registerSession(session);
 
   console.log('[DEBUG] Creating audit log');
   try {
@@ -1710,7 +1745,16 @@ app.get('/api/advertisements', (req, res) => {
   // Record impressions
   ads.forEach(ad => db.recordAdImpression(ad.id));
 
-  res.json({ success: true, count: ads.length, advertisements: ads });
+  // Campaigns live in the in-memory store: the `advertising_campaigns` table is
+  // migrated but unused, so impressions/clicks reset on restart and admin
+  // campaign writes are not durable. `persisted: false` says so explicitly.
+  res.json({
+    success: true,
+    count: ads.length,
+    advertisements: ads,
+    dataSource: 'in_memory',
+    persisted: false
+  });
 });
 
 app.post('/api/advertisements/:id/click', (req, res) => {
@@ -3788,10 +3832,109 @@ app.get('/docs/:filename', (req, res) => {
 // DYNAMIC GROCERY PRICING & REVALIDATION REST APIS
 // -------------------------------------------------------------
 
-// Get Products Catalog (Customer & Merchant view)
-app.get('/api/grocery/products', (req, res) => {
-  const products = db.getGroceryProducts(req.query);
-  res.json({ success: true, count: products.length, products });
+// Customer-facing grocery shelf. PostgreSQL is authoritative here: the legacy
+// fixtures all belong to `mcht_darkstore_1`, which `/grocery/checkout/validate`
+// rejects with DARK_STORE_NOT_SUPPORTED, so a fixture-backed shelf lists items
+// that can never be ordered. Each row carries the `merchant_grocery_inventory`
+// id, which is the id checkout resolves.
+const GROCERY_TYPES = ['GROCERY', 'HYBRID_BOTH'];
+
+// Seed rows point at `example.com`, which renders as a broken image. A product
+// with no real artwork is honest; one with a dead URL is a bug.
+const PLACEHOLDER_IMAGE_HOSTS = ['example.com', 'www.example.com', 'via.placeholder.com', 'placehold.co'];
+const realImageUrl = (value) => {
+  const raw = (value === null || value === undefined) ? '' : String(value).trim();
+  if (!raw) return null;
+  try {
+    return PLACEHOLDER_IMAGE_HOSTS.includes(new URL(raw).hostname.toLowerCase()) ? null : raw;
+  } catch {
+    return null;
+  }
+};
+
+const projectGroceryInventoryForCustomer = (row) => {
+  const catalog = row.master_grocery_catalog || {};
+  const store = row.merchants || {};
+  return {
+    id: row.id,
+    inventoryId: row.id,
+    masterProductId: catalog.id ?? row.product_id ?? null,
+    name: catalog.name ?? 'Grocery item',
+    brand: catalog.brand ?? null,
+    category: catalog.category ?? null,
+    subcategory: catalog.subcategory ?? null,
+    unit: catalog.standard_unit ?? null,
+    packSize: catalog.pack_size ?? null,
+    description: catalog.description ?? null,
+    currentPrice: Number(row.store_price ?? 0),
+    // PostgreSQL stores no maximum retail price, so none is invented here.
+    mrp: null,
+    previousPrice: null,
+    stockQty: Number(row.stock_quantity ?? 0),
+    isAvailable: row.is_available === true,
+    status: row.status ?? null,
+    pricingType: catalog.pricing_model ?? null,
+    imageUrl: realImageUrl(catalog.standard_image_url),
+    merchantId: row.merchant_id,
+    merchantName: store.name ?? null,
+    merchantIsOpen: store.is_open === true,
+    lastPriceUpdate: row.updated_at ?? null
+  };
+};
+
+// Get Products Catalog (Customer & merchant view)
+app.get('/api/grocery/products', async (req, res) => {
+  const category = (req.query.category || '').toString().trim();
+  const search = (req.query.search || '').toString().trim();
+  const { supabaseAdmin, isLivePostgres } = require('./supabase');
+
+  if (!isLivePostgres || !supabaseAdmin) {
+    const products = db.getGroceryProducts(req.query);
+    return res.json({ success: true, count: products.length, products, dataSource: 'fixture', degraded: true });
+  }
+
+  try {
+    const { data: stores, error: storeError } = await supabaseAdmin
+      .from('merchants')
+      .select('id, name')
+      .in('merchant_type', GROCERY_TYPES)
+      .order('name', { ascending: true });
+    if (storeError) return res.status(400).json({ success: false, error: storeError.message });
+
+    let storeIds = (stores || []).map((s) => s.id);
+    if (req.query.merchantId) {
+      storeIds = storeIds.filter((id) => id === req.query.merchantId.toString().trim());
+    }
+    if (!storeIds.length) {
+      return res.json({ success: true, count: 0, products: [], categories: [], dataSource: 'postgres' });
+    }
+
+    let query = supabaseAdmin
+      .from('merchant_grocery_inventory')
+      .select('id, product_id, merchant_id, store_price, stock_quantity, is_available, status, updated_at, master_grocery_catalog(id, name, category, subcategory, brand, standard_unit, pack_size, standard_image_url, description, pricing_model), merchants(id, name, is_open)')
+      .in('merchant_id', storeIds);
+    if (category && category !== 'All') query = query.eq('master_grocery_catalog.category', category);
+
+    const { data, error } = await query.order('store_price', { ascending: true });
+    if (error) return res.status(400).json({ success: false, error: error.message });
+
+    let products = (data || []).map(projectGroceryInventoryForCustomer);
+    if (search) {
+      const needle = search.toLowerCase();
+      products = products.filter((p) => [p.name, p.brand, p.category, p.subcategory]
+        .some((field) => (field || '').toString().toLowerCase().includes(needle)));
+    }
+
+    res.json({
+      success: true,
+      count: products.length,
+      categories: [...new Set(products.map((p) => p.category).filter(Boolean))].sort(),
+      products,
+      dataSource: 'postgres'
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 // Get Specific Product Price History Audit Trail
@@ -3817,6 +3960,163 @@ app.put('/api/grocery/products/:id/price', authenticateMerchant, requireMerchant
   } catch (err) {
     res.status(400).json({ success: false, error: err.message });
   }
+});
+
+// -------------------------------------------------------------
+// CUSTOMER DISCOVERY READ APIS (restaurant browsing + menus)
+// Customer clients previously had no public read path for restaurants, so the
+// browse screens rendered hard-coded arrays. These project the PostgreSQL
+// `merchants`/`products` tables and expose no customer PII or merchant phone.
+// -------------------------------------------------------------
+
+const RESTAURANT_TYPES = ['RESTAURANT', 'HYBRID_BOTH'];
+
+// A `%` or `_` typed into the search box would otherwise act as a wildcard.
+const likePattern = (value) => `%${String(value).replace(/[%,_]/g, ' ').trim()}%`;
+
+// Accepts both PostgreSQL (snake_case) rows and legacy fixture (camelCase) rows so
+// the degraded path cannot diverge from the live one. `phone` is never projected.
+const projectRestaurantForCustomer = (row) => {
+  const lat = row.lat ?? row.location?.lat;
+  const lng = row.lng ?? row.location?.lng;
+  return {
+    id: row.id,
+    name: row.name,
+    merchantType: row.merchant_type ?? row.merchantType ?? null,
+    address: row.address ?? null,
+    cuisines: row.cuisines ?? [],
+    rating: row.rating === null || row.rating === undefined ? null : Number(row.rating),
+    deliveryTime: row.deliveryTime ?? null,
+    isOpen: (row.is_open ?? row.isOpen) === true,
+    location: lat === undefined || lat === null || lng === undefined || lng === null
+      ? null
+      : { lat: Number(lat), lng: Number(lng) }
+  };
+};
+
+// `in_stock_quantity` of -1 means "not tracked", so it must not surface as 0.
+const projectMenuItemForCustomer = (item) => {
+  const price = Number(item.price ?? 0);
+  const discounted = item.discount_price === null || item.discount_price === undefined
+    ? null
+    : Number(item.discount_price);
+  const hasDiscount = discounted !== null && discounted > 0 && discounted < price;
+  const stock = item.in_stock_quantity ?? item.stockQty ?? null;
+  return {
+    id: item.id,
+    sku: item.sku ?? null,
+    name: item.name,
+    description: item.description ?? null,
+    category: item.category ?? null,
+    price,
+    sellingPrice: hasDiscount ? discounted : price,
+    mrp: hasDiscount ? price : null,
+    discountPercent: hasDiscount ? Math.round(((price - discounted) / price) * 100) : null,
+    isVeg: item.isVeg ?? null,
+    isAvailable: (item.is_available ?? item.inStock ?? true) === true,
+    stockQty: stock === null || Number(stock) < 0 ? null : Number(stock),
+    imageUrl: item.image_url ?? item.imageUrl ?? null
+  };
+};
+
+app.get('/api/restaurants', async (req, res) => {
+  const search = (req.query.search || '').toString().trim();
+  const openOnly = req.query.openNow === 'true' || req.query.openNow === '1';
+  const { supabaseAdmin, isLivePostgres } = require('./supabase');
+
+  if (!isLivePostgres || !supabaseAdmin) {
+    const fixtures = db.restaurants
+      .filter((r) => (openOnly ? r.isOpen === true : true))
+      .filter((r) => (search ? r.name.toLowerCase().includes(search.toLowerCase()) : true))
+      .map(projectRestaurantForCustomer);
+    return res.json({ success: true, count: fixtures.length, restaurants: fixtures, degraded: true });
+  }
+
+  try {
+    let query = supabaseAdmin
+      .from('merchants')
+      .select('id, name, merchant_type, address, lat, lng, is_open, rating')
+      .in('merchant_type', RESTAURANT_TYPES)
+      .order('rating', { ascending: false })
+      .order('name', { ascending: true });
+
+    if (openOnly) query = query.eq('is_open', true);
+    if (search) query = query.ilike('name', likePattern(search));
+
+    const { data, error } = await query;
+    if (error) return res.status(400).json({ success: false, error: error.message });
+
+    res.json({
+      success: true,
+      count: (data || []).length,
+      restaurants: (data || []).map(projectRestaurantForCustomer),
+      dataSource: 'postgres'
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.get('/api/restaurants/:id', async (req, res) => {
+  const { supabaseAdmin, isLivePostgres } = require('./supabase');
+  if (!isLivePostgres || !supabaseAdmin) {
+    const restaurant = db.restaurants.find((r) => r.id === req.params.id);
+    if (!restaurant) return res.status(404).json({ success: false, error: 'Restaurant not found.' });
+    return res.json({ success: true, restaurant: projectRestaurantForCustomer(restaurant), degraded: true });
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from('merchants')
+    .select('id, name, merchant_type, address, lat, lng, is_open, rating')
+    .eq('id', req.params.id)
+    .in('merchant_type', RESTAURANT_TYPES)
+    .maybeSingle();
+  if (error) return res.status(400).json({ success: false, error: error.message });
+  if (!data) return res.status(404).json({ success: false, error: 'Restaurant not found.' });
+
+  res.json({ success: true, restaurant: projectRestaurantForCustomer(data), dataSource: 'postgres' });
+});
+
+app.get('/api/restaurants/:id/menu', async (req, res) => {
+  const { supabaseAdmin, isLivePostgres } = require('./supabase');
+  const category = (req.query.category || '').toString().trim();
+
+  if (!isLivePostgres || !supabaseAdmin) {
+    const restaurant = db.restaurants.find((r) => r.id === req.params.id);
+    if (!restaurant) return res.status(404).json({ success: false, error: 'Restaurant not found.' });
+    let items = (restaurant.menu || []).map(projectMenuItemForCustomer);
+    if (category && category !== 'ALL') items = items.filter((i) => i.name.toLowerCase().includes(category.toLowerCase()));
+    return res.json({ success: true, restaurantId: restaurant.id, count: items.length, items, degraded: true });
+  }
+
+  const { data: merchant } = await supabaseAdmin
+    .from('merchants')
+    .select('id, merchant_type')
+    .eq('id', req.params.id)
+    .in('merchant_type', RESTAURANT_TYPES)
+    .maybeSingle();
+  if (!merchant) return res.status(404).json({ success: false, error: 'Restaurant not found.' });
+
+  let query = supabaseAdmin
+    .from('products')
+    .select('id, sku, name, description, category, price, discount_price, is_available, in_stock_quantity, image_url')
+    .eq('merchant_id', merchant.id)
+    .order('category', { ascending: true })
+    .order('name', { ascending: true });
+  if (category && category !== 'ALL') query = query.eq('category', category);
+
+  const { data, error } = await query;
+  if (error) return res.status(400).json({ success: false, error: error.message });
+
+  const items = (data || []).map(projectMenuItemForCustomer);
+  res.json({
+    success: true,
+    restaurantId: merchant.id,
+    count: items.length,
+    categories: [...new Set(items.map((item) => item.category).filter(Boolean))],
+    items,
+    dataSource: 'postgres'
+  });
 });
 
 // --- ADMIN MASTER CATALOG ENDPOINTS ---
@@ -3865,16 +4165,66 @@ app.get('/api/admin/master-catalog/:id/stores', authenticateAdmin, (req, res) =>
 });
 
 // --- MERCHANT STORE INVENTORY ENDPOINTS ---
-app.get('/api/merchant/inventory', authenticateMerchant, requireMerchantTenant, (req, res) => {
-  const merchantId = req.merchant.id;
-  const inventory = db.getMerchantInventory(merchantId);
-  res.json({ success: true, merchantId, count: inventory.length, inventory });
+app.get('/api/merchant/inventory', authenticateMerchant, requireMerchantTenant, async (req, res) => {
+  try {
+    const merchantId = req.merchant.id;
+    const inventory = await db.getMerchantInventory(merchantId);
+    res.json({ success: true, merchantId, count: inventory.length, inventory });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
 });
 
-app.post('/api/merchant/inventory', authenticateMerchant, requireMerchantTenant, (req, res) => {
+app.post('/api/merchant/inventory', authenticateMerchant, requireMerchantTenant, async (req, res) => {
   try {
-    const item = db.updateMerchantInventoryItem({ ...req.body, merchantId: req.merchant.id });
+    const item = await db.updateMerchantInventoryItem({ ...req.body, merchantId: req.merchant.id });
     res.json({ success: true, item });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// --- MERCHANT CATALOGUE READS (PostgreSQL authoritative) ---
+// The legacy in-memory menu is a different store from the `products` table that the
+// order path resolves against, so merchant clients read the real catalogue here.
+app.get('/api/merchant/catalog', authenticateMerchant, requireMerchantTenant, async (req, res) => {
+  try {
+    const merchant = await db.orderRepo.resolveMerchant(req.merchant.id);
+    if (!merchant) {
+      return res.status(401).json({ success: false, error: 'Merchant profile not found', requestId: req.id });
+    }
+    const { supabaseAdmin, isLivePostgres } = require('./supabase');
+    if (!isLivePostgres || !supabaseAdmin) {
+      return res.json({ success: true, merchantId: merchant.id, count: 0, products: [], degraded: true });
+    }
+    const { data, error } = await supabaseAdmin
+      .from('products')
+      .select('id, sku, name, description, category, price, discount_price, is_available, in_stock_quantity, image_url, updated_at')
+      .eq('merchant_id', merchant.id)
+      .order('category', { ascending: true })
+      .order('name', { ascending: true });
+    if (error) return res.status(400).json({ success: false, error: error.message });
+    res.json({ success: true, merchantId: merchant.id, count: (data || []).length, products: data || [] });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// Master grocery catalogue the merchant may stock in their store.
+app.get('/api/merchant/master-catalog', authenticateMerchant, requireMerchantTenant, async (req, res) => {
+  try {
+    const { supabaseAdmin, isLivePostgres } = require('./supabase');
+    if (!isLivePostgres || !supabaseAdmin) {
+      return res.json({ success: true, count: db.masterProducts.length, products: db.masterProducts, degraded: true });
+    }
+    const { data, error } = await supabaseAdmin
+      .from('master_grocery_catalog')
+      .select('id, name, category, subcategory, brand, standard_unit, pack_size, pricing_model, standard_image_url')
+      .eq('is_active', true)
+      .order('category', { ascending: true })
+      .order('name', { ascending: true });
+    if (error) return res.status(400).json({ success: false, error: error.message });
+    res.json({ success: true, count: (data || []).length, products: data || [] });
   } catch (err) {
     res.status(400).json({ success: false, error: err.message });
   }
@@ -3894,10 +4244,90 @@ app.post('/api/grocery/products/bulk-price-update', authenticateMerchant, requir
 });
 
 // Server-Side Cart Price Revalidation (Customer App & Cart)
-app.post('/api/grocery/cart/revalidate', authenticateUser, (req, res) => {
-  const { cartItems } = req.body;
-  const reval = db.revalidateCart(cartItems || []);
-  res.json({ success: true, ...reval });
+app.post('/api/grocery/cart/revalidate', authenticateUser, async (req, res) => {
+  const cartItems = req.body.cartItems || [];
+  const { supabaseAdmin, isLivePostgres } = require('./supabase');
+
+  if (!isLivePostgres || !supabaseAdmin) {
+    const reval = db.revalidateCart(cartItems);
+    return res.json({ success: true, ...reval, dataSource: 'fixture', degraded: true });
+  }
+
+  try {
+    const requestedIds = [...new Set(cartItems
+      .map((item) => (item.productId || item.id || '').toString().trim())
+      .filter((id) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)))];
+
+    const inventoryById = new Map();
+    if (requestedIds.length) {
+      const { data, error } = await supabaseAdmin
+        .from('merchant_grocery_inventory')
+        .select('id, product_id, merchant_id, store_price, stock_quantity, is_available, status, master_grocery_catalog(id, name, standard_unit, pricing_model)')
+        .or(`id.in.(${requestedIds.join(',')}),product_id.in.(${requestedIds.join(',')})`);
+      if (error) return res.status(400).json({ success: false, error: error.message });
+      for (const row of data || []) {
+        inventoryById.set(row.id, row);
+        if (row.product_id && !inventoryById.has(row.product_id)) inventoryById.set(row.product_id, row);
+      }
+    }
+
+    let priceChanged = false;
+    const items = cartItems.map((item) => {
+      const sentId = (item.productId || item.id || '').toString().trim();
+      const row = inventoryById.get(sentId);
+      const catalog = row?.master_grocery_catalog || {};
+      const quantity = Number(item.quantity || item.requestedQtyKg || 1);
+
+      if (!row || row.is_available !== true || Number(row.stock_quantity) <= 0) {
+        priceChanged = true;
+        return {
+          productId: sentId,
+          available: false,
+          priceChanged: true,
+          quantity,
+          statusMessage: row ? 'Out of stock at this store' : 'Item is no longer stocked by any NABIN grocery store'
+        };
+      }
+
+      const serverPrice = Number(row.store_price);
+      const clientPrice = parseFloat(item.unitPrice ?? item.serverPrice ?? item.price);
+      const differs = Number.isFinite(clientPrice) && Math.abs(clientPrice - serverPrice) > 0.01;
+      if (differs) priceChanged = true;
+
+      return {
+        productId: sentId,
+        inventoryId: row.id,
+        merchantId: row.merchant_id,
+        productName: catalog.name ?? 'Grocery item',
+        unit: catalog.standard_unit ?? null,
+        pricingType: catalog.pricing_model ?? null,
+        isWeightBased: catalog.pricing_model === 'WEIGHT_BASED_PRICE',
+        clientPrice: Number.isFinite(clientPrice) ? clientPrice : serverPrice,
+        serverPrice,
+        priceChanged: differs,
+        quantity,
+        requestedQtyKg: Number(item.requestedQtyKg || quantity),
+        estimatedTotal: Math.round(serverPrice * quantity * 100) / 100,
+        stockQty: Number(row.stock_quantity),
+        mrp: null,
+        available: true
+      };
+    });
+
+    const merchantIds = [...new Set(items.map((i) => i.merchantId).filter(Boolean))];
+    res.json({
+      success: true,
+      priceChanged,
+      status: priceChanged ? 'PRICE_CHANGED' : 'VALIDATED',
+      merchantIds,
+      // Checkout is per-store, so a basket spanning two merchants cannot be placed.
+      singleMerchant: merchantIds.length <= 1,
+      items,
+      dataSource: 'postgres'
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 // Authoritative Checkout Validation & Order Generation (PostgreSQL-Authoritative)
@@ -5761,6 +6191,15 @@ const PORT = process.env.PORT || 4000;
   } catch (e) {
     console.warn('⚠️ PostgreSQL init error:', e.message);
   }
+
+  // Sessions are authoritative in PostgreSQL; hydrate so a restart does not sign
+  // users out, then converge periodically so revocations reach every instance.
+  await db.hydrateSessions().catch((e) => console.warn('⚠️ Session hydration failed:', e.message));
+  const sessionReconcileTimer = setInterval(() => {
+    db.reconcileSessions().catch((e) => console.warn('⚠️ Session reconcile failed:', e.message));
+  }, 15000);
+  sessionReconcileTimer.unref?.();
+
   server.listen(PORT, () => {
     console.log(`NABIN Unified Backend running on http://localhost:${PORT}`);
     console.log(`WebSocket Dispatch Server listening on ws://localhost:${PORT}`);
