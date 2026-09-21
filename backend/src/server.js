@@ -3929,8 +3929,12 @@ app.get('/api/grocery/products', async (req, res) => {
 
     let query = supabaseAdmin
       .from('merchant_grocery_inventory')
-      .select('id, product_id, merchant_id, store_price, stock_quantity, is_available, status, updated_at, master_grocery_catalog(id, name, category, subcategory, brand, standard_unit, pack_size, standard_image_url, description, pricing_model), merchants(id, name, is_open)')
-      .in('merchant_id', storeIds);
+      .select('id, product_id, merchant_id, store_price, stock_quantity, is_available, status, updated_at, master_grocery_catalog!inner(id, name, category, subcategory, brand, standard_unit, pack_size, standard_image_url, description, pricing_model, is_active), merchants(id, name, is_open)')
+      .in('merchant_id', storeIds)
+      // A master product the platform retires must stop being browsable everywhere at
+      // once; stores keep their own listing rows, which is what `is_active` is for.
+      // `!inner` above is what makes this drop the listing rather than null the embed.
+      .eq('master_grocery_catalog.is_active', true);
     if (category && category !== 'All') query = query.eq('master_grocery_catalog.category', category);
 
     const { data, error } = await query.order('store_price', { ascending: true });
