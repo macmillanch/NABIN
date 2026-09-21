@@ -20,6 +20,7 @@ class _GroceryMerchantDashboardState extends ConsumerState<GroceryMerchantDashbo
   Map<String, dynamic>? _dashboardData;
   String? _errorMessage;
   Timer? _refreshTimer;
+  int _unreadNotifications = 0;
 
   /// The dashboard payload spans every service the store runs, and this is the
   /// grocery console, so its figures come from GROCERY lines only — the same
@@ -70,8 +71,17 @@ class _GroceryMerchantDashboardState extends ConsumerState<GroceryMerchantDashbo
       final result = await NabinApiService.getMerchantDashboard(merchantId);
       
       if (result?['success'] == true) {
+        // The feed endpoint answers with the unread count, so the bell stays
+        // honest without a second round trip when there is nothing to read.
+        final feed = await NabinApiService.getNotifications(limit: 1, unreadOnly: true);
+        int unread = 0;
+        if (feed != null && feed['success'] == true) {
+          unread = (feed['unreadCount'] as num?)?.toInt() ?? 0;
+        }
+        if (!mounted) return;
         setState(() {
           _dashboardData = result;
+          _unreadNotifications = unread;
           _isLoading = false;
         });
       } else {
@@ -135,6 +145,16 @@ class _GroceryMerchantDashboardState extends ConsumerState<GroceryMerchantDashbo
           ),
         ),
         actions: [
+          IconButton(
+            icon: Badge(
+              isLabelVisible: _unreadNotifications > 0,
+              label: Text('$_unreadNotifications'),
+              backgroundColor: GroceryMerchantTheme.accentRose,
+              child: const Icon(Icons.notifications_none, color: Colors.white),
+            ),
+            tooltip: 'Notifications',
+            onPressed: () => Navigator.of(context).pushNamed('/notifications'),
+          ),
           IconButton(
             icon: const Icon(Icons.refresh, color: Colors.white),
             onPressed: _refreshData,

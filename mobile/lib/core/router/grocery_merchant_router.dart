@@ -8,6 +8,7 @@ import '../../features/grocery_merchant/presentation/screens/grocery_merchant_or
 import '../../features/grocery_merchant/presentation/screens/grocery_merchant_inventory_screen.dart';
 import '../../features/grocery_merchant/presentation/screens/grocery_merchant_catalog_screen.dart';
 import '../../features/grocery_merchant/presentation/screens/grocery_merchant_price_management_screen.dart';
+import '../../features/grocery_merchant/presentation/screens/grocery_merchant_notifications_screen.dart';
 
 /// GoRouter exclusively for the NABIN Grocery Merchant App
 final GoRouter groceryMerchantRouter = GoRouter(
@@ -54,6 +55,10 @@ final GoRouter groceryMerchantRouter = GoRouter(
     GoRoute(
       path: '/price-management',
       builder: (context, state) => const GroceryMerchantPriceManagementScreen(),
+    ),
+    GoRoute(
+      path: '/notifications',
+      builder: (context, state) => const GroceryMerchantNotificationsScreen(),
     ),
   ],
 );

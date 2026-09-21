@@ -35,6 +35,7 @@ class NabinWsService {
   final _driverLocationController = StreamController<Map<String, dynamic>>.broadcast();
   final _tripUpdateController = StreamController<Map<String, dynamic>>.broadcast();
   final _merchantOrderController = StreamController<Map<String, dynamic>>.broadcast();
+  final _notificationController = StreamController<Map<String, dynamic>>.broadcast();
   final _authErrorController = StreamController<Map<String, dynamic>>.broadcast();
   final _authenticatedController = StreamController<Map<String, dynamic>>.broadcast();
 
@@ -42,6 +43,7 @@ class NabinWsService {
   Stream<Map<String, dynamic>> get onDriverLocation => _driverLocationController.stream;
   Stream<Map<String, dynamic>> get onTripUpdate => _tripUpdateController.stream;
   Stream<Map<String, dynamic>> get onMerchantOrder => _merchantOrderController.stream;
+  Stream<Map<String, dynamic>> get onNotification => _notificationController.stream;
   Stream<Map<String, dynamic>> get onAuthError => _authErrorController.stream;
   Stream<Map<String, dynamic>> get onAuthenticated => _authenticatedController.stream;
 
@@ -125,6 +127,11 @@ class NabinWsService {
         case 'NEW_FOOD_ORDER':
         case 'FOOD_ORDER_UPDATE':
           _merchantOrderController.add(msg);
+          break;
+        case 'NOTIFICATION':
+          // A persisted in-app notification pushed to whoever it is addressed to —
+          // for a MERCHANT socket that is the store's own `merchants.id`.
+          _notificationController.add(msg);
           break;
       }
     } catch (_) {}

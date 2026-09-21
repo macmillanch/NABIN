@@ -543,6 +543,57 @@ class NabinApiService {
   }
 
   // =========================================================================
+  // 7b. NOTIFICATIONS — the backend keys the feed to the bearer token's own
+  // identity, so a merchant session reads its store's notifications with no id
+  // passed in.
+  // =========================================================================
+
+  static Future<Map<String, dynamic>?> getNotifications({
+    int limit = 20,
+    int offset = 0,
+    bool unreadOnly = false,
+  }) async {
+    try {
+      final uri = Uri.parse('$effectiveUrl/notifications').replace(queryParameters: {
+        'limit': '$limit',
+        'offset': '$offset',
+        if (unreadOnly) 'unreadOnly': 'true',
+      });
+      final client = HttpClient();
+      final request = await client.getUrl(uri);
+      _attachAuthHeader(request);
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      return jsonDecode(body) as Map<String, dynamic>;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  static Future<Map<String, dynamic>?> markNotificationAsRead(String notificationId) async {
+    return _putJson('/notifications/${Uri.encodeComponent(notificationId)}/read', {});
+  }
+
+  static Future<Map<String, dynamic>?> markAllNotificationsAsRead() async {
+    return _putJson('/notifications/read-all', {});
+  }
+
+  static Future<Map<String, dynamic>?> _putJson(String path, Map<String, dynamic> payload) async {
+    try {
+      final client = HttpClient();
+      final request = await client.openUrl('PUT', Uri.parse('$effectiveUrl$path'));
+      request.headers.set('content-type', 'application/json');
+      _attachAuthHeader(request);
+      request.add(utf8.encode(jsonEncode(payload)));
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      return jsonDecode(body) as Map<String, dynamic>;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // =========================================================================
   // 8. ADMIN OPERATIONS APIS
   // =========================================================================
 
