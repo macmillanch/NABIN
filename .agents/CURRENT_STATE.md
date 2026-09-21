@@ -34,6 +34,34 @@
 > rendering the live feed (two real grocery-order notifications, `Unread • 1`, the
 > Unread filter returning only the unread row); `flutter analyze --no-pub` reports
 > 69 issues with 0 errors and 0 warnings, `flutter test` is 18/18.
+>
+> **Phase 1 of the server-driven architecture (2026-09-21, committed locally as
+> `904acd2` + this commit, not pushed):** grocery checkout coupons are now server-authoritative (discount
+> computed by the server, validity/caps/per-user/duplicate enforced through the
+> PostgreSQL RPCs, `checkouts.discount_amount` written), and `GET /api/app/config`
+> publishes a data-only config feed composed from `platform_settings`,
+> `promotions` and the service-state row with ETag/304, server-time authority and
+> an `APP_CONFIG_` publish namespace behind a reserved-key guard — no migration,
+> no new table. Advertisements remain in-memory and are reported as
+> `durable: false` by that feed: the frozen `advertisements` schema cannot express
+> priority/brand/bid-rate/slot semantics, so that item is blocked pending a
+> decision (see `TASKS.md`). `backend/chaos_audit.js` is new: a LOCAL-ONLY
+> resilience harness (CH-00..CH-11) with eight financial invariants (FI-00..FI-08).
+> Its headline finding is CRITICAL and unfixed by design in this phase:
+> `POST /api/driver/complete-trip` is not serialized, so 50 concurrent completions
+> of one ₹106 trip booked 98–100 settlement postings (~₹10,400) and credited the
+> driver wallet ~50× the entitlement while the job row stayed correct (the three
+> runs in the local books hold 98/98/100 postings at ₹10,388/₹10,388/₹10,600,
+> against exactly 2 postings / ₹298 for a healthy job). Regression state on a solo
+> clean run — fresh backend carrying the suite's test webhook secret, `GLOBAL`
+> surge reset to 1.0, broadcast window expired: `test_suite.js` 307 passed / 1
+> failed of 308 (the one being the pre-existing `gprod_5` data gap, which also
+> fails at `HEAD` where the file reported 269/11), `restart_test.js` 30/30,
+> `flutter test` 18/18, `flutter analyze --no-pub` 69 issues / 0 errors / 0
+> warnings. Post-chaos books reconcile: 1,996 journal headers, 0 unbalanced,
+> ₹270,069.00 both sides, 0 checkout/order arithmetic mismatches, 0 negative
+> wallets, 0 promotion limit violations.
+> Phase 2 and Phase 3 were not started; nothing was pushed.
 
 ---
 
@@ -41,10 +69,10 @@
 
 | Field | Value |
 |-------|-------|
-| **Current HEAD** | `c4eded7` (this §1 update lands on top of it as a docs commit) |
-| **origin/main** | `d1381dc` before this push; parity is restored by it |
-| **HEAD == origin/main** | After the push carrying this commit: YES |
-| **Working tree** | CLEAN of tracked modifications; untracked: `.kilo/agents/` + 11 junk root files |
+| **Current HEAD** | `904acd2` + this docs/audit commit |
+| **origin/main** | `c974fc9` |
+| **HEAD == origin/main** | NO — `main` is 2 commits **ahead locally and NOT pushed** |
+| **Working tree** | Clean of tracked modifications after this commit; untracked: `.kilo/agents/` + 11 junk root files |
 | **Branch** | main |
 
 ### Untracked files of record (re-verified 2026-09-21, `git status --porcelain`)
