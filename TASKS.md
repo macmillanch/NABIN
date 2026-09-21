@@ -1,9 +1,14 @@
 # NABIN — Task Tracker
 
 **Updated**: 2026-09-21
-**State**: `origin/main` = `c974fc9`; `main` is 2 commits ahead locally (**not pushed**):
-`904acd2` carries the Phase 1 backend work and this commit carries the chaos harness plus
-these notes. Earlier history: the 2026-09-20/21 work reached the remote by fast-forward
+**State**: `HEAD` = this docs commit, on top of `f759dd3` (advertisements →
+PostgreSQL), `46ab58a` (chaos harness) and `904acd2` (coupons + app config);
+`origin/main` = `c974fc9`, so `main` is **4 commits ahead locally and NOT pushed**.
+The approved **advertisements option (c)** work (new
+`backend/src/repositories/AdvertisementRepository.js` + `database.js`/`server.js`/
+`AppConfigService.js`/`test_suite.js`/`restart_test.js`) is committed in `f759dd3`;
+these three docs land in the commit after it.
+Earlier history: the 2026-09-20/21 work reached the remote by fast-forward
 `9b2804c..b13cdb3`, `55a1836` re-baselined `.agents/CURRENT_STATE.md`, and the same day's
 follow-ups (`1b128e7` un-stock + merchant notification backend, `239c134` mobile
 catalogue/un-stock, `9f0b4e9` + `d1381dc` docs, `dc11941` browse `is_active` fix, `c4eded7`
@@ -131,8 +136,10 @@ mobile notifications feed, `c974fc9` docs) landed on top of it.
 
 ## BACKLOG (ranked, each needs its own approval — gap report §13.4)
 
-1. Durable advertising: `advertising_campaigns` is migrated but unused;
-   `/api/advertisements` still serves non-persisted in-memory rows.
+1. ~~Durable advertising~~ — CLOSED 2026-09-21 (option (c), below). What remains open:
+   a priority / bid-rate / creative column set would need an approved migration, and the
+   client slot vocabulary (`GROCERY_HERO_CAROUSEL`, `FOOD_HOME_BANNER`, …) collapses onto
+   four real placements, so grocery and food share one `HOME_BANNER`.
 2. `grocery_price_history` read endpoint (data is written, never exposed).
 3. Merchant notifications: the feed screen and the `NOTIFICATION` socket case both shipped
    2026-09-21. Still open: push the badge live on the dashboard (it currently re-reads on the
@@ -217,20 +224,45 @@ festival code, no push, no deploy, no production or hosted-Supabase access.
       namespace and `FEATURE_*` / `PLATFORM_SERVICE_STATE` / `service_status` /
       `surge_multiplier` reserved so a generic writer cannot reach a killswitch.
       No new table, no migration.
-- [ ] **Phase 1 item 1 — advertisements: decision taken, in progress.** The frozen
-      `advertisements` table cannot express what the in-memory implementation and 4
-      existing `test_suite.js` assertions require: no priority / brand / bid-rate /
-      slot columns, a `placement` CHECK that rejects the client slot names, a UUID
-      primary key where the seeds use `ad_*`, and 0 rows in the table. **You chose
-      option (c) on 2026-09-21**: no migration, no creative metadata smuggled into
-      `platform_settings` — read and write the columns the schema actually has,
-      retarget the four assertions to its real semantics (dates / active flag /
-      placement enum), and seed honest NABIN-owned campaigns instead of the
-      fabricated third-party brand ads. Priority and slot then remain documented
-      limitations of the frozen shape rather than fake features.
-- [x] **New regression coverage**: `test_suite.js` grew from 280 to 308
-      assertions — MODULE 23b (CHK-01..CHK-14, coupons at checkout) and MODULE 31
-      (AC-01..AC-14, app config). No existing assertion was weakened or removed.
+- [x] **Phase 1 item 1 — advertisements are PostgreSQL-backed (option (c)).** No
+      migration and no metadata smuggled into `platform_settings`: the frozen 004
+      shape is read and written as it actually is
+      (`title, merchant_id, placement, image_url, target_url, status,
+      start_date, end_date, clicks, impressions`) through the new
+      `backend/src/repositories/AdvertisementRepository.js`. `GET /api/advertisements`,
+      `POST /api/advertisements/:id/click` and the admin campaign CRUD all answer
+      `dataSource: 'postgres', persisted: true`; the public feed filters on
+      `status = 'ACTIVE'` **and** the `start_date`/`end_date` window using the server
+      clock, orders by `start_date desc` and says so (`ordering`), and rejects an
+      unknown placement with `INVALID_PLACEMENT` plus the four supported values.
+      Client slot names that predate the schema (`GROCERY_HERO_CAROUSEL`,
+      `FOOD_HOME_BANNER`, `RIDE_HERO_BANNER`, `GROCERY_IN_FEED_BANNER`, …) resolve to
+      a real placement through a documented alias map and the response echoes both
+      (`placement` + `requestedSlot`). Writes that name a field the table cannot
+      store — `brand`, `tagline`, `service`, `ctaText`, `bgGradient`, `accentColor`,
+      `targetCategory`, `bidRateCpm`, `priority`, `industryCategory`, `sponsorBadge` —
+      fail with `ADVERTISEMENT_FIELD_UNSUPPORTED` and the list of offenders instead of
+      reporting a save that recorded nothing; the fabricated `adRevenueEstimate`
+      metric is gone and replaced by `monetization.available: false` with the reason.
+      The 12 invented third-party campaigns (Samsung, Netflix, PolicyBazaar, upGrad,
+      DLF, Sony, with fake 48k-impression counters) were deleted from the in-memory
+      fallback and replaced by four NABIN-owned house rows that only serve when
+      PostgreSQL is unreachable, labelled `dataSource: 'fixture', degraded: true,
+      persisted: false`. MODULE 8 was retargeted from 6 assertions to 12 (AD-01..AD-12,
+      self-seeding and self-cleaning), AC-14 now asserts the durable store, and
+      `restart_test.js` proves a campaign published before a cold restart is still
+      served afterwards (30 → 33 checks).
+      What option (c) does NOT give us, stated plainly: no priority ranking, no
+      per-service scoping, no brand/creative fields and no bid rate — those need an
+      approved migration, and until then the apps render campaigns from title,
+      placement and image only.
+- [x] **New regression coverage**: `test_suite.js` grew from 280 to 314 assertions —
+      MODULE 8 retargeted to the real `advertisements` shape (AD-01..AD-12), MODULE 23b
+      (CHK-01..CHK-14, coupons at checkout) and MODULE 31 (AC-01..AC-14, app config).
+      `restart_test.js` grew from 30 to 33 checks (campaign published, survives a cold
+      restart, cleaned up). No existing assertion was weakened or removed; MODULE 8's
+      six originals were rewritten to the schema's semantics under the approved
+      option (c), which is a deliberate change of target, not a relaxed bar.
 - [x] **`backend/chaos_audit.js`** — LOCAL-ONLY resilience harness. It refuses to
       run unless the configured database host is this machine, resolves every HTTP
       call without rejecting (so an induced outage cannot abort it), and reports

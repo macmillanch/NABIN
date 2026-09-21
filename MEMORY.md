@@ -1,11 +1,13 @@
 # NABIN — Session Memory
 
 **Updated**: 2026-09-21
-**Mode**: Phase 1 + chaos audit complete, verified locally and **committed locally, NOT
-pushed**. `origin/main` is still `c974fc9`, so `main` sits 2 commits ahead
-(`904acd2` backend: app config + server-authoritative coupons; then this docs +
-`backend/chaos_audit.js` commit). The earlier notes in this file about the
-2026-09-21 push (`9b2804c..a03a28c`) describe the previous round.
+**Mode**: Phase 1 complete (app config, server-authoritative coupons, advertisements
+→ PostgreSQL) and the local chaos audit run, all **committed locally, NOT pushed**.
+`main` is 4 commits ahead of `origin/main` (`c974fc9`): `904acd2` app config + coupons,
+`46ab58a` chaos harness + notes, `f759dd3` advertisements, then this docs commit.
+The **CRITICAL settlement-race finding is deliberately unfixed** — it is Phase 2
+money-path scope. The earlier notes in this file about the 2026-09-21 push
+(`9b2804c..a03a28c`) describe the previous round.
 
 ## Durable facts
 
@@ -17,9 +19,11 @@ pushed**. `origin/main` is still `c974fc9`, so `main` sits 2 commits ahead
 - **Which backend store answers a request is now explicit**: the customer-facing
   read/write paths used by mobile run against **PostgreSQL** (`isLivePostgres` +
   service-role client) and label responses `dataSource: 'postgres'`. Fixture
-  fallbacks must label `dataSource: 'fixture', degraded: true`. Advertising answers
-  `dataSource: 'in_memory', persisted: false` — `advertising_campaigns` exists in
-  migrations but no code reads it.
+  fallbacks must label `dataSource: 'fixture', degraded: true`. Advertisements joined
+  that rule on 2026-09-21: they read and write the `advertisements` table (004) and
+  only fall back to NABIN-owned fixture rows, labelled, when PostgreSQL is down.
+  (`advertising_campaigns` was a table name an earlier note invented — it does not
+  exist in any migration.)
 - Grocery orderability runs `merchant_grocery_inventory` → `master_grocery_catalog`.
   A GROCERY/HYBRID store can only sell what it has adopted into inventory; the
   14-row legacy fixture set all belonged to `mcht_darkstore_1`, which
@@ -70,8 +74,23 @@ pushed**. `origin/main` is still `c974fc9`, so `main` sits 2 commits ahead
   validated to plain data (no code). Publishable keys live in the `APP_CONFIG_*`
   namespace; `FEATURE_*`, `PLATFORM_SERVICE_STATE`, `service_status` and
   `surge_multiplier` are reserved so the generic writer cannot clobber a killswitch.
-  The `advertisements` section is a deliberate pointer that answers
-  `durable: false` — that surface is still in-memory.
+  The `advertisements` section stays a pointer to `/api/advertisements` (so the
+  30-second cache never becomes a second copy of the table) and reports
+  `durable: true, source: 'postgres:advertisements'`.
+- Advertisements are PostgreSQL-backed against the frozen 004 shape, which decides
+  what the API can promise: stored are `title, merchant_id, placement, image_url,
+  target_url, status, start_date, end_date, clicks, impressions`. There is **no**
+  priority, brand, creative, service-scope or bid-rate column, so writes naming
+  those fields are rejected with `ADVERTISEMENT_FIELD_UNSUPPORTED` rather than
+  half-saved, and admin metrics carry `monetization.available: false` instead of the
+  invented `adRevenueEstimate`. Client slot names that predate the schema resolve
+  through a documented alias map (`GROCERY_HERO_CAROUSEL`/`FOOD_HOME_BANNER`/
+  `RIDE_HERO_BANNER` → `HOME_BANNER`), so grocery and food share one placement; the
+  response echoes `placement` plus `requestedSlot`. Impression/click counters are a
+  best-effort read-modify-write because incrementing in SQL would need an RPC, i.e. a
+  migration. During a real outage the feed answers `dataSource: 'fixture',
+  degraded: true, persisted: false` from NABIN-owned house rows and `/api/app/config`
+  answers `stale: true`.
 - Settlement is NOT idempotent: `POST /api/driver/complete-trip` under concurrency
   books one trip's earnings many times over while the job row stays correct. A
   clean job produces exactly 2 journal postings (₹2 × entitlement); 50 concurrent
@@ -107,10 +126,11 @@ pushed**. `origin/main` is still `c974fc9`, so `main` sits 2 commits ahead
   `backend/.env`; and never run two suites at once, they fight over the broadcast
   window and the fixture phones (a concurrent pair scored 305/3 where a solo clean
   run scores 307/1).
-- Definitive local regression for this phase (2026-09-21, solo run with all
-  preconditions above satisfied): `test_suite.js` **307 passed / 1 failed of 308**,
-  exit 1; the single failure is the `gprod_5` data gap below. Baseline at `HEAD`
-  with this phase's code removed: 269/11.
+- Definitive local regression for this phase (2026-09-21, solo runs with all
+  preconditions above satisfied): `test_suite.js` **313 passed / 1 failed of 314**
+  (307/308 before the advertisements work) and `restart_test.js` **33/33**; the one
+  suite failure is the `gprod_5` data gap below. Baseline at `HEAD` with this phase's
+  code removed: 269/11.
 - `POST /api/grocery/cart/revalidate` + a cart containing `gprod_5` cannot pass
   while PostgreSQL is authoritative: PG stocks only `…0401` (Tomatoes) and
   `…0402` (Amul Taaza Milk); `gprod_1`/`gprod_3` are mapped in

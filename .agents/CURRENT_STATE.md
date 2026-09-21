@@ -42,10 +42,13 @@
 > publishes a data-only config feed composed from `platform_settings`,
 > `promotions` and the service-state row with ETag/304, server-time authority and
 > an `APP_CONFIG_` publish namespace behind a reserved-key guard — no migration,
-> no new table. Advertisements remain in-memory and are reported as
-> `durable: false` by that feed: the frozen `advertisements` schema cannot express
-> priority/brand/bid-rate/slot semantics, so that item is blocked pending a
-> decision (see `TASKS.md`). `backend/chaos_audit.js` is new: a LOCAL-ONLY
+> no new table. Advertisements now read and write the frozen 004 `advertisements`
+> table through `src/repositories/AdvertisementRepository.js` (durable CRUD, server-clock
+> date window, `INVALID_PLACEMENT` and `ADVERTISEMENT_FIELD_UNSUPPORTED` rejections,
+> alias map for legacy client slots), still with no migration: what the shape cannot
+> store — priority, brand, creative, service scope, bid rate — is refused or reported
+> as absent rather than faked, and the fabricated third-party seed campaigns are gone
+> from the in-memory fallback. `backend/chaos_audit.js` is new: a LOCAL-ONLY
 > resilience harness (CH-00..CH-11) with eight financial invariants (FI-00..FI-08).
 > Its headline finding is CRITICAL and unfixed by design in this phase:
 > `POST /api/driver/complete-trip` is not serialized, so 50 concurrent completions
@@ -69,10 +72,9 @@
 
 | Field | Value |
 |-------|-------|
-| **Current HEAD** | `904acd2` + this docs/audit commit |
+| **Current HEAD** | `f759dd3` (advertisements) + this docs commit, on top of `46ab58a` (chaos harness) and `904acd2` (coupons + app config) |
 | **origin/main** | `c974fc9` |
-| **HEAD == origin/main** | NO — `main` is 2 commits **ahead locally and NOT pushed** |
-| **Working tree** | Clean of tracked modifications after this commit; untracked: `.kilo/agents/` + 11 junk root files |
+| **HEAD == origin/main** | NO — `main` is **4 commits ahead locally and NOT pushed** |
 | **Branch** | main |
 
 ### Untracked files of record (re-verified 2026-09-21, `git status --porcelain`)
@@ -92,6 +94,9 @@
 
 ### Recent Git History
 ```
+f759dd3 feat(backend): serve advertisement campaigns from PostgreSQL within the frozen schema
+46ab58a test(backend): add a local-only chaos and resilience audit, and record its findings
+904acd2 feat(backend): make checkout coupons server-authoritative and add a data-only app config feed
 c4eded7 feat(mobile): give the grocery merchant app a notifications feed
 d1381dc docs: record the rice fixture deactivation and the browse is_active fix
 dc11941 fix(backend): make a retired grocery master product disappear from customer browse
