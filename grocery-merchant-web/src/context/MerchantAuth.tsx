@@ -24,22 +24,20 @@ export function MerchantAuthProvider({ children }: { children: React.ReactNode }
   const router = useRouter();
 
   useEffect(() => {
-    const token = window.localStorage.getItem(TOKEN_KEY);
-    if (!token) {
-      setLoading(false);
-      return;
-    }
-    authApi
-      .me()
-      .then((res) => {
+    const restore = async () => {
+      if (!window.localStorage.getItem(TOKEN_KEY)) return;
+      try {
+        const res = await authApi.me();
         if (res.data.success && res.data.role === 'MERCHANT') {
           setMerchant(res.data.user);
         } else {
           window.localStorage.removeItem(TOKEN_KEY);
         }
-      })
-      .catch(() => window.localStorage.removeItem(TOKEN_KEY))
-      .finally(() => setLoading(false));
+      } catch {
+        window.localStorage.removeItem(TOKEN_KEY);
+      }
+    };
+    restore().finally(() => setLoading(false));
   }, []);
 
   const sendOtp = useCallback(async (phone: string) => {

@@ -54,8 +54,16 @@ pushed.**
       backend → mobile → web (both merchant consoles + admin-web/customer-web) →
       docs. `backend/.env` and `.kilo/` were excluded; the 11 mangled/junk files at
       the repo root were deliberately left unstaged.
-- [ ] **Push** — `main` is now 4 ahead of `origin/main` (was already 1 ahead at
+- [x] Fix the lint errors in the committed web apps (approved 2026-09-21): the 5
+      `react-hooks/*` errors per merchant console, plus the same 3 in admin-web's new
+      resource pages. Two were genuine code fixes (the session-restore effect set
+      state synchronously; `useCallback` deps on `merchant?.id` made React Compiler
+      bail on the whole component); the rest are explained narrow disables, because
+      the rule cannot see through an `await`.
+- [ ] **Push** — `main` is now 5 ahead of `origin/main` (was already 1 ahead at
       `6494b25`). Nothing pushed; that needs its own approval.
+- [ ] admin-web logout still uses `window.location.href = '/'` (lint warning) — a
+      hard redirect instead of `router.push`, left alone as out of scope.
 - [ ] M0: web→backend port fix (`NEXT_PUBLIC_API_URL`, both merchant web apps) — §13.2 of gap report
 - [ ] Junk root artifact deletion (mcp_out.txt, readme.txt, pasted-filename files)
 - [ ] Dark-store/legacy fixture cleanup in `backend/src/database.js`

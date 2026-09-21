@@ -18,7 +18,6 @@ export default function MenuPage() {
 
   const load = useCallback(async () => {
     if (!merchant?.id) return;
-    setPending(true);
     try {
       const res = await merchantApi.catalog();
       setProducts(res.data.products ?? []);
@@ -35,6 +34,9 @@ export default function MenuPage() {
   }, [loading, merchant, router]);
 
   useEffect(() => {
+    // Every state update in `load` lands after an `await`, so this is not the
+    // cascading render the rule warns about.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
   }, [load]);
 

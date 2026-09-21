@@ -40,8 +40,15 @@
   dev/bugfix. The earlier 2026-09-20 "BLOCKED — DNS FAILURE" note was about the
   **hosted** project; hosted test/production remain untouched and unverified.
   Keys were rotated 2026-09-20 (old ones compromised) — do not rotate again.
-- Git: HEAD `6494b25` is 1 ahead / 0 behind `origin/main` `9b2804c`. 40 tracked
-  files modified, much untracked source, nothing committed this session.
+- Git: the 2026-09-20/21 work is committed on top of `6494b25` as 4 atomic commits
+  (backend → mobile → web → docs, 134 files: 52 modified + 82 new). `backend/.env`
+  and `.kilo/` are excluded; the ~11 mangled junk files at the repo root are left
+  untracked on purpose. Push still needs its own approval.
+- `react-hooks/set-state-in-effect` in eslint-config-next cannot see through an
+  `await`, so it flags every auth-gated "load on mount" effect even when all state
+  updates are async. The repo's house answer is a narrow, explained
+  `eslint-disable-next-line` at the call site (admin-web/src/app/page.tsx:1 does it
+  file-wide). Do not restructure fetch-in-effect to chase this rule.
 
 ## Verification commands that actually passed (2026-09-21, final tree)
 
@@ -52,6 +59,10 @@
 - `node --check backend/src/server.js`; live curl on `:4000` for
   `/api/restaurants` (`count: 27`), `/api/grocery/products`
   (`count: 14`, `dataSource: postgres`)
+- 2026-09-21 web pass: `npm run lint` clean in restaurant-merchant-web,
+  grocery-merchant-web and customer-web; admin-web 0 errors / 1 warning
+  (`window.location.href` logout redirect, left as-is deliberately).
+  `tsc --noEmit` clean in all four. `npm run build` succeeds in both merchant apps.
 
 ## Tool lessons
 

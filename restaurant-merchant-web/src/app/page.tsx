@@ -20,19 +20,19 @@ interface Dashboard {
 
 export default function DashboardPage() {
   const { merchant, loading } = useMerchant();
+  const merchantId = merchant?.id;
   const router = useRouter();
   const [data, setData] = useState<Dashboard | null>(null);
   const [error, setError] = useState('');
   const [pending, setPending] = useState(true);
 
   const load = useCallback(async () => {
-    if (!merchant?.id) return;
-    setPending(true);
-    setError('');
+    if (!merchantId) return;
     try {
-      const res = await merchantApi.dashboard(merchant.id);
+      const res = await merchantApi.dashboard(merchantId);
       const orders: MerchantOrder[] = res.data.orders ?? [];
       const foodOrders = orders.filter((order) => order.service_type === 'FOOD');
+      setError('');
       setData({
         activeOrdersCount: foodOrders.filter((order) => isActive(order.order_state)).length,
         todaySales: foodOrders.reduce(
@@ -54,15 +54,23 @@ export default function DashboardPage() {
     } finally {
       setPending(false);
     }
-  }, [merchant?.id]);
+  }, [merchantId]);
 
   useEffect(() => {
     if (!loading && !merchant) router.replace('/login');
   }, [loading, merchant, router]);
 
   useEffect(() => {
-    load();
+    // Every state update in `load` lands after an `await`, so this is not the
+    // cascading render the rule warns about.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void load();
   }, [load]);
+
+  const refresh = () => {
+    setPending(true);
+    void load();
+  };
 
   if (loading || !merchant) {
     return <div className="nabin-skeleton" style={{ minHeight: '100vh', border: 'none' }} />;
@@ -73,7 +81,7 @@ export default function DashboardPage() {
       {error && (
         <div className="nabin-alert nabin-alert--danger" role="alert">
           <span>{error}</span>
-          <button className="nabin-alert__action" onClick={load}>
+          <button className="nabin-alert__action" onClick={refresh}>
             Retry
           </button>
         </div>
@@ -164,7 +172,7 @@ export default function DashboardPage() {
             <div className="nabin-card__header">
               <h2 style={{ fontSize: 17, fontWeight: 800 }}>Store location</h2>
               <button
-                onClick={load}
+                onClick={refresh}
                 className="nabin-btn nabin-btn--ghost"
                 style={{ minHeight: 36 }}
                 aria-label="Refresh dashboard"

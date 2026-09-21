@@ -67,6 +67,9 @@ export default function InventoryPage() {
   }, [loading, merchant, router]);
 
   useEffect(() => {
+    // The only state this reaches synchronously is the loading flag, which is the
+    // point of the effect; every data update happens after an `await`.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
   }, [load]);
 

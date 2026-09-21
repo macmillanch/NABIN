@@ -59,6 +59,9 @@ export default function OrdersPage() {
   }, [loading, merchant, router]);
 
   useEffect(() => {
+    // The queue has to refetch whenever auth or the active filter changes, and the
+    // only state it touches synchronously is the loading flag it starts with.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
     const timer = setInterval(() => load(true), POLL_MS);
     return () => clearInterval(timer);

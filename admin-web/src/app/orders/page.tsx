@@ -41,6 +41,9 @@ export default function OrdersPage() {
   }, []);
 
   useEffect(() => {
+    // Every state update in this loader lands after an await, so this is not the
+    // cascading render the rule warns about.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
   }, [load]);
 
