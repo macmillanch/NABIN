@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import '../theme/grocery_theme.dart';
+import '../models/grocery_product.dart' show formatRupees;
 import '../../../../core/network/nabin_api_service.dart';
 import '../../../../core/network/session_manager.dart';
-/// Dedicated 10-Minute Express Checkout Screen for NABIN Grocery App
+/// Grocery checkout: confirms the live basket lines, applies a server-checked
+/// coupon and posts the order through `validateGroceryCheckout`.
 class GroceryCheckoutScreen extends StatefulWidget {
   final List<Map<String, dynamic>> cartItems;
   final int subtotal;
@@ -14,7 +16,9 @@ class GroceryCheckoutScreen extends StatefulWidget {
     required this.cartItems,
     required this.subtotal,
     this.deliveryFee = 0,
-    this.handlingFee = 2,
+    // Zero, not a made-up store fee: rows for these only render when a caller
+    // actually supplies them.
+    this.handlingFee = 0,
   });
 
   @override
@@ -22,9 +26,11 @@ class GroceryCheckoutScreen extends StatefulWidget {
 }
 
 class _GroceryCheckoutScreenState extends State<GroceryCheckoutScreen> {
-  // Address & Contact State
+  // Address & Contact State. There is no customer-address read path exposed to
+  // this feature, so the address stays a purely local choice (same three
+  // options as the basket screen) until the backend serves saved addresses.
   String _selectedAddressLabel = 'Home';
-  String _selectedAddressDetails = 'Flat 402, Civil Lines Hub, North Delhi, 110054';
+  String _selectedAddressDetails = 'Civil Lines, Delhi • Flat 402';
   final TextEditingController _deliveryNoteController = TextEditingController();
 
   // Coupon State
@@ -32,12 +38,14 @@ class _GroceryCheckoutScreenState extends State<GroceryCheckoutScreen> {
   String? _appliedCoupon;
   int _discountAmount = 0;
   String? _couponError;
+  bool _couponApplying = false;
 
-  // Delivery Partner Tip State
-  int _selectedTip = 20;
+  // Delivery Partner Tip State — starts at zero; tipping is the customer's
+  // choice, so nothing is pre-selected.
+  int _selectedTip = 0;
 
-  // Payment Method State
-  String _selectedPaymentMethod = 'UPI_GPAY'; // UPI_GPAY, UPI_PHONEPE, CARD, COD
+  // Payment Method State (see _buildPaymentMethodSection for the ids)
+  String _selectedPaymentMethod = 'UPI';
 
   // Order Processing State
   bool _isSubmitting = false;
@@ -49,40 +57,62 @@ class _GroceryCheckoutScreenState extends State<GroceryCheckoutScreen> {
     super.dispose();
   }
 
-  void _applyCoupon() {
-    final code = _couponController.text.trim().toUpperCase();
+  /// Server-side coupon preview (`POST /api/promotions/apply`). The old version
+  /// matched two hard-coded strings locally and invented its own discount.
+  Future<void> _applyCoupon() async {
+    final String code = _couponController.text.trim().toUpperCase();
+    if (code.isEmpty) {
+      setState(() => _couponError = 'Enter a coupon code first.');
+      return;
+    }
+
     setState(() {
       _couponError = null;
+      _couponApplying = true;
     });
 
-    if (code == 'FESTIVAL30') {
-      setState(() {
-        _appliedCoupon = 'FESTIVAL30';
-        _discountAmount = (widget.subtotal * 0.30).round();
-        if (_discountAmount > 60) _discountAmount = 60;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('🎉 Coupon FESTIVAL30 applied! Saved 30% up to ₹60'),
-          backgroundColor: GroceryTheme.primaryGreenDark,
-        ),
+    Map<String, dynamic>? data;
+    try {
+      data = await NabinApiService.applyPromoCoupon(
+        code: code,
+        orderAmount: widget.subtotal.toDouble(),
+        service: 'GROCERY',
       );
-    } else if (code == 'NABIN10') {
-      setState(() {
-        _appliedCoupon = 'NABIN10';
-        _discountAmount = 50;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('🎉 Coupon NABIN10 applied! ₹50 instant discount'),
-          backgroundColor: GroceryTheme.primaryGreenDark,
-        ),
-      );
-    } else {
-      setState(() {
-        _couponError = 'Invalid coupon code. Try FESTIVAL30 or NABIN10';
-      });
+    } catch (_) {
+      data = null;
     }
+
+    if (!mounted) return;
+    setState(() => _couponApplying = false);
+
+    final Map<String, dynamic>? applied =
+        (data != null && data['success'] == true) ? data : null;
+
+    if (applied == null) {
+      setState(() {
+        _appliedCoupon = null;
+        _discountAmount = 0;
+        _couponError = data?['error']?.toString() ??
+            'That code could not be checked right now. Try again.';
+      });
+      return;
+    }
+
+    final int discount = ((applied['discount'] as num?)?.toDouble() ?? 0).round();
+    final int saved = discount > widget.subtotal ? widget.subtotal : discount;
+    setState(() {
+      _appliedCoupon = (applied['code'] ?? code).toString();
+      _discountAmount = saved;
+    });
+    // The coupon name and its saving both come straight from the server reply.
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          '${applied['name'] ?? _appliedCoupon} applied — you save '
+          '${formatRupees(saved.toDouble())}',
+        ),
+      ),
+    );
   }
 
   void _removeCoupon() {
@@ -99,25 +129,63 @@ class _GroceryCheckoutScreenState extends State<GroceryCheckoutScreen> {
     return total > 0 ? total : 0;
   }
 
+  /// Who the basket is for — straight from the session, never a hard-coded
+  /// demo name. Falls back to a prompt when the profile is incomplete.
+  String get _customerLabel {
+    final Map<String, dynamic>? user = SessionManager.instance.currentUser;
+    final String? name = _clean(user?['name']);
+    final String? phone = _clean(user?['phone']);
+    if (name != null && phone != null) return '$name • $phone';
+    if (name != null) return name;
+    if (phone != null) return phone;
+    return 'Add your contact details in your profile';
+  }
+
+  static String? _clean(Object? raw) {
+    final String value = raw?.toString().trim() ?? '';
+    return value.isEmpty ? null : value;
+  }
+
   Future<void> _processCheckoutOrder() async {
     setState(() => _isSubmitting = true);
 
-    final user = SessionManager.instance.currentUser;
-    final customerName = user?['name'] ?? 'Rahul Sharma';
-    final customerPhone = user?['phone'] ?? '+91 98765 43210';
+    final Map<String, dynamic>? user = SessionManager.instance.currentUser;
+    // Only real session values go into the payload; the backend derives the
+    // customer from the auth token anyway.
+    final String? customerName = user?['name']?.toString();
+    final String? customerPhone = user?['phone']?.toString();
 
-    final payload = {
-      'customerName': customerName,
-      'customerPhone': customerPhone,
+    // The backend places one grocery order at one store, so the store comes
+    // from the stocked rows themselves rather than a default.
+    final Set<String> stores = widget.cartItems
+        .map((item) => item['merchantId']?.toString())
+        .whereType<String>()
+        .where((String id) => id.isNotEmpty)
+        .toSet();
+    if (stores.length != 1) {
+      setState(() => _isSubmitting = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('These items come from more than one store. Place one order per store.'),
+        ));
+      }
+      return;
+    }
+
+    final payload = <String, dynamic>{
+      'merchantId': stores.first,
+      if (customerName != null) 'customerName': customerName,
+      if (customerPhone != null) 'customerPhone': customerPhone,
       'deliveryAddress': '$_selectedAddressLabel: $_selectedAddressDetails',
       'deliveryInstructions': _deliveryNoteController.text.trim(),
       'paymentMethod': _selectedPaymentMethod,
       'cartItems': widget.cartItems.map((item) => {
         'productId': item['id'],
         'productName': item['name'],
-        'unitPrice': item['price'],
-        'quantity': item['quantity'],
-        'requestedQtyKg': item['quantity'],
+        'unitPrice': (item['price'] as num).toDouble(),
+        'quantity': (item['quantity'] as num).toInt(),
+        'unit': item['unit'],
+        'requestedQtyKg': (item['quantity'] as num).toDouble(),
       }).toList(),
       'subtotal': widget.subtotal,
       'discount': _discountAmount,
@@ -133,10 +201,12 @@ class _GroceryCheckoutScreenState extends State<GroceryCheckoutScreen> {
       setState(() => _isSubmitting = false);
 
       if (mounted && data?['success'] == true) {
-        _showOrderConfirmationModal(
-          orderId: data?['order']?['id'] ?? data?['order']?['order_id'] ?? data?['order']?['order_number'] ?? 'ORD-EXPRESS-${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}',
-          etaMinutes: 9,
-        );
+        final Object? order = data?['order'];
+        final Object? id = order is Map
+            ? (order['id'] ?? order['order_id'] ?? order['order_number'])
+            : null;
+        // Only an id the backend actually returned is shown.
+        _showOrderConfirmationModal(orderId: id?.toString());
       } else if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(data?['error']?.toString() ?? 'Checkout could not be completed. Please try again.')),
@@ -152,7 +222,9 @@ class _GroceryCheckoutScreenState extends State<GroceryCheckoutScreen> {
     }
   }
 
-  void _showOrderConfirmationModal({required String orderId, required int etaMinutes}) {
+  /// The backend returns `{success, order}` only — no delivery ETA and no
+  /// assigned partner — so this sheet states just what actually happened.
+  void _showOrderConfirmationModal({String? orderId}) {
     showModalBottomSheet(
       context: context,
       isDismissible: false,
@@ -182,7 +254,7 @@ class _GroceryCheckoutScreenState extends State<GroceryCheckoutScreen> {
             ),
             const SizedBox(height: 20),
             const Text(
-              'Express Order Confirmed! ⚡',
+              'Order Confirmed!',
               style: TextStyle(
                 fontSize: 22,
                 fontWeight: FontWeight.w900,
@@ -191,7 +263,9 @@ class _GroceryCheckoutScreenState extends State<GroceryCheckoutScreen> {
             ),
             const SizedBox(height: 6),
             Text(
-              'Order ID: $orderId',
+              orderId == null
+                  ? 'The store has received your basket.'
+                  : 'Order ID: $orderId',
               style: const TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w700,
@@ -200,48 +274,29 @@ class _GroceryCheckoutScreenState extends State<GroceryCheckoutScreen> {
             ),
             const SizedBox(height: 20),
             Container(
+              width: double.infinity,
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
                 color: GroceryTheme.surfaceElevated,
                 borderRadius: BorderRadius.circular(16),
                 border: Border.all(color: GroceryTheme.borderLight),
               ),
-              child: Row(
+              child: const Row(
                 children: [
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: GroceryTheme.primaryGreen.withValues(alpha: 0.15),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.electric_moped_rounded,
-                      color: GroceryTheme.primaryGreenDark,
-                      size: 28,
-                    ),
+                  Icon(
+                    Icons.storefront_rounded,
+                    color: GroceryTheme.primaryGreenDark,
+                    size: 22,
                   ),
-                  const SizedBox(width: 14),
+                  SizedBox(width: 12),
                   Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Estimated Delivery: $etaMinutes Mins',
-                          style: const TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w900,
-                            color: GroceryTheme.textDark,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        const Text(
-                          'Partner assigned • DarkStore #84 packing items',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: GroceryTheme.textMuted,
-                          ),
-                        ),
-                      ],
+                    child: Text(
+                      'The grocery merchant confirms the final amount and the '
+                      'delivery time with you directly.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: GroceryTheme.textMuted,
+                      ),
                     ),
                   ),
                 ],
@@ -260,19 +315,12 @@ class _GroceryCheckoutScreenState extends State<GroceryCheckoutScreen> {
                   borderRadius: BorderRadius.circular(16),
                 ),
               ),
-              child: const Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.location_searching_rounded, color: Colors.white, size: 20),
-                  SizedBox(width: 8),
-                  Text(
-                    'Track Live Delivery Map',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ],
+              child: const Text(
+                'Done',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                ),
               ),
             ),
             const SizedBox(height: 12),
@@ -292,7 +340,7 @@ class _GroceryCheckoutScreenState extends State<GroceryCheckoutScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Express Checkout',
+              'Checkout',
               style: TextStyle(
                 fontWeight: FontWeight.w900,
                 fontSize: 18,
@@ -300,7 +348,7 @@ class _GroceryCheckoutScreenState extends State<GroceryCheckoutScreen> {
               ),
             ),
             Text(
-              '⚡ 10-Minute DarkStore #84 Delivery',
+              'Prices rechecked with the store',
               style: TextStyle(
                 fontSize: 11,
                 color: GroceryTheme.textMuted,
@@ -350,7 +398,7 @@ class _GroceryCheckoutScreenState extends State<GroceryCheckoutScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    '₹$_finalTotal',
+                    formatRupees(_finalTotal.toDouble()),
                     style: const TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.w900,
@@ -391,7 +439,7 @@ class _GroceryCheckoutScreenState extends State<GroceryCheckoutScreen> {
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             Text(
-                              'Pay & Place Order ⚡',
+                              'Place order',
                               style: TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.w800,
@@ -488,12 +536,15 @@ class _GroceryCheckoutScreenState extends State<GroceryCheckoutScreen> {
                       ),
                     ),
                     const SizedBox(width: 8),
-                    const Text(
-                      'Rahul Sharma • +91 98765 43210',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: GroceryTheme.textDark,
+                    Flexible(
+                      child: Text(
+                        _customerLabel,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: GroceryTheme.textDark,
+                        ),
                       ),
                     ),
                   ],
@@ -565,6 +616,16 @@ class _GroceryCheckoutScreenState extends State<GroceryCheckoutScreen> {
           ),
           const SizedBox(height: 12),
           ...widget.cartItems.map((item) {
+            // Every value below comes from the live basket line written by
+            // GroceryCartItem.toLineJson(); `weight` never existed on the row.
+            final String name = item['name']?.toString() ?? 'Item';
+            final int quantity = (item['quantity'] as num?)?.toInt() ?? 1;
+            final double unitPrice = (item['price'] as num?)?.toDouble() ?? 0;
+            final String size = <String?>[
+              item['packSize']?.toString(),
+              item['unit']?.toString(),
+            ].whereType<String>().where((String v) => v.isNotEmpty).join(' • ');
+            final Object? background = item['bgColor'];
             return Padding(
               padding: const EdgeInsets.only(bottom: 10),
               child: Row(
@@ -573,12 +634,14 @@ class _GroceryCheckoutScreenState extends State<GroceryCheckoutScreen> {
                     width: 38,
                     height: 38,
                     decoration: BoxDecoration(
-                      color: item['bgColor'] ?? GroceryTheme.primaryGreenLight,
+                      color: background is Color
+                          ? background
+                          : GroceryTheme.primaryGreenLight,
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Center(
                       child: Text(
-                        item['emoji'] ?? '📦',
+                        item['emoji']?.toString() ?? '🛒',
                         style: const TextStyle(fontSize: 20),
                       ),
                     ),
@@ -589,7 +652,7 @@ class _GroceryCheckoutScreenState extends State<GroceryCheckoutScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          item['name'],
+                          name,
                           style: const TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.w700,
@@ -597,7 +660,7 @@ class _GroceryCheckoutScreenState extends State<GroceryCheckoutScreen> {
                           ),
                         ),
                         Text(
-                          '${item['weight']} • Qty: ${item['quantity']}',
+                          size.isEmpty ? 'Qty: $quantity' : '$size • Qty: $quantity',
                           style: const TextStyle(
                             fontSize: 11,
                             color: GroceryTheme.textMuted,
@@ -607,7 +670,7 @@ class _GroceryCheckoutScreenState extends State<GroceryCheckoutScreen> {
                     ),
                   ),
                   Text(
-                    '₹${(item['price'] as int) * (item['quantity'] as int)}',
+                    formatRupees(unitPrice * quantity),
                     style: const TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w800,
@@ -699,7 +762,7 @@ class _GroceryCheckoutScreenState extends State<GroceryCheckoutScreen> {
                     textCapitalization: TextCapitalization.characters,
                     style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800),
                     decoration: InputDecoration(
-                      hintText: 'Enter Promo Code (e.g. FESTIVAL30)',
+                      hintText: 'Enter coupon code',
                       hintStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w400, color: GroceryTheme.textMuted),
                       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                       filled: true,
@@ -713,13 +776,22 @@ class _GroceryCheckoutScreenState extends State<GroceryCheckoutScreen> {
                 ),
                 const SizedBox(width: 10),
                 ElevatedButton(
-                  onPressed: _applyCoupon,
+                  onPressed: _couponApplying ? null : _applyCoupon,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: GroceryTheme.primaryGreenDark,
                     padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                   ),
-                  child: const Text('Apply', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13)),
+                  child: _couponApplying
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Text('Apply', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13)),
                 ),
               ],
             ),
@@ -758,17 +830,17 @@ class _GroceryCheckoutScreenState extends State<GroceryCheckoutScreen> {
           ),
           const SizedBox(height: 4),
           const Text(
-            '100% of the tip goes directly to your express delivery driver',
+            'Optional — the full tip reaches the delivery partner',
             style: TextStyle(fontSize: 11, color: GroceryTheme.textMuted),
           ),
           const SizedBox(height: 12),
           Row(
-            children: [10, 20, 30, 50].map((tipVal) {
+            children: [0, 10, 20, 30, 50].map((tipVal) {
               final isSelected = _selectedTip == tipVal;
               return Padding(
                 padding: const EdgeInsets.only(right: 10),
                 child: FilterChip(
-                  label: Text('₹$tipVal'),
+                  label: Text(tipVal == 0 ? 'No tip' : '₹$tipVal'),
                   selected: isSelected,
                   selectedColor: GroceryTheme.primaryGreenDark,
                   labelStyle: TextStyle(
@@ -791,11 +863,12 @@ class _GroceryCheckoutScreenState extends State<GroceryCheckoutScreen> {
   }
 
   Widget _buildPaymentMethodSection() {
+    // Neutral method labels — the backend stores this string and the merchant
+    // collects the payment, so no specific wallet app is promised here.
     final options = [
-      {'id': 'UPI_GPAY', 'name': 'Google Pay UPI', 'icon': Icons.account_balance_wallet_rounded, 'subtitle': 'Instant 1-Click Pay'},
-      {'id': 'UPI_PHONEPE', 'name': 'PhonePe / Paytm UPI', 'icon': Icons.mobile_friendly_rounded, 'subtitle': 'UPI QR & App Direct'},
-      {'id': 'CARD', 'name': 'Credit / Debit Card', 'icon': Icons.credit_card_rounded, 'subtitle': 'Visa, MasterCard, RuPay'},
-      {'id': 'COD', 'name': 'Pay on Delivery (COD)', 'icon': Icons.payments_rounded, 'subtitle': 'Cash or QR Code at door'},
+      {'id': 'UPI', 'name': 'UPI', 'icon': Icons.qr_code_scanner_rounded, 'subtitle': 'Pay from any UPI app'},
+      {'id': 'CARD', 'name': 'Credit / Debit Card', 'icon': Icons.credit_card_rounded, 'subtitle': 'Card on the NABIN wallet'},
+      {'id': 'COD', 'name': 'Pay on Delivery', 'icon': Icons.payments_rounded, 'subtitle': 'Cash or UPI at the door'},
     ];
 
     return Container(
@@ -869,25 +942,35 @@ class _GroceryCheckoutScreenState extends State<GroceryCheckoutScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            'Bill Breakdown',
+            'Bill breakdown',
             style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15, color: GroceryTheme.textDark),
           ),
           const SizedBox(height: 12),
-          _buildRow('Items Subtotal', '₹${widget.subtotal}'),
-          const SizedBox(height: 6),
-          _buildRow('Delivery Fee (10-Min Express)', widget.deliveryFee == 0 ? 'FREE' : '₹${widget.deliveryFee}', isGreen: true),
-          const SizedBox(height: 6),
-          _buildRow('Store Handling Fee', '₹${widget.handlingFee}'),
+          _buildRow('Items subtotal', formatRupees(widget.subtotal.toDouble())),
+          if (widget.deliveryFee > 0) ...[
+            const SizedBox(height: 6),
+            _buildRow('Delivery fee', formatRupees(widget.deliveryFee.toDouble())),
+          ],
+          if (widget.handlingFee > 0) ...[
+            const SizedBox(height: 6),
+            _buildRow('Handling fee', formatRupees(widget.handlingFee.toDouble())),
+          ],
           if (_selectedTip > 0) ...[
             const SizedBox(height: 6),
-            _buildRow('Delivery Partner Tip', '₹$_selectedTip'),
+            _buildRow('Delivery partner tip', formatRupees(_selectedTip.toDouble())),
           ],
           if (_discountAmount > 0) ...[
             const SizedBox(height: 6),
-            _buildRow('Coupon Savings', '-₹$_discountAmount', isGreen: true),
+            _buildRow('Coupon savings', '-${formatRupees(_discountAmount.toDouble())}', isGreen: true),
           ],
           const Divider(height: 20, color: GroceryTheme.borderLight),
-          _buildRow('To Pay', '₹$_finalTotal', isBold: true),
+          _buildRow('To pay', formatRupees(_finalTotal.toDouble()), isBold: true),
+          const SizedBox(height: 6),
+          const Text(
+            'Delivery fee, handling fee and the delivery time are set by the '
+            'store and confirmed with you before payment.',
+            style: TextStyle(fontSize: 11, color: GroceryTheme.textMuted),
+          ),
         ],
       ),
     );
@@ -917,6 +1000,15 @@ class _GroceryCheckoutScreenState extends State<GroceryCheckoutScreen> {
     );
   }
 
+  /// Same three local choices the basket screen offers. The customer API exposes
+  /// no saved-address read path for this feature, so these cannot come from the
+  /// backend yet.
+  static const List<Map<String, String>> _addressChoices = <Map<String, String>>[
+    <String, String>{'label': 'Home', 'icon': 'home', 'detail': 'Civil Lines, Delhi • Flat 402'},
+    <String, String>{'label': 'Work', 'icon': 'work', 'detail': 'Connaught Place, Delhi • Block B Office'},
+    <String, String>{'label': 'Other', 'icon': 'place', 'detail': 'Kamla Nagar, Delhi • Market Road'},
+  ];
+
   void _showAddressPickerModal() {
     showModalBottomSheet(
       context: context,
@@ -927,35 +1019,40 @@ class _GroceryCheckoutScreenState extends State<GroceryCheckoutScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Select Delivery Location', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+            const Text('Select delivery location', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+            const SizedBox(height: 4),
+            const Text(
+              'Saved addresses are not available for grocery yet — pick one for this order.',
+              style: TextStyle(fontSize: 11, color: GroceryTheme.textMuted),
+            ),
             const SizedBox(height: 12),
-            ListTile(
-              leading: const Icon(Icons.home_rounded, color: GroceryTheme.primaryGreenDark),
-              title: const Text('Home (Civil Lines)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-              subtitle: const Text('Flat 402, Civil Lines Hub, North Delhi', style: TextStyle(fontSize: 11)),
-              onTap: () {
-                setState(() {
-                  _selectedAddressLabel = 'Home';
-                  _selectedAddressDetails = 'Flat 402, Civil Lines Hub, North Delhi, 110054';
-                });
-                Navigator.pop(ctx);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.work_rounded, color: GroceryTheme.primaryGreenDark),
-              title: const Text('Work (Connaught Place)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-              subtitle: const Text('Block B Office, Inner Circle, CP', style: TextStyle(fontSize: 11)),
-              onTap: () {
-                setState(() {
-                  _selectedAddressLabel = 'Work';
-                  _selectedAddressDetails = 'Block B Office, Inner Circle, Connaught Place';
-                });
-                Navigator.pop(ctx);
-              },
-            ),
+            for (final Map<String, String> choice in _addressChoices)
+              ListTile(
+                leading: Icon(_addressIcon(choice['icon']!), color: GroceryTheme.primaryGreenDark),
+                title: Text('${choice['label']} — ${choice['detail']}',
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                onTap: () {
+                  setState(() {
+                    _selectedAddressLabel = choice['label']!;
+                    _selectedAddressDetails = choice['detail']!;
+                  });
+                  Navigator.pop(ctx);
+                },
+              ),
           ],
         ),
       ),
     );
+  }
+
+  static IconData _addressIcon(String key) {
+    switch (key) {
+      case 'work':
+        return Icons.work_rounded;
+      case 'place':
+        return Icons.place_rounded;
+      default:
+        return Icons.home_rounded;
+    }
   }
 }

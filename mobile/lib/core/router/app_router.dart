@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../features/auth/presentation/screens/welcome_screen.dart';
 import '../../features/auth/presentation/screens/phone_entry_screen.dart';
@@ -16,6 +17,7 @@ import '../../features/food/presentation/screens/food_checkout_screen.dart';
 import '../../features/food/presentation/screens/food_order_tracking_screen.dart';
 import '../../features/grocery/presentation/screens/grocery_app_shell.dart';
 import '../../features/grocery/presentation/screens/grocery_cart_screen.dart';
+import '../../features/grocery/presentation/providers/grocery_cart_provider.dart';
 import '../../features/grocery/presentation/screens/grocery_checkout_screen.dart';
 import '../../features/grocery/presentation/screens/grocery_categories_screen.dart';
 import '../../features/grocery/presentation/screens/grocery_deals_screen.dart';
@@ -135,18 +137,12 @@ final GoRouter appRouter = GoRouter(
     GoRoute(
       path: '/grocery-checkout',
       builder: (context, state) {
-        final extra = state.extra as Map<String, dynamic>?;
-        final cartItems = (extra?['cartItems'] as List?)?.cast<Map<String, dynamic>>() ?? [
-          {'id': '1', 'name': 'Organic Alphonso Mangoes (1kg)', 'price': 240, 'quantity': 1},
-        ];
-        final subtotal = extra?['subtotal'] as int? ?? 240;
-        final deliveryFee = extra?['deliveryFee'] as int? ?? 0;
-        final handlingFee = extra?['handlingFee'] as int? ?? 2;
+        // The live basket is the only source: there is no demo cart to fall back
+        // to, and checkout needs the store the lines were stocked by.
+        final cart = ProviderScope.containerOf(context).read(groceryCartProvider);
         return GroceryCheckoutScreen(
-          cartItems: cartItems,
-          subtotal: subtotal,
-          deliveryFee: deliveryFee,
-          handlingFee: handlingFee,
+          cartItems: cart.checkoutLines,
+          subtotal: cart.subtotalRupees,
         );
       },
     ),

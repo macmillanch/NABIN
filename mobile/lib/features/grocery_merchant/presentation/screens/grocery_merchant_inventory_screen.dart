@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mobile/core/network/nabin_api_service.dart';
-import 'package:mobile/core/network/session_manager.dart';
 import '../theme/grocery_merchant_theme.dart';
 
 /// Inventory Screen for NABIN Grocery Merchant App
@@ -16,6 +15,7 @@ class _GroceryMerchantInventoryScreenState extends ConsumerState<GroceryMerchant
   bool _isLoading = true;
   List<dynamic> _inventory = [];
   String? _errorMessage;
+  String? _busyId;
 
   @override
   void initState() {
@@ -23,21 +23,22 @@ class _GroceryMerchantInventoryScreenState extends ConsumerState<GroceryMerchant
     _loadInventory();
   }
 
-  Future<void> _loadInventory() async {
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
+  Future<void> _loadInventory({bool silent = false}) async {
+    if (!silent) {
+      setState(() {
+        _isLoading = true;
+        _errorMessage = null;
+      });
+    }
 
     try {
-      final session = SessionManager.instance.currentUser;
-      final merchantId = session?['id'] ?? 'mcht_1';
+      // The backend scopes this to the bearer token's merchant, so nothing is passed.
+      final result = await NabinApiService.getMerchantInventory();
 
-      final result = await NabinApiService.getMerchantInventory(merchantId);
-      
       if (result?['success'] == true) {
         setState(() {
           _inventory = result?['inventory'] as List<dynamic>? ?? [];
+          _errorMessage = null;
           _isLoading = false;
         });
       } else {
@@ -106,17 +107,49 @@ class _GroceryMerchantInventoryScreenState extends ConsumerState<GroceryMerchant
                     ],
                   ),
                 )
-              : RefreshIndicator(
-                  onRefresh: _loadInventory,
-                  child: ListView.builder(
-                    padding: const EdgeInsets.all(16),
-                    itemCount: _inventory.length,
-                    itemBuilder: (context, index) {
-                      final item = _inventory[index];
-                      return _buildInventoryCard(item);
-                    },
-                  ),
-                ),
+              : _inventory.isEmpty
+                  ? _buildEmptyState()
+                  : RefreshIndicator(
+                      onRefresh: _loadInventory,
+                      child: ListView.builder(
+                        padding: const EdgeInsets.all(16),
+                        itemCount: _inventory.length,
+                        itemBuilder: (context, index) => _buildInventoryCard(_inventory[index]),
+                      ),
+                    ),
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return RefreshIndicator(
+      onRefresh: _loadInventory,
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(32),
+        children: [
+          Icon(
+            Icons.inventory_2_outlined,
+            size: 56,
+            color: GroceryMerchantTheme.textMuted.withValues(alpha: 0.3),
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            'No products stocked yet',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: GroceryMerchantTheme.textDark,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Add products from the NABIN master catalogue to start selling.',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 14, color: GroceryMerchantTheme.textMuted),
+          ),
+        ],
+      ),
     );
   }
 
@@ -124,16 +157,20 @@ class _GroceryMerchantInventoryScreenState extends ConsumerState<GroceryMerchant
     final status = item['status'] ?? 'UNKNOWN';
     final statusColor = _getStatusColor(status);
     final statusText = _getStatusText(status);
-    final inStock = status != 'OUT_OF_STOCK';
+    final listed = item['isAvailable'] == true;
+    final stockQty = (item['stockQty'] as num?)?.toInt() ?? 0;
+    final price = (item['currentPrice'] as num?)?.toDouble() ?? 0;
+    final unit = item['unit'] ?? '';
+    final busy = _busyId != null && _busyId == item['masterProductId'];
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: inStock ? Colors.white : GroceryMerchantTheme.bgOffWhite,
+        color: listed ? Colors.white : GroceryMerchantTheme.bgOffWhite,
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
-          if (inStock)
+          if (listed)
             BoxShadow(
               color: Colors.black.withValues(alpha: 0.03),
               blurRadius: 8,
@@ -141,7 +178,7 @@ class _GroceryMerchantInventoryScreenState extends ConsumerState<GroceryMerchant
             ),
         ],
         border: Border.all(
-          color: inStock ? GroceryMerchantTheme.borderLight : GroceryMerchantTheme.accentRose.withValues(alpha: 0.3),
+          color: listed ? GroceryMerchantTheme.borderLight : GroceryMerchantTheme.accentRose.withValues(alpha: 0.3),
           width: 1,
         ),
       ),
@@ -166,12 +203,12 @@ class _GroceryMerchantInventoryScreenState extends ConsumerState<GroceryMerchant
                   children: [
                     Expanded(
                       child: Text(
-                        item['productName'] ?? 'Unknown Product',
+                        item['masterName'] ?? 'Unknown Product',
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w700,
-                          color: inStock ? GroceryMerchantTheme.textDark : GroceryMerchantTheme.textMuted,
-                          decoration: inStock ? TextDecoration.none : TextDecoration.lineThrough,
+                          color: listed ? GroceryMerchantTheme.textDark : GroceryMerchantTheme.textMuted,
+                          decoration: listed ? TextDecoration.none : TextDecoration.lineThrough,
                         ),
                       ),
                     ),
@@ -184,7 +221,7 @@ class _GroceryMerchantInventoryScreenState extends ConsumerState<GroceryMerchant
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  '${item['category'] ?? 'Unknown Category'} • ${item['quantity'] ?? 0} ${item['unit'] ?? ''}',
+                  '${item['category'] ?? 'Grocery'} • $stockQty $unit',
                   style: TextStyle(
                     fontSize: 14,
                     color: GroceryMerchantTheme.textMuted,
@@ -210,7 +247,7 @@ class _GroceryMerchantInventoryScreenState extends ConsumerState<GroceryMerchant
                       ),
                     ),
                     Text(
-                      '₹${item['price'] ?? 0}',
+                      '₹${price.toStringAsFixed(2)}',
                       style: const TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w800,
@@ -228,17 +265,19 @@ class _GroceryMerchantInventoryScreenState extends ConsumerState<GroceryMerchant
             mainAxisSize: MainAxisSize.min,
             children: [
               Switch(
-                value: inStock,
+                value: listed,
                 activeColor: GroceryMerchantTheme.primaryGreen,
-                onChanged: (val) {
-                  _updateInventoryItem(item, quantity: val ? 10 : 0); // Quick toggle updates quantity
-                },
+                onChanged: busy
+                    ? null
+                    : (val) {
+                        _updateInventoryItem(item, isAvailable: val);
+                      },
               ),
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   IconButton(
-                    onPressed: () => _showUpdateQuantityDialog(item),
+                    onPressed: busy ? null : () => _showUpdateQuantityDialog(item),
                     icon: const Icon(Icons.edit_outlined, color: GroceryMerchantTheme.textMuted, size: 20),
                     tooltip: 'Update Quantity',
                     padding: EdgeInsets.zero,
@@ -246,7 +285,7 @@ class _GroceryMerchantInventoryScreenState extends ConsumerState<GroceryMerchant
                   ),
                   const SizedBox(width: 8),
                   IconButton(
-                    onPressed: () => _showUpdatePriceDialog(item),
+                    onPressed: busy ? null : () => _showUpdatePriceDialog(item),
                     icon: const Icon(Icons.price_change_outlined, color: GroceryMerchantTheme.textMuted, size: 20),
                     tooltip: 'Update Price',
                     padding: EdgeInsets.zero,
@@ -262,17 +301,18 @@ class _GroceryMerchantInventoryScreenState extends ConsumerState<GroceryMerchant
   }
 
   void _showUpdateQuantityDialog(Map<String, dynamic> item) {
-    final controller = TextEditingController(text: item['quantity'].toString());
+    final controller = TextEditingController(text: (item['stockQty'] ?? 0).toString());
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Update Quantity'),
+        title: Text('Stock ${item['masterName'] ?? 'product'}'),
         content: TextField(
           controller: controller,
           keyboardType: TextInputType.number,
-          decoration: const InputDecoration(
+          decoration: InputDecoration(
             labelText: 'Quantity',
-            border: OutlineInputBorder(),
+            suffixText: item['unit'] as String?,
+            border: const OutlineInputBorder(),
           ),
         ),
         actions: [
@@ -283,8 +323,8 @@ class _GroceryMerchantInventoryScreenState extends ConsumerState<GroceryMerchant
           ElevatedButton(
             onPressed: () {
               final newQuantity = int.tryParse(controller.text);
-              if (newQuantity != null) {
-                _updateInventoryItem(item, quantity: newQuantity);
+              if (newQuantity != null && newQuantity >= 0) {
+                _updateInventoryItem(item, stockQty: newQuantity);
                 Navigator.pop(context);
               }
             },
@@ -299,18 +339,19 @@ class _GroceryMerchantInventoryScreenState extends ConsumerState<GroceryMerchant
   }
 
   void _showUpdatePriceDialog(Map<String, dynamic> item) {
-    final controller = TextEditingController(text: item['price'].toString());
+    final controller = TextEditingController(text: (item['currentPrice'] ?? 0).toString());
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Update Price'),
+        title: Text('Price ${item['masterName'] ?? 'product'}'),
         content: TextField(
           controller: controller,
-          keyboardType: TextInputType.number,
-          decoration: const InputDecoration(
-            labelText: 'Price',
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: InputDecoration(
+            labelText: 'Store price',
             prefixText: '₹',
-            border: OutlineInputBorder(),
+            suffixText: 'per ${item['unit'] ?? 'pack'}',
+            border: const OutlineInputBorder(),
           ),
         ),
         actions: [
@@ -321,8 +362,8 @@ class _GroceryMerchantInventoryScreenState extends ConsumerState<GroceryMerchant
           ElevatedButton(
             onPressed: () {
               final newPrice = double.tryParse(controller.text);
-              if (newPrice != null) {
-                _updateInventoryItem(item, price: newPrice);
+              if (newPrice != null && newPrice > 0) {
+                _updateInventoryItem(item, currentPrice: newPrice);
                 Navigator.pop(context);
               }
             },
@@ -336,55 +377,62 @@ class _GroceryMerchantInventoryScreenState extends ConsumerState<GroceryMerchant
     );
   }
 
-  Future<void> _updateInventoryItem(Map<String, dynamic> item, {int? quantity, double? price}) async {
+  Future<void> _updateInventoryItem(
+    Map<String, dynamic> item, {
+    int? stockQty,
+    double? currentPrice,
+    bool? isAvailable,
+  }) async {
+    final masterProductId = item['masterProductId'];
+    if (masterProductId == null) {
+      _showMessage('This item has no master catalogue product, so it cannot be updated.', isError: true);
+      return;
+    }
+
+    final payload = <String, dynamic>{
+      'masterProductId': masterProductId,
+      if (stockQty != null) 'stockQty': stockQty,
+      if (currentPrice != null) 'currentPrice': currentPrice,
+      if (isAvailable != null) 'isAvailable': isAvailable,
+    };
+
+    setState(() => _busyId = masterProductId);
     try {
-      final session = SessionManager.instance.currentUser;
-      final merchantId = session?['id'] ?? 'mcht_1';
-
-      final payload = {
-        'id': item['id'],
-        'merchantId': merchantId,
-        'productName': item['productName'],
-        'category': item['category'],
-        'quantity': quantity ?? item['quantity'],
-        'unit': item['unit'],
-        'price': price ?? item['price'],
-        'status': item['status'],
-      };
-
       final result = await NabinApiService.updateMerchantInventoryItem(payload);
-      
       if (result?['success'] == true) {
-        _loadInventory();
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Inventory updated successfully'),
-              backgroundColor: GroceryMerchantTheme.primaryGreen,
-            ),
-          );
-        }
+        await _loadInventory(silent: true);
+        _showMessage('${item['masterName'] ?? 'Item'} updated.', color: GroceryMerchantTheme.primaryGreen);
+      } else {
+        _showMessage(result?['error'] ?? 'The store rejected this update.', isError: true);
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Failed to update inventory'),
-            backgroundColor: GroceryMerchantTheme.accentRose,
-          ),
-        );
-      }
+      _showMessage('Network error. The change was not saved.', isError: true);
+    } finally {
+      if (mounted) setState(() => _busyId = null);
     }
+  }
+
+  void _showMessage(String message, {Color? color, bool isError = false}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: color ??
+            (isError ? GroceryMerchantTheme.accentRose : GroceryMerchantTheme.primaryGreen),
+      ),
+    );
   }
 
   String _getStatusText(String status) {
     switch (status) {
-      case 'IN_STOCK':
-        return 'In Stock';
+      case 'AVAILABLE':
+        return 'Available';
       case 'LOW_STOCK':
         return 'Low Stock';
       case 'OUT_OF_STOCK':
         return 'Out of Stock';
+      case 'INACTIVE':
+        return 'Hidden';
       default:
         return status;
     }
@@ -392,11 +440,12 @@ class _GroceryMerchantInventoryScreenState extends ConsumerState<GroceryMerchant
 
   Color _getStatusColor(String status) {
     switch (status) {
-      case 'IN_STOCK':
+      case 'AVAILABLE':
         return GroceryMerchantTheme.primaryGreen;
       case 'LOW_STOCK':
         return GroceryMerchantTheme.accentAmber;
       case 'OUT_OF_STOCK':
+      case 'INACTIVE':
         return GroceryMerchantTheme.accentRose;
       default:
         return GroceryMerchantTheme.textMuted;

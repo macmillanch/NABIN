@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import '../../../../core/network/nabin_api_service.dart';
 import '../../../../core/network/session_manager.dart';
 import '../../../../core/theme/restaurant_theme.dart';
+import '../providers/food_models.dart' show foodPrice;
 
 class FoodCheckoutScreen extends StatefulWidget {
   final Map<String, dynamic>? cartData;
@@ -18,42 +19,60 @@ class _FoodCheckoutScreenState extends State<FoodCheckoutScreen> {
   String _selectedPaymentMethod = 'UPI'; // 'UPI', 'WALLET', 'CARD', 'COD'
   final TextEditingController _instructionCtrl = TextEditingController();
   bool _isPlacingOrder = false;
-  final int _couponDiscount = 50;
+  final num _couponDiscount = 50;
 
+  late final String? _restaurantId;
+  late final String? _restaurantName;
+  late final String? _deliveryTime;
   late List<Map<String, dynamic>> _items;
-  late int _itemTotal;
-  final int _deliveryFee = 25;
-  final int _packagingFee = 15;
-  late int _taxAmount;
-  late int _grandTotal;
+  late num _itemTotal;
+  final num _deliveryFee = 25;
+  final num _packagingFee = 15;
+  late num _taxAmount;
+  late num _grandTotal;
 
   @override
   void initState() {
     super.initState();
+    _restaurantId = _readId(widget.cartData?['restaurantId']);
+    _restaurantName = widget.cartData?['restaurantName'] as String?;
+    _deliveryTime = widget.cartData?['deliveryTime'] as String?;
+
     final itemsRaw = widget.cartData?['items'] as List<dynamic>?;
-    if (itemsRaw != null && itemsRaw.isNotEmpty) {
-      _items = itemsRaw.map((e) => Map<String, dynamic>.from(e as Map)).toList();
-    } else {
-      _items = [
-        {'name': 'Special Dum Biryani (Chicken)', 'qty': 1, 'price': 220, 'isVeg': false},
-        {'name': 'Paneer Tikka Butter Masala', 'qty': 1, 'price': 180, 'isVeg': true},
-        {'name': 'Garlic Butter Naan (2 Pcs)', 'qty': 2, 'price': 40, 'isVeg': true},
-      ];
-    }
+    _items = itemsRaw == null
+        ? <Map<String, dynamic>>[]
+        : itemsRaw
+            .whereType<Map<dynamic, dynamic>>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .where((e) => _quantityOf(e) > 0)
+            .toList();
     _recalculateTotals();
   }
 
+  static String? _readId(Object? value) {
+    final text = value?.toString().trim();
+    return (text == null || text.isEmpty) ? null : text;
+  }
+
+  static int _quantityOf(Map<String, dynamic> item) =>
+      (item['quantity'] as num? ?? item['qty'] as num?)?.toInt() ?? 0;
+
   void _recalculateTotals() {
-    _itemTotal = _items.fold(0, (sum, item) {
-      final qty = (item['qty'] as num?)?.toInt() ?? 1;
-      final price = (item['price'] as num?)?.toInt() ?? 0;
+    _itemTotal = _items.fold<num>(0, (sum, item) {
+      final qty = _quantityOf(item);
+      final price = (item['price'] as num?) ?? 0;
       return sum + (qty * price);
     });
     _taxAmount = (_itemTotal * 0.05).round();
     _grandTotal = (_itemTotal + _deliveryFee + _packagingFee + _taxAmount - _couponDiscount).clamp(0, 99999);
   }
 
+  bool get _canOrder => _items.isNotEmpty && _restaurantId != null;
+
   Future<void> _placeOrder() async {
+    final restaurantId = _restaurantId;
+    if (restaurantId == null || _items.isEmpty) return;
+
     setState(() => _isPlacingOrder = true);
 
     final user = SessionManager.instance.currentUser;
@@ -61,9 +80,17 @@ class _FoodCheckoutScreenState extends State<FoodCheckoutScreen> {
 
     final payload = {
       'customerId': customerId,
-      'restaurantId': 'rest-001',
+      'restaurantId': restaurantId,
       'deliveryAddress': _deliveryAddress,
-      'items': _items.map((e) => e['name'].toString()).toList(),
+      // Real dish ids, names and quantities from the restaurant's own menu rows.
+      'items': _items
+          .map((item) => <String, dynamic>{
+                'id': item['id'],
+                'name': item['name'],
+                'quantity': _quantityOf(item),
+                'price': item['price'],
+              })
+          .toList(),
       // Extra details for UI tracking, backend may ignore what it doesn't need
       'instructions': _instructionCtrl.text.trim(),
       'itemTotal': _itemTotal,
@@ -82,8 +109,8 @@ class _FoodCheckoutScreenState extends State<FoodCheckoutScreen> {
       context.pushReplacement('/food-tracking', extra: {
         'orderId': job['id'] ?? 'FD-88912',
         'deliveryOtp': job['deliveryOtp'] ?? job['pickupOtp'] ?? '4892',
-        'restaurantName': 'Dilli Darbar Mughlai Kitchen',
-        'grandTotal': '₹$_grandTotal',
+        'restaurantName': _restaurantName ?? 'Your restaurant',
+        'grandTotal': '₹${foodPrice(_grandTotal)}',
         'items': _items,
         'deliveryAddress': _deliveryAddress,
         'driverName': 'Assigning...',
@@ -143,7 +170,12 @@ class _FoodCheckoutScreenState extends State<FoodCheckoutScreen> {
                           const Text('DELIVERY ADDRESS', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: RestaurantTheme.neonOrange, letterSpacing: 0.5)),
                           const SizedBox(height: 2),
                           Text(_deliveryAddress, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: RestaurantTheme.charcoal)),
-                          const Text('Estimated Delivery: 20–25 mins', style: TextStyle(fontSize: 11, color: RestaurantTheme.secondaryText)),
+                          Text(
+                            _deliveryTime == null
+                                ? 'Estimated delivery shown after the kitchen confirms'
+                                : 'Estimated delivery: $_deliveryTime',
+                            style: const TextStyle(fontSize: 11, color: RestaurantTheme.secondaryText),
+                          ),
                         ],
                       ),
                     ),
@@ -168,7 +200,7 @@ class _FoodCheckoutScreenState extends State<FoodCheckoutScreen> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text('Dilli Darbar Mughlai Kitchen', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14.5, color: RestaurantTheme.charcoal)),
+                        Text(_restaurantName ?? 'Selected kitchen', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 14.5, color: RestaurantTheme.charcoal)),
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                           decoration: BoxDecoration(color: RestaurantTheme.neonOrangeLight, borderRadius: BorderRadius.circular(8)),
@@ -181,8 +213,8 @@ class _FoodCheckoutScreenState extends State<FoodCheckoutScreen> {
                     const SizedBox(height: 10),
                     ..._items.map((item) {
                       final isVeg = item['isVeg'] == true;
-                      final qty = (item['qty'] as num?)?.toInt() ?? 1;
-                      final price = (item['price'] as num?)?.toInt() ?? 0;
+                      final qty = _quantityOf(item);
+                      final price = (item['price'] as num?) ?? 0;
                       return Padding(
                         padding: const EdgeInsets.symmetric(vertical: 5),
                         child: Row(
@@ -203,17 +235,25 @@ class _FoodCheckoutScreenState extends State<FoodCheckoutScreen> {
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
-                                item['name'] as String,
+                                item['name']?.toString() ?? 'Dish',
                                 style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: RestaurantTheme.charcoal),
                               ),
                             ),
-                            Text('$qty × ₹$price', style: const TextStyle(fontSize: 12, color: RestaurantTheme.secondaryText)),
+                            Text('$qty × ₹${foodPrice(price)}', style: const TextStyle(fontSize: 12, color: RestaurantTheme.secondaryText)),
                             const SizedBox(width: 12),
-                            Text('₹${qty * price}', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 13, color: RestaurantTheme.charcoal)),
+                            Text('₹${foodPrice(qty * price)}', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 13, color: RestaurantTheme.charcoal)),
                           ],
                         ),
                       );
                     }),
+                    if (_items.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 8),
+                        child: Text(
+                          'Your basket is empty — add dishes from the restaurant menu first.',
+                          style: TextStyle(fontSize: 12, color: RestaurantTheme.secondaryText),
+                        ),
+                      ),
                     const SizedBox(height: 12),
                     TextField(
                       controller: _instructionCtrl,
@@ -275,17 +315,17 @@ class _FoodCheckoutScreenState extends State<FoodCheckoutScreen> {
                   children: [
                     const Text('Bill Summary', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14, color: RestaurantTheme.charcoal)),
                     const SizedBox(height: 10),
-                    _buildBillRow('Item Total', '₹$_itemTotal'),
-                    _buildBillRow('Delivery Fee (1.8 km)', '₹$_deliveryFee'),
-                    _buildBillRow('Restaurant Packaging & Platform Fee', '₹$_packagingFee'),
-                    _buildBillRow('Govt GST & Taxes (5%)', '₹$_taxAmount'),
-                    _buildBillRow('Coupon Discount (NABINFOOD30)', '-₹$_couponDiscount', isDiscount: true),
+                    _buildBillRow('Item Total', '₹${foodPrice(_itemTotal)}'),
+                    _buildBillRow('Delivery Fee', '₹${foodPrice(_deliveryFee)}'),
+                    _buildBillRow('Restaurant Packaging & Platform Fee', '₹${foodPrice(_packagingFee)}'),
+                    _buildBillRow('Govt GST & Taxes (5%)', '₹${foodPrice(_taxAmount)}'),
+                    _buildBillRow('Coupon Discount (NABINFOOD30)', '-₹${foodPrice(_couponDiscount)}', isDiscount: true),
                     const Divider(height: 18, color: RestaurantTheme.border),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         const Text('To Pay', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: RestaurantTheme.charcoal)),
-                        Text('₹$_grandTotal', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: RestaurantTheme.charcoal)),
+                        Text('₹${foodPrice(_grandTotal)}', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: RestaurantTheme.charcoal)),
                       ],
                     ),
                   ],
@@ -320,7 +360,7 @@ class _FoodCheckoutScreenState extends State<FoodCheckoutScreen> {
 
               // Confirm and Place Order Button
               ElevatedButton(
-                onPressed: _isPlacingOrder ? null : _placeOrder,
+                onPressed: _isPlacingOrder || !_canOrder ? null : _placeOrder,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: RestaurantTheme.neonOrange,
                   foregroundColor: Colors.white,
@@ -333,9 +373,18 @@ class _FoodCheckoutScreenState extends State<FoodCheckoutScreen> {
                     : Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Text('Place Order • ₹$_grandTotal', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 15)),
-                          const SizedBox(width: 8),
-                          const Icon(Icons.arrow_forward_rounded, size: 18),
+                          Text(
+                            _canOrder
+                                ? 'Place Order • ₹${foodPrice(_grandTotal)}'
+                                : _restaurantId == null
+                                    ? 'Open a restaurant menu to order'
+                                    : 'Add dishes to your basket',
+                            style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 15),
+                          ),
+                          if (_canOrder) ...[
+                            const SizedBox(width: 8),
+                            const Icon(Icons.arrow_forward_rounded, size: 18),
+                          ],
                         ],
                       ),
               ),

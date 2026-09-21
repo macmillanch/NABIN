@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mobile/core/network/nabin_api_service.dart';
 import 'package:mobile/core/network/session_manager.dart';
 import '../theme/grocery_merchant_theme.dart';
+import '../utils/grocery_order_flow.dart';
 
 /// Order Detail Screen for NABIN Grocery Merchant App
 class GroceryMerchantOrderDetailScreen extends ConsumerStatefulWidget {
@@ -18,9 +19,19 @@ class GroceryMerchantOrderDetailScreen extends ConsumerStatefulWidget {
 }
 
 class _GroceryMerchantOrderDetailScreenState extends ConsumerState<GroceryMerchantOrderDetailScreen> {
+  /// `standard_unit` values that carry a packed weight, per migration 001:
+  /// ('g','kg','ml','litre','piece','dozen','pack').
+  static const Set<String> _weightUnits = {'g', 'kg', 'ml', 'litre'};
+
+  /// States where the merchant works the order before handover.
+  static const Set<String> _packingStates = {'ACCEPTED', 'PREPARING', 'PACKING'};
+
   bool _isLoading = true;
   Map<String, dynamic>? _order;
   String? _errorMessage;
+  bool _sessionExpired = false;
+  String? _busyOrderId;
+  String? _busyLineId;
 
   @override
   void initState() {
@@ -28,106 +39,146 @@ class _GroceryMerchantOrderDetailScreenState extends ConsumerState<GroceryMercha
     _loadOrderDetail();
   }
 
-  Future<void> _loadOrderDetail() async {
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
+  String? _merchantId() => SessionManager.instance.currentUser?['id']?.toString();
+
+  Future<void> _loadOrderDetail({bool silent = false}) async {
+    if (!silent) {
+      setState(() {
+        _isLoading = true;
+        _errorMessage = null;
+        _sessionExpired = false;
+      });
+    }
 
     try {
-      final session = SessionManager.instance.currentUser;
-      final merchantId = session?['id'] ?? 'mcht_1';
+      final merchantId = _merchantId();
+      if (merchantId == null) {
+        setState(() {
+          _isLoading = false;
+          _sessionExpired = true;
+          _errorMessage = 'Your session has expired. Please sign in again.';
+        });
+        return;
+      }
 
-      // Fetch order details - use the merchant orders API with specific order lookup
+      // There is no single-order endpoint, so we read the merchant's orders and pick one.
       final result = await NabinApiService.getMerchantOrders(merchantId);
-      
-      if (result != null && result['success'] == true && result['orders'] != null) {
-        final orders = result['orders'] as List;
-        final order = orders.firstWhere((o) => o?['id'] == widget.orderId || o?['order_number'] == widget.orderId, orElse: () => orders.firstOrNull);
-        
-        if (order != null) {
+
+      if (result?['success'] == true) {
+        final orders = (result?['orders'] as List<dynamic>?) ?? [];
+        final matches = orders.whereType<Map<String, dynamic>>().where(
+              (o) => o['id']?.toString() == widget.orderId || o['order_number']?.toString() == widget.orderId,
+            );
+        if (matches.isEmpty) {
           setState(() {
-            _order = order;
             _isLoading = false;
+            _errorMessage = 'Order not found';
           });
         } else {
           setState(() {
-            _errorMessage = 'Order not found';
+            _order = matches.first;
+            _errorMessage = null;
             _isLoading = false;
           });
         }
       } else {
         setState(() {
-          _errorMessage = result?['error'] ?? 'Failed to load order';
           _isLoading = false;
+          _errorMessage = result?['error'] ?? 'Failed to load order';
         });
       }
-    } catch (e) {
+    } catch (_) {
       setState(() {
-        _errorMessage = 'Network error. Please check your connection.';
         _isLoading = false;
+        _errorMessage = 'Network error. Please check your connection.';
       });
     }
   }
 
-  Future<void> _updateOrderStatus(String newStatus) async {
-    final order = _order!;
-    final orderId = order['id'];
-    final merchantId = order['merchant_id'] ?? 'mcht_1';
+  Future<void> _performAction(GroceryMerchantAction action) async {
+    final order = _order;
+    if (order == null) return;
 
-    if (newStatus == 'REJECTED') {
-      final reason = await _showRejectionDialog();
+    String? reason;
+    if (action.status == 'REJECTED') {
+      reason = await _showRejectionDialog();
       if (reason == null) return;
-      
+    }
+
+    final updated = await _updateOrderStatus(
+      order['id']?.toString() ?? '',
+      action.status,
+      reason: reason,
+    );
+    if (!updated || !mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(reason == null
+            ? '${action.label} confirmed.'
+            : 'Order rejected (${groceryRejectionReasonLabel(reason)}).'),
+        backgroundColor:
+            action.danger ? GroceryMerchantTheme.accentRose : GroceryMerchantTheme.primaryGreen,
+      ),
+    );
+  }
+
+  Future<bool> _updateOrderStatus(String orderId, String status, {String? reason}) async {
+    final merchantId = _merchantId();
+    if (merchantId == null || orderId.isEmpty) return false;
+
+    setState(() => _busyOrderId = orderId);
+    try {
       final result = await NabinApiService.updateMerchantOrderStatus(
         restaurantId: merchantId,
         orderId: orderId,
-        status: newStatus,
+        status: status,
         reason: reason,
       );
-      
       if (result?['success'] == true) {
-        _loadOrderDetail();
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Order rejected: $reason'),
-              backgroundColor: GroceryMerchantTheme.accentRose,
-            ),
-          );
-        }
+        await _loadOrderDetail(silent: true);
+        return true;
       }
-    } else {
-      final result = await NabinApiService.updateMerchantOrderStatus(
-        restaurantId: merchantId,
+      _showError(result?['error'] ?? 'The platform rejected this status change.');
+      return false;
+    } catch (e) {
+      _showError('Network error. The order status did not change.');
+      return false;
+    } finally {
+      if (mounted) setState(() => _busyOrderId = null);
+    }
+  }
+
+  /// Confirms the packed weight for one line. Only weight/volume lines reach this.
+  Future<void> _submitPackedWeight(String lineId, double packedWeight) async {
+    final orderId = _order?['id']?.toString();
+    if (orderId == null || lineId.isEmpty) {
+      _showError('This order cannot be updated yet.');
+      return;
+    }
+
+    setState(() => _busyLineId = lineId);
+    try {
+      final result = await NabinApiService.submitGroceryPackedWeight(
         orderId: orderId,
-        status: newStatus,
+        itemId: lineId,
+        packedWeight: packedWeight,
       );
-      
       if (result?['success'] == true) {
-        _loadOrderDetail();
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Order status updated to ${_getStatusText(newStatus)}'),
-              backgroundColor: GroceryMerchantTheme.primaryGreen,
-            ),
-          );
-        }
+        // Re-read so the packed state reflects the backend, never a local guess.
+        await _loadOrderDetail(silent: true);
+        _showSuccess('Packed weight confirmed.');
+      } else {
+        _showError(result?['error'] ?? 'The platform rejected this packed weight.');
       }
+    } catch (e) {
+      _showError('Network error. The packed weight was not saved.');
+    } finally {
+      if (mounted) setState(() => _busyLineId = null);
     }
   }
 
   Future<String?> _showRejectionDialog() async {
-    final reasons = [
-      'ITEM_UNAVAILABLE',
-      'MERCHANT_CLOSED',
-      'OUT_OF_STOCK',
-      'UNABLE_TO_PREPARE',
-      'INVALID_ORDER',
-      'OTHER',
-    ];
-
     String? selectedReason;
 
     return showDialog<String>(
@@ -137,9 +188,9 @@ class _GroceryMerchantOrderDetailScreenState extends ConsumerState<GroceryMercha
           title: const Text('Reject Order'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
-            children: reasons.map((reason) {
+            children: kGroceryRejectionReasons.map((reason) {
               return RadioListTile<String>(
-                title: Text(reason.replaceAll('_', ' ')),
+                title: Text(groceryRejectionReasonLabel(reason)),
                 value: reason,
                 groupValue: selectedReason,
                 onChanged: (value) {
@@ -168,61 +219,31 @@ class _GroceryMerchantOrderDetailScreenState extends ConsumerState<GroceryMercha
     );
   }
 
-  String _getStatusText(String status) {
-    switch (status) {
-      case 'NEW':
-        return 'New Order';
-      case 'ACCEPTED':
-        return 'Accepted';
-      case 'REJECTED':
-        return 'Rejected';
-      case 'PICKING':
-        return 'Picking Items';
-      case 'PACKING':
-        return 'Packing';
-      case 'READY_FOR_PICKUP':
-        return 'Ready for Pickup';
-      case 'DELIVERED':
-        return 'Delivered';
-      case 'CANCELLED':
-        return 'Cancelled';
-      default:
-        return status;
-    }
+  void _showError(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: GroceryMerchantTheme.accentRose),
+    );
   }
 
-  Color _getStatusColor(String status) {
-    switch (status) {
-      case 'NEW':
-        return const Color(0xFFE11D48); // Rose 600
-      case 'ACCEPTED':
-        return GroceryMerchantTheme.primaryGreen;
-      case 'REJECTED':
-        return GroceryMerchantTheme.accentRose;
-      case 'PICKING':
-        return const Color(0xFF2563EB); // Blue 600
-      case 'PACKING':
-        return GroceryMerchantTheme.accentAmber;
-      case 'READY_FOR_PICKUP':
-        return GroceryMerchantTheme.primaryGreen;
-      case 'DELIVERED':
-        return GroceryMerchantTheme.primaryGreen;
-      case 'CANCELLED':
-        return GroceryMerchantTheme.textMuted;
-      default:
-        return GroceryMerchantTheme.textMuted;
-    }
+  void _showSuccess(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: GroceryMerchantTheme.primaryGreen),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    final state = _order?['order_state'];
+
     return Scaffold(
       backgroundColor: GroceryMerchantTheme.bgOffWhite,
       appBar: AppBar(
         backgroundColor: GroceryMerchantTheme.primaryGreen,
         elevation: 0,
         title: Text(
-          _order != null 
+          _order != null
               ? 'Order #${_order!['order_number'] ?? _order!['id']}'
               : 'Order Detail',
           style: const TextStyle(
@@ -232,14 +253,12 @@ class _GroceryMerchantOrderDetailScreenState extends ConsumerState<GroceryMercha
           ),
         ),
         actions: [
-          if (_order != null && 
-              !['DELIVERED', 'CANCELLED'].contains(_order!['order_state'])) ...[
+          if (_order != null)
             IconButton(
-              icon: const Icon(Icons.close, color: Colors.white),
-              onPressed: () => _updateOrderStatus('REJECTED'),
-              tooltip: 'Reject Order',
+              icon: const Icon(Icons.refresh, color: Colors.white),
+              onPressed: _busyOrderId == null ? _loadOrderDetail : null,
+              tooltip: 'Refresh',
             ),
-          ],
         ],
       ),
       body: _isLoading
@@ -249,79 +268,16 @@ class _GroceryMerchantOrderDetailScreenState extends ConsumerState<GroceryMercha
               ),
             )
           : _errorMessage != null
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        _errorMessage!,
-                        style: TextStyle(
-                          color: GroceryMerchantTheme.accentRose,
-                          fontSize: 16,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 16),
-                      ElevatedButton(
-                        onPressed: _loadOrderDetail,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: GroceryMerchantTheme.primaryGreen,
-                        ),
-                        child: const Text('Retry'),
-                      ),
-                    ],
-                  ),
-                )
+              ? _buildMessageState()
               : SingleChildScrollView(
                   padding: const EdgeInsets.all(24),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Order Status Badge
-                      Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        decoration: BoxDecoration(
-          color: _getStatusColor(_order!['order_state'] ?? 'UNKNOWN').withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: _getStatusColor(_order!['order_state'] ?? 'UNKNOWN'),
-            width: 1,
-          ),
-        ),
-        child: Text(
-          _getStatusText(_order!['order_state'] ?? 'UNKNOWN'),
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w700,
-            color: _getStatusColor(_order!['order_state'] ?? 'UNKNOWN'),
-          ),
-        ),
-      ),
+                      _buildStatusBadge(state),
                       const SizedBox(height: 32),
-
-                      // Customer Info
-                      Row(
-                        children: [
-                          const Icon(
-                            Icons.person_outline_rounded,
-                            size: 20,
-                            color: GroceryMerchantTheme.textMuted,
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Text(
-                              'Customer: ${_order?['customer_name'] ?? 'Unknown'}',
-                              style: TextStyle(
-                                fontSize: 16,
-                                color: GroceryMerchantTheme.textDark,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
+                      _buildCustomerReference(),
                       const SizedBox(height: 16),
-
-                      // Order Summary
                       const Text(
                         'Order Summary',
                         style: TextStyle(
@@ -331,23 +287,8 @@ class _GroceryMerchantOrderDetailScreenState extends ConsumerState<GroceryMercha
                         ),
                       ),
                       const SizedBox(height: 12),
-
-                      // Items List
-                      ...(_order?['lines'] ?? []).map((item) => _buildOrderItem(item)).toList(),
-                      if (_order?['lines'] == null || _order!['lines'].isEmpty)
-                        const Padding(
-                          padding: EdgeInsets.all(16),
-                          child: Text(
-                            'No items in this order',
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: GroceryMerchantTheme.textMuted,
-                            ),
-                          ),
-                        ),
+                      ..._buildItemRows(),
                       const SizedBox(height: 32),
-
-                      // Order Total
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
@@ -359,7 +300,7 @@ class _GroceryMerchantOrderDetailScreenState extends ConsumerState<GroceryMercha
                             ),
                           ),
                           Text(
-                            '₹${(_order?['total_amount'] ?? 0).toStringAsFixed(0)}',
+                            '₹${_toDouble(_order?['total_amount']).toStringAsFixed(0)}',
                             style: const TextStyle(
                               fontSize: 20,
                               fontWeight: FontWeight.w800,
@@ -369,9 +310,7 @@ class _GroceryMerchantOrderDetailScreenState extends ConsumerState<GroceryMercha
                         ],
                       ),
                       const SizedBox(height: 32),
-
-                      // Action Buttons
-                      if (_isActionableStatus(_order?['order_state'] ?? '')) ...[
+                      if (groceryMerchantActions(state).isNotEmpty) ...[
                         const Text(
                           'Quick Actions',
                           style: TextStyle(
@@ -389,194 +328,376 @@ class _GroceryMerchantOrderDetailScreenState extends ConsumerState<GroceryMercha
     );
   }
 
-  Widget _buildOrderItem(Map<String, dynamic> item) {
-    bool isPicked = false;
-    final isPickingState = _order?['order_state'] == 'PICKING' || _order?['order_state'] == 'PACKING';
-
-    return StatefulBuilder(
-      builder: (context, setState) {
-        return Container(
-          margin: const EdgeInsets.only(bottom: 12),
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: isPicked ? GroceryMerchantTheme.bgOffWhite : Colors.white,
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: isPicked ? GroceryMerchantTheme.borderLight : Colors.transparent,
+  Widget _buildMessageState() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              _errorMessage!,
+              style: TextStyle(
+                color: GroceryMerchantTheme.accentRose,
+                fontSize: 16,
+              ),
+              textAlign: TextAlign.center,
             ),
-            boxShadow: [
-              if (!isPicked)
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.02),
-                  blurRadius: 3,
-                  offset: const Offset(0, 1),
+            const SizedBox(height: 16),
+            if (_sessionExpired)
+              ElevatedButton(
+                onPressed: () =>
+                    Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: GroceryMerchantTheme.primaryGreen,
                 ),
-            ],
+                child: const Text('Sign in again'),
+              )
+            else
+              ElevatedButton(
+                onPressed: _loadOrderDetail,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: GroceryMerchantTheme.primaryGreen,
+                ),
+                child: const Text('Retry'),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatusBadge(String? state) {
+    final color = groceryOrderStatusColor(state);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color, width: 1),
+      ),
+      child: Text(
+        groceryOrderStatusLabel(state),
+        style: TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.w700,
+          color: color,
+        ),
+      ),
+    );
+  }
+
+  /// Orders expose only `customer_id`; there is no customer name on the order row.
+  Widget _buildCustomerReference() {
+    return Row(
+      children: [
+        const Icon(
+          Icons.person_outline_rounded,
+          size: 20,
+          color: GroceryMerchantTheme.textMuted,
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            'Customer ref: ${_customerReference(_order?['customer_id'])}',
+            style: TextStyle(
+              fontSize: 16,
+              color: GroceryMerchantTheme.textDark,
+            ),
           ),
-          child: Row(
+        ),
+      ],
+    );
+  }
+
+  List<Widget> _buildItemRows() {
+    final lines = (_order?['lines'] as List?) ?? const [];
+    if (lines.isEmpty) {
+      return [
+        const Padding(
+          padding: EdgeInsets.all(16),
+          child: Text(
+            'No items in this order',
+            style: TextStyle(
+              fontSize: 14,
+              color: GroceryMerchantTheme.textMuted,
+            ),
+          ),
+        ),
+      ];
+    }
+    return lines.map((line) => _buildOrderItem(line)).toList();
+  }
+
+  Widget _buildOrderItem(dynamic line) {
+    final item = (line as Map?)?.cast<String, dynamic>() ?? const <String, dynamic>{};
+    final name = item['product_name_snapshot']?.toString() ?? 'Unknown Item';
+    final unit = item['unit_snapshot']?.toString() ?? '';
+    final quantity = _toDouble(item['quantity']);
+    final unitPrice = _toDouble(item['unit_price_snapshot']);
+    final lineTotal = _toDouble(item['line_total']);
+    final packedQty = _toDouble(item['packed_confirmed_quantity']);
+    final lineId = item['id']?.toString() ?? '';
+
+    final isWeightUnit = _weightUnits.contains(unit.toLowerCase());
+    final inPackingPhase = _packingStates.contains(_order?['order_state']);
+    final isPacked = isWeightUnit && packedQty >= quantity && quantity > 0;
+    final busyLine = _busyLineId != null && _busyLineId == lineId;
+    final anyBusy = _busyLineId != null;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: isPacked ? GroceryMerchantTheme.bgOffWhite : Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: isPacked ? GroceryMerchantTheme.borderLight : Colors.transparent,
+        ),
+        boxShadow: [
+          if (!isPacked)
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.02),
+              blurRadius: 3,
+              offset: const Offset(0, 1),
+            ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
             children: [
-              if (isPickingState) ...[
-                Checkbox(
-                  value: isPicked,
-                  activeColor: GroceryMerchantTheme.primaryGreen,
-                  onChanged: (val) {
-                    setState(() => isPicked = val ?? false);
-                  },
+              Container(
+                width: 50,
+                height: 50,
+                decoration: BoxDecoration(
+                  color: GroceryMerchantTheme.surfaceElevated,
+                  borderRadius: BorderRadius.circular(8),
                 ),
-                const SizedBox(width: 4),
-              ] else ...[
-                // Item Image/Icon
-                Container(
-                  width: 50,
-                  height: 50,
-                  decoration: BoxDecoration(
-                    color: GroceryMerchantTheme.surfaceElevated,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Icon(
-                    Icons.shopping_bag_outlined,
-                    size: 24,
-                    color: GroceryMerchantTheme.primaryGreen,
-                  ),
+                child: Icon(
+                  isPacked ? Icons.check_circle_outline : Icons.shopping_bag_outlined,
+                  size: 24,
+                  color: isPacked
+                      ? GroceryMerchantTheme.primaryGreen
+                      : GroceryMerchantTheme.primaryGreen,
                 ),
-                const SizedBox(width: 12),
-              ],
-              // Item Details
+              ),
+              const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      item['product_name_snapshot'] ?? item['productName'] ?? 'Unknown Item',
+                      name,
                       style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w600,
-                        color: isPicked ? GroceryMerchantTheme.textMuted : GroceryMerchantTheme.textDark,
-                        decoration: isPicked ? TextDecoration.lineThrough : TextDecoration.none,
+                        color: isPacked
+                            ? GroceryMerchantTheme.textMuted
+                            : GroceryMerchantTheme.textDark,
+                        decoration: isPacked ? TextDecoration.lineThrough : TextDecoration.none,
                       ),
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      'Qty: ${item['quantity'] ?? 1} × ₹${(item['unitPriceAtCheckout'] ?? item['price'] ?? 0).toStringAsFixed(0)}',
+                      'Qty: ${_trimNum(quantity)} $unit × ₹${unitPrice.toStringAsFixed(2)}',
                       style: TextStyle(
                         fontSize: 12,
                         color: GroceryMerchantTheme.textMuted,
                       ),
                     ),
+                    if (isWeightUnit && packedQty > 0)
+                      Text(
+                        'Packed: ${_trimNum(packedQty)} $unit',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: isPacked
+                              ? GroceryMerchantTheme.primaryGreen
+                              : GroceryMerchantTheme.accentAmber,
+                        ),
+                      ),
                   ],
                 ),
               ),
-              // Item Price
+              const SizedBox(width: 8),
               Text(
-                '₹${(item['finalItemAmount'] ?? (item['unitPriceAtCheckout'] ?? item['price'] ?? 0) * (item['quantity'] ?? 1)).toStringAsFixed(0)}',
+                '₹${lineTotal.toStringAsFixed(0)}',
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w700,
-                  color: isPicked ? GroceryMerchantTheme.textMuted : GroceryMerchantTheme.primaryGreen,
+                  color: isPacked ? GroceryMerchantTheme.textMuted : GroceryMerchantTheme.primaryGreen,
                 ),
               ),
             ],
           ),
-        );
-      },
+          // Only weight/volume lines submitted through the packed-weight endpoint get an
+          // input; piece/dozen/pack lines just show their quantity above.
+          if (isWeightUnit && inPackingPhase && !isPacked && lineId.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: _PackedWeightField(
+                unit: unit,
+                remaining: (quantity - packedQty).clamp(0, quantity).toDouble(),
+                max: quantity,
+                busy: busyLine,
+                disabled: anyBusy,
+                onSubmit: (weight) => _submitPackedWeight(lineId, weight),
+              ),
+            ),
+        ],
+      ),
     );
   }
 
   Widget _buildStatusActionButtons() {
-    final status = _order?['order_state'] ?? '';
+    final actions = groceryMerchantActions(_order?['order_state']);
+    if (actions.isEmpty) return const SizedBox.shrink();
+    final busy = _busyOrderId != null;
 
-    if (status == 'NEW') {
-      return Row(
-        children: [
-          Expanded(
-            child: OutlinedButton.icon(
-              onPressed: () => _updateOrderStatus('REJECTED'),
-              icon: const Icon(Icons.close, size: 16),
-              label: const Text('Reject'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: GroceryMerchantTheme.accentRose,
-                side: BorderSide(color: GroceryMerchantTheme.accentRose),
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-              ),
-            ),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: ElevatedButton.icon(
-              onPressed: () => _updateOrderStatus('ACCEPTED'),
-              icon: const Icon(Icons.check, size: 16),
-              label: const Text('Accept Order'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: GroceryMerchantTheme.primaryGreen,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-              ),
-            ),
-          ),
+    return Row(
+      children: [
+        for (var i = 0; i < actions.length; i++) ...[
+          if (i > 0) const SizedBox(width: 16),
+          Expanded(child: _buildActionButton(actions[i], busy)),
         ],
-      );
-    } else if (status == 'ACCEPTED') {
-      return Row(
-        children: [
-          Expanded(
-            child: ElevatedButton.icon(
-              onPressed: () => _updateOrderStatus('PICKING'),
-              icon: const Icon(Icons.shopping_basket, size: 16),
-              label: const Text('Start Picking'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: GroceryMerchantTheme.accentAmber,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-              ),
-            ),
-          ),
-        ],
-      );
-    } else if (status == 'PICKING') {
-      return Row(
-        children: [
-          Expanded(
-            child: ElevatedButton.icon(
-              onPressed: () => _updateOrderStatus('PACKING'),
-              icon: const Icon(Icons.inventory_2, size: 16),
-              label: const Text('Start Packing'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: GroceryMerchantTheme.primaryGreen,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-              ),
-            ),
-          ),
-        ],
-      );
-    } else if (status == 'PACKING') {
-      return Row(
-        children: [
-          Expanded(
-            child: ElevatedButton.icon(
-              onPressed: () => _updateOrderStatus('READY_FOR_PICKUP'),
-              icon: const Icon(Icons.check_circle, size: 16),
-              label: const Text('Ready for Pickup'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: GroceryMerchantTheme.primaryGreen,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-              ),
-            ),
-          ),
-        ],
+      ],
+    );
+  }
+
+  Widget _buildActionButton(GroceryMerchantAction action, bool busy) {
+    final onPressed = busy ? null : () => _performAction(action);
+    final shape = RoundedRectangleBorder(borderRadius: BorderRadius.circular(10));
+
+    if (action.danger) {
+      return OutlinedButton.icon(
+        onPressed: onPressed,
+        icon: const Icon(Icons.close, size: 16),
+        label: Text(action.label),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: GroceryMerchantTheme.accentRose,
+          side: const BorderSide(color: GroceryMerchantTheme.accentRose),
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          shape: shape,
+        ),
       );
     }
 
-    return const SizedBox.shrink();
+    return ElevatedButton.icon(
+      onPressed: onPressed,
+      icon: const Icon(Icons.check, size: 16),
+      label: Text(action.label),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: GroceryMerchantTheme.primaryGreen,
+        foregroundColor: Colors.white,
+        padding: const EdgeInsets.symmetric(vertical: 14),
+        shape: shape,
+      ),
+    );
   }
 
-  bool _isActionableStatus(String status) {
-    return ['NEW', 'ACCEPTED', 'PICKING', 'PACKING'].contains(status);
+  String _customerReference(dynamic customerId) {
+    final value = customerId?.toString() ?? '';
+    if (value.isEmpty) return 'Unavailable';
+    final cleaned = value.replaceAll('-', '');
+    return '#${cleaned.substring(cleaned.length > 6 ? cleaned.length - 6 : 0)}';
+  }
+
+  double _toDouble(dynamic value) {
+    if (value is num) return value.toDouble();
+    if (value is String) return double.tryParse(value) ?? 0;
+    return 0;
   }
 }
+
+/// Per-line packed weight input for weight/volume order lines.
+class _PackedWeightField extends StatefulWidget {
+  const _PackedWeightField({
+    required this.unit,
+    required this.remaining,
+    required this.max,
+    required this.busy,
+    required this.disabled,
+    required this.onSubmit,
+  });
+
+  final String unit;
+  final double remaining;
+  final double max;
+  final bool busy;
+  final bool disabled;
+  final Future<void> Function(double packedWeight) onSubmit;
+
+  @override
+  State<_PackedWeightField> createState() => _PackedWeightFieldState();
+}
+
+class _PackedWeightFieldState extends State<_PackedWeightField> {
+  late final TextEditingController _controller =
+      TextEditingController(text: _trimNum(widget.remaining));
+  String? _validationError;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    final value = double.tryParse(_controller.text.trim());
+    if (value == null || value <= 0) {
+      setState(() => _validationError = 'Enter a packed quantity greater than 0.');
+      return;
+    }
+    if (value > widget.max) {
+      setState(() => _validationError = 'Cannot exceed the ordered ${_trimNum(widget.max)} ${widget.unit}.');
+      return;
+    }
+    setState(() => _validationError = null);
+    await widget.onSubmit(value);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: TextField(
+            controller: _controller,
+            enabled: !widget.busy && !widget.disabled,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: InputDecoration(
+              isDense: true,
+              labelText: 'Confirm packed quantity (${widget.unit})',
+              errorText: _validationError,
+              border: const OutlineInputBorder(),
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        SizedBox(
+          height: 40,
+          child: ElevatedButton(
+            onPressed: widget.busy || widget.disabled ? null : _submit,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: GroceryMerchantTheme.primaryGreen,
+              foregroundColor: Colors.white,
+            ),
+            child: widget.busy
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                  )
+                : const Text('Pack'),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Renders a quantity without a trailing `.0` when it is a whole number.
+String _trimNum(double value) =>
+    value == value.roundToDouble() ? value.toStringAsFixed(0) : value.toString();

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mobile/core/network/nabin_api_service.dart';
 import 'package:mobile/core/network/session_manager.dart';
 import '../theme/grocery_merchant_theme.dart';
+import '../utils/grocery_order_flow.dart';
 import 'grocery_merchant_order_detail_screen.dart';
 
 /// Orders Screen for NABIN Grocery Merchant App
@@ -18,12 +19,13 @@ class _GroceryMerchantOrdersScreenState extends ConsumerState<GroceryMerchantOrd
   List<dynamic> _orders = [];
   String? _errorMessage;
   String _selectedStatus = 'ALL';
+  String? _busyOrderId;
 
+  /// Values must match `orders.order_state` in migration 018 — there is no NEW or PICKING state.
   final List<String> _statusFilters = [
     'ALL',
-    'NEW',
+    'RECEIVED',
     'ACCEPTED',
-    'PICKING',
     'PACKING',
     'READY_FOR_PICKUP',
     'DELIVERED',
@@ -37,21 +39,31 @@ class _GroceryMerchantOrdersScreenState extends ConsumerState<GroceryMerchantOrd
     _loadOrders();
   }
 
-  Future<void> _loadOrders() async {
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
+  Future<void> _loadOrders({bool silent = false}) async {
+    if (!silent) {
+      setState(() {
+        _isLoading = true;
+        _errorMessage = null;
+      });
+    }
 
     try {
       final session = SessionManager.instance.currentUser;
-      final merchantId = session?['id'] ?? 'mcht_1';
+      final merchantId = session?['id'];
+      if (merchantId == null) {
+        setState(() {
+          _isLoading = false;
+          _errorMessage = 'Your session has expired. Please sign in again.';
+        });
+        return;
+      }
 
       final result = await NabinApiService.getMerchantOrders(merchantId);
-      
+
       if (result?['success'] == true) {
         setState(() {
           _orders = result?['orders'] as List<dynamic>? ?? [];
+          _errorMessage = null;
           _isLoading = false;
         });
       } else {
@@ -206,8 +218,8 @@ class _GroceryMerchantOrdersScreenState extends ConsumerState<GroceryMerchantOrd
 
   Widget _buildOrderCard(Map<String, dynamic> order) {
     final status = order['order_state'] ?? 'UNKNOWN';
-    final statusColor = _getOrderStatusColor(status);
-    final statusText = _getOrderStatusText(status);
+    final statusColor = groceryOrderStatusColor(status);
+    final statusText = groceryOrderStatusLabel(status);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -281,7 +293,7 @@ class _GroceryMerchantOrdersScreenState extends ConsumerState<GroceryMerchantOrd
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Customer: ${order['customer_name'] ?? 'Unknown'}',
+                          'Customer ref: ${_customerReference(order['customer_id'])}',
                           style: TextStyle(
                             fontSize: 13,
                             color: GroceryMerchantTheme.textMuted,
@@ -289,7 +301,7 @@ class _GroceryMerchantOrdersScreenState extends ConsumerState<GroceryMerchantOrd
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          'Items: ${order['items_count'] ?? (order['lines']?.length ?? 0)}',
+                          'Items: ${(order['lines'] as List?)?.length ?? 0}',
                           style: TextStyle(
                             fontSize: 13,
                             color: GroceryMerchantTheme.textMuted,
@@ -323,7 +335,7 @@ class _GroceryMerchantOrdersScreenState extends ConsumerState<GroceryMerchantOrd
               ),
 
               // Action Buttons for active orders
-              if (_isActionableStatus(status)) ...[
+              if (groceryMerchantActions(status).isNotEmpty) ...[
                 const SizedBox(height: 12),
                 const Divider(height: 1),
                 const SizedBox(height: 12),
@@ -337,153 +349,109 @@ class _GroceryMerchantOrdersScreenState extends ConsumerState<GroceryMerchantOrd
   }
 
   Widget _buildActionButtons(Map<String, dynamic> order, String status) {
-    final orderId = order['id'];
-    final merchantId = order['merchant_id'] ?? 'mcht_1';
+    final actions = groceryMerchantActions(status);
+    if (actions.isEmpty) return const SizedBox.shrink();
+    final busy = _busyOrderId != null && _busyOrderId == order['id'];
 
-    if (status == 'NEW') {
-      return Row(
-        children: [
-          Expanded(
-            child: OutlinedButton.icon(
-              onPressed: () => _updateOrderStatus(orderId, merchantId, 'REJECTED'),
-              icon: const Icon(Icons.close, size: 16),
-              label: const Text('Reject'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: GroceryMerchantTheme.accentRose,
-                side: BorderSide(color: GroceryMerchantTheme.accentRose),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: ElevatedButton.icon(
-              onPressed: () => _updateOrderStatus(orderId, merchantId, 'ACCEPTED'),
-              icon: const Icon(Icons.check, size: 16),
-              label: const Text('Accept Order'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: GroceryMerchantTheme.primaryGreen,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-              ),
-            ),
-          ),
+    return Row(
+      children: [
+        for (var i = 0; i < actions.length; i++) ...[
+          if (i > 0) const SizedBox(width: 12),
+          Expanded(child: _buildActionButton(order, actions[i], busy)),
         ],
-      );
-    } else if (status == 'ACCEPTED') {
-      return Row(
-        children: [
-          Expanded(
-            child: ElevatedButton.icon(
-              onPressed: () => _updateOrderStatus(orderId, merchantId, 'PICKING'),
-              icon: const Icon(Icons.shopping_basket, size: 16),
-              label: const Text('Start Picking'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: GroceryMerchantTheme.accentAmber,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-              ),
-            ),
-          ),
-        ],
-      );
-    } else if (status == 'PICKING') {
-      return Row(
-        children: [
-          Expanded(
-            child: ElevatedButton.icon(
-              onPressed: () => _updateOrderStatus(orderId, merchantId, 'PACKING'),
-              icon: const Icon(Icons.inventory_2, size: 16),
-              label: const Text('Start Packing'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: GroceryMerchantTheme.primaryGreen,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-              ),
-            ),
-          ),
-        ],
-      );
-    } else if (status == 'PACKING') {
-      return Row(
-        children: [
-          Expanded(
-            child: ElevatedButton.icon(
-              onPressed: () => _updateOrderStatus(orderId, merchantId, 'READY_FOR_PICKUP'),
-              icon: const Icon(Icons.check_circle, size: 16),
-              label: const Text('Ready for Pickup'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: GroceryMerchantTheme.primaryGreen,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-              ),
-            ),
-          ),
-        ],
+      ],
+    );
+  }
+
+  Widget _buildActionButton(Map<String, dynamic> order, GroceryMerchantAction action, bool busy) {
+    final onPressed = busy ? null : () => _performAction(order, action);
+    final shape = RoundedRectangleBorder(borderRadius: BorderRadius.circular(8));
+
+    if (action.danger) {
+      return OutlinedButton.icon(
+        onPressed: onPressed,
+        icon: const Icon(Icons.close, size: 16),
+        label: Text(action.label),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: GroceryMerchantTheme.accentRose,
+          side: const BorderSide(color: GroceryMerchantTheme.accentRose),
+          shape: shape,
+        ),
       );
     }
 
-    return const SizedBox.shrink();
+    return ElevatedButton.icon(
+      onPressed: onPressed,
+      icon: const Icon(Icons.check, size: 16),
+      label: Text(action.label),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: GroceryMerchantTheme.primaryGreen,
+        foregroundColor: Colors.white,
+        shape: shape,
+      ),
+    );
   }
 
-  bool _isActionableStatus(String status) {
-    return ['NEW', 'ACCEPTED', 'PICKING', 'PACKING'].contains(status);
-  }
-
-  Future<void> _updateOrderStatus(String orderId, String merchantId, String newStatus) async {
-    // Show confirmation dialog for rejection
-    if (newStatus == 'REJECTED') {
-      final reason = await _showRejectionDialog();
+  Future<void> _performAction(Map<String, dynamic> order, GroceryMerchantAction action) async {
+    String? reason;
+    if (action.status == 'REJECTED') {
+      reason = await _showRejectionDialog();
       if (reason == null) return;
-      
-      final result = await NabinApiService.updateMerchantOrderStatus(
-        restaurantId: merchantId,
-        orderId: orderId,
-        status: newStatus,
-      );
-      
-      if (result?['success'] == true) {
-        _loadOrders();
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Order rejected: $reason'),
-              backgroundColor: GroceryMerchantTheme.accentRose,
-            ),
-          );
-        }
-      }
-    } else {
-      final result = await NabinApiService.updateMerchantOrderStatus(
-        restaurantId: merchantId,
-        orderId: orderId,
-        status: newStatus,
-      );
-      
-      if (result?['success'] == true) {
-        _loadOrders();
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Order status updated to ${_getOrderStatusText(newStatus)}'),
-              backgroundColor: GroceryMerchantTheme.primaryGreen,
-            ),
-          );
-        }
-      }
     }
+
+    final updated = await _updateOrderStatus(
+      order['id']?.toString() ?? '',
+      action.status,
+      reason: reason,
+    );
+    if (!updated || !mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(reason == null
+            ? '${action.label} confirmed.'
+            : 'Order rejected (${groceryRejectionReasonLabel(reason)}).'),
+        backgroundColor:
+            action.danger ? GroceryMerchantTheme.accentRose : GroceryMerchantTheme.primaryGreen,
+      ),
+    );
+  }
+
+  Future<bool> _updateOrderStatus(String orderId, String status, {String? reason}) async {
+    final session = SessionManager.instance.currentUser;
+    final merchantId = session?['id'];
+    if (merchantId == null || orderId.isEmpty) return false;
+
+    setState(() => _busyOrderId = orderId);
+    try {
+      final result = await NabinApiService.updateMerchantOrderStatus(
+        restaurantId: merchantId,
+        orderId: orderId,
+        status: status,
+        reason: reason,
+      );
+      if (result?['success'] == true) {
+        await _loadOrders(silent: true);
+        return true;
+      }
+      _showError(result?['error'] ?? 'The platform rejected this status change.');
+      return false;
+    } catch (e) {
+      _showError('Network error. The order status did not change.');
+      return false;
+    } finally {
+      if (mounted) setState(() => _busyOrderId = null);
+    }
+  }
+
+  void _showError(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: GroceryMerchantTheme.accentRose),
+    );
   }
 
   Future<String?> _showRejectionDialog() async {
-    final reasons = [
-      'ITEM_UNAVAILABLE',
-      'MERCHANT_CLOSED',
-      'OUT_OF_STOCK',
-      'UNABLE_TO_PREPARE',
-      'INVALID_ORDER',
-      'OTHER',
-    ];
-
     String? selectedReason;
 
     return showDialog<String>(
@@ -493,9 +461,9 @@ class _GroceryMerchantOrdersScreenState extends ConsumerState<GroceryMerchantOrd
           title: const Text('Reject Order'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
-            children: reasons.map((reason) {
+            children: kGroceryRejectionReasons.map((reason) {
               return RadioListTile<String>(
-                title: Text(reason.replaceAll('_', ' ')),
+                title: Text(groceryRejectionReasonLabel(reason)),
                 value: reason,
                 groupValue: selectedReason,
                 onChanged: (value) {
@@ -524,50 +492,12 @@ class _GroceryMerchantOrdersScreenState extends ConsumerState<GroceryMerchantOrd
     );
   }
 
-  String _getOrderStatusText(String status) {
-    switch (status) {
-      case 'NEW':
-        return 'New Order';
-      case 'ACCEPTED':
-        return 'Accepted';
-      case 'REJECTED':
-        return 'Rejected';
-      case 'PICKING':
-        return 'Picking Items';
-      case 'PACKING':
-        return 'Packing';
-      case 'READY_FOR_PICKUP':
-        return 'Ready for Pickup';
-      case 'DELIVERED':
-        return 'Delivered';
-      case 'CANCELLED':
-        return 'Cancelled';
-      default:
-        return status;
-    }
-  }
-
-  Color _getOrderStatusColor(String status) {
-    switch (status) {
-      case 'NEW':
-        return const Color(0xFFE11D48); // Rose 600
-      case 'ACCEPTED':
-        return GroceryMerchantTheme.primaryGreen;
-      case 'REJECTED':
-        return GroceryMerchantTheme.accentRose;
-      case 'PICKING':
-        return const Color(0xFF2563EB); // Blue 600
-      case 'PACKING':
-        return GroceryMerchantTheme.accentAmber;
-      case 'READY_FOR_PICKUP':
-        return GroceryMerchantTheme.primaryGreen;
-      case 'DELIVERED':
-        return GroceryMerchantTheme.primaryGreen;
-      case 'CANCELLED':
-        return GroceryMerchantTheme.textMuted;
-      default:
-        return GroceryMerchantTheme.textMuted;
-    }
+  /// Orders expose only `customer_id`; there is no customer name or phone on the
+  /// order row, so the merchant sees a stable reference instead of an invented name.
+  String _customerReference(dynamic customerId) {
+    final value = customerId?.toString() ?? '';
+    if (value.isEmpty) return 'Unavailable';
+    return '#${value.replaceAll('-', '').substring(value.length > 6 ? value.length - 6 : 0)}';
   }
 
   String _formatTime(String? isoString) {

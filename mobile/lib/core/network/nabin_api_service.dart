@@ -496,7 +496,8 @@ class NabinApiService {
   // 8. MERCHANT INVENTORY APIS
   // =========================================================================
 
-  static Future<Map<String, dynamic>?> getMerchantInventory(String merchantId) async {
+  // The backend resolves the merchant from the bearer token, so no id is sent.
+  static Future<Map<String, dynamic>?> getMerchantInventory() async {
     try {
       final client = HttpClient();
       final request = await client.getUrl(Uri.parse('$effectiveUrl/merchant/inventory'));
@@ -948,4 +949,93 @@ class NabinApiService {
       return {'success': false, 'error': e.toString()};
     }
   }
+
+  // =========================================================================
+  // 9. CUSTOMER DISCOVERY, SPONSORED SLOTS & GROCERY FULFILMENT APIS
+  // =========================================================================
+
+  static Future<Map<String, dynamic>?> _getJson(String pathAndQuery) async {
+    try {
+      final client = HttpClient();
+      final request = await client.getUrl(Uri.parse('$effectiveUrl$pathAndQuery'));
+      _attachAuthHeader(request);
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      return jsonDecode(body) as Map<String, dynamic>;
+    } catch (e) {
+      return {'success': false, 'error': e.toString()};
+    }
+  }
+
+  static Future<Map<String, dynamic>?> _postJson(String path, Map<String, dynamic> payload) async {
+    try {
+      final client = HttpClient();
+      final request = await client.postUrl(Uri.parse('$effectiveUrl$path'));
+      request.headers.set('content-type', 'application/json');
+      _attachAuthHeader(request);
+      request.add(utf8.encode(jsonEncode(payload)));
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      return jsonDecode(body) as Map<String, dynamic>;
+    } catch (e) {
+      return {'success': false, 'error': e.toString()};
+    }
+  }
+
+  static String _query(Map<String, String?> params) {
+    final pairs = params.entries
+        .where((entry) => entry.value != null && entry.value!.isNotEmpty)
+        .map((entry) =>
+            '${Uri.encodeQueryComponent(entry.key)}=${Uri.encodeQueryComponent(entry.value!)}');
+    return pairs.isEmpty ? '' : '?${pairs.join('&')}';
+  }
+
+  static Future<Map<String, dynamic>?> getGroceryProducts({
+    String? category,
+    String? search,
+    String? merchantId,
+  }) =>
+      _getJson('/grocery/products${_query({
+            'category': category,
+            'search': search,
+            'merchantId': merchantId
+          })}');
+
+  static Future<Map<String, dynamic>?> getRestaurants({
+    String? search,
+    String? cuisine,
+    bool openNow = false,
+  }) =>
+      _getJson('/restaurants${_query({
+            'search': search,
+            'cuisine': cuisine,
+            'openNow': openNow ? 'true' : null
+          })}');
+
+  static Future<Map<String, dynamic>?> getRestaurantMenu(String restaurantId) =>
+      _getJson('/restaurants/${Uri.encodeComponent(restaurantId)}/menu');
+
+  /// PostgreSQL-backed KPIs for the signed-in store: `restaurant`,
+  /// `activeOrdersCount`, `todaySales` and `orders`. The id must be the session
+  /// merchant's own id; the route 403s on someone else's.
+  static Future<Map<String, dynamic>?> getMerchantDashboard(String merchantId) =>
+      _getJson('/merchant/${Uri.encodeComponent(merchantId)}/dashboard');
+
+  static Future<Map<String, dynamic>?> getAdvertisements({String? slot, String? service}) =>
+      _getJson('/advertisements${_query({'slot': slot, 'service': service})}');
+
+  /// Records the merchant's own grocery price list plus the master catalogue rows
+  /// the store has not stocked yet.
+  static Future<Map<String, dynamic>?> getMerchantMasterCatalog() =>
+      _getJson('/merchant/master-catalog');
+
+  static Future<Map<String, dynamic>?> submitGroceryPackedWeight({
+    required String orderId,
+    required String itemId,
+    required double packedWeight,
+  }) =>
+      _postJson('/grocery/orders/${Uri.encodeComponent(orderId)}/packed-weight', {
+        'itemId': itemId,
+        'packedWeight': packedWeight
+      });
 }

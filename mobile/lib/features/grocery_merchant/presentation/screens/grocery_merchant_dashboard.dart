@@ -21,6 +21,24 @@ class _GroceryMerchantDashboardState extends ConsumerState<GroceryMerchantDashbo
   String? _errorMessage;
   Timer? _refreshTimer;
 
+  /// The dashboard payload spans every service the store runs, and this is the
+  /// grocery console, so its figures come from GROCERY lines only — the same
+  /// rule the grocery web console applies.
+  List<dynamic> get _groceryOrders => (_dashboardData?['orders'] as List? ?? const [])
+      .where((order) => order is Map && order['service_type'] == 'GROCERY')
+      .toList();
+
+  int get _activeGroceryOrders => _groceryOrders
+      .where((order) => !['DELIVERED', 'REJECTED', 'CANCELLED'].contains(order['order_state']))
+      .length;
+
+  double get _salesOnRecord => _groceryOrders.fold<double>(
+        0,
+        (sum, order) => ['REJECTED', 'CANCELLED'].contains(order['order_state'])
+            ? sum
+            : sum + ((order['total_amount'] as num?)?.toDouble() ?? 0),
+      );
+
   @override
   void initState() {
     super.initState();
@@ -49,7 +67,7 @@ class _GroceryMerchantDashboardState extends ConsumerState<GroceryMerchantDashbo
       final merchantId = session?['id'];
       if (merchantId == null) throw Exception('No merchant session found');
 
-      final result = await NabinApiService.getMerchantOrders(merchantId);
+      final result = await NabinApiService.getMerchantDashboard(merchantId);
       
       if (result?['success'] == true) {
         setState(() {
@@ -74,6 +92,33 @@ class _GroceryMerchantDashboardState extends ConsumerState<GroceryMerchantDashbo
     await _loadDashboardData();
   }
 
+  Future<void> _confirmLogout() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Log out?'),
+        content: const Text('You will need to sign in again to manage your store.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: GroceryMerchantTheme.accentRose,
+            ),
+            child: const Text('Log out'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    ref.read(groceryMerchantAuthProvider.notifier).logout();
+    Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -96,10 +141,7 @@ class _GroceryMerchantDashboardState extends ConsumerState<GroceryMerchantDashbo
           ),
           IconButton(
             icon: const Icon(Icons.logout, color: Colors.white),
-            onPressed: () {
-              ref.read(groceryMerchantAuthProvider.notifier).logout();
-              Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
-            },
+            onPressed: _confirmLogout,
           ),
         ],
       ),
@@ -166,7 +208,7 @@ class _GroceryMerchantDashboardState extends ConsumerState<GroceryMerchantDashbo
                             Expanded(
                               child: _buildStatCard(
                                 'Active Orders',
-                                '${_dashboardData?['activeOrdersCount'] ?? 0}',
+                                '$_activeGroceryOrders',
                                 Icons.shopping_bag_outlined,
                                 GroceryMerchantTheme.primaryGreen,
                               ),
@@ -174,8 +216,8 @@ class _GroceryMerchantDashboardState extends ConsumerState<GroceryMerchantDashbo
                             const SizedBox(width: 16),
                             Expanded(
                               child: _buildStatCard(
-                                'Today\'s Sales',
-                                '₹${(_dashboardData?['todaySales'] ?? 0).toStringAsFixed(0)}',
+                                'Sales on record',
+                                '₹${_salesOnRecord.toStringAsFixed(0)}',
                                 Icons.attach_money,
                                 GroceryMerchantTheme.primaryGreen,
                               ),
@@ -227,14 +269,8 @@ class _GroceryMerchantDashboardState extends ConsumerState<GroceryMerchantDashbo
                               ),
                             ),
                             const SizedBox(width: 12),
-                            Expanded(
-                              child: _buildActionButton(
-                                'Settings',
-                                Icons.settings_outlined,
-                                () => Navigator.of(context).pushNamed('/settings'),
-                                GroceryMerchantTheme.primaryGreen,
-                              ),
-                            ),
+                            // Kept as a spacer so Price Management matches the tile width above.
+                            const Expanded(child: SizedBox.shrink()),
                           ],
                         ),
                         const SizedBox(height: 32),
@@ -327,7 +363,7 @@ class _GroceryMerchantDashboardState extends ConsumerState<GroceryMerchantDashbo
   }
 
   Widget _buildRecentOrdersList() {
-    final orders = _dashboardData?['orders'] ?? [];
+    final orders = _groceryOrders;
     if (orders.isEmpty) {
       return Container(
         padding: const EdgeInsets.all(24),
@@ -363,70 +399,83 @@ class _GroceryMerchantDashboardState extends ConsumerState<GroceryMerchantDashbo
   }
 
   Widget _buildOrderItem(Map<String, dynamic> order) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
+    final orderId = order['id']?.toString() ?? order['order_number']?.toString();
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Material(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.02),
-            blurRadius: 4,
-            offset: const Offset(0, 1),
-          ),
-        ],
-        border: Border.all(
-          color: GroceryMerchantTheme.borderLight,
-          width: 1,
-        ),
-      ),
-      child: Row(
-        children: [
-          // Order Info
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: orderId == null || orderId.isEmpty
+              ? null
+              : () => Navigator.of(context).pushNamed('/orders/${Uri.encodeComponent(orderId)}'),
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.02),
+                  blurRadius: 4,
+                  offset: const Offset(0, 1),
+                ),
+              ],
+              border: Border.all(
+                color: GroceryMerchantTheme.borderLight,
+                width: 1,
+              ),
+            ),
+            child: Row(
               children: [
-                Text(
-                  'Order #${order['order_number'] ?? order['id'] ?? 'N/A'}',
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                    color: GroceryMerchantTheme.textDark,
+                // Order Info
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Order #${order['order_number'] ?? order['id'] ?? 'N/A'}',
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                          color: GroceryMerchantTheme.textDark,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '₹${(order['total_amount'] ?? 0).toStringAsFixed(0)}',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                          color: GroceryMerchantTheme.primaryGreen,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        _getOrderStatusText(order['order_state'] ?? 'UNKNOWN'),
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: _getOrderStatusColor(order['order_state'] ?? 'UNKNOWN'),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  '₹${(order['total_amount'] ?? 0).toStringAsFixed(0)}',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w800,
-                    color: GroceryMerchantTheme.primaryGreen,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  _getOrderStatusText(order['order_state'] ?? 'UNKNOWN'),
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
+                // Status Indicator
+                Container(
+                  width: 12,
+                  height: 12,
+                  decoration: BoxDecoration(
                     color: _getOrderStatusColor(order['order_state'] ?? 'UNKNOWN'),
+                    borderRadius: BorderRadius.circular(6),
                   ),
                 ),
               ],
             ),
           ),
-          // Status Indicator
-          Container(
-            width: 12,
-            height: 12,
-            decoration: BoxDecoration(
-              color: _getOrderStatusColor(order['order_state'] ?? 'UNKNOWN'),
-              borderRadius: BorderRadius.circular(6),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -511,11 +560,6 @@ class _GroceryMerchantDashboardState extends ConsumerState<GroceryMerchantDashbo
             selectedIcon: Icon(Icons.inventory_2_rounded, color: GroceryMerchantTheme.primaryGreenDark),
             label: 'Inventory',
           ),
-          NavigationDestination(
-            icon: Icon(Icons.person_outline_rounded),
-            selectedIcon: Icon(Icons.person_rounded, color: GroceryMerchantTheme.primaryGreenDark),
-            label: 'Profile',
-          ),
         ],
       ),
     );
@@ -531,9 +575,6 @@ class _GroceryMerchantDashboardState extends ConsumerState<GroceryMerchantDashbo
         break;
       case 2:
         Navigator.of(context).pushNamed('/inventory');
-        break;
-      case 3:
-        Navigator.of(context).pushNamed('/profile');
         break;
     }
   }

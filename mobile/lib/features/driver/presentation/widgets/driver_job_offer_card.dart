@@ -79,7 +79,7 @@ class DriverJobOfferCard extends StatelessWidget {
             style: const TextStyle(
               fontSize: 32,
               fontWeight: FontWeight.w900,
-              color: DriverTheme.textDark,
+              color: DriverTheme.textPrimary,
             ),
           ),
           const SizedBox(height: 16),
@@ -91,7 +91,7 @@ class DriverJobOfferCard extends StatelessWidget {
               child: SizedBox(
                 height: 20,
                 child: VerticalDivider(
-                  color: DriverTheme.borderLight,
+                  color: DriverTheme.borderGlass,
                   thickness: 2,
                 ),
               ),
@@ -106,7 +106,7 @@ class DriverJobOfferCard extends StatelessWidget {
                   onPressed: onDecline,
                   style: OutlinedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 16),
-                    side: const BorderSide(color: DriverTheme.borderLight),
+                    side: const BorderSide(color: DriverTheme.borderGlass),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
                   child: const Text(
@@ -157,7 +157,7 @@ class DriverJobOfferCard extends StatelessWidget {
             style: const TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w500,
-              color: DriverTheme.textDark,
+              color: DriverTheme.textPrimary,
             ),
             maxLines: 2,
             overflow: TextOverflow.ellipsis,

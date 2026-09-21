@@ -49,7 +49,7 @@ class _FoodOrderTrackingScreenState extends State<FoodOrderTrackingScreen> {
   Widget build(BuildContext context) {
     final orderId = widget.orderData?['orderId'] as String? ?? 'FD-88912';
     final deliveryOtp = widget.orderData?['deliveryOtp'] as String? ?? '4892';
-    final restaurantName = widget.orderData?['restaurantName'] as String? ?? 'Dilli Darbar Mughlai Kitchen';
+    final restaurantName = widget.orderData?['restaurantName'] as String? ?? 'Restaurant partner';
     final grandTotal = widget.orderData?['grandTotal'] as String? ?? '₹480';
     final driverName = widget.orderData?['driverName'] as String? ?? 'Deepak Kumar (TVS Auto DL 1RA 4892)';
     final deliveryAddress = widget.orderData?['deliveryAddress'] as String? ?? 'Flat 402, Civil Lines, Delhi';
@@ -266,11 +266,14 @@ class _FoodOrderTrackingScreenState extends State<FoodOrderTrackingScreen> {
                     const Divider(height: 1, color: RestaurantTheme.border),
                     const SizedBox(height: 8),
                     if (items.isEmpty)
-                      const Text('Special Dum Biryani × 1, Paneer Tikka × 1, Garlic Naan × 2', style: TextStyle(fontSize: 12, color: RestaurantTheme.secondaryText))
+                      const Text(
+                        'Order lines are listed on your receipt once the kitchen confirms them.',
+                        style: TextStyle(fontSize: 12, color: RestaurantTheme.secondaryText),
+                      )
                     else
                       ...items.map((it) {
                         final name = it['name'] ?? 'Dish';
-                        final qty = it['qty'] ?? 1;
+                        final qty = it['quantity'] ?? it['qty'] ?? 1;
                         return Padding(
                           padding: const EdgeInsets.symmetric(vertical: 2),
                           child: Text('• $name × $qty', style: const TextStyle(fontSize: 12, color: RestaurantTheme.secondaryText)),

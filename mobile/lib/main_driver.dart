@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'core/router/driver_router.dart';
 import 'core/theme/app_theme.dart';
-import 'features/driver/presentation/screens/driver_app_shell.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -17,11 +17,11 @@ class NabinDriverApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
+    return MaterialApp.router(
       title: 'NABIN Driver Partner',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.driverTheme,
-      home: const DriverAppShell(),
+      routerConfig: driverRouter,
     );
   }
 }
