@@ -1,8 +1,11 @@
 import axios from 'axios';
 
+const fallbackBaseUrl =
+  process.env.NODE_ENV === 'production' ? '/api' : 'http://localhost:4000/api';
+
 // Create a configured axios instance
 export const api = axios.create({
-  baseURL: 'http://localhost:3000/api', // Backend running locally
+  baseURL: process.env.NEXT_PUBLIC_API_URL || fallbackBaseUrl,
   headers: {
     'Content-Type': 'application/json',
   },

@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useAuth } from "@/context/AuthContext";
-import { servicesApi } from "@/lib/api";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import AppShell from "@/components/AppShell";
+import { useAuth } from "@/context/AuthContext";
+import { servicesApi } from "@/lib/api";
 
 interface ServiceInfo {
   id: string;
@@ -14,11 +15,21 @@ interface ServiceInfo {
   broadcastNotice: string | null;
 }
 
+const SERVICE_ORDER = ["rides", "food", "grocery", "parcel"] as const;
+
+const SERVICE_META: Record<string, { href: string; label: string; blurb: string; accent: string }> = {
+  rides: { href: "/ride", label: "Ride", blurb: "Bike, auto and cab trips with live driver tracking.", accent: "var(--ride-blue)" },
+  food: { href: "/food", label: "Food", blurb: "Order from nearby restaurants and follow preparation.", accent: "var(--food-orange)" },
+  grocery: { href: "/grocery", label: "Grocery", blurb: "Daily staples packed by a nearby store.", accent: "var(--grocery-green)" },
+  parcel: { href: "/parcel", label: "Parcel", blurb: "Send a package across the city with proof of delivery.", accent: "var(--parcel-teal)" },
+};
+
 export default function DashboardPage() {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
   const [services, setServices] = useState<ServiceInfo[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -27,98 +38,111 @@ export default function DashboardPage() {
   }, [user, authLoading, router]);
 
   useEffect(() => {
+    if (!user) return;
     const fetchServices = async () => {
       try {
         const res = await servicesApi.getStatus();
         if (res.data.success) {
-          // Filter to only the core customer facing apps
-          const coreIds = ["rides", "food", "grocery", "parcel"];
-          const coreServices = res.data.services.filter((s: ServiceInfo) => coreIds.includes(s.id));
-          // Sort them to keep a consistent order
-          coreServices.sort((a: ServiceInfo, b: ServiceInfo) => coreIds.indexOf(a.id) - coreIds.indexOf(b.id));
-          setServices(coreServices);
+          const core = (res.data.services as ServiceInfo[]).filter((s) =>
+            (SERVICE_ORDER as readonly string[]).includes(s.id),
+          );
+          core.sort((a, b) => SERVICE_ORDER.indexOf(a.id as (typeof SERVICE_ORDER)[number]) - SERVICE_ORDER.indexOf(b.id as (typeof SERVICE_ORDER)[number]));
+          setServices(core);
+          setError(null);
+        } else {
+          setError("The platform returned no services.");
         }
-      } catch (err) {
-        console.error("Failed to load services", err);
+      } catch {
+        setError("Could not reach the NABIN API. Start the backend on port 4000.");
       } finally {
         setIsLoading(false);
       }
     };
-    if (user) {
-      fetchServices();
-    }
+    fetchServices();
   }, [user]);
 
   if (authLoading || !user) {
     return (
-      <div className="container" style={{ padding: "2rem", textAlign: "center" }}>
-        Loading...
-      </div>
+      <AppShell>
+        <div className="nabin-stack">
+          <div className="nabin-skeleton" style={{ height: 120, borderRadius: 28 }} />
+          <div className="nabin-grid">
+            {Array.from({ length: 4 }, (_, i) => (
+              <div key={i} className="nabin-skeleton" style={{ height: 168, borderRadius: 20 }} />
+            ))}
+          </div>
+        </div>
+      </AppShell>
     );
   }
 
   return (
-    <div className="container" style={{ padding: "2rem 1rem", maxWidth: "800px" }}>
-      <header style={{ marginBottom: "2rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div>
-          <h1 style={{ fontSize: "1.5rem", marginBottom: "0.25rem" }}>NABIN</h1>
-          <p style={{ color: "var(--text-muted)", fontSize: "0.875rem" }}>Welcome back, {user.phone}</p>
-        </div>
-        <div style={{ display: "flex", gap: "1rem" }}>
-          <Link href="/orders" style={{ padding: "0.5rem", color: "var(--text-muted)", textDecoration: "none" }}>
-            Orders
-          </Link>
-          <Link href="/profile" style={{ padding: "0.5rem", color: "var(--text-muted)", textDecoration: "none" }}>
-            Profile
-          </Link>
-        </div>
-      </header>
+    <AppShell>
+      <section className="nabin-hero">
+        <p style={{ opacity: 0.85, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", fontSize: 12 }}>
+          Signed in as {user.phone}
+        </p>
+        <h1>What are we moving today?</h1>
+        <p>One account for rides, food, grocery and parcels — priced and tracked by NABIN.</p>
+      </section>
 
-      <main>
-        <h2 style={{ fontSize: "1.25rem", marginBottom: "1rem" }}>Our Services</h2>
-        
-        {isLoading ? (
-          <div>Loading services...</div>
-        ) : (
-          <div style={{ display: "grid", gap: "1rem", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))" }}>
-            {services.map((service) => {
-              const isAvailable = service.status === "ACTIVE" || service.status === "DEGRADED";
-              
-              return (
-                <div key={service.id} className="card" style={{ opacity: isAvailable ? 1 : 0.6, display: "flex", flexDirection: "column" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "0.5rem" }}>
-                    <h3 style={{ fontSize: "1.125rem", fontWeight: "600" }}>{service.name}</h3>
-                    {!isAvailable && (
-                      <span style={{ fontSize: "0.75rem", background: "var(--error)", color: "white", padding: "0.125rem 0.375rem", borderRadius: "var(--radius-sm)" }}>
-                        Paused
-                      </span>
-                    )}
-                  </div>
-                  <p style={{ color: "var(--text-muted)", fontSize: "0.875rem", marginBottom: "1.5rem", flexGrow: 1 }}>
-                    {service.description}
-                  </p>
-                  
-                  {service.broadcastNotice && (
-                    <div style={{ marginBottom: "1rem", padding: "0.5rem", background: "rgba(245, 158, 11, 0.1)", color: "var(--warning)", borderRadius: "var(--radius-sm)", fontSize: "0.75rem" }}>
-                      {service.broadcastNotice}
-                    </div>
-                  )}
+      {error && (
+        <div className="nabin-alert nabin-alert--danger" role="alert" style={{ marginTop: "var(--space-lg)" }}>
+          <span>{error}</span>
+        </div>
+      )}
 
-                  {isAvailable ? (
-                    <Link href={`/${service.id === "rides" ? "ride" : service.id}`} className="btn-primary" style={{ textAlign: "center", display: "block" }}>
-                      Open {service.name.split(" ")[1] || "Service"}
-                    </Link>
-                  ) : (
-                    <button className="btn-primary" disabled style={{ background: "var(--border)", color: "var(--text-muted)", cursor: "not-allowed" }}>
-                      Temporarily Unavailable
-                    </button>
-                  )}
+      <h2 className="nabin-section-title">Services</h2>
+      {isLoading ? (
+        <div className="nabin-grid">
+          {Array.from({ length: 4 }, (_, i) => (
+            <div key={i} className="nabin-skeleton" style={{ height: 168, borderRadius: 20 }} />
+          ))}
+        </div>
+      ) : (
+        <div className="nabin-grid">
+          {services.map((service) => {
+            const meta = SERVICE_META[service.id];
+            const isAvailable = service.status === "ACTIVE" || service.status === "DEGRADED";
+            return (
+              <article key={service.id} className={`nabin-card ${isAvailable ? "nabin-card--interactive" : ""}`}>
+                <div className="nabin-card__header">
+                  <span className="nabin-service-dot" style={{ background: meta?.accent }} aria-hidden="true" />
+                  <span
+                    className={`nabin-badge ${
+                      service.status === "ACTIVE"
+                        ? "nabin-badge--success"
+                        : service.status === "DEGRADED"
+                          ? "nabin-badge--warning"
+                          : "nabin-badge--danger"
+                    }`}
+                  >
+                    {service.status === "PAUSED" ? "Paused" : service.status}
+                  </span>
                 </div>
-              );
-            })}
-          </div>
-        )}
-      </main>
-    </div>
+                <h3 style={{ fontSize: 18, fontWeight: 800 }}>{meta?.label ?? service.name}</h3>
+                <p style={{ color: "var(--ink-muted)", fontSize: 14, margin: "var(--space-xxs) 0 var(--space-lg)" }}>
+                  {service.description || meta?.blurb}
+                </p>
+                {service.broadcastNotice && (
+                  <p className="nabin-notice" role="status">
+                    {service.broadcastNotice}
+                  </p>
+                )}
+                {isAvailable ? (
+                  <Link href={meta?.href ?? "/"} className="nabin-btn nabin-btn--primary">
+                    Open {meta?.label ?? service.name}
+                  </Link>
+                ) : (
+                  <button className="nabin-btn nabin-btn--ghost" disabled>
+                    Temporarily unavailable
+                  </button>
+                )}
+              </article>
+            );
+          })}
+        </div>
+      )}
+    </AppShell>
   );
 }

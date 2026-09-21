@@ -1,114 +1,166 @@
 "use client";
 
 import { useState } from "react";
-import { bookingApi } from "@/lib/api";
 import Link from "next/link";
-import { useAuth } from "@/context/AuthContext";
+import AppShell from "@/components/AppShell";
+import FlowPage from "@/components/FlowPage";
+import LineItems, { blankLine, type CartLine } from "@/components/LineItems";
+import useSession from "@/hooks/useSession";
+import { bookingApi } from "@/lib/api";
+import { inr, toFailure } from "@/lib/format";
 
-interface JobResponse {
+interface PlacedOrder {
   id: string;
-  status: string;
-  [key: string]: unknown;
+  orderNumber?: string;
+  status?: string;
+  totalAmount?: number;
+  lines?: { product_name_snapshot?: string; quantity?: number; line_total?: number }[];
 }
 
 export default function FoodPage() {
-  const { user } = useAuth();
+  const { user, loading } = useSession();
   const [restaurantId, setRestaurantId] = useState("");
   const [deliveryAddress, setDeliveryAddress] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState<JobResponse | null>(null);
+  const [lines, setLines] = useState<CartLine[]>([blankLine(1)]);
+  const [busy, setBusy] = useState(false);
+  const [failure, setFailure] = useState("");
+  const [order, setOrder] = useState<PlacedOrder | null>(null);
 
-  const handleBook = async (e: React.FormEvent) => {
+  if (loading || !user) {
+    return (
+      <AppShell>
+        <div className="nabin-skeleton" style={{ height: 260, borderRadius: 20 }} />
+      </AppShell>
+    );
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!restaurantId || !deliveryAddress) {
-      setError("Please enter both Restaurant ID and Delivery Address");
+    const filled = lines.filter((line) => line.name.trim() && line.qty > 0);
+    if (!restaurantId.trim()) {
+      setFailure("Enter the restaurant ID you are ordering from.");
       return;
     }
-    
-    setLoading(true);
-    setError("");
-    setSuccess(null);
+    if (!deliveryAddress.trim()) {
+      setFailure("Enter a delivery address.");
+      return;
+    }
+    if (filled.length === 0) {
+      setFailure("Add at least one item with a quantity above zero.");
+      return;
+    }
 
+    setBusy(true);
+    setFailure("");
+    setOrder(null);
     try {
       const res = await bookingApi.bookFood({
-        restaurantId,
-        deliveryAddress,
-        items: [{ itemId: "item_123", quantity: 1, name: "Test Meal", price: 500 }],
-        customerId: user?.id,
+        customerId: user.id,
+        restaurantId: restaurantId.trim(),
+        deliveryAddress: deliveryAddress.trim(),
+        items: filled.map((line) => ({ name: line.name.trim(), quantity: line.qty })),
       });
-
       if (res.data.success) {
-        setSuccess(res.data.job);
-        setRestaurantId("");
-        setDeliveryAddress("");
+        setOrder(res.data.job);
+        setLines([blankLine(1)]);
       } else {
-        setError(res.data.error || "Failed to order food");
+        setFailure(res.data.error || "Could not place the order.");
       }
-    } catch (err: unknown) {
-      const error = err as { response?: { data?: { error?: string } } };
-      setError(error.response?.data?.error || "Error connecting to server");
+    } catch (err) {
+      setFailure(toFailure(err, "Could not reach the NABIN API on port 4000.").message);
     } finally {
-      setLoading(false);
+      setBusy(false);
     }
   };
 
   return (
-    <div className="container" style={{ padding: "2rem 1rem", maxWidth: "600px" }}>
-      <header style={{ marginBottom: "2rem", display: "flex", alignItems: "center", gap: "1rem" }}>
-        <Link href="/" style={{ color: "var(--text-muted)", fontSize: "1.25rem", textDecoration: "none" }}>
-          &larr;
-        </Link>
-        <h1 style={{ fontSize: "1.5rem", margin: 0 }}>Order Food</h1>
-      </header>
-
-      <div style={{ marginBottom: "2rem", padding: "1rem", background: "rgba(245, 158, 11, 0.1)", color: "var(--warning)", borderRadius: "var(--radius-md)", fontSize: "0.875rem" }}>
-        <strong>Note:</strong> Browsing restaurants is currently unsupported by the backend. Please enter a known Restaurant ID directly.
-      </div>
-
-      {success && (
-        <div style={{ marginBottom: "2rem", padding: "1.5rem", background: "rgba(16, 185, 129, 0.1)", borderRadius: "var(--radius-md)", border: "1px solid var(--success)" }}>
-          <h2 style={{ color: "var(--success)", marginBottom: "0.5rem" }}>Order Placed Successfully!</h2>
-          <p><strong>Order ID:</strong> {success.id}</p>
-          <p><strong>Status:</strong> {success.status}</p>
+    <AppShell>
+      <FlowPage title="Order food" subtitle="Send an order straight to the restaurant kitchen.">
+        <div className="nabin-notice">
+          Menu browsing is not exposed by the platform yet, so item names must match the
+          restaurant&rsquo;s catalog. Prices are read from that catalog server-side, never from this page.
         </div>
-      )}
 
-      <div className="card">
-        <form onSubmit={handleBook} style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-          {error && <div style={{ color: "var(--error)", padding: "0.5rem", background: "rgba(239, 68, 68, 0.1)", borderRadius: "var(--radius-sm)" }}>{error}</div>}
-          
+        {order && (
+          <div className="nabin-alert nabin-alert--success" role="status">
+            <h2>Order placed</h2>
+            <div className="nabin-list-row">
+              <span className="nabin-cell-meta">Order</span>
+              <span className="nabin-mono">{order.orderNumber || order.id}</span>
+            </div>
+            {(order.lines ?? []).map((line, index) => (
+              <div key={index} className="nabin-list-row">
+                <span style={{ fontWeight: 700 }}>
+                  {line.quantity}× {line.product_name_snapshot}
+                </span>
+                <span className="nabin-num">{inr(line.line_total)}</span>
+              </div>
+            ))}
+            <div className="nabin-list-row">
+              <span className="nabin-cell-meta">Total</span>
+              <span className="nabin-order__amount nabin-num">{inr(order.totalAmount)}</span>
+            </div>
+            <div className="nabin-list-row" style={{ borderBottom: "none" }}>
+              <span className="nabin-cell-meta">Delivering to {deliveryAddress || "your address"}</span>
+              <span className="nabin-badge nabin-badge--warning">{order.status ?? "RECEIVED"}</span>
+            </div>
+            <p style={{ marginTop: "var(--space-sm)", fontSize: 13 }}>
+              <Link href="/orders" className="nabin-alert__action" style={{ margin: 0 }}>
+                Track it in My orders
+              </Link>
+            </p>
+          </div>
+        )}
+
+        {failure && (
+          <div className="nabin-alert nabin-alert--danger" role="alert">
+            <span>{failure}</span>
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="nabin-form nabin-card">
           <div>
-            <label style={{ display: "block", marginBottom: "0.5rem", fontWeight: "500" }}>Restaurant ID</label>
+            <label className="nabin-label" htmlFor="restaurant">
+              Restaurant ID
+            </label>
             <input
+              id="restaurant"
+              className="nabin-input"
               type="text"
               value={restaurantId}
               onChange={(e) => setRestaurantId(e.target.value)}
-              placeholder="e.g. mcht_123"
-              className="input"
-              disabled={loading}
+              placeholder="e.g. mcht_1"
+              disabled={busy}
               required
             />
           </div>
 
           <div>
-            <label style={{ display: "block", marginBottom: "0.5rem", fontWeight: "500" }}>Delivery Address</label>
+            <span className="nabin-label">Items</span>
+            <LineItems lines={lines} onChange={setLines} disabled={busy} qtyLabel="quantity" />
+          </div>
+
+          <div>
+            <label className="nabin-label" htmlFor="address">
+              Delivery address
+            </label>
             <input
+              id="address"
+              className="nabin-input"
               type="text"
               value={deliveryAddress}
               onChange={(e) => setDeliveryAddress(e.target.value)}
-              placeholder="e.g. Thamel, Kathmandu"
-              className="input"
-              disabled={loading}
+              placeholder="e.g. North Campus Girls Hostel, Delhi"
+              disabled={busy}
               required
             />
           </div>
 
-          <button type="submit" className="btn-primary" disabled={loading} style={{ marginTop: "1rem" }}>
-            {loading ? "Placing Order..." : "Place Order"}
+          <button type="submit" className="nabin-btn nabin-btn--primary" disabled={busy}>
+            {busy ? "Placing order…" : "Place order"}
           </button>
         </form>
-      </div>
-    </div>
+      </FlowPage>
+    </AppShell>
   );
 }

@@ -1,99 +1,220 @@
 "use client";
 
 import { useState } from "react";
-import { bookingApi } from "@/lib/api";
 import Link from "next/link";
+import AppShell from "@/components/AppShell";
+import FlowPage from "@/components/FlowPage";
+import LineItems, { blankLine, type CartLine } from "@/components/LineItems";
+import useSession from "@/hooks/useSession";
+import { bookingApi } from "@/lib/api";
+import { inr, toFailure } from "@/lib/format";
 
-interface JobResponse {
-  id?: string;
-  orderId?: string;
-  checkout_id?: string;
+interface GroceryOrder {
+  id: string;
+  order_number?: string;
   status?: string;
-  checkoutStatus?: string;
-  [key: string]: unknown;
+  checkoutId?: string;
+  finalTotal?: number;
+  deliveryAddress?: string;
+  items?: { productName?: string; quantity?: number; unit?: string; finalItemAmount?: number }[];
 }
 
-export default function GroceryPage() {
-  const [storeId, setStoreId] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState<JobResponse | null>(null);
+const PAYMENT = [
+  { value: "CASH", label: "Cash on delivery", meta: "Pay the delivery partner" },
+  { value: "WALLET", label: "NABIN Wallet", meta: "Debited at checkout" },
+] as const;
 
-  const handleCheckout = async (e: React.FormEvent) => {
+export default function GroceryPage() {
+  const { user, loading } = useSession();
+  const [storeId, setStoreId] = useState("");
+  const [lines, setLines] = useState<CartLine[]>([blankLine(1)]);
+  const [paymentMethod, setPaymentMethod] = useState<string>("CASH");
+  const [deliveryAddress, setDeliveryAddress] = useState("");
+  const [instructions, setInstructions] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [failure, setFailure] = useState("");
+  const [order, setOrder] = useState<GroceryOrder | null>(null);
+
+  if (loading || !user) {
+    return (
+      <AppShell>
+        <div className="nabin-skeleton" style={{ height: 260, borderRadius: 20 }} />
+      </AppShell>
+    );
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!storeId) {
-      setError("Please enter a Store ID");
+    const filled = lines.filter((line) => line.name.trim() && line.qty > 0);
+    if (!storeId.trim()) {
+      setFailure("Enter the store ID. Dark stores are not supported.");
       return;
     }
-    
-    setLoading(true);
-    setError("");
-    setSuccess(null);
+    if (filled.length === 0) {
+      setFailure("Add at least one item with a quantity above zero.");
+      return;
+    }
 
+    setBusy(true);
+    setFailure("");
+    setOrder(null);
     try {
       const res = await bookingApi.checkoutGrocery({
-        merchantId: storeId,
-        paymentMethod: "CASH",
-        items: [{ itemId: "groc_1", quantity: 2, price: 100 }],
+        merchantId: storeId.trim(),
+        paymentMethod,
+        deliveryAddress: deliveryAddress.trim() || undefined,
+        deliveryInstructions: instructions.trim() || undefined,
+        items: filled.map((line) => ({ name: line.name.trim(), quantity: line.qty })),
       });
-
       if (res.data.success) {
-        setSuccess(res.data.checkout || res.data.order || res.data);
-        setStoreId("");
+        setOrder(res.data.order);
+        setLines([blankLine(1)]);
+        setInstructions("");
       } else {
-        setError(res.data.error || "Failed to checkout grocery");
+        setFailure(res.data.error || "Checkout failed.");
       }
-    } catch (err: unknown) {
-      const error = err as { response?: { data?: { error?: string } } };
-      setError(error.response?.data?.error || "Error connecting to server");
+    } catch (err) {
+      setFailure(toFailure(err, "Could not reach the NABIN API on port 4000.").message);
     } finally {
-      setLoading(false);
+      setBusy(false);
     }
   };
 
   return (
-    <div className="container" style={{ padding: "2rem 1rem", maxWidth: "600px" }}>
-      <header style={{ marginBottom: "2rem", display: "flex", alignItems: "center", gap: "1rem" }}>
-        <Link href="/" style={{ color: "var(--text-muted)", fontSize: "1.25rem", textDecoration: "none" }}>
-          &larr;
-        </Link>
-        <h1 style={{ fontSize: "1.5rem", margin: 0 }}>Grocery Checkout</h1>
-      </header>
-
-      <div style={{ marginBottom: "2rem", padding: "1rem", background: "rgba(245, 158, 11, 0.1)", color: "var(--warning)", borderRadius: "var(--radius-md)", fontSize: "0.875rem" }}>
-        <strong>Note:</strong> Browsing products is unsupported here. Enter a known independent Store ID (e.g., mcht_1). Darkstores are strictly rejected.
-      </div>
-
-      {success && (
-        <div style={{ marginBottom: "2rem", padding: "1.5rem", background: "rgba(16, 185, 129, 0.1)", borderRadius: "var(--radius-md)", border: "1px solid var(--success)" }}>
-          <h2 style={{ color: "var(--success)", marginBottom: "0.5rem" }}>Checkout Validated Successfully!</h2>
-          <p><strong>Checkout ID:</strong> {success.checkout_id || success.id || success.orderId || "Generated"}</p>
-          <p><strong>Status:</strong> {success.checkoutStatus || success.status || "CONFIRMED"}</p>
+    <AppShell>
+      <FlowPage title="Grocery checkout" subtitle="Order from an independent NABIN grocery partner.">
+        <div className="nabin-notice">
+          Product browsing is not exposed by the platform yet, so item names must match the
+          store&rsquo;s inventory. Quantities follow the unit the store lists — kilograms or pieces.
         </div>
-      )}
 
-      <div className="card">
-        <form onSubmit={handleCheckout} style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-          {error && <div style={{ color: "var(--error)", padding: "0.5rem", background: "rgba(239, 68, 68, 0.1)", borderRadius: "var(--radius-sm)" }}>{error}</div>}
-          
+        {order && (
+          <div className="nabin-alert nabin-alert--success" role="status">
+            <h2>Checkout confirmed</h2>
+            <div className="nabin-list-row">
+              <span className="nabin-cell-meta">Order</span>
+              <span className="nabin-mono">{order.order_number || order.id}</span>
+            </div>
+            {(order.items ?? []).map((item, index) => (
+              <div key={index} className="nabin-list-row">
+                <span style={{ fontWeight: 700 }}>
+                  {item.quantity}
+                  {item.unit === "kg" ? " kg" : ` ${item.unit ?? "pc"}`} {item.productName}
+                </span>
+                <span className="nabin-num">{inr(item.finalItemAmount)}</span>
+              </div>
+            ))}
+            <div className="nabin-list-row">
+              <span className="nabin-cell-meta">Total payable</span>
+              <span className="nabin-order__amount nabin-num">{inr(order.finalTotal)}</span>
+            </div>
+            <div className="nabin-list-row" style={{ borderBottom: "none" }}>
+              <span className="nabin-cell-meta">
+                {paymentMethod === "CASH" ? "Cash on delivery" : "Paid from wallet"}
+                {order.deliveryAddress ? ` · ${order.deliveryAddress}` : ""}
+              </span>
+              <span className="nabin-badge nabin-badge--warning">{order.status ?? "RECEIVED"}</span>
+            </div>
+            <p style={{ marginTop: "var(--space-sm)", fontSize: 13 }}>
+              <Link href="/orders" className="nabin-alert__action" style={{ margin: 0 }}>
+                Track it in My orders
+              </Link>
+            </p>
+          </div>
+        )}
+
+        {failure && (
+          <div className="nabin-alert nabin-alert--danger" role="alert">
+            <span>{failure}</span>
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="nabin-form nabin-card">
           <div>
-            <label style={{ display: "block", marginBottom: "0.5rem", fontWeight: "500" }}>Store ID (Merchant)</label>
+            <label className="nabin-label" htmlFor="store">
+              Store ID
+            </label>
             <input
+              id="store"
+              className="nabin-input"
               type="text"
               value={storeId}
               onChange={(e) => setStoreId(e.target.value)}
               placeholder="e.g. mcht_1"
-              className="input"
-              disabled={loading}
+              disabled={busy}
               required
             />
           </div>
 
-          <button type="submit" className="btn-primary" disabled={loading} style={{ marginTop: "1rem" }}>
-            {loading ? "Validating..." : "Express Checkout"}
+          <div>
+            <span className="nabin-label">Items</span>
+            <LineItems
+              lines={lines}
+              onChange={setLines}
+              disabled={busy}
+              placeholder="e.g. Toor Dal"
+              qtyLabel="quantity"
+            />
+          </div>
+
+          <div>
+            <span className="nabin-label">Payment</span>
+            <div className="nabin-segment">
+              {PAYMENT.map((option) => (
+                <div key={option.value} className="nabin-segment__option">
+                  <input
+                    id={`pay-${option.value}`}
+                    type="radio"
+                    name="paymentMethod"
+                    value={option.value}
+                    checked={paymentMethod === option.value}
+                    onChange={() => setPaymentMethod(option.value)}
+                    disabled={busy}
+                  />
+                  <label className="nabin-segment__label" htmlFor={`pay-${option.value}`}>
+                    <span className="nabin-segment__name">{option.label}</span>
+                    <span className="nabin-segment__meta">{option.meta}</span>
+                  </label>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="nabin-label" htmlFor="address">
+              Delivery address <span className="nabin-segment__meta">(optional)</span>
+            </label>
+            <input
+              id="address"
+              className="nabin-input"
+              type="text"
+              value={deliveryAddress}
+              onChange={(e) => setDeliveryAddress(e.target.value)}
+              placeholder="e.g. Flat 402, Civil Lines, Delhi"
+              disabled={busy}
+            />
+          </div>
+
+          <div>
+            <label className="nabin-label" htmlFor="instructions">
+              Instructions for the store <span className="nabin-segment__meta">(optional)</span>
+            </label>
+            <input
+              id="instructions"
+              className="nabin-input"
+              type="text"
+              value={instructions}
+              onChange={(e) => setInstructions(e.target.value)}
+              placeholder="e.g. Leave with the security desk"
+              disabled={busy}
+            />
+          </div>
+
+          <button type="submit" className="nabin-btn nabin-btn--primary" disabled={busy}>
+            {busy ? "Placing order…" : "Place order"}
           </button>
         </form>
-      </div>
-    </div>
+      </FlowPage>
+    </AppShell>
   );
 }

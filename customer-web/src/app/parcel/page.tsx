@@ -1,109 +1,238 @@
 "use client";
 
 import { useState } from "react";
-import { bookingApi } from "@/lib/api";
 import Link from "next/link";
-import { useAuth } from "@/context/AuthContext";
+import AppShell from "@/components/AppShell";
+import FlowPage from "@/components/FlowPage";
+import useSession from "@/hooks/useSession";
+import { bookingApi } from "@/lib/api";
+import { inr, toFailure } from "@/lib/format";
 
-interface JobResponse {
+interface ParcelJob {
   id: string;
   status: string;
-  [key: string]: unknown;
+  fare?: number;
+  distance?: string;
+  duration?: string;
+  deliveryOtp?: string;
+  pickup?: { address?: string };
+  drop?: { address?: string };
 }
 
 export default function ParcelPage() {
-  const { user } = useAuth();
+  const { user, loading } = useSession();
   const [pickup, setPickup] = useState("");
+  const [senderName, setSenderName] = useState("");
   const [drop, setDrop] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState<JobResponse | null>(null);
+  const [recipientName, setRecipientName] = useState("");
+  const [recipientPhone, setRecipientPhone] = useState("");
+  const [contents, setContents] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [failure, setFailure] = useState("");
+  const [job, setJob] = useState<ParcelJob | null>(null);
 
-  const handleBook = async (e: React.FormEvent) => {
+  if (loading || !user) {
+    return (
+      <AppShell>
+        <div className="nabin-skeleton" style={{ height: 260, borderRadius: 20 }} />
+      </AppShell>
+    );
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!pickup || !drop) {
-      setError("Please enter both pickup and drop addresses");
+    if (!pickup.trim() || !drop.trim()) {
+      setFailure("Enter both the pickup and the drop address.");
       return;
     }
-    
-    setLoading(true);
-    setError("");
-    setSuccess(null);
+    if (!recipientName.trim() || !recipientPhone.trim()) {
+      setFailure("The delivery partner needs a recipient name and phone number.");
+      return;
+    }
 
+    setBusy(true);
+    setFailure("");
+    setJob(null);
     try {
       const res = await bookingApi.bookParcel({
-        senderDetails: { address: pickup },
-        recipientDetails: { address: drop },
-        customerId: user?.id,
+        customerId: user.id,
+        senderDetails: {
+          address: pickup.trim(),
+          name: senderName.trim() || user.name || user.phone,
+          phone: user.phone,
+        },
+        recipientDetails: {
+          address: drop.trim(),
+          name: recipientName.trim(),
+          phone: recipientPhone.trim(),
+        },
+        contents: contents.trim() || undefined,
       });
-
       if (res.data.success) {
-        setSuccess(res.data.job);
+        setJob(res.data.job);
         setPickup("");
         setDrop("");
+        setContents("");
       } else {
-        setError(res.data.error || "Failed to book parcel");
+        setFailure(res.data.error || "Could not book the parcel pickup.");
       }
-    } catch (err: unknown) {
-      const error = err as { response?: { data?: { error?: string } } };
-      setError(error.response?.data?.error || "Error connecting to server");
+    } catch (err) {
+      setFailure(toFailure(err, "Could not reach the NABIN API on port 4000.").message);
     } finally {
-      setLoading(false);
+      setBusy(false);
     }
   };
 
   return (
-    <div className="container" style={{ padding: "2rem 1rem", maxWidth: "600px" }}>
-      <header style={{ marginBottom: "2rem", display: "flex", alignItems: "center", gap: "1rem" }}>
-        <Link href="/" style={{ color: "var(--text-muted)", fontSize: "1.25rem", textDecoration: "none" }}>
-          &larr;
-        </Link>
-        <h1 style={{ fontSize: "1.5rem", margin: 0 }}>Send a Parcel</h1>
-      </header>
+    <AppShell>
+      <FlowPage title="Send a parcel" subtitle="Courier pickup from your door, handed over with a one-time code.">
+        {job && (
+          <div className="nabin-alert nabin-alert--success" role="status">
+            <h2>Parcel booked</h2>
+            <div className="nabin-list-row">
+              <span className="nabin-cell-meta">Job ID</span>
+              <span className="nabin-mono">{job.id}</span>
+            </div>
+            <div className="nabin-list-row">
+              <span className="nabin-cell-meta">Route</span>
+              <span style={{ fontWeight: 700, textAlign: "right" }}>
+                {job.pickup?.address} &rarr; {job.drop?.address}
+              </span>
+            </div>
+            {(job.distance || job.duration) && (
+              <div className="nabin-list-row">
+                <span className="nabin-cell-meta">Distance</span>
+                <span style={{ fontWeight: 700 }}>{[job.distance, job.duration].filter(Boolean).join(" · ")}</span>
+              </div>
+            )}
+            <div className="nabin-list-row">
+              <span className="nabin-cell-meta">Fare</span>
+              <span className="nabin-order__amount nabin-num">{inr(job.fare)}</span>
+            </div>
+            {job.deliveryOtp && (
+              <div className="nabin-list-row" style={{ borderBottom: "none" }}>
+                <span className="nabin-cell-meta">Handover code for the recipient</span>
+                <span className="nabin-mono nabin-num">{job.deliveryOtp}</span>
+              </div>
+            )}
+            <p style={{ marginTop: "var(--space-sm)", fontSize: 13 }}>
+              <Link href="/orders" className="nabin-alert__action" style={{ margin: 0 }}>
+                Track it in My orders
+              </Link>
+            </p>
+          </div>
+        )}
 
-      {success && (
-        <div style={{ marginBottom: "2rem", padding: "1.5rem", background: "rgba(16, 185, 129, 0.1)", borderRadius: "var(--radius-md)", border: "1px solid var(--success)" }}>
-          <h2 style={{ color: "var(--success)", marginBottom: "0.5rem" }}>Parcel Booked Successfully!</h2>
-          <p><strong>Job ID:</strong> {success.id}</p>
-          <p><strong>Status:</strong> {success.status}</p>
-        </div>
-      )}
+        {failure && (
+          <div className="nabin-alert nabin-alert--danger" role="alert">
+            <span>{failure}</span>
+          </div>
+        )}
 
-      <div className="card">
-        <form onSubmit={handleBook} style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-          {error && <div style={{ color: "var(--error)", padding: "0.5rem", background: "rgba(239, 68, 68, 0.1)", borderRadius: "var(--radius-sm)" }}>{error}</div>}
-          
+        <form onSubmit={handleSubmit} className="nabin-form nabin-card">
+          <h2 className="nabin-section-title" style={{ margin: 0 }}>
+            Picked up from
+          </h2>
           <div>
-            <label style={{ display: "block", marginBottom: "0.5rem", fontWeight: "500" }}>Pickup Address</label>
+            <label className="nabin-label" htmlFor="pickup">
+              Pickup address
+            </label>
             <input
+              id="pickup"
+              className="nabin-input"
               type="text"
               value={pickup}
               onChange={(e) => setPickup(e.target.value)}
-              placeholder="e.g. Kamla Nagar Market, Block C"
-              className="input"
-              disabled={loading}
+              placeholder="e.g. Kamla Nagar Market, Block C, Delhi"
+              disabled={busy}
               required
             />
           </div>
-
           <div>
-            <label style={{ display: "block", marginBottom: "0.5rem", fontWeight: "500" }}>Drop Address</label>
+            <label className="nabin-label" htmlFor="sender">
+              Sender name <span className="nabin-segment__meta">(optional)</span>
+            </label>
             <input
+              id="sender"
+              className="nabin-input"
+              type="text"
+              value={senderName}
+              onChange={(e) => setSenderName(e.target.value)}
+              placeholder={user.name || user.phone}
+              disabled={busy}
+            />
+          </div>
+
+          <h2 className="nabin-section-title" style={{ margin: "var(--space-sm) 0 0" }}>
+            Delivering to
+          </h2>
+          <div>
+            <label className="nabin-label" htmlFor="drop">
+              Drop address
+            </label>
+            <input
+              id="drop"
+              className="nabin-input"
               type="text"
               value={drop}
               onChange={(e) => setDrop(e.target.value)}
-              placeholder="e.g. Karol Bagh Electronics Hub"
-              className="input"
-              disabled={loading}
+              placeholder="e.g. Karol Bagh Electronics Hub, Delhi"
+              disabled={busy}
               required
             />
           </div>
+          <div className="nabin-row" style={{ alignItems: "flex-start" }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <label className="nabin-label" htmlFor="recipient">
+                Recipient name
+              </label>
+              <input
+                id="recipient"
+                className="nabin-input"
+                type="text"
+                value={recipientName}
+                onChange={(e) => setRecipientName(e.target.value)}
+                placeholder="e.g. Ananya Verma"
+                disabled={busy}
+                required
+              />
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <label className="nabin-label" htmlFor="recipient-phone">
+                Recipient phone
+              </label>
+              <input
+                id="recipient-phone"
+                className="nabin-input"
+                type="tel"
+                value={recipientPhone}
+                onChange={(e) => setRecipientPhone(e.target.value)}
+                placeholder="+91 98xxx xxxxx"
+                disabled={busy}
+                required
+              />
+            </div>
+          </div>
+          <div>
+            <label className="nabin-label" htmlFor="contents">
+              What is inside <span className="nabin-segment__meta">(optional)</span>
+            </label>
+            <input
+              id="contents"
+              className="nabin-input"
+              type="text"
+              value={contents}
+              onChange={(e) => setContents(e.target.value)}
+              placeholder="e.g. Documents, no fragile items"
+              disabled={busy}
+            />
+          </div>
 
-          <button type="submit" className="btn-primary" disabled={loading} style={{ marginTop: "1rem" }}>
-            {loading ? "Booking..." : "Confirm Booking"}
+          <button type="submit" className="nabin-btn nabin-btn--primary" disabled={busy}>
+            {busy ? "Booking…" : "Book pickup"}
           </button>
         </form>
-      </div>
-    </div>
+      </FlowPage>
+    </AppShell>
   );
 }

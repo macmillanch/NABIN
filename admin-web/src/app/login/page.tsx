@@ -1,56 +1,76 @@
 'use client';
 
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useAuth } from '@/components/AuthProvider';
-import { useRouter } from 'next/navigation';
 
 export default function LoginPage() {
   const [password, setPassword] = useState('');
+  const [reveal, setReveal] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const { login } = useAuth();
-  const router = useRouter();
 
-  const handleLogin = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setBusy(true);
+    setError('');
     try {
       await login(password);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Invalid password');
+      setError(err instanceof Error ? err.message : 'Invalid password.');
+    } finally {
+      setBusy(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-100">
-      <div className="bg-white p-8 rounded-xl shadow-lg w-full max-w-md">
-        <h1 className="text-2xl font-bold text-center text-slate-900 mb-2">NABIN Admin</h1>
-        <p className="text-center text-slate-500 mb-8">Enter your master password to continue</p>
-        
+    <div className="nabin-auth">
+      <form onSubmit={handleSubmit} className="nabin-card nabin-auth__card">
+        <h1 className="nabin-wordmark" style={{ textAlign: 'center', fontSize: 28 }}>
+          NABIN
+        </h1>
+        <p className="nabin-auth__subtitle">Operations console — admin access only</p>
+
         {error && (
-          <div className="mb-4 p-3 bg-red-50 text-red-700 rounded-lg text-sm">
-            {error}
+          <div className="nabin-alert nabin-alert--danger" role="alert">
+            <span>{error}</span>
           </div>
         )}
 
-        <form onSubmit={handleLogin} className="space-y-4">
+        <div className="nabin-form">
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Password</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-              placeholder="••••••••"
-              required
-            />
+            <label className="nabin-label" htmlFor="password">
+              Master password
+            </label>
+            <div className="nabin-row" style={{ gap: 'var(--space-xs)' }}>
+              <input
+                id="password"
+                className="nabin-input"
+                type={reveal ? 'text' : 'password'}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+                autoComplete="current-password"
+                disabled={busy}
+                required
+              />
+              <button
+                type="button"
+                className="nabin-btn nabin-btn--ghost"
+                style={{ minHeight: 44, padding: '0 var(--space-sm)' }}
+                onClick={() => setReveal((value) => !value)}
+                aria-pressed={reveal}
+              >
+                {reveal ? 'Hide' : 'Show'}
+              </button>
+            </div>
           </div>
-          <button
-            type="submit"
-            className="w-full bg-blue-600 text-white font-medium py-2 rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            Sign In
+
+          <button type="submit" className="nabin-btn nabin-btn--primary" disabled={busy}>
+            {busy ? 'Signing in…' : 'Sign in'}
           </button>
-        </form>
-      </div>
+        </div>
+      </form>
     </div>
   );
 }

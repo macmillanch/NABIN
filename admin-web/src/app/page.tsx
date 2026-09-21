@@ -1,154 +1,224 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '@/components/AuthProvider';
 import { adminApi } from '@/lib/api';
-import { Activity, Users, Car, Store, Package, Settings, Power, LogOut } from 'lucide-react';
-import { useRouter } from 'next/navigation';
+import AdminLayout from '@/components/AdminLayout';
+import { Activity, Users, Car, Store, Package, Power, TriangleAlert } from 'lucide-react';
+
+interface Metrics {
+  activeCustomers: number;
+  activeDrivers: number;
+  activeMerchants: number;
+  activeJobs: number;
+}
+
+interface Service {
+  name: string;
+  isPaused: boolean;
+  pausedReason?: string;
+}
 
 export default function Dashboard() {
-  const { user, logout } = useAuth();
-  const [metrics, setMetrics] = useState<{ activeCustomers: number; activeDrivers: number; activeMerchants: number; activeJobs: number; } | null>(null);
-  const [services, setServices] = useState<{ name: string; isPaused: boolean; pausedReason?: string; }[]>([]);
-  const router = useRouter();
+  const { user } = useAuth();
+  const [metrics, setMetrics] = useState<Metrics | null>(null);
+  const [services, setServices] = useState<Service[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [busyService, setBusyService] = useState<string | null>(null);
+  const [confirmPause, setConfirmPause] = useState<string | null>(null);
 
-  async function fetchData() {
+  const fetchData = useCallback(async () => {
     try {
       const [metricsRes, servicesRes] = await Promise.all([
         adminApi.getMetrics(),
-        adminApi.getServiceStatus()
+        adminApi.getServiceStatus(),
       ]);
       if (metricsRes.data.success) setMetrics(metricsRes.data.metrics);
       if (servicesRes.data.success) setServices(servicesRes.data.services);
+      setError(null);
     } catch {
-      console.error('Failed to fetch data');
+      setError('Could not reach the platform API. Check that the backend is running.');
+    } finally {
+      setLoading(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
-    if (user) {
-      fetchData();
-    }
-  }, [user]);
+    if (user) fetchData();
+  }, [user, fetchData]);
 
-  async function toggleService(serviceName: string, isPaused: boolean) {
+  async function toggleService(service: Service) {
+    setBusyService(service.name);
+    setConfirmPause(null);
     try {
-      if (isPaused) {
-        await adminApi.resumeService(serviceName);
+      if (service.isPaused) {
+        await adminApi.resumeService(service.name);
       } else {
-        await adminApi.pauseService(serviceName, 'Admin manually paused');
+        await adminApi.pauseService(service.name, 'Admin manually paused');
       }
-      fetchData();
+      await fetchData();
     } catch {
-      alert('Failed to toggle service');
+      setError(`Could not update ${service.name}. The change was not applied.`);
+    } finally {
+      setBusyService(null);
     }
   }
 
-  if (!user) return null;
-
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col">
-      {/* Navbar */}
-      <header className="bg-white border-b px-6 py-4 flex items-center justify-between sticky top-0 z-10">
-        <div className="flex items-center gap-3">
-          <div className="bg-slate-900 text-white p-2 rounded-lg">
-            <Settings size={20} />
-          </div>
-          <h1 className="text-xl font-bold text-slate-900">NABIN Admin</h1>
-        </div>
-        <div className="flex items-center gap-4">
-          <span className="text-sm font-medium text-slate-600 bg-slate-100 px-3 py-1 rounded-full">
-            {user.role}
-          </span>
-          <button 
-            onClick={logout}
-            className="flex items-center gap-2 text-sm text-red-600 hover:bg-red-50 px-3 py-1.5 rounded-lg transition-colors"
-          >
-            <LogOut size={16} /> Logout
+    <AdminLayout title="Operations overview">
+      {error && (
+        <div className="nabin-alert nabin-alert--danger" role="alert">
+          <TriangleAlert size={18} />
+          <span>{error}</span>
+          <button onClick={fetchData} className="nabin-alert__action">
+            Retry
           </button>
         </div>
-      </header>
+      )}
 
-      <main className="flex-1 p-6 max-w-7xl mx-auto w-full space-y-8">
-        
-        {/* Metrics Grid */}
-        <section>
-          <h2 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
-            <Activity size={20} className="text-primary" /> Key Metrics
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            <MetricCard 
-              title="Active Customers" 
-              value={metrics?.activeCustomers || '0'} 
-              icon={<Users size={24} className="text-primary" />}
-              bgColor="bg-primary-50" 
-            />
-            <MetricCard 
-              title="Active Drivers" 
-              value={metrics?.activeDrivers || '0'} 
-              icon={<Car size={24} className="text-green-600" />}
-              bgColor="bg-green-50" 
-            />
-            <MetricCard 
-              title="Active Merchants" 
-              value={metrics?.activeMerchants || '0'} 
-              icon={<Store size={24} className="text-orange-600" />}
-              bgColor="bg-orange-50" 
-            />
-            <MetricCard 
-              title="Active Jobs" 
-              value={metrics?.activeJobs || '0'} 
-              icon={<Package size={24} className="text-purple-600" />}
-              bgColor="bg-purple-50" 
-            />
+      <section className="nabin-section" aria-labelledby="metrics-heading">
+        <div className="nabin-page-head">
+          <div>
+            <h1 id="metrics-heading" className="nabin-visually-hidden">
+              Key metrics
+            </h1>
+            <h2 className="nabin-section-title" style={{ margin: 0 }}>
+              <Activity size={18} /> Key metrics
+            </h2>
           </div>
-        </section>
+        </div>
 
-        {/* Service Controls */}
-        <section>
-          <h2 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
-            <Power size={20} className="text-red-600" /> Platform Services
+        <div className="nabin-grid">
+          {loading
+            ? Array.from({ length: 4 }, (_, i) => <SkeletonMetric key={i} />)
+            : [
+                { title: 'Active Customers', value: metrics?.activeCustomers ?? 0, icon: Users, tone: 'brand' },
+                { title: 'Active Drivers', value: metrics?.activeDrivers ?? 0, icon: Car, tone: 'success' },
+                { title: 'Active Merchants', value: metrics?.activeMerchants ?? 0, icon: Store, tone: 'warning' },
+                { title: 'Active Jobs', value: metrics?.activeJobs ?? 0, icon: Package, tone: 'info' },
+              ].map((m) => (
+                <MetricCard key={m.title} {...m} />
+              ))}
+        </div>
+      </section>
+
+      <section className="nabin-section" aria-labelledby="services-heading">
+        <div className="nabin-page-head">
+          <h2 id="services-heading" className="nabin-section-title" style={{ margin: 0 }}>
+            <Power size={18} /> Platform services
           </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <button onClick={fetchData} className="nabin-btn nabin-btn--ghost" style={{ minHeight: 40 }}>
+            Refresh
+          </button>
+        </div>
+
+        {loading ? (
+          <div className="nabin-grid">
+            <div className="nabin-skeleton" style={{ height: 96 }} />
+            <div className="nabin-skeleton" style={{ height: 96 }} />
+          </div>
+        ) : services.length === 0 ? (
+          <div className="nabin-empty">
+            <p className="nabin-empty__title">No services reported</p>
+            <p>The platform has not returned any controllable services yet.</p>
+          </div>
+        ) : (
+          <div className="nabin-grid">
             {services.map((svc) => (
-              <div key={svc.name} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
-                <div>
-                  <h3 className="font-bold text-slate-900 capitalize">{svc.name}</h3>
-                  <p className="text-sm text-slate-500 mt-1">{svc.isPaused ? svc.pausedReason : 'Operating normally'}</p>
+              <div key={svc.name} className="nabin-card nabin-service">
+                <div style={{ minWidth: 0 }}>
+                  <h3 className="nabin-service__name">{svc.name}</h3>
+                  <p className="nabin-service__reason">
+                    {svc.isPaused ? svc.pausedReason || 'Paused by admin' : 'Operating normally'}
+                  </p>
                 </div>
-                <button
-                  onClick={() => toggleService(svc.name, svc.isPaused)}
-                  className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${
-                    svc.isPaused 
-                      ? 'bg-red-100 text-red-700 hover:bg-red-200' 
-                      : 'bg-green-100 text-green-700 hover:bg-green-200'
-                  }`}
+                <span
+                  className={`nabin-badge ${svc.isPaused ? 'nabin-badge--danger' : 'nabin-badge--success'}`}
                 >
-                  {svc.isPaused ? 'RESUME' : 'PAUSE'}
-                </button>
+                  {svc.isPaused ? 'Paused' : 'Live'}
+                </span>
+                {svc.isPaused ? (
+                  <button
+                    onClick={() => toggleService(svc)}
+                    disabled={busyService === svc.name}
+                    className="nabin-btn nabin-btn--primary"
+                  >
+                    {busyService === svc.name ? 'Working…' : 'Resume'}
+                  </button>
+                ) : confirmPause === svc.name ? (
+                  <div className="nabin-row" role="group" aria-label={`Confirm pausing ${svc.name}`}>
+                    <button
+                      onClick={() => toggleService(svc)}
+                      disabled={busyService === svc.name}
+                      className="nabin-btn nabin-btn--danger"
+                    >
+                      {busyService === svc.name ? 'Working…' : 'Confirm pause'}
+                    </button>
+                    <button
+                      onClick={() => setConfirmPause(null)}
+                      className="nabin-btn nabin-btn--ghost"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setConfirmPause(svc.name)}
+                    className="nabin-btn nabin-btn--ghost"
+                    aria-describedby={`pause-note-${svc.name}`}
+                  >
+                    Pause
+                  </button>
+                )}
               </div>
             ))}
-            {services.length === 0 && (
-              <p className="text-slate-500 text-sm">Loading services...</p>
-            )}
           </div>
-        </section>
+        )}
+      </section>
+    </AdminLayout>
+  );
+}
 
-      </main>
+const TONE_CLASS: Record<string, string> = {
+  brand: 'nabin-metric__icon--brand',
+  success: 'nabin-metric__icon--success',
+  warning: 'nabin-metric__icon--warning',
+  info: 'nabin-metric__icon--info',
+};
+
+function MetricCard({
+  title,
+  value,
+  icon: Icon,
+  tone,
+}: {
+  title: string;
+  value: string | number;
+  icon: React.ComponentType<{ size?: number }>;
+  tone: string;
+}) {
+  return (
+    <div className="nabin-card nabin-metric">
+      <span className={`nabin-metric__icon ${TONE_CLASS[tone]}`}>
+        <Icon size={22} />
+      </span>
+      <div>
+        <p className="nabin-stat__label">{title}</p>
+        <p className="nabin-stat__value">{value}</p>
+      </div>
     </div>
   );
 }
 
-function MetricCard({ title, value, icon, bgColor }: { title: string, value: string | number, icon: React.ReactNode, bgColor: string }) {
+function SkeletonMetric() {
   return (
-    <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
-      <div className={`p-3 rounded-xl ${bgColor}`}>
-        {icon}
-      </div>
-      <div>
-        <p className="text-sm font-medium text-slate-500">{title}</p>
-        <p className="text-2xl font-bold text-slate-900">{value}</p>
+    <div className="nabin-card nabin-metric">
+      <div className="nabin-skeleton" style={{ width: 44, height: 44, borderRadius: 12 }} />
+      <div className="nabin-stack" style={{ gap: 8, flex: 1 }}>
+        <div className="nabin-skeleton" style={{ height: 12, width: '60%' }} />
+        <div className="nabin-skeleton" style={{ height: 24, width: '40%' }} />
       </div>
     </div>
   );

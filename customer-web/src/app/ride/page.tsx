@@ -1,128 +1,226 @@
 "use client";
 
 import { useState } from "react";
-import { bookingApi } from "@/lib/api";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { useAuth } from "@/context/AuthContext";
+import AppShell from "@/components/AppShell";
+import FlowPage from "@/components/FlowPage";
+import useSession from "@/hooks/useSession";
+import { bookingApi } from "@/lib/api";
+import { dateTime, inr, toFailure } from "@/lib/format";
+
+interface RideJob {
+  id: string;
+  status: string;
+  fare?: number;
+  distance?: string;
+  duration?: string;
+  vehicleType?: string;
+  createdAt?: string;
+  pickup?: { address?: string };
+  drop?: { address?: string };
+}
+
+const VEHICLES = [
+  { value: "BIKE", label: "Bike", meta: "1 seat · fastest" },
+  { value: "AUTO", label: "Auto", meta: "3 seats" },
+  { value: "TAXI", label: "Taxi", meta: "4 seats · AC" },
+] as const;
+
+const SPLASH: Record<string, string> = {
+  SEARCHING: "Looking for a driver nearby…",
+  ASSIGNED: "A driver has been assigned.",
+  ACCEPTED: "Your driver accepted the trip.",
+  ARRIVED: "Your driver has reached the pickup point.",
+  STARTED: "Trip in progress.",
+  COMPLETED: "Trip completed. Thanks for riding with NABIN.",
+};
 
 export default function RidePage() {
-  const router = useRouter();
-  const { user } = useAuth();
+  const { user, loading } = useSession();
   const [pickup, setPickup] = useState("");
   const [drop, setDrop] = useState("");
-  const [vehicleType, setVehicleType] = useState("TAXI");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  interface JobResponse {
-    id: string;
-    status: string;
-    estimatedFare?: number;
-  }
-  const [success, setSuccess] = useState<JobResponse | null>(null);
+  const [vehicleType, setVehicleType] = useState<string>("TAXI");
+  const [promoCode, setPromoCode] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [failure, setFailure] = useState<string>("");
+  const [job, setJob] = useState<RideJob | null>(null);
 
-  const handleBook = async (e: React.FormEvent) => {
+  if (loading || !user) {
+    return (
+      <AppShell>
+        <div className="nabin-skeleton" style={{ height: 260, borderRadius: 20 }} />
+      </AppShell>
+    );
+  }
+
+  const unverified = user.identityStatus && user.identityStatus !== "VERIFIED";
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!pickup || !drop) {
-      setError("Please enter both pickup and drop locations");
+    if (!pickup.trim() || !drop.trim()) {
+      setFailure("Enter both a pickup and a drop location.");
       return;
     }
-    
-    setLoading(true);
-    setError("");
-    setSuccess(null);
-
+    setBusy(true);
+    setFailure("");
+    setJob(null);
     try {
       const res = await bookingApi.bookRide({
-        pickup,
-        drop,
+        customerId: user.id,
         vehicleType,
-        customerId: user?.id,
+        pickup: { address: pickup.trim() },
+        drop: { address: drop.trim() },
+        promoCode: promoCode.trim() || undefined,
       });
-
       if (res.data.success) {
-        setSuccess(res.data.job);
+        setJob(res.data.job);
         setPickup("");
         setDrop("");
+        setPromoCode("");
       } else {
-        setError(res.data.error || "Failed to book ride");
+        setFailure(res.data.error || "Could not create the ride request.");
       }
-    } catch (err: unknown) {
-      const error = err as { response?: { data?: { error?: string } } };
-      setError(error.response?.data?.error || "Error connecting to server");
+    } catch (err) {
+      setFailure(toFailure(err, "Could not reach the NABIN API on port 4000.").message);
     } finally {
-      setLoading(false);
+      setBusy(false);
     }
   };
 
   return (
-    <div className="container" style={{ padding: "2rem 1rem", maxWidth: "600px" }}>
-      <header style={{ marginBottom: "2rem", display: "flex", alignItems: "center", gap: "1rem" }}>
-        <Link href="/" style={{ color: "var(--text-muted)", fontSize: "1.25rem", textDecoration: "none" }}>
-          &larr;
-        </Link>
-        <h1 style={{ fontSize: "1.5rem", margin: 0 }}>Book a Ride</h1>
-      </header>
+    <AppShell>
+      <FlowPage title="Book a ride" subtitle="Choose a vehicle and we broadcast your request to nearby drivers.">
+        {unverified && (
+          <div className="nabin-notice" role="status">
+            Identity verification is pending on this account, so bookings are blocked.{" "}
+            <Link href="/profile" className="nabin-alert__action" style={{ margin: 0 }}>
+              View status
+            </Link>
+          </div>
+        )}
 
-      {success && (
-        <div style={{ marginBottom: "2rem", padding: "1.5rem", background: "rgba(16, 185, 129, 0.1)", borderRadius: "var(--radius-md)", border: "1px solid var(--success)" }}>
-          <h2 style={{ color: "var(--success)", marginBottom: "0.5rem" }}>Ride Booked Successfully!</h2>
-          <p><strong>Job ID:</strong> {success.id}</p>
-          <p><strong>Status:</strong> {success.status}</p>
-          <p><strong>Estimated Fare:</strong> NPR {success.estimatedFare}</p>
-        </div>
-      )}
+        {job && (
+          <div className="nabin-alert nabin-alert--success" role="status">
+            <h2>Ride requested</h2>
+            <div className="nabin-list-row">
+              <span className="nabin-cell-meta">Job ID</span>
+              <span className="nabin-mono">{job.id}</span>
+            </div>
+            <div className="nabin-list-row">
+              <span className="nabin-cell-meta">Route</span>
+              <span style={{ fontWeight: 700, textAlign: "right" }}>
+                {job.pickup?.address ?? pickup} &rarr; {job.drop?.address ?? drop}
+              </span>
+            </div>
+            {(job.distance || job.duration) && (
+              <div className="nabin-list-row">
+                <span className="nabin-cell-meta">Distance</span>
+                <span style={{ fontWeight: 700 }}>
+                  {[job.distance, job.duration].filter(Boolean).join(" · ")}
+                </span>
+              </div>
+            )}
+            <div className="nabin-list-row">
+              <span className="nabin-cell-meta">Estimated fare</span>
+              <span className="nabin-order__amount nabin-num">{inr(job.fare)}</span>
+            </div>
+            <div className="nabin-list-row" style={{ borderBottom: "none" }}>
+              <span className="nabin-cell-meta">{dateTime(job.createdAt) || "Just now"}</span>
+              <span className="nabin-badge nabin-badge--warning">{SPLASH[job.status] ?? job.status}</span>
+            </div>
+            <p style={{ marginTop: "var(--space-sm)", fontSize: 13 }}>
+              <Link href="/orders" className="nabin-alert__action" style={{ margin: 0 }}>
+                Track it in My orders
+              </Link>
+            </p>
+          </div>
+        )}
 
-      <div className="card">
-        <form onSubmit={handleBook} style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-          {error && <div style={{ color: "var(--error)", padding: "0.5rem", background: "rgba(239, 68, 68, 0.1)", borderRadius: "var(--radius-sm)" }}>{error}</div>}
-          
+        {failure && (
+          <div className="nabin-alert nabin-alert--danger" role="alert">
+            <span>{failure}</span>
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="nabin-form nabin-card">
           <div>
-            <label style={{ display: "block", marginBottom: "0.5rem", fontWeight: "500" }}>Pickup Location</label>
+            <span className="nabin-label">Vehicle</span>
+            <div className="nabin-segment">
+              {VEHICLES.map((option) => (
+                <div key={option.value} className="nabin-segment__option">
+                  <input
+                    id={`vehicle-${option.value}`}
+                    type="radio"
+                    name="vehicleType"
+                    value={option.value}
+                    checked={vehicleType === option.value}
+                    onChange={() => setVehicleType(option.value)}
+                    disabled={busy}
+                  />
+                  <label className="nabin-segment__label" htmlFor={`vehicle-${option.value}`}>
+                    <span className="nabin-segment__name">{option.label}</span>
+                    <span className="nabin-segment__meta">{option.meta}</span>
+                  </label>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="nabin-label" htmlFor="pickup">
+              Pickup
+            </label>
             <input
+              id="pickup"
+              className="nabin-input"
               type="text"
               value={pickup}
               onChange={(e) => setPickup(e.target.value)}
-              placeholder="e.g. Tribhuvan International Airport"
-              className="input"
-              disabled={loading}
+              placeholder="e.g. Civil Lines Metro Gate 2, Delhi"
+              disabled={busy}
               required
             />
           </div>
 
           <div>
-            <label style={{ display: "block", marginBottom: "0.5rem", fontWeight: "500" }}>Drop Location</label>
+            <label className="nabin-label" htmlFor="drop">
+              Drop
+            </label>
             <input
+              id="drop"
+              className="nabin-input"
               type="text"
               value={drop}
               onChange={(e) => setDrop(e.target.value)}
-              placeholder="e.g. Thamel"
-              className="input"
-              disabled={loading}
+              placeholder="e.g. Connaught Place Inner Circle, Block B"
+              disabled={busy}
               required
             />
           </div>
 
           <div>
-            <label style={{ display: "block", marginBottom: "0.5rem", fontWeight: "500" }}>Vehicle Type</label>
-            <select
-              value={vehicleType}
-              onChange={(e) => setVehicleType(e.target.value)}
-              className="input"
-              disabled={loading}
-              style={{ width: "100%", padding: "0.75rem 1rem", backgroundColor: "var(--surface)", color: "var(--text-main)", borderRadius: "var(--radius-md)", border: "1px solid var(--border)" }}
-            >
-              <option value="BIKE">Bike (1 Seat)</option>
-              <option value="AUTO">Auto (3 Seats)</option>
-              <option value="TAXI">Taxi (4 Seats)</option>
-            </select>
+            <label className="nabin-label" htmlFor="promo">
+              Promo code <span className="nabin-segment__meta">(optional)</span>
+            </label>
+            <input
+              id="promo"
+              className="nabin-input"
+              type="text"
+              value={promoCode}
+              onChange={(e) => setPromoCode(e.target.value.toUpperCase())}
+              placeholder="e.g. NABIN50"
+              disabled={busy}
+            />
           </div>
 
-          <button type="submit" className="btn-primary" disabled={loading} style={{ marginTop: "1rem" }}>
-            {loading ? "Booking..." : "Confirm Booking"}
+          <button type="submit" className="nabin-btn nabin-btn--primary" disabled={busy || Boolean(unverified)}>
+            {busy ? "Requesting…" : "Request ride"}
           </button>
+          <p className="nabin-cell-meta" style={{ textAlign: "center" }}>
+            Fare is estimated by the pricing engine at booking time, not by this page.
+          </p>
         </form>
-      </div>
-    </div>
+      </FlowPage>
+    </AppShell>
   );
 }
