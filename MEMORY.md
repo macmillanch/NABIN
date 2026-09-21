@@ -1,8 +1,8 @@
 # NABIN — Session Memory
 
 **Updated**: 2026-09-21
-**Mode**: Code written, verified, and committed locally as 4 atomic commits
-(backend → mobile → web → docs). **Not pushed** — push needs its own approval.
+**Mode**: Code written, verified, committed and **pushed** to `origin/main`
+(`9b2804c..a03a28c`: backend → mobile → web → docs → lint fixes → this note).
 
 ## Durable facts
 
@@ -43,7 +43,7 @@
 - Git: the 2026-09-20/21 work is committed on top of `6494b25` as 4 atomic commits
   (backend → mobile → web → docs, 134 files: 52 modified + 82 new). `backend/.env`
   and `.kilo/` are excluded; the ~11 mangled junk files at the repo root are left
-  untracked on purpose. Push still needs its own approval.
+  untracked on purpose. `origin/main` = `a03a28c` after the 2026-09-21 push.
 - `react-hooks/set-state-in-effect` in eslint-config-next cannot see through an
   `await`, so it flags every auth-gated "load on mount" effect even when all state
   updates are async. The repo's house answer is a narrow, explained
