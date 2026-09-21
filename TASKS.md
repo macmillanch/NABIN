@@ -1,11 +1,11 @@
 # NABIN — Task Tracker
 
 **Updated**: 2026-09-21
-**State**: `main` = `e463661`, ahead of `origin/main` = `55a1836` by this feature
-plus its status docs. The 2026-09-20/21 work reached the remote by fast-forward
-`9b2804c..b13cdb3` (8 commits: backend, mobile, web, docs, web lint fix, two
-status notes, plus the pre-existing `6494b25`), and `55a1836` re-baselined
-`.agents/CURRENT_STATE.md`.
+**State**: `main` = `origin/main` = `d1381dc`. The 2026-09-20/21 work reached the remote by
+fast-forward `9b2804c..b13cdb3`, `55a1836` re-baselined `.agents/CURRENT_STATE.md`, and the
+same day's follow-ups (`1b128e7` un-stock + merchant notification backend, `239c134` mobile
+catalogue/un-stock, `9f0b4e9` + `d1381dc` docs, `dc11941` browse `is_active` fix) landed on
+top of it.
 
 ## DONE (2026-09-20/21 sessions — grocery/food customer path + merchant apps)
 
@@ -104,8 +104,7 @@ status notes, plus the pre-existing `6494b25`), and `55a1836` re-baselined
       `{type: 'NOTIFICATION'}`; grocery checkout publishes
       `MERCHANT_NEW_GROCERY_ORDER`. Verified with a raw `ws` client plus a real order
       (`ORD-00000319`) and `GET /api/notifications` / `PUT /:id/read` under a merchant
-      token. Not done on purpose: this app has no feed screen and `NabinWsService` has
-      no `NOTIFICATION` case, so there is still nothing to consume them.
+      token. Consumed by the feed screen below.
 
 - [x] Duplicate "Test Basmati Rice" fixtures (approved 2026-09-21, "Deactivate 11, keep the used
       one"): `is_active = false` on the 11 duplicates, `6e617e3a…` kept active because
@@ -116,15 +115,27 @@ status notes, plus the pre-existing `6494b25`), and `55a1836` re-baselined
       embed, which turned those rows into "Grocery item" tiles — caught by re-reading the live
       browse response, not by reading the query.
 
+- [x] Grocery Merchant App notifications screen (2026-09-21): `/notifications`
+      (`grocery_merchant_notifications_screen.dart`) reads `GET /api/notifications` with the store's
+      own token as the recipient, and adds the All / Unread • n filter, "Load older" pagination off
+      `total`, mark-all-read (shown only when the count is non-zero), and a tap that marks the row
+      read before deep-linking `/orders/:relatedEntityId`. A failed mark-read leaves the row visibly
+      unread. `NabinWsService` gains a `NOTIFICATION` case and an `onNotification` stream, which the
+      screen uses to reload silently while it is open; pull-to-refresh stays as the fallback. The
+      dashboard bell carries the feed's own `unreadCount` as its badge. Verified by rendering the live
+      feed through a temporary widget test (two real `ORD-00000319`/`ORD-00000318` notifications,
+      `Unread • 1`, Unread filter returning only the unread row), then deleted;
+      `flutter analyze --no-pub` → 69 issues, 0 errors/0 warnings; `flutter test` → 18/18.
+
 ## BACKLOG (ranked, each needs its own approval — gap report §13.4)
 
 1. Durable advertising: `advertising_campaigns` is migrated but unused;
    `/api/advertisements` still serves non-persisted in-memory rows.
 2. `grocery_price_history` read endpoint (data is written, never exposed).
-3. Merchant notifications **screen** in the Grocery Merchant App on
-   `GET /api/notifications`, and a `NOTIFICATION` case in `NabinWsService`. The
-   backend half (recipient resolution, idempotent insert, socket push) shipped on
-   2026-09-21; nothing in this app consumes it yet.
+3. Merchant notifications: the feed screen and the `NOTIFICATION` socket case both shipped
+   2026-09-21. Still open: push the badge live on the dashboard (it currently re-reads on the
+   30-second poll), and cover more event types — today a grocery store only ever receives
+   `MERCHANT_NEW_GROCERY_ORDER`.
 4. Grocery Merchant App: enforce `master_grocery_catalog.is_active` on the write path — reads
    honour it now, but `resolveMasterProductId` and revalidate/checkout do not, so a retired product
    is still adoptable and orderable by direct id. The 11 duplicate rice rows were deactivated on

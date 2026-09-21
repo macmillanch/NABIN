@@ -4,8 +4,8 @@ Audited from `mobile/lib/features/grocery_merchant/` against `backend/src/server
 PostgreSQL schema on 2026-09-21. Each IMPLEMENTED line below was exercised against the running
 stack in this session, not read off a screen name.
 
-Surface: Flutter app `main_grocery_merchant.dart`, 9 screens — splash, login, OTP, dashboard,
-orders, order detail, inventory, master catalogue, price management.
+Surface: Flutter app `main_grocery_merchant.dart`, 10 screens — splash, login, OTP, dashboard,
+orders, order detail, inventory, master catalogue, price management, notifications.
 
 ## IMPLEMENTED (verified end to end this session)
 
@@ -24,28 +24,26 @@ orders, order detail, inventory, master catalogue, price management.
 | Session hygiene | Expired session shows "Your session has expired. Please sign in again." instead of falling back to a hard-coded `mcht_1`. Logout confirms and clears to `/login`. |
 | Stocking a new product | `/catalogue` (`grocery_merchant_catalog_screen.dart`) diffs `GET /api/merchant/master-catalog` against `GET /api/merchant/inventory`, and a bottom sheet posts `{masterProductId, currentPrice, stockQty, isAvailable}` to `POST /api/merchant/inventory`. Verified live as `Test Supermarket M2`: the store held 1 of 14 master rows, "Amul Taaza Milk" was adopted at ₹42.50 / 25 and re-read as `status: AVAILABLE`, then removed so the seed state is unchanged. Reached from the inventory app bar and its empty state, which is now a real action rather than advice. The price field is required because `updateMerchantInventoryItem` lands an omitted `currentPrice` at 0. |
 | Un-stocking a product | `DELETE /api/merchant/inventory/:masterProductId` → `db.deleteMerchantInventoryItem`. The store comes from the bearer token, so a URL id can only address the caller's own shelf. Verified live as `Test Supermarket M2`: stocked "Amul Taaza Milk" then removed it (`success`, re-read back to 1 row); removing the sold "Test Basmati Rice" row returns `400 · 2 orders already bought this product, so its listing stays on the record. Switch its availability off to stop selling it.` and the row survives; removing a product only another store stocks returns `400 · That product is not stocked in your store.` without leaking that store's order counts; an unknown id returns `400 · That product is not in the NABIN master grocery catalogue.`; no token returns `401`. The inventory screen's trash icon asks first and shows the refusal verbatim. |
-| Merchant notifications | The event bus resolves a merchant recipient from `event.merchantId` (`merchants.id`, which `notifications.user_type` already allows for `MERCHANT` — no migration needed), the subscriber forwards `relatedEntityType`/`relatedEntityId` so a feed row can deep-link, and a non-duplicate insert is pushed to that store's sockets as `{type: 'NOTIFICATION', notification}`. Grocery checkout publishes `MERCHANT_NEW_GROCERY_ORDER`. Verified live: a raw `ws` client registered as `MERCHANT` received the frame for a real order `ORD-00000319` with `relatedEntityId` equal to the order id, and `GET /api/notifications` with a merchant token listed it (`userType: MERCHANT`, `unreadCount: 2`) and accepted `PUT /api/notifications/:id/read`. |
+| Notifications screen | `/notifications` (`grocery_merchant_notifications_screen.dart`) reads `GET /api/notifications` with the store token — no merchant id is passed, the bearer token is the recipient — and lists title/body/time-ago with an All / Unread • n filter, "Load older" pagination off `total`, a `done_all` mark-all-read action that only appears when the count is non-zero, and a tap that marks the row read then deep-links `/orders/:relatedEntityId` when the notification is order-linked. A failed mark-read keeps the row visibly unread. It also registers the store's socket (`NabinWsService.connect(role: 'MERCHANT')`, new `onNotification` stream + `NOTIFICATION` case) and silently reloads when a frame lands; pull-to-refresh remains the fallback when the socket is down. Reached from the dashboard bell, whose badge is the feed's own `unreadCount`. Verified by rendering the live feed: two real grocery-order notifications, `Unread • 1`, and the Unread filter returning only the unread row. |
+| Merchant notification backend | The event bus resolves a merchant recipient from `event.merchantId` (`merchants.id`, which `notifications.user_type` already allows for `MERCHANT` — no migration needed), the subscriber forwards `relatedEntityType`/`relatedEntityId` so a feed row can deep-link, and a non-duplicate insert is pushed to that store's sockets as `{type: 'NOTIFICATION', notification}`. Grocery checkout publishes `MERCHANT_NEW_GROCERY_ORDER`. Verified live: a raw `ws` client registered as `MERCHANT` received the frame for a real order `ORD-00000319` with `relatedEntityId` equal to the order id, and `GET /api/notifications` with a merchant token listed it (`userType: MERCHANT`, `unreadCount: 2`) and accepted `PUT /api/notifications/:id/read`. |
 
 ## PARTIAL
 
 - **Order customer reference.** An order row carries only `customer_id`; there is no name, phone or
   address on it. The app shows the last 6 characters of the id as `#xxxxxx` rather than inventing a
   name. Resolving the real name needs a merchant-facing customer read route, which does not exist.
-- **Dashboard refresh** is 30-second polling. No merchant WebSocket scope is wired into this app.
+- **Dashboard refresh** is 30-second polling. The notifications screen is the only surface that
+  holds a merchant socket, and only while it is open.
 
 ## MISSING
 
-1. **Notification feed screen.** The backend now persists merchant-keyed notifications and pushes
-   them over the socket (see IMPLEMENTED), but this app has no feed screen and `NabinWsService` has
-   no `NOTIFICATION` case, so nothing consumes them. `GET /api/notifications` with a merchant token
-   is ready to be read.
-2. **Price history view.** `grocery_price_history` is written on every price change but has no read
+1. **Price history view.** `grocery_price_history` is written on every price change but has no read
    endpoint, so the app cannot show it. (Note: `GET /api/grocery/products/:id/history` reads the
    in-memory fixture store, not that table.)
-3. **Store settings / operating status.** No endpoint to read or write a grocery store profile or
+2. **Store settings / operating status.** No endpoint to read or write a grocery store profile or
    its open/closed state, so the dashboard exposes three destinations that all work instead of a
    dead Settings tab.
-4. **Support ticket screen** for merchants. Absent.
+3. **Support ticket screen** for merchants. Absent.
 
 ## NOTES FOR THE NEXT READER
 

@@ -26,8 +26,14 @@
 > **Follow-up (2026-09-21):** `1b128e7` + `239c134` close the two gaps that
 > stocking exposed — an un-stock route for a line the store added, and merchant
 > recipients in the notification bus with a socket push. Both were driven against
-> the live database, including the refusal path for a line that has been sold. The
-> app-side notification feed is still unbuilt on purpose; nothing was stubbed.
+> the live database, including the refusal path for a line that has been sold.
+>
+> **Milestone (2026-09-21):** `c4eded7` consumes that backend: the Grocery Merchant
+> App now has a `/notifications` feed screen and a `NOTIFICATION` socket case, so a
+> store's orders land on-device instead of only in the database. Verified by
+> rendering the live feed (two real grocery-order notifications, `Unread • 1`, the
+> Unread filter returning only the unread row); `flutter analyze --no-pub` reports
+> 69 issues with 0 errors and 0 warnings, `flutter test` is 18/18.
 
 ---
 
@@ -35,8 +41,8 @@
 
 | Field | Value |
 |-------|-------|
-| **Current HEAD** | `dc11941` (this §1 update lands on top of it as a docs commit) |
-| **origin/main** | `9f0b4e9` before this push; parity is restored by it |
+| **Current HEAD** | `c4eded7` (this §1 update lands on top of it as a docs commit) |
+| **origin/main** | `d1381dc` before this push; parity is restored by it |
 | **HEAD == origin/main** | After the push carrying this commit: YES |
 | **Working tree** | CLEAN of tracked modifications; untracked: `.kilo/agents/` + 11 junk root files |
 | **Branch** | main |
@@ -58,6 +64,8 @@
 
 ### Recent Git History
 ```
+c4eded7 feat(mobile): give the grocery merchant app a notifications feed
+d1381dc docs: record the rice fixture deactivation and the browse is_active fix
 dc11941 fix(backend): make a retired grocery master product disappear from customer browse
 9f0b4e9 docs: record the un-stock route and merchant notification pass
 239c134 feat(mobile): give the grocery inventory screen a remove action
