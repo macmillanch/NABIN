@@ -1,8 +1,13 @@
 # NABIN — Current Repository State
 
-**Last Updated**: 2026-09-07  
-**Mode**: PLAN-ONLY / GOVERNANCE ONLY  
+**Last Updated**: 2026-09-20
+**Mode**: PLAN-ONLY / GOVERNANCE ONLY
 **Status**: AUTHORITATIVE SNAPSHOT
+
+> **Re-baseline note (2026-09-20):** prior snapshot recorded HEAD `1d404a6`. Verified
+> `git log`/`git status` on 2026-09-20 shows HEAD = origin/main = `9b2804c`
+> ("docs(stitch): add design freeze reports and handover artifacts for 234-screen
+> canonical set"). §1 below reflects live state; all other sections unchanged.
 
 ---
 
@@ -10,11 +15,22 @@
 
 | Field | Value |
 |-------|-------|
-| **Current HEAD** | `1d404a6e4afcee5b25c078d3a989c158b78a2a1c` |
-| **origin/main** | `1d404a6e4afcee5b25c078d3a989c158b78a2a1c` |
+| **Current HEAD** | `9b2804cb3ca0b791f72e723ceff4d3a2f365b850` |
+| **origin/main** | `9b2804cb3ca0b791f72e723ceff4d3a2f365b850` |
 | **HEAD == origin/main** | YES |
-| **Working tree** | CLEAN |
+| **Working tree** | DIRTY — untracked files only (no tracked modifications) |
 | **Branch** | main |
+
+### Untracked files of record (2026-09-20, `git status --short`)
+
+- `IMPLEMENTATION_PLAN.md`
+- `nabin_repository_inventory.md` (new, this session)
+- `nabin_234_implementation_gap.md` (new, this session)
+- `admin-web/src/components/AdminLayout.tsx`
+- `customer-web/src/components/`
+- `mobile/lib/features/driver/presentation/widgets/` (`driver_job_offer_card.dart`)
+- Junk root artifacts: `mcp_out.txt`, `readme.txt`, pasted-filename files
+  (deletion requires USER approval; never commit `.kilo/`)
 
 ### Recent Git History
 ```
