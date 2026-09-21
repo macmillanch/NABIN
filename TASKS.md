@@ -87,16 +87,41 @@ status notes, plus the pre-existing `6494b25`), and `55a1836` re-baselined
       `RenderFlex` overflow in the filter chips (fixed with `Wrap`) and the
       "1 litre litre" label duplication; the harness was deleted afterwards
       because it needs a live seeded database.
+- [x] Grocery Merchant App can un-stock a line it added (2026-09-21):
+      `DELETE /api/merchant/inventory/:masterProductId` →
+      `db.deleteMerchantInventoryItem`, scoped to the bearer token's store, plus the
+      trash icon + confirm dialog on the inventory cards and
+      `NabinApiService.deleteMerchantInventoryItem`. `order_lines.grocery_inventory_id`
+      is `ON DELETE RESTRICT`, so a line that has actually been sold is refused with a
+      count and the advice to switch availability off instead — verified live alongside
+      the stock→remove round trip, the cross-store ("not stocked in your store") scope
+      refusal, the unknown-product refusal and a 401 without a token.
+- [x] Merchant notifications resolve end to end on the backend (2026-09-21): the event
+      bus takes `event.merchantId` as the recipient (`notifications.user_type` already
+      allows `MERCHANT`, so no migration), the subscriber forwards
+      `relatedEntityType`/`relatedEntityId` — they were dropped for every notification
+      type, not just merchant — and a fresh insert is pushed to the store's sockets as
+      `{type: 'NOTIFICATION'}`; grocery checkout publishes
+      `MERCHANT_NEW_GROCERY_ORDER`. Verified with a raw `ws` client plus a real order
+      (`ORD-00000319`) and `GET /api/notifications` / `PUT /:id/read` under a merchant
+      token. Not done on purpose: this app has no feed screen and `NabinWsService` has
+      no `NOTIFICATION` case, so there is still nothing to consume them.
 
 ## BACKLOG (ranked, each needs its own approval — gap report §13.4)
 
 1. Durable advertising: `advertising_campaigns` is migrated but unused;
    `/api/advertisements` still serves non-persisted in-memory rows.
 2. `grocery_price_history` read endpoint (data is written, never exposed).
-3. Merchant notifications: `merchants.id` → `users.id` resolution.
-4. Grocery Merchant App: an un-stock route, so an adopted line can be removed
-   rather than only hidden; plus cleanup of the 12 duplicate "Test Basmati Rice"
-   master rows that now dominate the not-stocked list.
+3. Merchant notifications **screen** in the Grocery Merchant App on
+   `GET /api/notifications`, and a `NOTIFICATION` case in `NabinWsService`. The
+   backend half (recipient resolution, idempotent insert, socket push) shipped on
+   2026-09-21; nothing in this app consumes it yet.
+4. Grocery Merchant App: decide the fate of the 12 duplicate "Test Basmati Rice"
+   master rows that now dominate the not-stocked list. Direct deletion is
+   FK-blocked (`order_lines` → `ON DELETE RESTRICT`, 22 order lines behind them) and
+   each row is its store's only listing, so this needs an owner's call between
+   `is_active = false` and re-pointing the fixtures at one canonical row. The
+   un-stock route shipped instead.
 5. Restaurant Merchant Web: `/orders/[id]` detail route + a persistent menu
    write path; no CI/Docker/deploy definition exists for either merchant web app.
 6. Redis/table backing for OTP + rate limits (both in-memory, lost on restart).

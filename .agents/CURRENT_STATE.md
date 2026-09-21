@@ -22,6 +22,12 @@
 > gap in `grocery_merchant_app_gap.md` — a store could previously only sell what
 > had been seeded into `merchant_grocery_inventory` by hand. Verified against the
 > live local PostgreSQL, not just compiled.
+>
+> **Follow-up (2026-09-21):** `1b128e7` + `239c134` close the two gaps that
+> stocking exposed — an un-stock route for a line the store added, and merchant
+> recipients in the notification bus with a socket push. Both were driven against
+> the live database, including the refusal path for a line that has been sold. The
+> app-side notification feed is still unbuilt on purpose; nothing was stubbed.
 
 ---
 
@@ -29,8 +35,8 @@
 
 | Field | Value |
 |-------|-------|
-| **Current HEAD** | `e463661` (this §1 update lands on top of it as a docs commit) |
-| **origin/main** | `55a1836` before this push; parity is restored by it |
+| **Current HEAD** | `239c134` (this §1 update lands on top of it as a docs commit) |
+| **origin/main** | `51ad0ea` before this push; parity is restored by it |
 | **HEAD == origin/main** | After the push carrying this commit: YES |
 | **Working tree** | CLEAN of tracked modifications; untracked: `.kilo/agents/` + 11 junk root files |
 | **Branch** | main |
@@ -52,6 +58,9 @@
 
 ### Recent Git History
 ```
+239c134 feat(mobile): give the grocery inventory screen a remove action
+1b128e7 feat(backend): let a grocery store un-stock a line and receive its own notifications
+51ad0ea docs: record the master-catalogue stocking milestone
 e463661 feat(mobile): let grocery merchants stock products from the NABIN master catalogue
 55a1836 chore(records): delete empty IMPLEMENTATION_PLAN.md and re-baseline git state
 b13cdb3 docs: mark session memory as pushed
