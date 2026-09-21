@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import '../theme/app_theme.dart';
+import '../theme/nabin_palette.dart';
+import '../theme/nabin_tokens.dart';
 
 class NabinServiceCard extends StatelessWidget {
   final String title;
@@ -28,18 +29,21 @@ class NabinServiceCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (isHero) {
-      return _buildHeroCard();
+      return _buildHeroCard(NabinPalette.of(context));
     }
-    return _buildStandardCard();
+    return _buildStandardCard(NabinPalette.of(context));
   }
 
-  Widget _buildHeroCard() {
+  Widget _buildHeroCard(NabinPalette palette) {
+    // A hero tile is the brand fill at its largest, so its label is the one place
+    // a published colour most obviously has to stay readable.
+    final Color onFill = NabinTheme.on(primaryColor, palette);
     return GestureDetector(
       onTap: isEnabled ? onTap : null,
       child: Container(
         padding: const EdgeInsets.all(18),
         decoration: BoxDecoration(
-          color: isEnabled ? primaryColor : AppTheme.surfaceContainerHigh,
+          color: isEnabled ? primaryColor : palette.surfaceEmphasized,
           borderRadius: BorderRadius.circular(22),
           boxShadow: isEnabled
               ? [
@@ -60,7 +64,8 @@ class NabinServiceCard extends StatelessWidget {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                       decoration: BoxDecoration(
-                        color: isEnabled ? Colors.white.withValues(alpha: 0.2) : Colors.black12,
+                        color:
+                            isEnabled ? onFill.withValues(alpha: 0.2) : Colors.black12,
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Text(
@@ -68,7 +73,7 @@ class NabinServiceCard extends StatelessWidget {
                         style: TextStyle(
                             fontSize: 9,
                             fontWeight: FontWeight.w900,
-                            color: isEnabled ? Colors.white : Colors.black54,
+                            color: isEnabled ? onFill : Colors.black54,
                             letterSpacing: 0.5),
                       ),
                     ),
@@ -78,14 +83,16 @@ class NabinServiceCard extends StatelessWidget {
                     style: TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.w900,
-                        color: isEnabled ? Colors.white : Colors.black54),
+                        color: isEnabled ? onFill : Colors.black54),
                   ),
                   const SizedBox(height: 2),
                   Text(
                     subtitle,
                     style: TextStyle(
                         fontSize: 11.5,
-                        color: isEnabled ? Colors.white.withValues(alpha: 0.9) : Colors.black45,
+                        color: isEnabled
+                            ? onFill.withValues(alpha: 0.9)
+                            : Colors.black45,
                         height: 1.3),
                   ),
                   const SizedBox(height: 10),
@@ -94,7 +101,7 @@ class NabinServiceCard extends StatelessWidget {
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                         decoration: BoxDecoration(
-                          color: isEnabled ? Colors.white : Colors.grey.shade300,
+                          color: isEnabled ? palette.surface : Colors.grey.shade300,
                           borderRadius: BorderRadius.circular(10),
                         ),
                         child: Row(
@@ -125,13 +132,13 @@ class NabinServiceCard extends StatelessWidget {
               width: 76,
               height: 76,
               decoration: BoxDecoration(
-                color: isEnabled ? Colors.white.withValues(alpha: 0.15) : Colors.black12,
+                color: isEnabled ? onFill.withValues(alpha: 0.15) : Colors.black12,
                 shape: BoxShape.circle,
               ),
               child: Center(
                 child: Icon(
                   icon,
-                  color: isEnabled ? Colors.white : Colors.black45,
+                  color: isEnabled ? onFill : Colors.black45,
                   size: 44,
                 ),
               ),
@@ -142,18 +149,22 @@ class NabinServiceCard extends StatelessWidget {
     );
   }
 
-  Widget _buildStandardCard() {
+  Widget _buildStandardCard(NabinPalette palette) {
     return GestureDetector(
       onTap: isEnabled ? onTap : null,
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: isEnabled ? Colors.white : AppTheme.surfaceContainerHigh,
+          color: isEnabled ? palette.surface : palette.surfaceEmphasized,
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: isEnabled ? (tagColor ?? AppTheme.outline) : AppTheme.outline),
+          border: Border.all(
+              color: isEnabled ? (tagColor ?? palette.divider) : palette.divider),
           boxShadow: isEnabled
               ? [
-                  BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 8, offset: const Offset(0, 3)),
+                  BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.04),
+                      blurRadius: 8,
+                      offset: const Offset(0, 3)),
                 ]
               : null,
         ),
@@ -169,13 +180,16 @@ class NabinServiceCard extends StatelessWidget {
                     color: isEnabled ? primaryColor : Colors.grey,
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: Icon(icon, color: Colors.white, size: 20),
+                  child: Icon(icon,
+                      color: NabinTheme.on(primaryColor, palette), size: 20),
                 ),
                 if (tagText != null)
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                     decoration: BoxDecoration(
-                      color: isEnabled ? (tagColor ?? primaryColor).withValues(alpha: 0.1) : Colors.black12,
+                      color: isEnabled
+                          ? (tagColor ?? primaryColor).withValues(alpha: 0.1)
+                          : Colors.black12,
                       borderRadius: BorderRadius.circular(6),
                     ),
                     child: Text(
@@ -183,7 +197,8 @@ class NabinServiceCard extends StatelessWidget {
                       style: TextStyle(
                           fontSize: 8.5,
                           fontWeight: FontWeight.w900,
-                          color: isEnabled ? (tagColor ?? primaryColor) : Colors.black54),
+                          color:
+                              isEnabled ? (tagColor ?? primaryColor) : Colors.black54),
                     ),
                   ),
               ],
@@ -194,19 +209,20 @@ class NabinServiceCard extends StatelessWidget {
               style: TextStyle(
                   fontSize: 15,
                   fontWeight: FontWeight.w900,
-                  color: isEnabled ? AppTheme.onSurface : Colors.black54),
+                  color: isEnabled ? palette.onSurface : Colors.black54),
             ),
             const SizedBox(height: 2),
             Text(
               subtitle,
               style: TextStyle(
                   fontSize: 11,
-                  color: isEnabled ? AppTheme.onSurfaceVariant : Colors.black45,
+                  color: isEnabled ? palette.onSurfaceMuted : Colors.black45,
                   height: 1.25),
             ),
             if (!isEnabled) ...[
               const SizedBox(height: 8),
-              const Text('Temporarily offline', style: TextStyle(fontSize: 10, color: Colors.red, fontWeight: FontWeight.bold)),
+              const Text('Temporarily offline',
+                  style: TextStyle(fontSize: 10, color: Colors.red, fontWeight: FontWeight.bold)),
             ]
           ],
         ),

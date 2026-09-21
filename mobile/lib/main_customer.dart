@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'core/config/nabin_config_controller.dart';
+import 'core/config/nabin_config_lifecycle.dart';
 import 'core/router/app_router.dart';
 import 'core/theme/app_theme.dart';
 
@@ -7,20 +9,20 @@ void main() {
   WidgetsFlutterBinding.ensureInitialized();
   runApp(
     const ProviderScope(
-      child: NabinCustomerApp(),
+      child: NabinConfigLifecycle(child: NabinCustomerApp()),
     ),
   );
 }
 
-class NabinCustomerApp extends StatelessWidget {
+class NabinCustomerApp extends ConsumerWidget {
   const NabinCustomerApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return MaterialApp.router(
       title: 'NABIN Customer App',
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.customerTheme,
+      theme: AppTheme.customerTheme(palette: nabinPaletteOf(ref)),
       routerConfig: appRouter,
     );
   }

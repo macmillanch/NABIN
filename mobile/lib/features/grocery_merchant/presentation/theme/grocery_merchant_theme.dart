@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../../core/theme/nabin_palette.dart';
 import '../../../../core/theme/nabin_tokens.dart';
 
 /// NABIN Grocery Merchant App theme (clean green operations console).
@@ -17,5 +18,6 @@ class GroceryMerchantTheme {
   static const Color textMuted = NabinColor.onSurfaceMuted;
   static const Color borderLight = NabinColor.divider;
 
-  static ThemeData get theme => NabinTheme.light(role: NabinRole.groceryMerchant);
+  static ThemeData theme({NabinPalette? palette}) =>
+      NabinTheme.light(role: NabinRole.groceryMerchant, palette: palette);
 }

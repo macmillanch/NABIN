@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/theme/nabin_palette.dart';
 import '../../../core/theme/nabin_tokens.dart';
 
 /// NABIN Restaurant & Food service theme (Neon Orange on neutral surfaces).
@@ -44,5 +45,6 @@ class RestaurantTheme {
   static TextStyle get orderNumberStyle => NabinType.numeric(fontSize: 28);
   static TextStyle get orderNumberLarge => NabinType.numeric(fontSize: 36, weight: FontWeight.w900);
 
-  static ThemeData get lightTheme => NabinTheme.light(role: NabinRole.restaurantMerchant);
+  static ThemeData lightTheme({NabinPalette? palette}) =>
+      NabinTheme.light(role: NabinRole.restaurantMerchant, palette: palette);
 }

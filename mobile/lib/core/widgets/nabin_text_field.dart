@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../theme/app_theme.dart';
+import '../theme/nabin_palette.dart';
 
 class NabinTextField extends StatelessWidget {
   final String label;
@@ -33,13 +33,14 @@ class NabinTextField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final NabinPalette palette = NabinPalette.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           label,
           style: Theme.of(context).textTheme.labelSmall?.copyWith(
-            color: AppTheme.onSurfaceVariant,
+            color: palette.onSurfaceMuted,
             fontWeight: FontWeight.w700,
           ),
         ),
@@ -56,35 +57,35 @@ class NabinTextField extends StatelessWidget {
           decoration: InputDecoration(
             hintText: hintText,
             hintStyle: Theme.of(context).textTheme.bodyLarge?.copyWith(
-              color: AppTheme.onSurfaceVariant.withValues(alpha: 0.5),
+              color: palette.onSurfaceMuted.withValues(alpha: 0.5),
             ),
-            prefixIcon: prefixIcon != null 
-                ? Icon(prefixIcon, color: AppTheme.onSurfaceVariant) 
+            prefixIcon: prefixIcon != null
+                ? Icon(prefixIcon, color: palette.onSurfaceMuted)
                 : null,
             prefix: prefix,
             suffixIcon: suffixIcon,
             filled: true,
-            fillColor: AppTheme.surface,
+            fillColor: palette.surface,
             contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(color: AppTheme.outline),
+              borderSide: BorderSide(color: palette.divider),
             ),
             enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(color: AppTheme.outline),
+              borderSide: BorderSide(color: palette.divider),
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: AppTheme.primary, width: 2),
+              borderSide: BorderSide(color: palette.brand, width: 2),
             ),
             errorBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: AppTheme.error),
+              borderSide: BorderSide(color: palette.danger),
             ),
             focusedErrorBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: AppTheme.error, width: 2),
+              borderSide: BorderSide(color: palette.danger, width: 2),
             ),
           ),
         ),

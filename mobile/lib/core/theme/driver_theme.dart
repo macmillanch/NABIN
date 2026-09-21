@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'nabin_palette.dart';
 import 'nabin_tokens.dart';
 
 /// NABIN Driver App theme — dark-first cockpit for in-vehicle use.
@@ -40,8 +41,10 @@ class DriverTheme {
   static const Color parcelBadge = NabinColor.warning;
   static const Color foodBadge = NabinColor.success;
 
-  static ThemeData get darkTheme => NabinTheme.dark(role: NabinRole.driver);
+  static ThemeData darkTheme({NabinPalette? palette}) =>
+      NabinTheme.dark(role: NabinRole.driver, palette: palette);
 
-  static ThemeData get lightTheme => darkTheme; // Default to dark-first cockpit
+  static ThemeData lightTheme({NabinPalette? palette}) =>
+      darkTheme(palette: palette); // Default to dark-first cockpit
 }
 

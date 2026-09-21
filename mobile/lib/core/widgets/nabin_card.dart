@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../theme/app_theme.dart';
+import '../theme/nabin_palette.dart';
 
 class NabinCard extends StatelessWidget {
   final Widget child;
@@ -23,13 +23,14 @@ class NabinCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final NabinPalette palette = NabinPalette.of(context);
     Widget cardContent = Container(
       width: double.infinity,
       padding: padding,
       decoration: BoxDecoration(
-        color: color ?? AppTheme.surface,
+        color: color ?? palette.surface,
         borderRadius: BorderRadius.circular(borderRadius),
-        border: Border.all(color: AppTheme.outline.withValues(alpha: 0.5)),
+        border: Border.all(color: palette.divider.withValues(alpha: 0.5)),
         boxShadow: hasShadow
             ? [
                 BoxShadow(

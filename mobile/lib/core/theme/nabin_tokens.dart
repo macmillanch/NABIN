@@ -1,5 +1,9 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+
+import 'nabin_palette.dart';
 
 /// NABIN canonical semantic tokens.
 ///
@@ -148,10 +152,14 @@ class NabinRole {
 class NabinType {
   /// Inter drives all product UI. `NabinWordmark` is the only place the brand
   /// face may appear.
-  static TextTheme textTheme(Brightness brightness) {
-    final Color primary = brightness == Brightness.dark ? NabinColor.onDarkSurface : NabinColor.onSurface;
+  /// [palette] recolours light-surface ink. The night ramp keeps its measured
+  /// light-on-dark inks, for the reason given on [NabinTheme.dark].
+  static TextTheme textTheme(Brightness brightness, [NabinPalette? palette]) {
+    final NabinPalette p = palette ?? NabinPalette.defaults();
+    final Color primary =
+        brightness == Brightness.dark ? NabinColor.onDarkSurface : p.onSurface;
     final Color secondary =
-        brightness == Brightness.dark ? NabinColor.onDarkSurfaceMuted : NabinColor.onSurfaceMuted;
+        brightness == Brightness.dark ? NabinColor.onDarkSurfaceMuted : p.onSurfaceMuted;
 
     return GoogleFonts.interTextTheme(
       TextTheme(
@@ -217,52 +225,91 @@ class NabinTheme {
   /// Picks whichever text colour clears more contrast against [fill].
   ///
   /// Required because the brand orange and grocery green are both too light
-  /// for white label text, which would fail WCAG AA on every CTA.
-  static Color on(Color fill) {
-    final double luminance = fill.computeLuminance();
-    final double againstWhite = (luminance + 0.05) / 1.05;
-    final double againstInk = (luminance + 0.05) / 0.0585;
-    return againstWhite <= againstInk ? NabinColor.onBrand : NabinColor.onSurface;
+  /// for white label text, which would fail WCAG AA on every CTA. A published
+  /// palette makes this a runtime decision rather than a property of two fixed
+  /// hexes, so it has to measure the colours it is given.
+  static Color on(Color fill, [NabinPalette? palette]) {
+    final NabinPalette p = palette ?? NabinPalette.defaults();
+    final double light = fill.computeLuminance();
+    double ratio(Color ink) {
+      final double dark = ink.computeLuminance();
+      return (math.max(light, dark) + 0.05) / (math.min(light, dark) + 0.05);
+    }
+    return ratio(p.onBrand) >= ratio(p.onSurface) ? p.onBrand : p.onSurface;
   }
 
   /// Single factory that produces every role theme, so the nine interfaces
   /// cannot drift into nine separate visual systems.
-  static ThemeData light({NabinRole role = NabinRole.customer, String title = 'NABIN'}) {
+  ///
+  /// [palette] is the remote ramp resolved from `GET /api/app/config`; when it
+  /// is null the built-in [NabinColor] values are used, which is what a device
+  /// with nothing published and no cached copy paints.
+  static ThemeData light({
+    NabinRole role = NabinRole.customer,
+    String title = 'NABIN',
+    NabinPalette? palette,
+  }) {
+    final NabinPalette p = palette ?? NabinPalette.defaults();
+    final Color accent = p.accentFor(role);
     final ColorScheme scheme = ColorScheme.fromSeed(
-      seedColor: role.accent,
+      seedColor: accent,
       brightness: Brightness.light,
     ).copyWith(
-      primary: role.accent,
-      onPrimary: on(role.accent),
-      secondary: NabinColor.groceryGreen,
-      onSecondary: on(NabinColor.groceryGreen),
-      surface: NabinColor.surface,
-      onSurface: NabinColor.onSurface,
+      primary: accent,
+      onPrimary: on(accent, p),
+      secondary: p.groceryAccent,
+      onSecondary: on(p.groceryAccent, p),
+      surface: p.surface,
+      onSurface: p.onSurface,
       error: NabinColor.dangerDark,
-      onError: NabinColor.onBrand,
-      outlineVariant: NabinColor.divider,
+      onError: p.onBrand,
+      outlineVariant: p.divider,
     );
-    return _compose(scheme, NabinColor.canvas, NabinType.textTheme(Brightness.light), role);
+    return _compose(scheme, p.canvas, NabinType.textTheme(Brightness.light, p), role, p);
   }
 
   /// High-contrast night ramp for in-vehicle driver screens.
-  static ThemeData dark({NabinRole role = NabinRole.driver, String title = 'NABIN'}) {
+  ///
+  /// A published theme may recolour the accents here but not the surface ramp:
+  /// the night cockpit's light-on-dark contrast is measured, and a remote
+  /// `onSurface` aimed at a light screen would put light text on a light
+  /// surface. The dark ramp therefore keeps its own ink and canvas.
+  static ThemeData dark({
+    NabinRole role = NabinRole.driver,
+    String title = 'NABIN',
+    NabinPalette? palette,
+  }) {
+    final NabinPalette p = palette ?? NabinPalette.defaults();
+    final Color accent = p.accentFor(role);
     final ColorScheme scheme = ColorScheme.fromSeed(
-      seedColor: role.accent,
+      seedColor: accent,
       brightness: Brightness.dark,
     ).copyWith(
-      primary: role.accent,
-      onPrimary: on(role.accent),
-      secondary: NabinColor.success,
+      primary: accent,
+      onPrimary: on(accent, p),
+      secondary: p.success,
       surface: NabinColor.surfaceDarkElevated,
       onSurface: NabinColor.onDarkSurface,
       error: NabinColor.dangerBright,
       outlineVariant: NabinColor.dividerDark,
     );
-    return _compose(scheme, NabinColor.canvasDark, NabinType.textTheme(Brightness.dark), role);
+    return _compose(
+      scheme,
+      NabinColor.canvasDark,
+      NabinType.textTheme(Brightness.dark, p),
+      role,
+      p,
+    );
   }
 
-  static ThemeData _compose(ColorScheme scheme, Color canvas, TextTheme text, NabinRole role) => ThemeData(
+  static ThemeData _compose(
+    ColorScheme scheme,
+    Color canvas,
+    TextTheme text,
+    NabinRole role,
+    NabinPalette palette,
+  ) =>
+      ThemeData(
         useMaterial3: true,
         colorScheme: scheme,
         scaffoldBackgroundColor: canvas,
@@ -271,6 +318,7 @@ class NabinTheme {
         textTheme: text,
         pageTransitionsTheme: NabinMotion.pageTransitions,
         splashFactory: InkSparkle.splashFactory,
+        extensions: <ThemeExtension<dynamic>>[palette],
         appBarTheme: AppBarTheme(
           backgroundColor: canvas,
           surfaceTintColor: Colors.transparent,
@@ -337,7 +385,7 @@ class NabinTheme {
           ),
         ),
         chipTheme: ChipThemeData(
-          backgroundColor: role.tint,
+          backgroundColor: palette.tintFor(role),
           side: BorderSide.none,
           labelStyle: text.labelMedium?.copyWith(color: scheme.onSurface),
           shape: const StadiumBorder(),
@@ -345,18 +393,18 @@ class NabinTheme {
         bottomNavigationBarTheme: BottomNavigationBarThemeData(
           backgroundColor: scheme.surface,
           selectedItemColor: scheme.primary,
-          unselectedItemColor: NabinColor.onSurfaceMuted,
+          unselectedItemColor: palette.onSurfaceMuted,
           type: BottomNavigationBarType.fixed,
         ),
         snackBarTheme: SnackBarThemeData(
           behavior: SnackBarBehavior.floating,
-          backgroundColor: NabinColor.onSurface,
-          contentTextStyle: text.bodyMedium?.copyWith(color: NabinColor.surface),
+          backgroundColor: palette.onSurface,
+          contentTextStyle: text.bodyMedium?.copyWith(color: palette.surface),
           shape: RoundedRectangleBorder(borderRadius: NabinRadius.control),
         ),
         navigationBarTheme: NavigationBarThemeData(
           backgroundColor: scheme.surface,
-          indicatorColor: role.tint,
+          indicatorColor: palette.tintFor(role),
           surfaceTintColor: Colors.transparent,
           height: NabinTarget.listRow + NabinSpacing.xs,
         ),

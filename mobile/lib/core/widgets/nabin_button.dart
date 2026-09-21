@@ -1,10 +1,15 @@
 import 'package:flutter/material.dart';
-import '../theme/app_theme.dart';
+import '../theme/nabin_palette.dart';
+import '../theme/nabin_tokens.dart';
 
 class NabinButton extends StatefulWidget {
   final String text;
   final VoidCallback onPressed;
-  final Color color;
+
+  /// Null means "paint the current brand", which is the only way a published
+  /// palette can reach a CTA. A caller that passes a colour deliberately wins,
+  /// because a service-tinted button is a decision made in code, not a theme.
+  final Color? color;
   final IconData? icon;
   final bool isLoading;
   final double height;
@@ -15,7 +20,7 @@ class NabinButton extends StatefulWidget {
     super.key,
     required this.text,
     required this.onPressed,
-    this.color = AppTheme.customerAccent,
+    this.color,
     this.icon,
     this.isLoading = false,
     this.height = 54.0,
@@ -51,6 +56,12 @@ class _NabinButtonState extends State<NabinButton> with SingleTickerProviderStat
 
   @override
   Widget build(BuildContext context) {
+    final NabinPalette palette = NabinPalette.of(context);
+    final Color fill = widget.color ?? palette.brand;
+    // The label is chosen against the fill rather than assumed white, so a
+    // light published brand cannot ship an unreadable button.
+    final Color ink = NabinTheme.on(fill, palette);
+
     return GestureDetector(
       onTapDown: (_) => _controller.forward(),
       onTapUp: (_) => _controller.reverse(),
@@ -66,11 +77,11 @@ class _NabinButtonState extends State<NabinButton> with SingleTickerProviderStat
           width: double.infinity,
           height: widget.height,
           decoration: BoxDecoration(
-            color: widget.color,
+            color: fill,
             borderRadius: BorderRadius.circular(widget.borderRadius),
             boxShadow: [
               BoxShadow(
-                color: widget.color.withValues(alpha: 0.25),
+                color: fill.withValues(alpha: 0.25),
                 blurRadius: 10,
                 offset: const Offset(0, 4),
                 spreadRadius: 0,
@@ -79,29 +90,29 @@ class _NabinButtonState extends State<NabinButton> with SingleTickerProviderStat
           ),
           child: Center(
             child: widget.isLoading
-                ? const SizedBox(
+                ? SizedBox(
                     width: 22,
                     height: 22,
                     child: CircularProgressIndicator(
                       strokeWidth: 2.5,
-                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      valueColor: AlwaysStoppedAnimation<Color>(ink),
                     ),
                   )
                 : Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       if (widget.icon != null) ...[
-                        Icon(widget.icon, size: 20, color: Colors.white),
+                        Icon(widget.icon, size: 20, color: ink),
                         const SizedBox(width: 8),
                       ],
                       Text(
                         widget.text,
                         style: widget.textStyle ??
-                            const TextStyle(
+                            TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.w800,
                               letterSpacing: 0.3,
-                              color: Colors.white,
+                              color: ink,
                             ),
                       ),
                     ],

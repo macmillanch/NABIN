@@ -1,6 +1,6 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
-import '../theme/app_theme.dart';
+import '../theme/nabin_palette.dart';
 
 class GlassContainer extends StatelessWidget {
   final Widget child;
@@ -32,8 +32,9 @@ class GlassContainer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final effectiveTint = tintColor ?? AppTheme.surfaceCard;
-    final effectiveBorder = borderColor ?? AppTheme.glassBorder;
+    final palette = NabinPalette.of(context);
+    final effectiveTint = tintColor ?? palette.surface;
+    final effectiveBorder = borderColor ?? palette.divider;
 
     Widget container = Container(
       width: width,

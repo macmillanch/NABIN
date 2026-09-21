@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'driver_theme.dart';
+import 'nabin_palette.dart';
 import 'nabin_tokens.dart';
 
 /// NABIN Customer theme facade.
@@ -60,9 +61,14 @@ class AppTheme {
   static const Color serviceGrocery = NabinColor.groceryGreen;
   static const Color fintechAccent = NabinColor.warning;
 
-  static ThemeData get customerTheme => NabinTheme.light(role: NabinRole.customer);
-  static ThemeData get driverTheme => DriverTheme.darkTheme;
-  static ThemeData get restaurantTheme => NabinTheme.light(role: NabinRole.restaurantMerchant);
-  static ThemeData get groceryTheme => NabinTheme.light(role: NabinRole.groceryMerchant);
-  static ThemeData get adminTheme => NabinTheme.light(role: NabinRole.admin);
+  static ThemeData customerTheme({NabinPalette? palette}) =>
+      NabinTheme.light(role: NabinRole.customer, palette: palette);
+  static ThemeData driverTheme({NabinPalette? palette}) =>
+      DriverTheme.darkTheme(palette: palette);
+  static ThemeData restaurantTheme({NabinPalette? palette}) =>
+      NabinTheme.light(role: NabinRole.restaurantMerchant, palette: palette);
+  static ThemeData groceryTheme({NabinPalette? palette}) =>
+      NabinTheme.light(role: NabinRole.groceryMerchant, palette: palette);
+  static ThemeData adminTheme({NabinPalette? palette}) =>
+      NabinTheme.light(role: NabinRole.admin, palette: palette);
 }

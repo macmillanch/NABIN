@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../../core/theme/nabin_palette.dart';
 import '../../../../core/theme/nabin_tokens.dart';
 
 /// NABIN Admin App theme — deep navy control centre on neutral surfaces.
@@ -15,5 +16,6 @@ class AdminTheme {
   static const Color textMuted = NabinColor.onSurfaceMuted;
   static const Color borderLight = NabinColor.divider;
 
-  static ThemeData get theme => NabinTheme.light(role: NabinRole.admin);
+  static ThemeData theme({NabinPalette? palette}) =>
+      NabinTheme.light(role: NabinRole.admin, palette: palette);
 }

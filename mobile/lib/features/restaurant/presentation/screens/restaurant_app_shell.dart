@@ -328,7 +328,7 @@ class _RestaurantAppShellState extends State<RestaurantAppShell> {
   @override
   Widget build(BuildContext context) {
     return Theme(
-      data: AppTheme.restaurantTheme,
+      data: AppTheme.restaurantTheme(),
       child: Scaffold(
         backgroundColor: AppTheme.backgroundDark,
         appBar: AppBar(

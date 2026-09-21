@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../theme/app_theme.dart';
+import '../theme/nabin_palette.dart';
 
 enum NabinStatusType { success, warning, error, info, neutral }
 
@@ -15,24 +15,24 @@ class NabinStatusChip extends StatelessWidget {
     this.icon,
   });
 
-  Color get _color {
+  Color _colorFor(NabinPalette palette) {
     switch (type) {
       case NabinStatusType.success:
-        return AppTheme.success;
+        return palette.success;
       case NabinStatusType.warning:
-        return AppTheme.warning;
+        return palette.warning;
       case NabinStatusType.error:
-        return AppTheme.error;
+        return palette.danger;
       case NabinStatusType.info:
-        return AppTheme.primary;
+        return palette.brand;
       case NabinStatusType.neutral:
-        return AppTheme.onSurfaceVariant;
+        return palette.onSurfaceMuted;
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final color = _color;
+    final color = _colorFor(NabinPalette.of(context));
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
