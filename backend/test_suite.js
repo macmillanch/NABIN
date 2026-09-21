@@ -1941,6 +1941,18 @@ async function runAllTests() {
       updatePricingRes.data.pricingConfig.globalSurgeMultiplier === 1.20
     );
 
+    // Teardown, not a softened assertion: GEO-07 persisted a 1.20 platform-wide
+    // surge, and the spatial module that ran earlier in this same pass asserts an
+    // out-of-zone coordinate settles at 1.0x. Leaving the row dirty made every
+    // second consecutive run fail that check.
+    const restoreSurgeRes = await request('POST', '/api/admin/pricing', {
+      globalSurgeMultiplier: 1.0
+    }, { 'Authorization': `Bearer ${superToken}` });
+    assert('GEO-07 teardown: the global surge multiplier is restored to 1.0',
+      restoreSurgeRes.status === 200 &&
+      restoreSurgeRes.data.pricingConfig.globalSurgeMultiplier === 1.0
+    );
+
     // GEO-08 (PERSIST): Surge zone creation persists to PostgreSQL
     const createSurgeRes = await request('POST', '/api/admin/surgezones', {
       zoneId: circleFenceId,
@@ -3632,7 +3644,7 @@ async function runAllTests() {
       acConfig.data.dataSource === 'postgres' &&
       !!acConfig.data.configVersion && acConfig.data.cacheSeconds >= 1 &&
       !!acConfig.data.serverTime && Number.isFinite(acConfig.data.serverTimeEpochMs) &&
-      !!acSections && ['services', 'features', 'offers', 'settings'].every(s => acSections[s])
+      !!acSections && ['services', 'features', 'offers', 'settings', 'theme'].every(s => acSections[s])
     );
 
     // AC-02: Conditional requests are honoured, so cold apps stay cheap
@@ -3759,6 +3771,179 @@ async function runAllTests() {
       acAds.endpoint === '/api/advertisements' &&
       Array.isArray(acAds.supportedPlacements) && acAds.supportedPlacements.length === 4 &&
       !!acAds.limitation
+    );
+
+    // AC-15..AC-18: The published theme is validated data, not a stylesheet.
+    // The generic settings writer accepts any plain object, so the only place a
+    // bad token can be caught is here — and it must be dropped, not rendered.
+    const acThemeKey = 'APP_CONFIG_THEME';
+    const acThemeWrite = await request('PUT', `/api/admin/platform-settings/${acThemeKey}`, {
+      value: {
+        brand: '#0f4c81',
+        canvas: '#ffffff',
+        groceryAccent: '#1B7F4B',
+        primaryTextColor: 'rgb(0, 0, 0)',
+        notARealToken: '#12345'
+      }
+    }, { 'Authorization': `Bearer ${superToken}` });
+    assert('AC-15: SUPER_ADMIN publishes a theme object through the settings writer',
+      acThemeWrite.status === 200 && acThemeWrite.data.success
+    );
+
+    const acThemeConfig = await request('GET', '/api/app/config');
+    const acTheme = acThemeConfig.data.sections.theme;
+    assert('AC-16: Theme section exposes only allow-listed #RRGGBB tokens',
+      acTheme.available === true &&
+      acTheme.source === `platform_settings:${acThemeKey}` &&
+      acTheme.tokens.brand === '#0F4C81' &&
+      acTheme.tokens.canvas === '#FFFFFF' &&
+      acTheme.tokens.groceryAccent === '#1B7F4B' &&
+      Object.keys(acTheme.tokens).length === 3 &&
+      acTheme.knownTokens.includes('onSurface')
+    );
+
+    // An expression-bearing value and an unknown token name are both data the
+    // client has no field for; they must be reported rather than passed through.
+    assert('AC-17: Invalid theme tokens are rejected and named in the feed',
+      acTheme.rejectedTokens.includes('primaryTextColor') &&
+      acTheme.rejectedTokens.includes('notARealToken') &&
+      !Object.keys(acTheme.tokens).includes('primaryTextColor') &&
+      JSON.stringify(acTheme).indexOf('rgb(') === -1
+    );
+
+    // The claim the client repeats in its debug surface: colours travel, the
+    // rest of the identity ships in the binary.
+    assert('AC-18: Theme section states its scope instead of implying full control',
+      Array.isArray(acTheme.remoteOnly) && acTheme.remoteOnly.join() === 'colours' &&
+      ['fonts', 'logos', 'layout', 'icons'].every(k => acTheme.notRemote.includes(k))
+    );
+
+    // An empty object is the honest "unpublish": clients fall back to the ramp
+    // bundled in their own build, and the feed says nothing is available.
+    const acThemeClear = await request('PUT', `/api/admin/platform-settings/${acThemeKey}`, {
+      value: {}, reason: 'Phase 2 theme section verification teardown'
+    }, { 'Authorization': `Bearer ${superToken}` });
+    const acThemeCleared = (await request('GET', '/api/app/config')).data.sections.theme;
+    assert('AC-19: Clearing the published theme reports nothing available',
+      acThemeClear.status === 200 && acThemeCleared.available === false &&
+      Object.keys(acThemeCleared.tokens).length === 0
+    );
+
+    // --- 36. MODULE 32: Concurrent Trip Completion Settlement Race -------------
+    // The local chaos audit (2026-09-21) found 50 concurrent completions of a single
+    // ₹106 trip booking ~₹10,400 across 98-100 postings and crediting the driver
+    // wallet ~50x. The cause was not a missing lock but a compare-and-set that
+    // listed the row's own target state as a permitted prior state, so after the
+    // first commit every duplicate matched and "won" again. These cases pin the
+    // financial answer the platform needs: one completion, one wallet effect, one
+    // earning effect, and exactly one trip's worth of money in the books.
+    console.log('\n--- 36. MODULE 32: Concurrent Trip Completion Settlement Race ---');
+
+    const concRide = await request('POST', '/api/customer/book-ride', {
+      customerId: 'usr_2',
+      vehicleType: 'AUTO',
+      pickup: { address: 'Connaught Place Block A', lat: 28.6328, lng: 77.2197 },
+      drop: { address: 'Civil Lines Hub', lat: 28.6853, lng: 77.2185 }
+    }, { 'Authorization': `Bearer ${customerToken}` });
+    const concJob = concRide.data.job;
+    const concAccept = await request('POST', '/api/driver/accept-job', {
+      jobId: concJob.id, driverId: 'DRV-101'
+    }, { 'Authorization': `Bearer ${driverToken}` });
+    const concStart = await request('POST', '/api/driver/verify-otp', {
+      jobId: concJob.id, otp: concJob.startOtp, otpType: 'START'
+    }, { 'Authorization': `Bearer ${driverToken}` });
+
+    assert('CONC-00: A fresh ride is prepared and running (IN_TRANSIT) for the completion race',
+      concRide.status === 200 && !!concJob && concAccept.status === 200 &&
+      concStart.status === 200 && concStart.data.status === 'IN_TRANSIT'
+    );
+
+    const concJobRow = (await supabaseAdmin.from('jobs')
+      .select('id, driver_id, final_total, status')
+      .eq('job_number', concJob.id).single()).data;
+    const concWalletBefore = (await supabaseAdmin.from('drivers')
+      .select('wallet_balance').eq('id', concJobRow.driver_id).single()).data;
+
+    // Fired from a single tick, so no request can finish before the others start.
+    const CONC_ATTEMPTS = 50;
+    const concCalls = await Promise.all(Array.from({ length: CONC_ATTEMPTS }, () =>
+      request('POST', '/api/driver/complete-trip', { jobId: concJob.id, rating: 5 },
+        { 'Authorization': `Bearer ${driverToken}` })
+    ));
+    const concOk = concCalls.filter(r => r.status === 200 && r.data && r.data.success === true);
+    const concSettledElsewhere = concCalls.filter(r =>
+      r.status === 409 && r.data && r.data.code === 'TRIP_ALREADY_SETTLED');
+
+    assert(`CONC-01: Exactly 1 of ${CONC_ATTEMPTS} concurrent completions books the settlement`,
+      concOk.length === 1
+    );
+    assert(`CONC-02: The other ${CONC_ATTEMPTS - 1} are refused as already settled, never as success`,
+      concSettledElsewhere.length === CONC_ATTEMPTS - 1 &&
+      concCalls.every(r => r.status === 200 || r.status === 409),
+      `responses=${JSON.stringify(concCalls.reduce((m, r) => {
+        const k = `${r.status}:${(r.data && r.data.code) || 'none'}`;
+        m[k] = (m[k] || 0) + 1; return m;
+      }, {}))}`
+    );
+
+    // A job number is unique, so every posting naming this trip belongs to it.
+    const concPostings = (await supabaseAdmin.from('journal_transactions')
+      .select('id, transaction_id, total_debit, total_credit, description')
+      .like('description', `%${concJob.id}%`)).data || [];
+    const concPostingIds = concPostings.map(p => p.id);
+    const concLines = concPostingIds.length
+      ? ((await supabaseAdmin.from('journal_lines')
+        .select('journal_id, account_code, entry_type, amount')
+        .in('journal_id', concPostingIds)).data || [])
+      : [];
+    const concBooked = concPostings.reduce((s, p) => s + Number(p.total_debit || 0), 0);
+    const concWalletAfter = (await supabaseAdmin.from('drivers')
+      .select('wallet_balance').eq('id', concJobRow.driver_id).single()).data;
+    const concCredited = Math.round((Number(concWalletAfter.wallet_balance) - Number(concWalletBefore.wallet_balance)) * 100) / 100;
+    const concCredits = {};
+    for (const line of concLines.filter(l => l.entry_type === 'CREDIT')) {
+      concCredits[line.account_code] = (concCredits[line.account_code] || 0) + 1;
+    }
+    const concEarnLine = concLines.find(l => l.account_code === 'DRIVER_EARNINGS_PAYABLE' && l.entry_type === 'CREDIT');
+    const concDiag = `postings=${concPostings.length}, booked=${concBooked}, fare=${concJob.fare}, ` +
+      `walletDelta=${concCredited}, credits=${JSON.stringify(concCredits)}, lines=${concLines.length}`;
+
+    assert('CONC-03: The trip produced exactly two settlement postings, one per movement',
+      concPostings.length === 2, concDiag
+    );
+    assert('CONC-04: Each movement was credited once — earnings and commission, nothing duplicated',
+      concCredits.DRIVER_EARNINGS_PAYABLE === 1 && concCredits.PLATFORM_COMMISSION_REVENUE === 1, concDiag
+    );
+    assert('CONC-05: Total booked equals the trip fare, not fare x attempts',
+      Math.abs(concBooked - Number(concJob.fare)) < 0.01, concDiag
+    );
+    assert('CONC-06: The driver wallet moved by exactly one net earning',
+      !!concEarnLine && concCredited > 0 &&
+      Math.abs(concCredited - Number(concEarnLine.amount)) < 0.01, concDiag
+    );
+    assert('CONC-07: Every posting stays internally balanced (debits == credits)',
+      concPostings.every(p => Math.abs(Number(p.total_debit) - Number(p.total_credit)) < 0.005) &&
+      concLines.length === 4, concDiag
+    );
+    assert('CONC-08: The trip ended COMPLETED in PostgreSQL',
+      ((await supabaseAdmin.from('jobs').select('status').eq('id', concJobRow.id).single()).data || {}).status === 'COMPLETED'
+    );
+
+    // Idempotency has to outlive the state machine: a replay after the row has
+    // settled must still move nothing, because the ledger key names the movement
+    // rather than the attempt.
+    const concReplay = await request('POST', '/api/driver/complete-trip', { jobId: concJob.id, rating: 5 },
+      { 'Authorization': `Bearer ${driverToken}` });
+    const concReplayWallet = (await supabaseAdmin.from('drivers')
+      .select('wallet_balance').eq('id', concJobRow.driver_id).single()).data;
+    const concReplayPostings = (await supabaseAdmin.from('journal_transactions')
+      .select('id').like('description', `%${concJob.id}%`)).data || [];
+    assert('CONC-09: A later replay of the same completion is refused with no new money',
+      concReplay.status === 409 && concReplay.data.code === 'TRIP_ALREADY_SETTLED' &&
+      Number(concReplayWallet.wallet_balance) === Number(concWalletAfter.wallet_balance) &&
+      concReplayPostings.length === 2,
+      `replay=${concReplay.status}:${(concReplay.data && concReplay.data.code) || 'none'}, ` +
+      `wallet=${concWalletAfter.wallet_balance}->${concReplayWallet.wallet_balance}, postings=${concReplayPostings.length}`
     );
   } catch (err) {
     console.error('Fatal Test Suite Exception:', err);
