@@ -1,9 +1,11 @@
 # NABIN — Task Tracker
 
 **Updated**: 2026-09-21
-**State**: `main` = `origin/main` = `b13cdb3`. The 2026-09-20/21 work reached the
-remote by fast-forward `9b2804c..b13cdb3` (8 commits: backend, mobile, web, docs,
-web lint fix, two status notes, plus the pre-existing `6494b25`).
+**State**: `main` = `e463661`, ahead of `origin/main` = `55a1836` by this feature
+plus its status docs. The 2026-09-20/21 work reached the remote by fast-forward
+`9b2804c..b13cdb3` (8 commits: backend, mobile, web, docs, web lint fix, two
+status notes, plus the pre-existing `6494b25`), and `55a1836` re-baselined
+`.agents/CURRENT_STATE.md`.
 
 ## DONE (2026-09-20/21 sessions — grocery/food customer path + merchant apps)
 
@@ -73,16 +75,28 @@ web lint fix, two status notes, plus the pre-existing `6494b25`).
       authoritative plan is tracked at `docs/PHASE_16_IMPLEMENTATION_PLAN.md`
       (613 lines, frozen, PLAN-ONLY). `.agents/CURRENT_STATE.md` §1 re-baselined to
       match, since it had listed the file as a "file of record".
+- [x] Grocery Merchant App can stock products from the master catalogue
+      (`e463661`, 2026-09-21): new `/catalogue` screen diffs
+      `GET /api/merchant/master-catalog` against the store's inventory and posts
+      `{masterProductId, currentPrice, stockQty, isAvailable}` to
+      `POST /api/merchant/inventory`, reached from the inventory app bar and its
+      empty state. Verified live as `Test Supermarket M2` (1 of 14 rows stocked →
+      adopted Amul Taaza Milk at 42.50/25 → re-read as `AVAILABLE` → row removed
+      from the local database, since there is no un-stock route). Rendered via a
+      temporary widget test against the running backend, which caught a 94px
+      `RenderFlex` overflow in the filter chips (fixed with `Wrap`) and the
+      "1 litre litre" label duplication; the harness was deleted afterwards
+      because it needs a live seeded database.
 
 ## BACKLOG (ranked, each needs its own approval — gap report §13.4)
 
-1. Grocery Merchant App: "add products from the master catalogue" UI
-   (`getMerchantMasterCatalog` + `POST /api/merchant/inventory`) — largest
-   remaining functional gap; a store cannot list what it has not adopted.
-2. Durable advertising: `advertising_campaigns` is migrated but unused;
+1. Durable advertising: `advertising_campaigns` is migrated but unused;
    `/api/advertisements` still serves non-persisted in-memory rows.
-3. `grocery_price_history` read endpoint (data is written, never exposed).
-4. Merchant notifications: `merchants.id` → `users.id` resolution.
+2. `grocery_price_history` read endpoint (data is written, never exposed).
+3. Merchant notifications: `merchants.id` → `users.id` resolution.
+4. Grocery Merchant App: an un-stock route, so an adopted line can be removed
+   rather than only hidden; plus cleanup of the 12 duplicate "Test Basmati Rice"
+   master rows that now dominate the not-stocked list.
 5. Restaurant Merchant Web: `/orders/[id]` detail route + a persistent menu
    write path; no CI/Docker/deploy definition exists for either merchant web app.
 6. Redis/table backing for OTP + rate limits (both in-memory, lost on restart).

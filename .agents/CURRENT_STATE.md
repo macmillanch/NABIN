@@ -16,6 +16,12 @@
 > (`git log --all --` returns nothing), shadowed nothing, and no code reads that
 > path. The authoritative Phase 16 plan remains tracked at
 > `docs/PHASE_16_IMPLEMENTATION_PLAN.md` (613 lines, frozen, PLAN-ONLY).
+>
+> **Milestone (2026-09-21):** `e463661` gives the Grocery Merchant App its
+> master-catalogue stocking screen (`/catalogue`), closing the largest functional
+> gap in `grocery_merchant_app_gap.md` — a store could previously only sell what
+> had been seeded into `merchant_grocery_inventory` by hand. Verified against the
+> live local PostgreSQL, not just compiled.
 
 ---
 
@@ -23,9 +29,9 @@
 
 | Field | Value |
 |-------|-------|
-| **Current HEAD** | `b13cdb3` (this §1 update lands on top of it) |
-| **origin/main** | `b13cdb3` |
-| **HEAD == origin/main** | YES |
+| **Current HEAD** | `e463661` (this §1 update lands on top of it as a docs commit) |
+| **origin/main** | `55a1836` before this push; parity is restored by it |
+| **HEAD == origin/main** | After the push carrying this commit: YES |
 | **Working tree** | CLEAN of tracked modifications; untracked: `.kilo/agents/` + 11 junk root files |
 | **Branch** | main |
 
@@ -46,6 +52,8 @@
 
 ### Recent Git History
 ```
+e463661 feat(mobile): let grocery merchants stock products from the NABIN master catalogue
+55a1836 chore(records): delete empty IMPLEMENTATION_PLAN.md and re-baseline git state
 b13cdb3 docs: mark session memory as pushed
 a03a28c docs: record the pushed commit range
 dac61ec fix(web): clear the react-hooks lint errors in the merchant consoles
