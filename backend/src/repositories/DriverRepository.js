@@ -246,12 +246,18 @@ class DriverRepository {
   /**
    * Authoritative Driver Earnings Mutation via adjust_wallet_atomic RPC
    */
-  async updateEarnings(driverId, earningAmount, tripId = null) {
+  async updateEarnings(driverId, earningAmount, tripId = null, { idempotencyKey = null } = {}) {
     const driver = this.findById(driverId);
     if (!driver) return null;
 
     const targetUuid = this.resolveUuid(driverId);
     const numAmount = Number(earningAmount);
+
+    // A trip's earnings credit is one movement of money, so it gets a name that
+    // identifies the movement rather than the attempt. `journal_transactions`
+    // enforces it with a UNIQUE index, so "already booked" is decided by
+    // PostgreSQL and not by whichever request happened to arrive first.
+    const settleKey = idempotencyKey || (tripId ? `RIDE_SETTLEMENT:${tripId}:DRIVER_EARNINGS` : null);
 
     if (isLivePostgres && supabaseAdmin && targetUuid) {
       const rpcResult = await this.db.ledgerRepo.adjustWallet({
@@ -262,19 +268,30 @@ class DriverRepository {
         description: `Trip earnings settlement: ${tripId || 'TRIP'}`,
         referenceId: tripId || `drv_earn_${Date.now()}`,
         debitAccount: 'CUSTOMER_WALLET_LIABILITY',
-        creditAccount: 'DRIVER_EARNINGS_PAYABLE'
+        creditAccount: 'DRIVER_EARNINGS_PAYABLE',
+        idempotencyKey: settleKey
       });
+
+      if (rpcResult && rpcResult.status === 'IDEMPOTENT_SKIPPED') {
+        // Someone else's attempt at this trip already moved the money. Refresh the
+        // cached balance, add no earning effect, and report it so the caller can
+        // skip the rest of the settlement instead of stacking a second posting.
+        if (rpcResult.balance !== undefined) driver.walletBalance = Number(rpcResult.balance);
+        return { driver, duplicate: true, posted: false };
+      }
 
       if (rpcResult && rpcResult.balance !== undefined) {
         driver.walletBalance = Number(rpcResult.balance);
         driver.todayEarnings = Math.round(((driver.todayEarnings || 0) + numAmount) * 100) / 100;
-        return driver;
+        // adjust_wallet_atomic writes the balanced double-entry for the movement it
+        // just booked, so the caller must not post that same movement again.
+        return { driver, duplicate: false, posted: true };
       }
     }
 
     driver.walletBalance = Math.round(((driver.walletBalance || 0) + numAmount) * 100) / 100;
     driver.todayEarnings = Math.round(((driver.todayEarnings || 0) + numAmount) * 100) / 100;
-    return driver;
+    return { driver, duplicate: false, posted: false };
   }
 
   /**

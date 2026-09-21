@@ -3570,6 +3570,16 @@ app.post('/api/driver/verify-otp', authenticateDriver, async (req, res) => {
 
     res.json(result);
   } catch (err) {
+    // A delivery OTP for an already-settled trip is a conflict, not a bad code.
+    if (err.code === 'TRIP_ALREADY_SETTLED') {
+      return res.status(409).json({
+        success: false,
+        duplicate: true,
+        code: 'TRIP_ALREADY_SETTLED',
+        error: err.message,
+        verified: false
+      });
+    }
     res.status(400).json({ success: false, error: err.message, verified: false });
   }
 });
@@ -3600,6 +3610,20 @@ app.post('/api/driver/complete-trip', authenticateDriver, async (req, res) => {
   // (ASSIGNED -> COMPLETED was previously permitted).
   const completableStates = ['IN_TRANSIT', 'OUT_FOR_DELIVERY'];
   const currentStatus = String(job.status || '').toUpperCase();
+  // A trip that is already COMPLETED is a duplicate, not a missing OTP proof.
+  // Reporting OTP_VERIFICATION_REQUIRED for it would send an operator chasing a
+  // verification that already happened, and it would hide the fact that the
+  // settlement is booked. Late duplicates answer here; the ones that arrive
+  // inside the winner's window are refused by the database compare-and-set.
+  if (currentStatus === 'COMPLETED') {
+    return res.status(409).json({
+      success: false,
+      duplicate: true,
+      code: 'TRIP_ALREADY_SETTLED',
+      error: 'This trip was already completed and settled.',
+      status: 'COMPLETED'
+    });
+  }
   if (!completableStates.includes(currentStatus)) {
     return res.status(409).json({
       success: false,
@@ -3609,7 +3633,27 @@ app.post('/api/driver/complete-trip', authenticateDriver, async (req, res) => {
     });
   }
 
-  const updatedJob = await db.updateJobStatus(jobId, 'COMPLETED');
+  // The transition is claimed inside PostgreSQL (UPDATE … WHERE status IN the
+  // prior states, plus a UNIQUE settlement idempotency key), so 50 simultaneous
+  // completions of one trip leave exactly one financial effect: the 49 losers
+  // arrive here with TRIP_ALREADY_SETTLED and are answered 409 without having
+  // touched a wallet, a counter or the ledger.
+  let updatedJob;
+  try {
+    updatedJob = await db.updateJobStatus(jobId, 'COMPLETED');
+  } catch (err) {
+    if (err.code === 'TRIP_ALREADY_SETTLED') {
+      return res.status(409).json({
+        success: false,
+        duplicate: true,
+        code: 'TRIP_ALREADY_SETTLED',
+        error: 'This trip was already completed and settled.',
+        status: 'COMPLETED'
+      });
+    }
+    return res.status(409).json({ success: false, code: 'TRIP_SETTLEMENT_REJECTED', error: err.message });
+  }
+
   if (updatedJob) {
     broadcastToCustomer(updatedJob.customerId, { type: 'TRIP_COMPLETED', jobId: updatedJob.id, fare: updatedJob.fare, rating });
 

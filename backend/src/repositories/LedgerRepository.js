@@ -131,6 +131,11 @@ class LedgerRepository {
       });
 
       if (error) {
+        // Two callers that both cleared the read-check race in PostgreSQL: the
+        // UNIQUE idempotency_key index decides, and the loser has moved no money.
+        if (error.code === '23505' && idempotencyKey) {
+          return { success: true, status: 'IDEMPOTENT_SKIPPED', duplicate: true, entry: null };
+        }
         throw new Error(`PostgreSQL adjust_wallet_atomic failed: ${error.message}`);
       }
 
@@ -226,7 +231,8 @@ class LedgerRepository {
     jobId = null,
     description = '',
     referenceId = null,
-    transactionId = null
+    transactionId = null,
+    idempotencyKey = null
   }) {
     const numAmount = Number(amount);
     const txnId = transactionId || `txn_${Date.now()}_${Math.floor(100 + Math.random() * 900)}`;
@@ -264,6 +270,7 @@ class LedgerRepository {
           .from('journal_transactions')
           .insert([{
             transaction_id: txnId,
+            idempotency_key: idempotencyKey ? String(idempotencyKey) : null,
             category: entry.category,
             job_id: jobUuid,
             total_debit: numAmount,
@@ -274,6 +281,14 @@ class LedgerRepository {
           }])
           .select('id')
           .single();
+
+        // journal_transactions.idempotency_key is UNIQUE in the database, so a
+        // collision is PostgreSQL refusing a second booking of the same movement.
+        // That is the answer the caller needs, not an error to swallow: the
+        // in-memory ledger must not record it either.
+        if (jtErr && jtErr.code === '23505' && idempotencyKey) {
+          return { duplicate: true, idempotencyKey: String(idempotencyKey), transactionId: txnId };
+        }
 
         if (!jtErr && jtData && jtData.id) {
           // Insert Debit and Credit journal lines with valid account codes

@@ -771,7 +771,7 @@ class SupportTicketRepository {
           targetDriverUuid = 'drv_1';
         }
         if (bounty > 0 && targetDriverUuid && this.db.driverRepo) {
-          driverAdjusted = await this.db.driverRepo.updateEarnings(targetDriverUuid, bounty);
+          driverAdjusted = (await this.db.driverRepo.updateEarnings(targetDriverUuid, bounty))?.driver || null;
         }
       }
 

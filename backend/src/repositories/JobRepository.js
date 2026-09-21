@@ -22,6 +22,13 @@ const VALID_JOB_TRANSITIONS = {
   'CANCELLED': ['REQUESTED', 'SEARCHING', 'ASSIGNED', 'ACCEPTED', 'DRIVER_ARRIVING', 'DRIVER_ARRIVED']
 };
 
+// Transitions whose target state is a terminal money effect. For these the SQL
+// allowlist must NOT contain the state being written to: `status IN
+// ('IN_TRANSIT','OUT_FOR_DELIVERY','COMPLETED')` reads as idempotent but is the
+// opposite — the 2nd…50th concurrent completion each re-match the row the 1st one
+// just settled under READ COMMITTED, and each then settles a second time.
+const NON_REPEATABLE_TRANSITIONS = new Set(['COMPLETED']);
+
 function normalizeServiceType(type) {
   if (!type) return 'RIDE';
   const upper = String(type).toUpperCase();
@@ -246,6 +253,13 @@ class JobRepository {
       throw new Error(`Atomic job transition rejected: Job ${jobId} could not transition to ${newStatus} from current state ${job.status}`);
     }
 
+    const repeatable = !NON_REPEATABLE_TRANSITIONS.has(newStatus);
+    if (!repeatable && job.status === newStatus) {
+      const settled = new Error(`Job ${jobId} is already ${newStatus}; its settlement has already been booked.`);
+      settled.code = 'JOB_ALREADY_SETTLED';
+      throw settled;
+    }
+
     const targetDriverUuid = driverId ? (this.db.driverRepo?.resolveUuid(driverId) || null) : null;
     const nowIso = new Date().toISOString();
     const targetJobNumber = job.jobNumber || job.id;
@@ -289,8 +303,11 @@ class JobRepository {
 
       // Atomic condition check in PostgreSQL WHERE clause
       if (validPriorStates && validPriorStates.length > 0) {
-        const allowed = Array.from(new Set([...validPriorStates, newStatus]));
-        query = query.in('status', allowed);
+        const allowed = new Set(validPriorStates);
+        // A settlement transition may only fire from its prior states; letting it
+        // also match its own target would make every duplicate request a winner.
+        if (repeatable) allowed.add(newStatus);
+        query = query.in('status', Array.from(allowed));
       } else if (validPriorStates && validPriorStates.length === 0) {
         query = query.eq('status', newStatus);
       }
@@ -302,6 +319,14 @@ class JobRepository {
       }
 
       if (!data || data.length === 0) {
+        // Zero rows updated means another request claimed the row between our read
+        // and ours — or the trip was already settled. Either way this caller owns
+        // no financial effect and must not create one.
+        if (!repeatable) {
+          const lost = new Error(`Job ${jobId} was already ${newStatus} when this request reached PostgreSQL; the transition was claimed elsewhere.`);
+          lost.code = 'JOB_ALREADY_SETTLED';
+          throw lost;
+        }
         throw new Error(`Atomic job transition rejected: Job ${jobId} could not transition to ${newStatus} from current state ${job.status}`);
       }
     }

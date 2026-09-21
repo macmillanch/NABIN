@@ -3618,6 +3618,14 @@ class NabinDatabase {
       'CANCELLED': []
     };
 
+    // Completion is the money-mutating transition, so a second arrival is not a
+    // harmless retry. Answer it as "already settled" and touch nothing.
+    if (job.status === 'COMPLETED' && status === 'COMPLETED') {
+      const settled = new Error(`Trip ${job.id} was already completed and settled; this request booked nothing.`);
+      settled.code = 'TRIP_ALREADY_SETTLED';
+      throw settled;
+    }
+
     if (job.status === 'COMPLETED' || job.status === 'CANCELLED') {
       throw new Error(`Invalid state transition: Cannot transition terminal job [${job.id}] from ${job.status} to ${status}.`);
     }
@@ -3626,6 +3634,13 @@ class NabinDatabase {
       try {
         await this.jobRepo.updateStatus(job.id, status, driverId);
       } catch (e) {
+        if (e.code === 'JOB_ALREADY_SETTLED') {
+          // The database-level compare-and-set refused the write because another
+          // request owns this transition. The settlement belongs to that one.
+          const settled = new Error(`Trip ${job.id} was already completed and settled; this request booked nothing.`);
+          settled.code = 'TRIP_ALREADY_SETTLED';
+          throw settled;
+        }
         // Phase 10: the COMPLETED transition mutates money (driver wallet credit
         // plus double-entry ledger posting). A persistence write that the
         // database rejected must abort the settlement instead of silently
@@ -3646,8 +3661,37 @@ class NabinDatabase {
       if (driver) {
         const comm = job.platformFee || Math.round(job.fare * 0.15);
         const netEarnings = job.fare - comm;
-        driver.walletBalance += netEarnings;
-        driver.todayEarnings += netEarnings;
+        const settlementRef = job.jobNumber || job.id;
+        // Each movement is named after the trip rather than after the attempt that
+        // performed it, so a duplicate arrives at an idempotency key PostgreSQL has
+        // already seen and the UNIQUE index on journal_transactions turns it away.
+        const netKey = `RIDE_SETTLEMENT:${settlementRef}:DRIVER_EARNINGS`;
+        const commissionKey = `RIDE_SETTLEMENT:${settlementRef}:PLATFORM_COMMISSION`;
+
+        let earnings = { duplicate: false, posted: false };
+        if (this.driverRepo) {
+          try {
+            earnings = (await this.driverRepo.updateEarnings(driver.id, netEarnings, settlementRef)) || earnings;
+          } catch (e) {
+            console.warn('⚠️ driverRepo.updateEarnings notice:', e.message);
+          }
+        }
+
+        if (earnings.duplicate) {
+          // The durable wallet credit for this trip already exists. No counter, no
+          // transaction row and no commission posting stack on top of it.
+          this.save();
+          return job;
+        }
+
+        if (!earnings.posted) {
+          // No durable wallet movement happened, so the cache carries it. When
+          // adjust_wallet_atomic did run it already returned the authoritative
+          // balance and applied todayEarnings, and adding them again here is what
+          // used to double-count the driver's mirror.
+          driver.walletBalance += netEarnings;
+          driver.todayEarnings += netEarnings;
+        }
         driver.todayTrips += 1;
         driver.commissionPaidToday += comm;
         if (job.paymentMode === 'Cash') {
@@ -3657,15 +3701,7 @@ class NabinDatabase {
         }
         driver.activeJobId = null;
 
-        if (this.driverRepo) {
-          try {
-            await this.driverRepo.updateEarnings(driver.id, netEarnings, job.id);
-          } catch (e) {
-            console.warn('⚠️ driverRepo.updateEarnings notice:', e.message);
-          }
-        }
-
-        const txnId = `TXN-${Date.now().toString().slice(-4)}`;
+        const txnId = `RIDE-SETTLEMENT-${settlementRef}`;
         this.transactions.unshift({
           id: txnId,
           type: 'TRIP_EARNING',
@@ -3685,21 +3721,35 @@ class NabinDatabase {
           time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ' Today'
         });
 
+        // adjust_wallet_atomic posts the balanced double-entry for the earnings
+        // movement itself, so the settlement posts only what it did not: the
+        // platform's commission. Posting both here booked the same ₹net twice on
+        // every single trip, durable or not.
+        if (!earnings.posted) {
+          await this.recordLedgerEntry({
+            transactionId: `${txnId}-NET`,
+            debitAccount: 'CUSTOMER_WALLET_LIABILITY',
+            creditAccount: 'DRIVER_EARNINGS_PAYABLE',
+            amount: netEarnings,
+            description: `Driver net earnings for ${job.type} job ${job.id}`,
+            referenceId: job.id,
+            jobId: job.id,
+            idempotencyKey: netKey
+          });
+        }
         await this.recordLedgerEntry({
-          transactionId: txnId,
-          debitAccount: 'CUSTOMER_WALLET_LIABILITY',
-          creditAccount: 'DRIVER_EARNINGS_PAYABLE',
-          amount: netEarnings,
-          description: `Driver net earnings for ${job.type} job ${job.id}`,
-          referenceId: job.id
-        });
-        await this.recordLedgerEntry({
-          transactionId: txnId,
+          // journal_transactions.transaction_id is UNIQUE, and until now both
+          // movements of a settlement shared one random id, so the commission
+          // insert collided with the earnings insert and was swallowed: no trip
+          // ever recorded PLATFORM_COMMISSION_REVENUE in the durable books.
+          transactionId: `${txnId}-COMMISSION`,
           debitAccount: 'CUSTOMER_WALLET_LIABILITY',
           creditAccount: 'PLATFORM_COMMISSION_REVENUE',
           amount: comm,
           description: `Platform 15% commission fee for job ${job.id}`,
-          referenceId: job.id
+          referenceId: job.id,
+          jobId: job.id,
+          idempotencyKey: commissionKey
         });
       }
       if (user && user.walletBalance >= job.fare && job.paymentMode !== 'Cash') {
@@ -5672,7 +5722,7 @@ class NabinDatabase {
   // DOUBLE-ENTRY FINANCIAL LEDGER & RECONCILIATION
   // =========================================================================
 
-  async recordLedgerEntry({ transactionId, debitAccount, creditAccount, amount, currency = 'INR', description = '', referenceId = null }) {
+  async recordLedgerEntry({ transactionId, debitAccount, creditAccount, amount, currency = 'INR', description = '', referenceId = null, jobId = null, idempotencyKey = null }) {
     const entry = {
       id: transactionId || `LEDGER-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
       transactionId: transactionId || `TXN-${Date.now()}`,
@@ -5693,7 +5743,9 @@ class NabinDatabase {
           amount,
           description,
           referenceId,
-          transactionId: entry.transactionId
+          jobId,
+          transactionId: entry.transactionId,
+          idempotencyKey
         });
         if (repoEntry) {
           this.save();
