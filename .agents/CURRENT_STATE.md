@@ -1,13 +1,21 @@
 # NABIN — Current Repository State
 
-**Last Updated**: 2026-09-20
-**Mode**: PLAN-ONLY / GOVERNANCE ONLY
+**Last Updated**: 2026-09-21
+**Mode**: IMPLEMENTATION — verified work committed and pushed
 **Status**: AUTHORITATIVE SNAPSHOT
 
-> **Re-baseline note (2026-09-20):** prior snapshot recorded HEAD `1d404a6`. Verified
-> `git log`/`git status` on 2026-09-20 shows HEAD = origin/main = `9b2804c`
-> ("docs(stitch): add design freeze reports and handover artifacts for 234-screen
-> canonical set"). §1 below reflects live state; all other sections unchanged.
+> **Re-baseline note (2026-09-21):** the 2026-09-20 snapshot below-left stale.
+> Verified live: HEAD = origin/main = `b13cdb3`, reached by a fast-forward
+> `9b2804c..b13cdb3` carrying 8 commits — 7 made on 2026-09-21 (backend
+> PostgreSQL-authority, mobile grocery/food live data, both merchant web consoles
+> plus admin/customer-web token work, docs, web lint fix, two status notes) and
+> `6494b25` which was already local on 2026-09-20. Working tree is clean apart
+> from the
+> 11 junk root artifacts and `.kilo/agents/`. `IMPLEMENTATION_PLAN.md` was
+> deleted on 2026-09-21 after review: it was 0 bytes, had never been tracked
+> (`git log --all --` returns nothing), shadowed nothing, and no code reads that
+> path. The authoritative Phase 16 plan remains tracked at
+> `docs/PHASE_16_IMPLEMENTATION_PLAN.md` (613 lines, frozen, PLAN-ONLY).
 
 ---
 
@@ -15,25 +23,38 @@
 
 | Field | Value |
 |-------|-------|
-| **Current HEAD** | `9b2804cb3ca0b791f72e723ceff4d3a2f365b850` |
-| **origin/main** | `9b2804cb3ca0b791f72e723ceff4d3a2f365b850` |
+| **Current HEAD** | `b13cdb3` (this §1 update lands on top of it) |
+| **origin/main** | `b13cdb3` |
 | **HEAD == origin/main** | YES |
-| **Working tree** | DIRTY — untracked files only (no tracked modifications) |
+| **Working tree** | CLEAN of tracked modifications; untracked: `.kilo/agents/` + 11 junk root files |
 | **Branch** | main |
 
-### Untracked files of record (2026-09-20, `git status --short`)
+### Untracked files of record (re-verified 2026-09-21, `git status --porcelain`)
 
-- `IMPLEMENTATION_PLAN.md`
-- `nabin_repository_inventory.md` (new, this session)
-- `nabin_234_implementation_gap.md` (new, this session)
-- `admin-web/src/components/AdminLayout.tsx`
-- `customer-web/src/components/`
-- `mobile/lib/features/driver/presentation/widgets/` (`driver_job_offer_card.dart`)
-- Junk root artifacts: `mcp_out.txt`, `readme.txt`, pasted-filename files
-  (deletion requires USER approval; never commit `.kilo/`)
+- `.kilo/agents/` — never commit (standing rule)
+- Junk root artifacts, still unreleased pending USER approval: `mcp_out.txt`,
+  `readme.txt`, and 9 pasted/truncated-filename files
+  (`ersmacmiDocumentsnabin`, `pacing scale`, `ion 1.0.0`, `to Implement (38 total)`,
+  `tomer-facing features`, `tomer App  Flutter  48 …`, `plan transitions NABIN …`,
+  `e Stitch Design → Application Implementation`, `:`)
+- `scratch/` (including `grocery_e2e.sh`, the live grocery E2E probe) is
+  gitignored at `.gitignore:31`, so it never appears here
+- The 2026-09-20 list — `nabin_repository_inventory.md`,
+  `nabin_234_implementation_gap.md`, `admin-web/src/components/AdminLayout.tsx`,
+  `customer-web/src/components/`, `mobile/.../driver_job_offer_card.dart` — is now
+  committed (docs in `19c9041`, web in `7c1fe53`, mobile in `c35306d`)
 
 ### Recent Git History
 ```
+b13cdb3 docs: mark session memory as pushed
+a03a28c docs: record the pushed commit range
+dac61ec fix(web): clear the react-hooks lint errors in the merchant consoles
+19c9041 docs: record the PG-authoritative pass, gap audits and corrected git/supabase state
+7c1fe53 feat(web): add merchant consoles and bring the web apps onto shared tokens
+c35306d feat(mobile): wire grocery and food browsing to live data with real checkout
+e7a7d31 feat(backend): make customer browse and grocery checkout PostgreSQL-authoritative
+6494b25 fix(mobile): resolve Flutter analyzer errors
+9b2804c docs(stitch): add design freeze reports and handover artifacts for 234-screen canonical set
 1d404a6 Revert "feat(database): add migration 017 for menu modifiers, tax configs, and tax invoicing with composite tenant constraints"
 4c3ba35 feat(database): add migration 017 for menu modifiers, tax configs, and tax invoicing with composite tenant constraints
 66c0718 chore(recovery): revert unauthorized Phase 18 commits to restore authorized baseline 8eb4f662

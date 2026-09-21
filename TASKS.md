@@ -1,9 +1,9 @@
 # NABIN — Task Tracker
 
 **Updated**: 2026-09-21
-**Base**: `6494b25` (was 1 ahead of `origin/main` `9b2804c`, 0 behind). The 2026-09-21
-work is committed as 4 atomic commits on top of it: backend, mobile, web, docs. **Not
-pushed.**
+**State**: `main` = `origin/main` = `b13cdb3`. The 2026-09-20/21 work reached the
+remote by fast-forward `9b2804c..b13cdb3` (8 commits: backend, mobile, web, docs,
+web lint fix, two status notes, plus the pre-existing `6494b25`).
 
 ## DONE (2026-09-20/21 sessions — grocery/food customer path + merchant apps)
 
@@ -68,7 +68,11 @@ pushed.**
 - [ ] M0: web→backend port fix (`NEXT_PUBLIC_API_URL`, both merchant web apps) — §13.2 of gap report
 - [ ] Junk root artifact deletion (mcp_out.txt, readme.txt, pasted-filename files)
 - [ ] Dark-store/legacy fixture cleanup in `backend/src/database.js`
-- [ ] Empty file `IMPLEMENTATION_PLAN.md` (0 bytes, untracked) — delete or fill in
+- [x] Reviewed and deleted `IMPLEMENTATION_PLAN.md` (2026-09-21, approved): 0 bytes,
+      never tracked by git, no code reads the path, and it shadowed nothing — the
+      authoritative plan is tracked at `docs/PHASE_16_IMPLEMENTATION_PLAN.md`
+      (613 lines, frozen, PLAN-ONLY). `.agents/CURRENT_STATE.md` §1 re-baselined to
+      match, since it had listed the file as a "file of record".
 
 ## BACKLOG (ranked, each needs its own approval — gap report §13.4)
 
