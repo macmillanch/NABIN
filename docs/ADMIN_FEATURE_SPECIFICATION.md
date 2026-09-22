@@ -98,10 +98,27 @@ facts measured against that live store:
 
 ### 1.4 Sessions, tokens, and what an admin token grants
 
-`authenticateAdmin` resolves the bearer, then re-reads the authoritative store to confirm
-`is_active` (`backend/src/database.js:5130` region), so a suspended administrator cannot
-keep using a token issued before suspension. That check is the reason §4 can treat the
-role as trustworthy.
+Two different checks protect an admin session, and only one of them is authoritative.
+
+- **At sign-in** (`server.js:1247` → `database.js:5139`): the password proves the caller
+  knows a secret; the store decides whether the account still exists and is still
+  `is_active`. An unreachable store **refuses the login** rather than answering from
+  memory, and a removed account gets the same message as a wrong password.
+- **On every request** (`authenticateAdmin`, `server.js:794`): the bearer resolves
+  through `activeAdminSessions` / `db.getSessionByToken`, then a deactivation check reads
+  the **in-process `adminUsers` copy**, not the store.
+
+So a disable made directly in `admin_accounts` does not stop an already-issued token in a
+running backend; it converges when that administrator next attempts to sign in
+(`server.js:1266` writes `INACTIVE` into the copy, which then fails the per-request check).
+That is a *delayed* revocation, not a broken one, but it is not what area 34 asks for.
+Two things Phase A must therefore provide: an admin-facing session list with revoke backed
+by `active_sessions` / `backend_sessions`, and a revocation path that removes
+`activeAdminSessions` entries rather than waiting for a restart.
+
+`admin_accounts` itself carries `failed_attempts` and `locked_until`, and a failed login is
+audited with the caller's IP (`server.js:1228`) — the lockout trail a security centre needs
+already exists, it is just not visible to any screen.
 
 ---
 
@@ -386,7 +403,7 @@ configuration question once §2.2 is fixed, not a code change.
 | 30 | Disputes | MISSING — no table, no route, no screen | New domain: a migration to create `disputes`, or model as a typed `support_tickets`. §11 decision, and the migration branch is a §9 stop | G |
 | 31 | Audit log protected from normal deletion | EXISTS — `trg_audit_logs_immutable` + `GET /api/admin/audit-logs` | 32 audit writes in `database.js` are un-awaited vs 6 awaited (task #57): the trail can silently lose rows | A |
 | 33 | Permission matrix with named permissions, enforced server-side | PARTIAL — `requirePermission` is a real server-side gate on 51 routes, with 36 named strings | The names live inline, two divergent grant maps decide who holds them (§2.2), 16 granted strings have no gate and 11 gated strings belong to no role (§2.3), and four routes use ad-hoc role tests instead. §3 is the target catalogue; persisting it is the §9 migration | A |
-| 34 | Security centre | MISSING as a surface | Sessions (`active_sessions`/`backend_sessions`), failed-login lockouts (`failed_attempts`, `locked_until`), admin session list + revoke | A |
+| 34 | Security centre | MISSING as a surface | Sessions (`active_sessions`/`backend_sessions`), failed-login lockouts (`failed_attempts`, `locked_until`), admin session list + revoke. Revocation today is delayed rather than absent — see §1.4 | A |
 | 36 | Integrations, never display secret values | PARTIAL — `platform_settings` holds mixed data | Show presence/configured-state + last check, never a value; `PUT` rejects anything secret-shaped | A |
 | 37 | Settings, secrets not editable from admin UI | PARTIAL — `GET/PUT /api/admin/platform-settings` (`requireSuperAdmin`) | Needs an allow-list of keys, not an open key/value editor over a table that also holds config the server reads at boot | A |
 | 38 | Feature flags that cannot bypass controls | PARTIAL — `features` routes, `is_feature_enabled()` | §2.4: a flag write can address any `platform_settings` key; must be namespaced, and flags must remain unable to disable auth/authz/payment/RLS/audit | A |
