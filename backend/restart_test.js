@@ -295,7 +295,21 @@ async function runRestartTest() {
     });
     serverProcess.unref();
 
-    await sleep(3500);
+    // A fixed sleep used to be enough, and then the cold start grew past it:
+    // PostgreSQL hydration runs before the port opens, so the assertions after
+    // this point were racing the boot rather than testing the restart. Ask the
+    // server when it is ready, and say so if it never is.
+    let booted = false;
+    for (let attempt = 0; attempt < 60; attempt++) {
+      await sleep(500);
+      try {
+        const health = await request('GET', '/api/health');
+        if (health.status === 200) { booted = true; console.log(`   …fresh backend answering after ${(attempt + 1) * 0.5}s`); break; }
+      } catch (e) { /* still starting */ }
+    }
+    assert('Fresh backend from cold start answers on its port within 30s', booted,
+      booted ? '' : 'the process never bound to :4000 — every assertion below would be meaningless');
+    if (!booted) throw new Error('Cold start never came up; aborting rather than reporting connection refusals as data loss.');
 
     console.log('\n--- 🔍 VERIFYING DATA INTEGRITY AFTER RESTART ---');
     // 7. Re-check health & readiness
