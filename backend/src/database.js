@@ -5528,7 +5528,7 @@ class NabinDatabase {
   // HIGH-FREQUENCY LIVE FLEET LOCATION (REDIS / IN-MEMORY ABSTRACTION)
   // =========================================================================
 
-  updateDriverLocation({ driverId, lat, lng, heading = 0, speed = 0, jobId = null, isOnline = true, status = 'AVAILABLE', serviceType = 'RIDE' }) {
+  updateDriverLocation({ driverId, lat, lng, heading = 0, speed = 0, accuracy = null, receivedAt = null, jobId = null, isOnline = true, status = 'AVAILABLE', serviceType = 'RIDE' }) {
     if (!driverId) return null;
     const existing = this.fleetLocations.get(driverId) || {};
     const record = {
@@ -5540,6 +5540,10 @@ class NabinDatabase {
       lng: Number(lng),
       heading: Number(heading),
       speed: Number(speed),
+      accuracy: accuracy === null || accuracy === undefined ? null : Number(accuracy),
+      // When the server received the fix. Never the device's own claim, which is
+      // what would let a driver hold a stale position open by stamping it freshly.
+      receivedAt: receivedAt || new Date().toISOString(),
       isOnline: Boolean(isOnline),
       status: status || existing.status || 'AVAILABLE',
       activeJobId: jobId !== undefined ? jobId : existing.activeJobId,

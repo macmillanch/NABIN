@@ -4235,6 +4235,75 @@ async function runAllTests() {
       !cpServedAtTeardown.includes(cpCode) && !cpServedAtTeardown.includes(cpRivalCode),
       `served=${cpServedAtTeardown.join()}`
     );
+
+    // --- 38. MODULE 34: One telemetry validator, two transports (chaos finding CH-08) ---
+    console.log('\n--- 38. MODULE 34: Shared Driver Telemetry Validation Across REST And WebSocket ---');
+    const locHeaders = { 'Authorization': `Bearer ${driverToken}` };
+    const locGood = { lat: 28.6912, lng: 77.2198, speed: 35, accuracy: 8 };
+    const locBad = [
+      { name: 'a latitude past the pole', body: { lat: 999, lng: 400 }, code: 'COORDINATES_OUT_OF_RANGE' },
+      { name: 'a longitude past the antimeridian', body: { lat: 28.61, lng: 1999 }, code: 'COORDINATES_OUT_OF_RANGE' },
+      { name: 'text and null where numbers belong', body: { lat: 'abc', lng: null }, code: 'INVALID_COORDINATES' },
+      { name: 'a missing longitude', body: { lat: 28.61 }, code: 'INVALID_COORDINATES' },
+      { name: 'a fix stamped 1899', body: { lat: 28.61, lng: 77.2, timestamp: '1899-01-01T00:00:00Z' }, code: 'TELEMETRY_STALE' },
+      { name: 'a fix stamped tomorrow', body: { lat: 28.61, lng: 77.2, timestamp: new Date(Date.now() + 86400000).toISOString() }, code: 'TIMESTAMP_IN_FUTURE' },
+      { name: 'a timestamp that is not a date', body: { lat: 28.61, lng: 77.2, timestamp: 'yesterday' }, code: 'TIMESTAMP_MALFORMED' },
+      { name: 'a speed no vehicle reaches', body: { lat: 28.61, lng: 77.2, speed: 1000000000 }, code: 'SPEED_IMPLAUSIBLE' },
+      { name: 'an accuracy wider than a district', body: { lat: 28.61, lng: 77.2, accuracy: 99999 }, code: 'ACCURACY_IMPLAUSIBLE' }
+    ];
+
+    const locWs = new WebSocket(WS_URL);
+    await new Promise(r => locWs.once('open', r));
+    locWs.send(JSON.stringify({ type: 'REGISTER', role: 'DRIVER', token: driverToken }));
+    await waitForWsMessage(locWs);
+
+    const wsTelemetry = async (body) => {
+      locWs.send(JSON.stringify({ type: 'DRIVER_LOCATION_UPDATE', ...body }));
+      return waitForWsMessage(locWs);
+    };
+
+    const locGoodRest = await request('POST', '/api/driver/location', locGood, locHeaders);
+    assert('LOC-01: A plausible fix is accepted over REST and stored',
+      locGoodRest.status === 200 && locGoodRest.data.success && locGoodRest.data.telemetryStored,
+      `status=${locGoodRest.status} body=${JSON.stringify(locGoodRest.data).slice(0, 160)}`
+    );
+    const locGoodWs = await wsTelemetry({ location: locGood });
+    assert('LOC-02: The same fix is accepted over the socket, so parity does not mean stricter-than-before',
+      locGoodWs.type === 'LOCATION_ACK' && locGoodWs.success === true,
+      `frame=${JSON.stringify(locGoodWs).slice(0, 160)}`
+    );
+
+    for (const badCase of locBad) {
+      const restBad = await request('POST', '/api/driver/location', badCase.body, locHeaders);
+      const wsBad = await wsTelemetry(badCase.body);
+      assert(`LOC-03: ${badCase.name} is refused with ${badCase.code} on both transports`,
+        restBad.status === 400 && restBad.data.code === badCase.code
+        && wsBad.type === 'ERROR' && wsBad.code === badCase.code,
+        `rest=${restBad.status}/${restBad.data.code} ws=${wsBad.code}`
+      );
+    }
+
+    const locNaming = await request('POST', '/api/driver/location', { lat: 999, lng: 400 }, locHeaders);
+    assert('LOC-04: REST and socket report the same reason text, so a client learns one rule not two',
+      locNaming.data.message === locNaming.data.error
+      && typeof locNaming.data.message === 'string' && locNaming.data.message.includes('90'),
+      `message=${locNaming.data.message}`
+    );
+
+    const locNoAuth = await request('POST', '/api/driver/location', locGood);
+    const locCustomerAsDriver = await request('POST', '/api/driver/location', locGood, { 'Authorization': `Bearer ${customerToken}` });
+    assert('LOC-05: Telemetry still requires a driver session — validation is not an authorisation layer',
+      locNoAuth.status === 401 && (locCustomerAsDriver.status === 401 || locCustomerAsDriver.status === 403),
+      `anon=${locNoAuth.status} customer=${locCustomerAsDriver.status}`
+    );
+
+    const locSpoof = await request('POST', '/api/driver/location', { ...locGood, driverId: 'DRV-999' }, locHeaders);
+    assert('LOC-06: A valid fix cannot be attributed to another driver',
+      locSpoof.status === 403 && locSpoof.data.code === 'IDENTITY_SPOOFING_REJECTED',
+      `status=${locSpoof.status} code=${locSpoof.data.code}`
+    );
+
+    locWs.close();
   } catch (err) {
     console.error('Fatal Test Suite Exception:', err);
     failed++;

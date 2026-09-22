@@ -12,6 +12,7 @@ const { MockSandboxPushProvider, FcmV1PushProvider, PushNotificationService } = 
 const { notificationEventBus, NOTIFICATION_EVENTS } = require('./services/NotificationEventBus');
 const featureControlService = require('./services/FeatureControlService');
 const appConfigService = require('./services/AppConfigService');
+const { validateDriverTelemetry } = require('./services/TelemetryValidator');
 const AdvertisementRepository = require('./repositories/AdvertisementRepository');
 
 const pushProvider = (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL)
@@ -446,33 +447,34 @@ wss.on('connection', (ws, req) => {
         }
       }
 
-      if (rawLat === undefined || rawLng === undefined || isNaN(Number(rawLat)) || isNaN(Number(rawLng))) {
+      const telemetry = validateDriverTelemetry({
+        lat: rawLat,
+        lng: rawLng,
+        speed: data.speed ?? data.speedKmph ?? data.location?.speed,
+        accuracy: data.accuracy ?? data.location?.accuracy,
+        heading: data.heading ?? data.bearing ?? data.location?.heading,
+        timestamp: data.timestamp ?? data.location?.timestamp
+      });
+      if (!telemetry.ok) {
         ws.send(JSON.stringify({
           type: 'ERROR',
-          code: 'INVALID_COORDINATES',
-          error: 'Numeric latitude and longitude are required.'
+          code: telemetry.code,
+          error: telemetry.message
         }));
         return;
       }
-
-      const lat = Number(rawLat);
-      const lng = Number(rawLng);
-
-      if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
-        ws.send(JSON.stringify({
-          type: 'ERROR',
-          code: 'COORDINATES_OUT_OF_RANGE',
-          error: 'Latitude must be between -90 and 90, longitude between -180 and 180.'
-        }));
-        return;
-      }
+      const { lat, lng } = telemetry.value;
+      const reportedSpeed = telemetry.value.speed ?? speed;
+      const reportedHeading = telemetry.value.heading ?? heading;
 
       const locationRecord = db.updateDriverLocation({
         driverId,
         lat,
         lng,
-        heading,
-        speed,
+        heading: reportedHeading,
+        speed: reportedSpeed,
+        accuracy: telemetry.value.accuracy,
+        receivedAt: telemetry.value.receivedAt,
         jobId,
         isOnline: true,
         status: jobId ? 'ON_TRIP' : 'AVAILABLE',
@@ -5419,12 +5421,27 @@ app.put('/api/admin/platform-settings/:key', authenticateAdmin, requireSuperAdmi
 // =========================================================================
 
 app.post(['/api/v1/driver/location', '/api/driver/location'], authenticateDriver, (req, res) => {
-  const { driverId, lat, lng, latitude, longitude, heading, bearing, speed, speedKmph, jobId, activeJobId, isOnline, status, serviceType } = req.body;
+  const { driverId, lat, lng, latitude, longitude, heading, bearing, speed, speedKmph, accuracy, timestamp, jobId, activeJobId, isOnline, status, serviceType } = req.body;
   const effectiveLat = lat !== undefined ? lat : latitude;
   const effectiveLng = lng !== undefined ? lng : longitude;
 
-  if (effectiveLat === undefined || effectiveLng === undefined) {
-    return res.status(400).json({ success: false, code: 'INVALID_COORDINATES', message: 'lat and lng are required.' });
+  // The same validator the WebSocket frame handler runs, so a fix this socket
+  // would reject cannot be posted through this door instead.
+  const telemetry = validateDriverTelemetry({
+    lat: effectiveLat,
+    lng: effectiveLng,
+    heading: heading ?? bearing,
+    speed: speed ?? speedKmph,
+    accuracy,
+    timestamp
+  });
+  if (!telemetry.ok) {
+    return res.status(telemetry.status).json({
+      success: false,
+      code: telemetry.code,
+      message: telemetry.message,
+      error: telemetry.message
+    });
   }
 
   // Anti-spoofing check: client-supplied driverId must match session
@@ -5462,10 +5479,12 @@ app.post(['/api/v1/driver/location', '/api/driver/location'], authenticateDriver
   // Update in-memory / Redis fast store (Never writing raw high-frequency telemetry to PostgreSQL)
   const locationRecord = db.updateDriverLocation({
     driverId: effectiveDriverId,
-    lat: effectiveLat,
-    lng: effectiveLng,
-    heading: heading || bearing,
-    speed: speed || speedKmph,
+    lat: telemetry.value.lat,
+    lng: telemetry.value.lng,
+    heading: telemetry.value.heading ?? heading ?? bearing,
+    speed: telemetry.value.speed ?? speed ?? speedKmph,
+    accuracy: telemetry.value.accuracy,
+    receivedAt: telemetry.value.receivedAt,
     jobId: targetJobId,
     isOnline: isOnline !== undefined ? isOnline : true,
     status,
