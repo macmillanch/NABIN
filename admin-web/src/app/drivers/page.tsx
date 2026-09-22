@@ -3,6 +3,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import AdminLayout from '@/components/AdminLayout';
 import ResourceTable, { StatusBadge, inr, type Column } from '@/components/ResourceTable';
+import { useConfirmAction } from '@/components/ConfirmAction';
+import { readRefusal } from '@/lib/refusals';
 import { adminApi } from '@/lib/api';
 
 interface Driver {
@@ -22,6 +24,7 @@ interface Driver {
 }
 
 export default function DriversPage() {
+  const confirm = useConfirmAction();
   const [rows, setRows] = useState<Driver[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -52,11 +55,30 @@ export default function DriversPage() {
       await adminApi.updateDriverStatus(driver.id, status);
       await load();
       setError(null);
-    } catch {
-      setError(`Could not set ${driver.name ?? driver.id} to ${status}.`);
+    } catch (err) {
+      // The server distinguishes a refusal from a change that landed without its audit
+      // record; the previous copy insisted the second case could not happen.
+      setError(readRefusal(err, `Could not set ${driver.name ?? driver.id} to ${status}.`).message);
     } finally {
       setBusyId(null);
     }
+  }
+
+  async function suspend(driver: Driver) {
+    const ok = await confirm({
+      title: `Suspend ${driver.name ?? driver.id}`,
+      effect: 'Every request this driver app makes is refused, so they cannot go online or be shown a job.',
+      consequences: [
+        'They drop out of the dispatch candidate pool, so new pickups go to other drivers.',
+        'A trip already accepted is not taken away, and earnings already made stay payable.',
+        "This screen sends no reason, so the driver is told 'Compliance review'.",
+        'Reversible: the Activate button on this row returns them to service.',
+        'Recorded in the audit log against your account.',
+      ],
+      confirmLabel: 'Suspend driver',
+      tone: 'danger',
+    });
+    if (ok) await setStatus(driver, 'SUSPENDED');
   }
 
   const columns: Column<Driver>[] = [
@@ -120,7 +142,7 @@ export default function DriversPage() {
           </button>
         ) : (
           <button
-            onClick={() => setStatus(d, 'SUSPENDED')}
+            onClick={() => suspend(d)}
             disabled={busyId === d.id}
             className="nabin-btn nabin-btn--ghost"
             style={{ minHeight: 40 }}

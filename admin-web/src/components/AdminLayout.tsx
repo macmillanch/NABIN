@@ -3,15 +3,28 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/components/AuthProvider';
-import { LogOut, LayoutDashboard, Store, Menu, X, Car, Package, Megaphone } from 'lucide-react';
+import { LogOut, LayoutDashboard, Store, Menu, X, Car, Package, Megaphone, ShieldCheck } from 'lucide-react';
 import { usePathname } from 'next/navigation';
 
-const NAV_ITEMS = [
+interface NavItem {
+  name: string;
+  href: string;
+  icon: React.ComponentType<{ size?: number; className?: string }>;
+  /**
+   * The name the server's own guard checks for this screen. Left unset on the sections
+   * whose routes are gated per row rather than per page, so the navigation they were
+   * always shown in does not change under them.
+   */
+  permission?: string;
+}
+
+const NAV_ITEMS: NavItem[] = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
   { name: 'Drivers', href: '/drivers', icon: Car },
   { name: 'Merchants', href: '/merchants', icon: Store },
   { name: 'Jobs/Orders', href: '/orders', icon: Package },
   { name: 'Campaigns', href: '/campaigns', icon: Megaphone },
+  { name: 'Security', href: '/security', icon: ShieldCheck, permission: 'security.view' },
 ];
 
 export default function AdminLayout({ children, title }: { children: React.ReactNode; title?: string }) {
@@ -57,7 +70,9 @@ export default function AdminLayout({ children, title }: { children: React.React
         </div>
 
         <nav className="nabin-nav__list" aria-label="Admin sections">
-          {NAV_ITEMS.map((item) => {
+          {NAV_ITEMS.filter(
+            (item) => !item.permission || (user.permissions as string[] | undefined)?.includes(item.permission)
+          ).map((item) => {
             const isActive = pathname === item.href;
             const Icon = item.icon;
             return (

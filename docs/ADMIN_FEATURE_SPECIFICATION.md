@@ -575,7 +575,7 @@ configuration question once §2.2 is fixed, not a code change.
 | 30 | Disputes | MISSING — no table, no route, no screen | New domain: a migration to create `disputes`, or model as a typed `support_tickets`. §11 decision, and the migration branch is a §9 stop | G |
 | 31 | Audit log protected from normal deletion | EXISTS — `trg_audit_logs_immutable` + `GET /api/admin/audit-logs`; since A3 a refused write is announced instead of vanishing, and since A3b the 26 control-plane writes are awaited and a refusal answers 503 (§2.7) | 20 writes stay un-awaited for stated reasons (§2.7's table), so a 200 on those is still not proof the record landed; and three admin mutations have no column to land in at all (§2.5) | A |
 | 33 | Permission matrix with named permissions, enforced server-side | PARTIAL — 55 of 72 `authenticateAdmin` routes gate on 40 names, and since A1 the grants come from one file (§2.3). Since A4 the whole map is **proven rather than described**: `admin_authorization_test.js` parses the route table out of `src/server.js` and refuses all 193 (route, role) pairs that should be closed, allow-probes 36 names through a handler-validated request, and compares `GET /api/admin/me` against the catalogue per role | 12 ungated admin reads answer to any token, 9 catalogue names grant nothing anywhere, and 26 gated names are unreachable for a least-privilege role (§2.3); 4 decisions sit inside handlers in a fourth spelling; nothing is persisted, so per-admin overrides need the §9 migration. 4 names (`notification.broadcast`, `orders.manage`, `geofence.create`, `surge.create`) have no *safe* allow probe, so a holder reaching them is unproven — recorded in the harness, not hidden. §3 is the target catalogue | A |
-| 34 | Security centre | EXISTS as an API surface since A4 — `GET /api/admin/security/sessions` (`security.view`), `GET /api/admin/security/login-lockouts` (`security.view`), `POST /api/admin/security/sessions/revoke` (`security.session.revoke`, by handle or by account, durable-store-first, audited through `auditAppliedChange`), and the account enable/disable write that cuts sessions with it (§1.4) | No dashboard screen reads any of it yet (phase A shell work, area 40/45); the lockout counters are this-process-only because `failed_attempts`/`locked_until` are dead columns (§1.4) — durable lockouts and a last-seen-IP trail need a migration → §9 | A |
+| 34 | Security centre | EXISTS as an API surface **and, since A5, as a screen** — `GET /api/admin/security/sessions` (`security.view`), `GET /api/admin/security/login-lockouts` (`security.view`), `POST /api/admin/security/sessions/revoke` (`security.session.revoke`, by handle or by account, durable-store-first, audited through `auditAppliedChange`), and the account enable/disable write that cuts sessions with it (§1.4). `admin-web/src/app/security/page.tsx` reads all three and gates every action button on `user.permissions` from `GET /api/admin/me`, so a role without `security.session.revoke` sees the directory with no buttons rather than a button that answers 403 | The lockout counters are this-process-only because `failed_attempts`/`locked_until` are dead columns (§1.4) — durable lockouts and a last-seen-IP trail need a migration → §9. `security.view`-only roles cannot list the account directory it acts on (`admin_accounts.manage`), sessions are unpaged, and the nav entry itself disappears for a role with no `security.view` | A |
 | 36 | Integrations, never display secret values | PARTIAL — `platform_settings` holds mixed data | Show presence/configured-state + last check, never a value; `PUT` rejects anything secret-shaped | A |
 | 37 | Settings, secrets not editable from admin UI | PARTIAL — `GET/PUT /api/admin/platform-settings` (`requireSuperAdmin`) | Needs an allow-list of keys, not an open key/value editor over a table that also holds config the server reads at boot | A |
 | 38 | Feature flags that cannot bypass controls | PARTIAL — `features` routes, `is_feature_enabled()`, and since A2 a write surface limited to flag keys (§2.4) | Flags must remain unable to disable auth/authz/payment/RLS/audit; the routes are still role-checked rather than name-checked, and neither write is audited | A |
@@ -585,7 +585,7 @@ configuration question once §2.2 is fixed, not a code change.
 | 45 | Mobile-responsive admin, not shrunk tables | MISSING | Card/list layouts under 768px; the existing `ResourceTable` is desktop-only | G |
 | 46 | Per-admin dashboard customisation | MISSING | Needs a persisted per-admin preferences store — same §9 migration family | G |
 | 48 | Accessibility | MISSING as an enforced property | Keyboard nav, focus order, labelled controls, contrast, live-region announcements for the realtime feed | G |
-| 49 | Confirmation that states exactly what will happen | MISSING | A single dangerous-action dialog fed by the mutation's own effect description, used by suspend/payout/killswitch/refund/flag | A |
+| 49 | Confirmation that states exactly what will happen | EXISTS — `admin-web/src/components/ConfirmAction.tsx`, one modal fed by a `Confirmation { title, effect, consequences[], confirmLabel, tone }` written from the mutation's **actual** backend behaviour, not from intention. Wired at every privileged mutation the dashboard has today: service pause, merchant suspend, driver suspend, campaign ACTIVE/PAUSED/ARCHIVED, and session revoke / revoke-all-for-account / disable-account on the security screen | Killswitch, payout and refund have no admin-web surface at all yet, so nothing confirms them (§5 rows 15 and 18, §11 decision 10); a suspension carries no reason field from the UI, so the driver is told the server's default `'Compliance review'`; saving an **edit** to an already-live campaign is not confirmed (the editor's own footnote states what a save replaces in full, and publishing stays a confirmed state button — whether a live-content edit needs the dialog too is undecided); and the audit reason for a revoke says `"(N take-down(s))"`, summing durable store rows and this process's in-memory copies of the *same* session — the screen's line keeps them apart, the trail's does not | A |
 | 50 | Security controls never bypassed by UI, AI or client | Governs everything above | One enforcement point (§2.1 consequence), no client-supplied id/role/ownership/amount/time, and the AI tool layer shares the same gate | all |
 
 ---
@@ -615,9 +615,15 @@ trusted):** `adjust_wallet_atomic`, `refund_payment_atomic`, `capture_payment_at
   operation is audited". An audit failure there becomes a 503 with a code, not a 4xx.
 
 **Frontend components to reuse:** `admin-web/src/components/ResourceTable.tsx`,
+`admin-web/src/components/ConfirmAction.tsx` + `admin-web/src/lib/refusals.ts` (area 49's
+one confirmation modal and the one reader of a refused write — a new mutation calls
+`useConfirmAction()` before it posts and reports failure through `readRefusal(err, …)`, it
+does not write its own dialog or its own `err.response?.data?.message` line),
 `CampaignEditor.tsx` (the pattern for a revision-carrying config editor),
-`AuthProvider.tsx` (where the permission set from `GET /api/admin/me` should land), and
-`AdminLayout.tsx` (where the nav becomes permission-driven).
+`AuthProvider.tsx` (which already carries `GET /api/admin/me`'s `{ role, permissions }` on
+`user`, and is what a screen gates an action button against), and
+`AdminLayout.tsx` (where the nav becomes permission-driven — done for `/security`, still
+static for every other entry).
 
 **Design references:** `.agents/skills/ui_ux_pro_max` and
 `.agents/skills/frontend_developer` are the conventions for the shell work in phase G;
@@ -655,13 +661,15 @@ before its gate passes, and each phase ends in one local commit. **No push, no d
    that stay un-awaited for the reasons tabled in §2.7, and the three admin surfaces in §2.5
    whose state never reaches PostgreSQL at all — the latter needs new columns, so it is a §9
    stop rather than more Phase A work.
-7. ➜ **Part done (A4).** The security-centre **API** is live and gated: the session list,
+7. ➜ **Part done (A4, screen in A5).** The security-centre **API** is live and gated: the session list,
    the lockout read labelled for what it actually covers, revoke by handle or by account
    with the durable store written first, the account status write that cuts sessions as it
-   disables, and the fail-closed audit on all three (§1.4, §5 rows 32 and 34).
-   **Open:** the single dangerous-action confirmation component (area 49) and a dashboard
-   screen that reads any of this surface — both are admin-web work, and until they exist
-   the security centre is reachable only over HTTP.
+   disables, and the fail-closed audit on all three (§1.4, §5 rows 32 and 34). Since A5 the
+   surface has a consumer: `admin-web/src/app/security/page.tsx`.
+   **Open:** durable lockouts and a last-seen-IP trail, which need the dead
+   `failed_attempts`/`locked_until` columns written → §9; sessions are listed unpaged; and a
+   role holding `security.view` without `admin_accounts.manage` can see the sessions but not
+   the account directory it would revoke by account.
    **Found while gating it, fixed:** `POST /api/admin/services/emergency-killswitch` read
    its direction as `if (activate)`, so a body that omitted the field lifted the lockdown —
    the one admin mutation where doing nothing by accident was the dangerous answer. The
@@ -669,7 +677,24 @@ before its gate passes, and each phase ends in one local commit. **No push, no d
    `authenticateAdmin`'s store-fallback branch accepts any administrator role rather than
    only `ADMIN`/`SUPER_ADMIN`, which had made an OPERATIONS or KYC token that reached that
    branch a live session the door refused to read.
-8. ⬜ Settings/integrations: key allow-list, secret values never rendered, never writable.
+8. ✅ **Done (A5).** Area 49's single dangerous-action confirmation exists —
+   `admin-web/src/components/ConfirmAction.tsx`, one provider-level modal whose `effect`
+   line is required and whose copy is written from what the backend route actually does —
+   and every privileged mutation in the dashboard runs through it: service pause, merchant
+   suspend, driver suspend, the three live campaign states, and security's revoke /
+   revoke-all-for-account / disable-account. It fails closed: with no provider, or with a
+   second request already open, the answer is `false`.
+   **Found while wiring it, fixed:** the switchboard had never worked from the dashboard.
+   `pauseService`/`resumeService` posted `{ service: '<display name>' }` against routes that
+   read `serviceId`, so **every** pause and resume answered 400 — and the card read a field
+   named `isPaused` that the payload does not contain, so a service paused over the API still
+   rendered as `Live`. Both corrected, and the round trip proven live: pause a service, watch
+   the badge and reason change, resume it, and see both actions in the audit trail. Along the
+   same read every refusal the dashboard and the security screen show now comes from
+   `readRefusal(err, …)`, so a `503` carrying `applied: true` says the change landed and only
+   its record failed — instead of "the change was not applied", the one sentence about it
+   that would be false.
+9. ⬜ Settings/integrations: key allow-list, secret values never rendered, never writable.
 
 **Gate:** ✅ `test_suite.js` green *plus* `admin_authorization_test.js`, which replaced the
 hand-picked `RBAC-01..12` model with the whole measured map: 109 assertions — 193
@@ -752,6 +777,12 @@ the same area-49 confirmation with no shortcut path.
 | `backend/admin_audit_fail_closed_test.js` (**new, A3b**) | each converted mutation rejects 503 `applied: true` when its record is refused, the state really did change, no route that awaits one can hang or answer 400, and the deliberately unconverted paths stay unconverted | any audit-path change |
 | `backend/admin_authorization_test.js` (**new, A4**) | 109 assertions: the guard map parsed from `src/server.js` (55 gated routes / 40 names), all 193 (route, non-super role) pairs refused with 403 naming the permission, one handler-validated allow probe per permission, `GET /api/admin/me` equal to the catalogue per role, revocation proven by using the revoked bearer, cross-instance sessions honoured and revocable, disable-cuts-sessions, and the four guards that must never be fired over HTTP proven against a stubbed store | phases A–G |
 | Flutter `main_admin.dart` widget tests + `flutter analyze` | the admin mobile app | phases with mobile changes |
+| `admin-web`: `npm run lint`, `npm run build`, then a real browser walk of each confirmation (local backend on :4000, local dev server on :3001) | area 49's component, the security screen, and that a dialog's words match what the route does | phases A5 and G — **there is no automated admin-web harness**, so this is the only thing between a copy edit and a false promise to an operator |
+
+The walk is not cosmetic. It is what found that the dashboard's pause and resume had never
+worked (§7 item 8), and that a first draft of the security screen reported "Every session
+taken down: 0 removal(s)" for a no-op and "2 session(s) revoked" for one session by adding
+the durable store's row to this process's in-memory copy of the same session.
 
 Preconditions that make a run trustworthy are recorded in project memory
 (`nabin-backend-suite-preconditions.md`): both payment secrets exported into the server's

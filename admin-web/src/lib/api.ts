@@ -36,8 +36,12 @@ export const authApi = {
 export const adminApi = {
   getMetrics: () => api.get('/admin/metrics'),
   getServiceStatus: () => api.get('/admin/services/status'),
-  pauseService: (service: string, reason: string) => api.post('/admin/services/pause', { service, reason }),
-  resumeService: (service: string) => api.post('/admin/services/resume', { service }),
+  // The switchboard addresses a service by its id (`rides`, `parcel`, …) and says so in
+  // the refusal when it is handed anything else. This used to post the display name
+  // under a `service` key, which every pause and resume on the dashboard answered 400
+  // from — a card that looked live because nothing had ever been paused.
+  pauseService: (serviceId: string, reason: string) => api.post('/admin/services/pause', { serviceId, reason }),
+  resumeService: (serviceId: string) => api.post('/admin/services/resume', { serviceId }),
   getDrivers: () => api.get('/admin/drivers'),
   updateDriverStatus: (id: string, status: string) => api.post(`/admin/drivers/${id}/status`, { status }),
   getRestaurants: () => api.get('/admin/restaurants'),
@@ -58,4 +62,16 @@ export const adminApi = {
     }),
   setCampaignStatus: (idOrCode: string, status: string, reason?: string) =>
     api.post(`/admin/campaigns/${encodeURIComponent(idOrCode)}/status`, { status, reason }),
+  // SECURITY CENTRE (area 34). What a session row names is the SHA-256 handle the store
+  // keys on, never the bearer itself, so this list is safe to render — and it is the
+  // same handle the revoke call takes back.
+  getAdminAccounts: () => api.get('/admin/accounts'),
+  getAdminSessions: () => api.get('/admin/security/sessions'),
+  getAdminLoginLockouts: () => api.get('/admin/security/login-lockouts'),
+  revokeAdminSessions: (target: { sessionId?: string; adminId?: string }) =>
+    api.post('/admin/security/sessions/revoke', target),
+  // Only `isActive` crosses the wire. A role is never sent here, because a field that
+  // names a role on a status change is a promotion button wearing a toggle.
+  setAdminAccountStatus: (id: string, isActive: boolean) =>
+    api.post(`/admin/accounts/${encodeURIComponent(id)}/status`, { isActive }),
 };

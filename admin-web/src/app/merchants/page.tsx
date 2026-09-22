@@ -3,6 +3,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import AdminLayout from '@/components/AdminLayout';
 import ResourceTable, { StatusBadge, inr, type Column } from '@/components/ResourceTable';
+import { useConfirmAction } from '@/components/ConfirmAction';
+import { readRefusal } from '@/lib/refusals';
 import { adminApi } from '@/lib/api';
 
 interface Merchant {
@@ -19,6 +21,7 @@ interface Merchant {
 }
 
 export default function MerchantsPage() {
+  const confirm = useConfirmAction();
   const [rows, setRows] = useState<Merchant[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -49,11 +52,32 @@ export default function MerchantsPage() {
       await adminApi.updateRestaurantStatus(merchant.id, status);
       await load();
       setError(null);
-    } catch {
-      setError(`Could not set ${merchant.name ?? merchant.id} to ${status}.`);
+    } catch (err) {
+      // A suspension refused by the store is not the same event as one that landed
+      // without its audit record, and the old copy claimed the second case never
+      // happens. The server says which one it is; this repeats it.
+      setError(readRefusal(err, `Could not set ${merchant.name ?? merchant.id} to ${status}.`).message);
     } finally {
       setBusyId(null);
     }
+  }
+
+  // Area 49: this button took a live merchant off the platform on a single click, and
+  // the effect line is what the requirement actually asks for — not a yes/no box.
+  async function suspend(merchant: Merchant) {
+    const ok = await confirm({
+      title: `Suspend ${merchant.name ?? merchant.id}`,
+      effect: 'New food orders at this merchant are refused, and the store is shown as closed to customers.',
+      consequences: [
+        'Orders already accepted are not cancelled and stay as they are.',
+        'The payout balance is untouched; suspending is not a financial action.',
+        'Reversible: the Approve button on this row restores the merchant.',
+        'Recorded in the audit log against your account.',
+      ],
+      confirmLabel: 'Suspend merchant',
+      tone: 'danger',
+    });
+    if (ok) await setStatus(merchant, 'SUSPENDED');
   }
 
   const columns: Column<Merchant>[] = [
@@ -115,7 +139,7 @@ export default function MerchantsPage() {
           </button>
         ) : (
           <button
-            onClick={() => setStatus(m, 'SUSPENDED')}
+            onClick={() => suspend(m)}
             disabled={busyId === m.id}
             className="nabin-btn nabin-btn--ghost"
             style={{ minHeight: 40 }}

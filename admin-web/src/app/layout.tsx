@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/components/AuthProvider";
+import { ConfirmActionProvider } from "@/components/ConfirmAction";
 
 const inter = Inter({
   variable: "--font-inter",
@@ -19,7 +20,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" className={`${inter.variable} h-full antialiased`}>
       <body data-role="admin" className="min-h-full flex flex-col">
         <AuthProvider>
-          {children}
+          <ConfirmActionProvider>
+            {children}
+          </ConfirmActionProvider>
         </AuthProvider>
       </body>
     </html>

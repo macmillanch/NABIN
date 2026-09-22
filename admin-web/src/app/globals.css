@@ -1351,3 +1351,57 @@ button {
   animation: nabin-rise var(--motion-base) var(--motion-curve);
 }
 
+/* --- Danger confirmation dialog (area 49) --------------------------------
+   Admin-only: the modal is the single place a privileged mutation asks
+   first, and its copy is fed by the action's own effect description. */
+
+.nabin-scrim--modal {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-md);
+  z-index: 80;
+}
+
+.nabin-modal {
+  width: min(520px, 100%);
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--divider);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-high);
+  padding: var(--space-lg);
+}
+
+.nabin-modal__title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  font-size: 18px;
+  font-weight: 900;
+  margin-bottom: var(--space-sm);
+}
+
+.nabin-modal__effect {
+  font-size: 15px;
+  line-height: 1.5;
+  margin-bottom: var(--space-sm);
+}
+
+.nabin-modal__list {
+  /* Tailwind's preflight strips list markers from every ul, and an unmarked block of
+     four sentences reads as one paragraph. The consequences are separate facts the
+     operator has to weigh separately, so the bullets come back here. */
+  list-style: disc;
+  margin: 0 0 var(--space-md);
+  padding-inline-start: 20px;
+  color: var(--ink-muted);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.nabin-modal .nabin-row {
+  margin-top: var(--space-md);
+}
+
+

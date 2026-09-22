@@ -5,6 +5,7 @@ import { Eye, Megaphone, Plus } from 'lucide-react';
 import AdminLayout from '@/components/AdminLayout';
 import CampaignEditor from '@/components/CampaignEditor';
 import ResourceTable, { StatusBadge, type Column } from '@/components/ResourceTable';
+import { useConfirmAction, type Confirmation } from '@/components/ConfirmAction';
 import { adminApi } from '@/lib/api';
 import {
   CAMPAIGN_SERVICE_TYPES,
@@ -43,6 +44,7 @@ function readError(err: unknown, fallback: string) {
 }
 
 export default function CampaignsPage() {
+  const confirm = useConfirmAction();
   const [rows, setRows] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -146,6 +148,61 @@ export default function CampaignsPage() {
     }
   }
 
+  // Area 49. The three transitions that change what a customer sees right now, or that
+  // cannot be taken back, are confirmed; DRAFT and SCHEDULED are not, because a campaign
+  // in neither state has reached an app yet and both are one click from here.
+  function confirmationFor(campaign: Campaign, status: string): Confirmation | null {
+    const code = campaign.code || campaign.id;
+    const targets = campaign.serviceTypes.length ? campaign.serviceTypes.join(', ') : 'every service';
+    if (status === 'ACTIVE') {
+      return {
+        title: `Publish ${code}`,
+        effect: `This campaign's theme, logo, banners, messages and offer chips are served to apps for ${targets} on their next config refresh.`,
+        consequences: [
+          'Only inside its window — before the start date it stays scheduled and unseen.',
+          'At most five live campaigns are served, highest priority first, so a higher-priority one can still win the slot.',
+          'The coupon behind an offer is untouched: it discounts a checkout only if that coupon is itself active.',
+          'Reversible — pausing or archiving takes it back out.',
+        ],
+        confirmLabel: 'Publish campaign',
+        tone: 'warning',
+      };
+    }
+    if (status === 'PAUSED') {
+      return {
+        title: `Pause ${code}`,
+        effect: 'The campaign stops being served to apps immediately, on every surface it appears on.',
+        consequences: [
+          'Its window keeps running while paused.',
+          'Resuming only brings it back while that window is still open; after the end date it reads as expired.',
+          'Orders already placed under it are unchanged.',
+        ],
+        confirmLabel: 'Pause campaign',
+        tone: 'danger',
+      };
+    }
+    if (status === 'ARCHIVED') {
+      return {
+        title: `Archive ${code}`,
+        effect: 'The campaign leaves every app immediately, and this is the one state with no way back.',
+        consequences: [
+          'Archived is terminal: running this promotion again means authoring a new campaign.',
+          'The row is kept, so the audit trail and its redemption history still read it.',
+          'Orders already placed under it are unchanged.',
+        ],
+        confirmLabel: 'Archive campaign',
+        tone: 'danger',
+      };
+    }
+    return null;
+  }
+
+  async function changeStatus(campaign: Campaign, status: string) {
+    const spec = confirmationFor(campaign, status);
+    if (spec && !(await confirm(spec))) return;
+    await setStatus(campaign, status);
+  }
+
   async function previewLive(serviceType: string) {
     setLiveBusy(true);
     try {
@@ -231,7 +288,7 @@ export default function CampaignsPage() {
             CAMPAIGN_STATUSES.filter((s) => s !== c.status).map((s) => (
               <button
                 key={s}
-                onClick={() => setStatus(c, s)}
+                onClick={() => changeStatus(c, s)}
                 disabled={busyKey === (c.id ?? c.code)}
                 className={`nabin-chip ${s === 'ACTIVE' ? 'is-active' : ''}`}
               >

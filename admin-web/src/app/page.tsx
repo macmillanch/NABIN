@@ -5,6 +5,8 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '@/components/AuthProvider';
 import { adminApi } from '@/lib/api';
 import AdminLayout from '@/components/AdminLayout';
+import { useConfirmAction } from '@/components/ConfirmAction';
+import { readRefusal } from '@/lib/refusals';
 import { Activity, Users, Car, Store, Package, Power, TriangleAlert } from 'lucide-react';
 
 interface Metrics {
@@ -15,19 +17,24 @@ interface Metrics {
 }
 
 interface Service {
+  id: string;
   name: string;
-  isPaused: boolean;
-  pausedReason?: string;
+  status?: string;
+  pausedReason?: string | null;
+  resumeAt?: string | null;
+  affectedRegions?: string[];
 }
+
+const isPaused = (service: Service) => service.status === 'PAUSED';
 
 export default function Dashboard() {
   const { user } = useAuth();
+  const confirm = useConfirmAction();
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [services, setServices] = useState<Service[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busyService, setBusyService] = useState<string | null>(null);
-  const [confirmPause, setConfirmPause] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     try {
@@ -50,20 +57,41 @@ export default function Dashboard() {
   }, [user, fetchData]);
 
   async function toggleService(service: Service) {
-    setBusyService(service.name);
-    setConfirmPause(null);
+    setBusyService(service.id);
     try {
-      if (service.isPaused) {
-        await adminApi.resumeService(service.name);
+      if (isPaused(service)) {
+        await adminApi.resumeService(service.id);
       } else {
-        await adminApi.pauseService(service.name, 'Admin manually paused');
+        await adminApi.pauseService(service.id, 'Admin manually paused');
       }
       await fetchData();
-    } catch {
-      setError(`Could not update ${service.name}. The change was not applied.`);
+      setError(null);
+    } catch (err) {
+      // The server's own words, because a 503 that carries `applied: true` means the
+      // pause did land and only its audit record failed — "the change was not applied"
+      // would be the one sentence that is definitely false.
+      setError(readRefusal(err, `Could not update ${service.name}.`).message);
     } finally {
       setBusyService(null);
     }
+  }
+
+  // Pausing is the reversible one, but it stops a whole service for every customer in
+  // range, so it is the case area 49 was written for: say what stops, and say how it
+  // comes back.
+  async function pauseService(service: Service) {
+    const ok = await confirm({
+      title: `Pause ${service.name}`,
+      effect: `New ${service.name} bookings stop immediately for every customer on the platform.`,
+      consequences: [
+        'Bookings already accepted continue and are not cancelled.',
+        'Customers see the service as unavailable until it is resumed.',
+        'This is reversible: pressing Resume on this card brings the service back.',
+      ],
+      confirmLabel: 'Pause service',
+      tone: 'danger',
+    });
+    if (ok) await toggleService(service);
   }
 
   return (
@@ -127,49 +155,33 @@ export default function Dashboard() {
         ) : (
           <div className="nabin-grid">
             {services.map((svc) => (
-              <div key={svc.name} className="nabin-card nabin-service">
+              <div key={svc.id} className="nabin-card nabin-service">
                 <div style={{ minWidth: 0 }}>
                   <h3 className="nabin-service__name">{svc.name}</h3>
                   <p className="nabin-service__reason">
-                    {svc.isPaused ? svc.pausedReason || 'Paused by admin' : 'Operating normally'}
+                    {isPaused(svc) ? svc.pausedReason || 'Paused by admin' : 'Operating normally'}
                   </p>
                 </div>
                 <span
-                  className={`nabin-badge ${svc.isPaused ? 'nabin-badge--danger' : 'nabin-badge--success'}`}
+                  className={`nabin-badge ${isPaused(svc) ? 'nabin-badge--danger' : 'nabin-badge--success'}`}
                 >
-                  {svc.isPaused ? 'Paused' : 'Live'}
+                  {isPaused(svc) ? 'Paused' : 'Live'}
                 </span>
-                {svc.isPaused ? (
+                {isPaused(svc) ? (
                   <button
                     onClick={() => toggleService(svc)}
-                    disabled={busyService === svc.name}
+                    disabled={busyService === svc.id}
                     className="nabin-btn nabin-btn--primary"
                   >
-                    {busyService === svc.name ? 'Working…' : 'Resume'}
+                    {busyService === svc.id ? 'Working…' : 'Resume'}
                   </button>
-                ) : confirmPause === svc.name ? (
-                  <div className="nabin-row" role="group" aria-label={`Confirm pausing ${svc.name}`}>
-                    <button
-                      onClick={() => toggleService(svc)}
-                      disabled={busyService === svc.name}
-                      className="nabin-btn nabin-btn--danger"
-                    >
-                      {busyService === svc.name ? 'Working…' : 'Confirm pause'}
-                    </button>
-                    <button
-                      onClick={() => setConfirmPause(null)}
-                      className="nabin-btn nabin-btn--ghost"
-                    >
-                      Cancel
-                    </button>
-                  </div>
                 ) : (
                   <button
-                    onClick={() => setConfirmPause(svc.name)}
+                    onClick={() => pauseService(svc)}
+                    disabled={busyService === svc.id}
                     className="nabin-btn nabin-btn--ghost"
-                    aria-describedby={`pause-note-${svc.name}`}
                   >
-                    Pause
+                    {busyService === svc.id ? 'Working…' : 'Pause'}
                   </button>
                 )}
               </div>
