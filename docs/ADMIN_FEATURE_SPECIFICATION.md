@@ -186,8 +186,12 @@ commentary:
 1. Any new admin read must be projected in code with an explicit column list, because
    nothing below will narrow it — `select *` on `drivers` is a data-export event.
 2. Making RLS real for admin traffic means issuing per-request tokens scoped to the
-   administrator, i.e. a design change to the store connection. That is a §9 approval
-   stop, not a phase in §7.
+   administrator, i.e. a design change to the store connection. **Decided 2026-09-22
+   (§11 answer 8: option (a)).** This project documents Express-only enforcement and keeps
+   projecting columns explicitly; scoped per-request tokens are not adopted, so §9 keeps the
+   migration/design stop and no phase in §7 may assume a second defence layer exists. Every
+   "authorised server-side" claim in this document therefore means *the Express layer*, and
+   the review that follows an admin read is a review of its column list.
 3. The same absence of a bottom layer is why Phase A1 had to fix a credential leak in two
    places rather than one. Sign-in used to copy the whole administrator entity —
    `passwordHash` and `salt` included — into `backend_sessions.entity`, and `/api/admin/me`
@@ -224,7 +228,13 @@ What is still true, and what shapes everything downstream:
   `SUPER_ADMIN, KYC_SPECIALIST, OPERATIONS, FINANCE_AUDITOR, SUPPORT_AGENT`. That
   constraint is now matched in code, so the fail-open default has nowhere to come from.
 
-Persisting the matrix needs a new table → migration **028** → §9 approval stop.
+**Decided 2026-09-22 (§11 answer 1: option (a)).** The matrix stays role-derived in
+`adminPermissions.js`; migration 028 is not authorised, so per-administrator overrides are
+deferred and the consequences above are the accepted shape rather than a pending fix. Two
+rules follow for everything built on top of it: a screen may only gate on what
+`GET /api/admin/me` reports for the caller, and any statement about *who* was allowed to do
+something is a statement about their role on that day, which is why the audit trail records
+the role and the permission name with every action rather than a derived grant list.
 
 ### 2.3 The catalogue has one source now; three gaps remain inside it
 
@@ -248,8 +258,13 @@ rather than restated by hand.
   so nothing is broken today — but the fourteen names a non-super role does hold
   (`audit.view`, `finance.*`, `fleet.manage`, `geofence.view`, `identity_verification.*`,
   `merchant.manage`, `support.*`, `surge.view`) are the whole of least privilege today,
-  which is precisely what area 33 asks for. Assigning the other twenty-six is a product
-  decision, not a code one, and §11 asks it.
+  which is precisely what area 33 asks for. **Decided 2026-09-22 (§11 answer 10: option
+  (a)):** the twenty-six stay `SUPER_ADMIN`-only and are *not* spread across the other four
+  roles. That is now a stated position rather than an accident of the wildcard, so the
+  surface has to carry it: a control bound to one of those names is either hidden or shown
+  as super-only for a caller whose `GET /api/admin/me` does not report the name, and never
+  rendered as an ordinary button that answers 403. `security.view` is the shape to copy —
+  `admin-web/src/app/security/page.tsx` already gates each action on `user.permissions`.
 - **In the catalogue, gated on no route** (13): `audit.export`, `geofence.edit`,
   `identity_documents.{view,download}`, `identity_verification.{approve,reject,
   request_resubmission}`, `notification.view`, `promotion.activate`, `services.view`,
@@ -278,8 +293,9 @@ rather than restated by hand.
   `reset-password` (self-or-`admin_accounts.manage`) and `features/:key` (role equality with
   `SUPER_ADMIN`) — so **twelve answer to any valid administrator token**. That is area 33's
   least-privilege debt in its plainest form, and CAT-04 fails the run if the count grows.
-- **Still not persisted**: grants are derived from the role at read time and `admin_accounts`
-  has no permissions column, so per-admin overrides remain a migration-028 question (§2.2, §9).
+- **Still not persisted — and now decided not to be** (§2.2, §11 answer 1): grants are
+  derived from the role at read time and `admin_accounts` has no permissions column, so
+  per-admin overrides need migration 028, which is not authorised.
 
 ### 2.4 Two endpoints could write any platform setting — closed in Phase A2 and A6
 
@@ -556,7 +572,7 @@ configuration question once §2.2 is fixed, not a code change.
 | 5 | Driver management | PARTIAL — `GET /api/admin/drivers`, `GET /:id`, `POST /:id/status` (`fleet.manage`) | No profile edit, no document list, no per-driver timeline; **and suspend is not reversible to what it was** — `DriverRepository.updateDriverStatus` normalises `ACTIVE` to `AVAILABLE` (`DriverRepository.js:373`), so the screen's Activate button cannot restore a driver who was suspended while `BUSY` or `OFFLINE`, which is why the area-49 dialog on that row was verified with Cancel only. Suspend also writes `is_online = false`, so the driver is off the pool as well as suspended | D |
 | 6 | KYC queue with private document storage | EXISTS — `identity-verifications` list/`review`/`lock`/`unlock`, `identity_documents` table, `/docs/:filename` preview | `identity_documents.view` is granted but **unenforced**; the `identity_documents` table holds **0 rows and no code touches it**, so the queue and its reviews are process memory only (§2.5) | D |
 | 7 | Merchant management with tenant isolation | PARTIAL — `POST /api/admin/restaurants/:id/status`, `GET /api/restaurants` for admin | No merchant detail/edit; **the suspend action writes a memory copy that no column can hold** (`merchants` has 39 rows and only `is_open`, §2.5); merchant-scoped endpoints already prove tenant isolation via `requireMerchantTenant` and reuse it here | D |
-| 32 | Admin users, least privilege, no auto SUPER_ADMIN | PARTIAL — `GET/POST /api/admin/accounts` gated by `admin_accounts.{manage,create}` since A1; since A4 `POST /api/admin/accounts/:id/status` (`admin_accounts.manage`) enables and disables with the last-enabled-`SUPER_ADMIN` guard, and revokes every session of the account as it disables (§1.4) | No permission UI (blocked by §2.2), no least-privilege grant for the 26 §2.3 names; the 15 ungated admin reads in §2.3 are still open to any token; enable/disable is audited, a role or grant change is not possible at all yet | A |
+| 32 | Admin users, least privilege, no auto SUPER_ADMIN | PARTIAL — `GET/POST /api/admin/accounts` gated by `admin_accounts.{manage,create}` since A1; since A4 `POST /api/admin/accounts/:id/status` (`admin_accounts.manage`) enables and disables with the last-enabled-`SUPER_ADMIN` guard, and revokes every session of the account as it disables (§1.4). §11 answered on 2026-09-22: the matrix stays role-derived in code (answer 1) and the 26 sensitive names stay `SUPER_ADMIN`-only (answer 10), so "least privilege" here means the five roles as written, not a per-account editor | No permission UI **by decision** — there is nothing to edit without migration 028, and the screen's job is now to *show* the caller's role and grants read-only and to hide or label the super-only controls (§2.3, Phase D); the 12 ungated admin reads in §2.3 are still open to any token (§11 answer 11 outstanding); a role or grant change is not possible at all yet, which is recorded as the accepted shape rather than a pending fix | A |
 
 ### Transactions
 
@@ -665,11 +681,20 @@ before its gate passes, and each phase ends in one local commit. **No push, no d
 2. ✅ **Done (A1).** One permission catalogue — `backend/src/adminPermissions.js` — read by
    the boot sync, provisioning, the OTP resolution path and the bootstrap route;
    `GET /api/admin/me` returns `{ role, permissions }` so the UI can gate honestly (§2.3).
-   `requirePermission`'s literals still live at the routes; centralising *those* is the
-   remaining half of this item and belongs with the §11 naming decision.
+   `requirePermission`'s literals still live at the routes. **§11 answers 1 and 10 remove
+   the reason to wait**: the matrix stays role-derived and no grant moves, so sourcing each
+   `requirePermission('...')` literal from the catalogue module (#61) is now a plain
+   mechanical change rather than a decision-dependent one — its value is that a typo'd name
+   stops being a gate that silently refuses everyone but the wildcard role, and `CAT-05`
+   already catches that at the catalogue boundary, so this is hardening, not a gap in the
+   control.
 3. ➜ **Part done (A1).** `accounts` is on `requirePermission('admin_accounts.{create,manage}')`
    and the dead `'admin.manage'` string in `reset-password` is now a real name. `features`
-   (§2.4) and the `identity_verification` decision checks are still in-handler.
+   (§2.4) and the `identity_verification` decision checks are still in-handler. **Not
+   unblocked by the answers above**: converting them needs one new catalogue name per
+   decision (`feature.edit` has no entry to bind to today), and inventing a name is a §3
+   catalogue change rather than a refactor — so it stays open with the names it needs
+   listed, not silently renamed.
 4. ✅ **Found during A1, done.** Sessions no longer persist a password hash and salt, and
    `/api/admin/me` no longer serves them (§2.1 item 3, `RBAC-14`–`RBAC-16`).
 5. ✅ **Done (A2).** Namespace feature-flag keys so a flag write cannot address another
@@ -771,6 +796,27 @@ tenant isolation the merchant endpoints already use.
 **Gate:** a `SUPPORT_AGENT` cannot reach a driver's document path; no endpoint performs a
 hard delete on a record with ledger, payment or audit references.
 
+**Scope as split against §9 (2026-09-22, after §11 answers 1 and 10):** what this phase can
+actually finish, and what it must stop short of.
+- **Area 4 (customers) is buildable end to end.** `users.account_status` exists with
+  `CHECK (ACTIVE|SUSPENDED|BLOCKED)`, so a suspension is durable and reversible in a column
+  that was designed for it, and migration 024 already forbids the client roles from writing
+  it themselves. The whole of area 4's honesty depends on one more piece: no customer auth
+  path reads `account_status` today, so the write must be paired with the refusal at the
+  session boundary or the button changes a column nothing consults.
+- **Area 6's enforcement is buildable; its durability is not.** `identity_documents.view`
+  and `identity_verification.{approve,reject,request_resubmission}` can be moved from
+  in-handler reads to real gates without a migration. The queue's own rows cannot — they
+  live in process memory (§2.5), and giving them a table is §9 item 1.
+- **Area 7's merchant suspension has no column** — `merchants` carries 13 columns and the
+  only status-shaped one is `is_open`, which is the merchant's own trading toggle, so
+  writing it to "suspend" would misreport a business state as an enforcement action and
+  would be undone by the merchant's next tap. Detail read + tenant isolation are in scope;
+  a durable suspension is §9.
+- **The §11 answer 10 labelling lands here**, because this is where the controls get built:
+  a super-only action is hidden or explicitly marked for a caller whose `/api/admin/me`
+  lacks the name, and never rendered as a live button that answers 403.
+
 ### Phase E — Transactions (areas 8–18)
 Admin lists for rides/food/parcel; payment and wallet reads; proof-of-delivery viewing;
 payout records (after the §11 decision); master-catalog persistence and bulk update.
@@ -841,15 +887,18 @@ left behind, and asserts afterwards that none is enabled (CLN-01).
 
 I will stop and report before:
 
-1. **Any migration beyond 027** (directive 16). Six items want one: persisting the
-   role/permission matrix (§2.2), durable fleet locations (area 3), per-admin dashboard
-   preferences (area 46), `disputes` as a table (area 30), durable administrator login
+1. **Any migration beyond 027** (directive 16). Five items want one: durable fleet locations
+   (area 3), per-admin dashboard preferences (area 46), `disputes` as a table (area 30),
+   durable administrator login
    lockouts — whose two columns exist and are dead, so the security centre can only report
    one process's counters today (§1.4) — and the three control-plane
    mutations that currently have nowhere to be written — merchant suspension, the identity
    review queue, and grocery price review (§2.5). Areas 6, 7 and 8 cannot be finished without
    the last one, because their buttons change process memory only. Migrations 001–026 are
    frozen; 027 stays local-only and is not applied to any hosted environment.
+   **The sixth item is gone**: persisting the role/permission matrix is off the list because
+   §11 answer 1 (2026-09-22) declined it, so migration 028 will not be written, proposed
+   again, or slipped into a phase as an implementation detail.
 2. **Any financial correction or settlement-logic change** (directives 14/15) — including
    the `driver_payouts` writer question and the FI-08 evidence, which stays as documented
    in `docs/FI08_SETTLEMENT_OVERPOSTING_EVIDENCE.md`.
@@ -890,18 +939,24 @@ I will stop and report before:
 
 | # | Question | Options | Needed by |
 |---|---|---|---|
-| 1 | Where does the permission matrix live? | (a) keep role-derived grants in code, per-admin overrides deferred; (b) migration 028 adding `admin_role_permissions` + `admin_account_permissions` | A |
+| 1 | Where does the permission matrix live? | (a) keep role-derived grants in code, per-admin overrides deferred; (b) migration 028 adding `admin_role_permissions` + `admin_account_permissions` | **ANSWERED 2026-09-22: (a).** Recorded at §2.2. No migration 028, so per-admin overrides are out of every phase below |
 | 2 | KPI list for area 1 | approve the ~23 named in the directive, or trim to what the tables can answer honestly today | B |
 | 3 | Reports | (a) CSV only, zero dependencies; (b) add XLSX; (c) add PDF | B |
 | 4 | Driver positions | (a) persist to a new table (migration); (b) accept a map that resets on restart and label it as such | C |
 | 5 | `driver_payouts` | (a) write payout rows there; (b) derive the payouts view from `ledger_entries` | E |
 | 6 | Disputes | (a) type of `support_tickets`; (b) its own table (migration) | G |
 | 7 | AI assistant | (a) not built; (b) internal-only rules/no LLM; (c) external provider with a written data-egress position | after G |
-| 8 | RLS | (a) document the Express-only enforcement and keep projecting columns explicitly; (b) design per-request scoped tokens | A |
-| 9 | The duplicate `GET /api/admin/drivers` (§1.1) | (a) delete the dead second registration; (b) merge the two response shapes into the live one; (c) leave it and rename the second path | A |
-| 10 | Who besides `SUPER_ADMIN` may hold the 26 gated names no non-super role reaches (§2.3) — the emergency killswitch, service pause/resume, account provisioning, campaign publish, session revoke | (a) leave them super-only and say so on the screen; (b) assign them per role in `adminPermissions.js`, which is one edit with a per-route effect and needs no migration | A (closes rows 32 and 33) |
+| 8 | RLS | (a) document the Express-only enforcement and keep projecting columns explicitly; (b) design per-request scoped tokens | **ANSWERED 2026-09-22: (a).** Recorded at §2.1: Express is the only authorisation layer, every admin read projects its columns, and no phase may assume a second one |
+| 9 | The duplicate `GET /api/admin/drivers` (§1.1) | (a) delete the dead second registration; (b) merge the two response shapes into the live one; (c) leave it and rename the second path | A — **still open**, and Phase D's driver work sits on top of it, so it is asked again there rather than assumed away |
+| 10 | Who besides `SUPER_ADMIN` may hold the 26 gated names no non-super role reaches (§2.3) — the emergency killswitch, service pause/resume, account provisioning, campaign publish, session revoke | (a) leave them super-only and say so on the screen; (b) assign them per role in `adminPermissions.js`, which is one edit with a per-route effect and needs no migration | **ANSWERED 2026-09-22: (a).** Recorded at §2.3. The names stay super-only and the screen must state it — a control bound to one of them is hidden or labelled for a caller who lacks the name, never a button that answers 403. Closes §5 rows 32 and 33's grant question; the labelling itself is Phase D work, since that is where the controls get built |
 | 11 | The 12 admin reads with no gate of any kind (§2.3) | (a) bind each to a catalogue name that already exists (`services.view`, `promotion.view`, `catalog.manage`, `merchant.manage`, `fleet.manage`, `audit.view`) plus `system.health` from §3; (b) declare them "any signed-in administrator" reads, and record that as the decision instead of leaving it as drift | A |
 | 12 | Administrator lockout trail | (a) accept the per-process counter and keep labelling it as §1.4 does; (b) migration: write `failed_attempts`/`locked_until`, or an `admin_login_events` table, so a second instance and a restart see the same answer | when the security screen is built |
 
 Answers to 1, 3, 4, 5, 6, 8 and 12 change schema or dependencies, so they are the first
 things worth settling; the rest can be decided at the head of their phase.
+
+**1 and 8 are settled, and settled toward no schema change** (2026-09-22). That removes
+migration 028 and the scoped-token redesign from the critical path, which is what lets
+Phase A close on the code it already has. **10 is settled toward leaving the grants
+alone**, so the remaining Phase A work is labelling, not privilege. 2, 3, 4, 5, 6, 9, 11
+and 12 are still open and each is asked at the head of the phase that needs it.
