@@ -49,8 +49,13 @@ export const adminApi = {
   getLiveCampaigns: (serviceType?: string) =>
     api.get('/admin/campaigns/live', { params: serviceType ? { serviceType } : undefined }),
   createCampaign: (body: unknown) => api.post('/admin/campaigns', body),
-  updateCampaign: (idOrCode: string, body: unknown) =>
-    api.put(`/admin/campaigns/${encodeURIComponent(idOrCode)}`, body),
+  // A campaign edit is a conditional write: the revision the form was opened with goes
+  // back as If-Match, so a second console that saved in the meantime is refused instead
+  // of being quietly overwritten.
+  updateCampaign: (idOrCode: string, body: unknown, revision?: string | null) =>
+    api.put(`/admin/campaigns/${encodeURIComponent(idOrCode)}`, body, {
+      headers: revision ? { 'If-Match': `"${revision}"` } : undefined,
+    }),
   setCampaignStatus: (idOrCode: string, status: string, reason?: string) =>
     api.post(`/admin/campaigns/${encodeURIComponent(idOrCode)}/status`, { status, reason }),
 };

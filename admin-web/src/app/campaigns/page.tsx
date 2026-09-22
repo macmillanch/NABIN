@@ -123,7 +123,7 @@ export default function CampaignsPage() {
         await adminApi.createCampaign(payload);
         await afterWrite(`Campaign ${payload.code} saved. It reaches the apps once it is ACTIVE and inside its window.`);
       } else {
-        await adminApi.updateCampaign(draft.id ?? draft.code, payload);
+        await adminApi.updateCampaign(draft.id ?? draft.code, payload, draft.updatedAt);
         await afterWrite(`Campaign ${payload.code} updated. The config feed was refreshed on the server.`);
       }
       setEditing(null);

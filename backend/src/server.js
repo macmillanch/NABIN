@@ -192,7 +192,18 @@ app.use(cors({
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id', 'X-Idempotency-Key', 'X-App-Version', 'X-Device-Id']
+  // If-Match and If-None-Match are conditions, not payload, and both are part of a
+  // contract this API already offers: a campaign save is refused unless it names the
+  // revision it edited, and the config feed answers 304 so a client can revalidate cheaply.
+  // A browser preflights either header, so leaving them out would break exactly the
+  // clients the contract was written for — the admin console and a web app on another
+  // origin — while Node and Flutter clients sail past it, which is why the test suite
+  // cannot see this.
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id', 'X-Idempotency-Key', 'X-App-Version', 'X-Device-Id', 'If-Match', 'If-None-Match'],
+  // Without this, `response.headers.get('ETag')` reads as null in a browser even though
+  // the server sent it, so a cross-origin client could never obtain the revision a
+  // conditional write or a conditional GET has to echo back.
+  exposedHeaders: ['ETag']
 }));
 
 // Request Tracking ID Middleware
@@ -2068,6 +2079,43 @@ const CAMPAIGN_STATUS_TRANSITIONS = {
   ARCHIVED: []
 };
 
+// Campaign answers in HTTP terms, because a client decides what to do next from the
+// status alone: an operator's own bad field is a 4xx that names the field, a refused
+// concurrent write is a 409/412 telling it to reload, and a store it cannot reach is a
+// 5xx it should retry. Nothing here lets one of the three wear the other's clothes.
+function campaignStatus(err, fallback = 400) {
+  // Numeric because an error object can carry the status as a string, and
+  // res.status('503') is a crash on the way to answering an outage.
+  const declared = Number(err && (err.status || err.statusCode));
+  if (Number.isFinite(declared) && declared >= 400 && declared <= 599) return declared;
+  if (err && err.code === 'CAMPAIGNS_UNAVAILABLE') return 503;
+  if (err && err.code === 'CAMPAIGN_NOT_FOUND') return 404;
+  return fallback;
+}
+
+// The revision a save is based on, taken from the If-Match the client echoes back after
+// reading the campaign. Quoting and the weak-validator prefix are HTTP's own noise, so
+// they come off; everything else is the stored `updated_at` string, character for
+// character, which is what the compare-and-set matches on.
+function campaignRevision(req) {
+  const raw = String(req.headers['if-match'] || '').trim();
+  if (!raw) return null;
+  const token = raw.replace(/^W\//, '').replace(/^"|"$/g, '').trim();
+  return token || null;
+}
+
+// A revision is the campaign's own stored instant, so anything else is a client that
+// invented one. It has to be checked here rather than passed down: the compare-and-set
+// hands the token to PostgreSQL as a timestamp, and a value that is not an instant comes
+// back as the engine's own `invalid input syntax` wording — an infrastructure complaint
+// wearing a validation error's clothes. `*` is refused for the same reason it would be in
+// any compare-and-set: it would let a writer claim a revision it never read.
+const CAMPAIGN_REVISION_SHAPE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
+
+function isUsableCampaignRevision(token) {
+  return CAMPAIGN_REVISION_SHAPE.test(token) && Number.isFinite(Date.parse(token));
+}
+
 async function auditCampaign(req, { action, campaign, previousState = null, reason }) {
   try {
     await db.createAuditLog({
@@ -2105,7 +2153,11 @@ app.get('/api/admin/campaigns', authenticateAdmin, requirePermission('campaign.v
     res.json({ success: true, campaigns, dataSource: 'postgres' });
   } catch (err) {
     console.error('[campaigns] admin list failed:', err);
-    res.status(500).json({ success: false, error: 'Failed to load campaigns.' });
+    res.status(campaignStatus(err, 500)).json({
+      success: false,
+      ...(err.code ? { code: err.code } : {}),
+      error: 'Failed to load campaigns.'
+    });
   }
 });
 
@@ -2123,7 +2175,11 @@ app.get('/api/admin/campaigns/live', authenticateAdmin, requirePermission('campa
     });
   } catch (err) {
     console.error('[campaigns] live resolution failed:', err);
-    res.status(500).json({ success: false, error: 'Failed to resolve live campaigns.' });
+    res.status(campaignStatus(err, 500)).json({
+      success: false,
+      ...(err.code ? { code: err.code } : {}),
+      error: 'Failed to resolve live campaigns.'
+    });
   }
 });
 
@@ -2133,10 +2189,20 @@ app.get('/api/admin/campaigns/:idOrCode', authenticateAdmin, requirePermission('
     if (!campaign) {
       return res.status(404).json({ success: false, code: 'CAMPAIGN_NOT_FOUND', error: 'No campaign matches that id or code.' });
     }
+    // The revision a save has to echo. An editor that never sees it cannot save, which
+    // is the point: an edit based on nothing must not be allowed to overwrite one it
+    // never saw.
+    res.set('ETag', `"${campaign.updatedAt}"`);
     res.json({ success: true, campaign, dataSource: 'postgres' });
   } catch (err) {
     console.error('[campaigns] admin read failed:', err);
-    res.status(500).json({ success: false, error: 'Failed to load the campaign.' });
+    res.status(campaignStatus(err, 500)).json({
+      success: false,
+      ...(err.code ? { code: err.code } : {}),
+      error: err.code === 'CAMPAIGNS_UNAVAILABLE'
+        ? 'Campaign storage is not reachable right now, so the campaign could not be read.'
+        : 'Failed to load the campaign.'
+    });
   }
 });
 
@@ -2151,9 +2217,7 @@ app.post('/api/admin/campaigns', authenticateAdmin, requirePermission('campaign.
     });
     res.status(201).json({ success: true, campaign, dataSource: 'postgres' });
   } catch (err) {
-    const status = err.code === 'CAMPAIGN_VALIDATION_FAILED' || err.code === 'CAMPAIGN_CHILD_REJECTED' ? 400
-      : err.code === 'CAMPAIGNS_UNAVAILABLE' ? 503 : 400;
-    res.status(status).json({
+    res.status(campaignStatus(err)).json({
       success: false,
       ...(err.code ? { code: err.code } : {}),
       error: err.message,
@@ -2164,6 +2228,24 @@ app.post('/api/admin/campaigns', authenticateAdmin, requirePermission('campaign.
 
 app.put('/api/admin/campaigns/:idOrCode', authenticateAdmin, requirePermission('campaign.edit'), async (req, res) => {
   try {
+    // An edit without the revision it was based on is an edit that could be standing on
+    // an older copy of the campaign, so it is refused before anything is read. 428 is
+    // HTTP's "you left the precondition out", which is exactly that.
+    const revision = campaignRevision(req);
+    if (!revision) {
+      return res.status(428).json({
+        success: false,
+        code: 'CAMPAIGN_REVISION_REQUIRED',
+        error: 'A campaign edit must send the revision it is based on in the If-Match header. Read this campaign first and pass back its updatedAt value.'
+      });
+    }
+    if (!isUsableCampaignRevision(revision)) {
+      return res.status(400).json({
+        success: false,
+        code: 'CAMPAIGN_REVISION_INVALID',
+        error: 'That is not a revision this console issues. Read the campaign again and pass its updatedAt value back unchanged.'
+      });
+    }
     const before = await db.campaignRepo.getCampaign(req.params.idOrCode);
     if (!before) {
       return res.status(404).json({ success: false, code: 'CAMPAIGN_NOT_FOUND', error: 'No campaign matches that id or code.' });
@@ -2172,7 +2254,10 @@ app.put('/api/admin/campaigns/:idOrCode', authenticateAdmin, requirePermission('
     // re-activate an archived campaign as a side effect of changing a colour.
     const patch = { ...req.body };
     delete patch.status;
-    const campaign = await db.campaignRepo.updateCampaign(before.id, patch, req.admin);
+    const campaign = await db.campaignRepo.updateCampaign(before.id, patch, req.admin, { guard: { updatedAt: revision } });
+    if (!campaign) {
+      return res.status(404).json({ success: false, code: 'CAMPAIGN_NOT_FOUND', error: 'No campaign matches that id or code.' });
+    }
     appConfigService.invalidate();
     await auditCampaign(req, {
       action: 'CAMPAIGN_UPDATED',
@@ -2182,7 +2267,15 @@ app.put('/api/admin/campaigns/:idOrCode', authenticateAdmin, requirePermission('
     });
     res.json({ success: true, campaign, dataSource: 'postgres' });
   } catch (err) {
-    res.status(err.code === 'CAMPAIGN_NOT_FOUND' ? 404 : err.code === 'CAMPAIGNS_UNAVAILABLE' ? 503 : 400).json({
+    // A refused edit writes nothing, but a section that failed after the campaign row
+    // was committed does change what a client should see — and the route cannot tell the
+    // two apart from here, so the feed is refreshed either way. The cost of the
+    // unnecessary case is one recomputation.
+    appConfigService.invalidate();
+    if (err.code === 'CAMPAIGN_PARTIALLY_APPLIED') {
+      console.error(`[campaigns] ${req.params.idOrCode}: part-applied edit`, err.details);
+    }
+    res.status(campaignStatus(err)).json({
       success: false,
       ...(err.code ? { code: err.code } : {}),
       error: err.message,
@@ -2207,7 +2300,10 @@ app.post('/api/admin/campaigns/:idOrCode/status', authenticateAdmin, requirePerm
         allowedTransitions: allowed
       });
     }
-    const updated = await db.campaignRepo.updateCampaign(campaign.id, { status: target }, req.admin);
+    // The transition is guarded by the status it was offered from, so two operators
+    // pressing different buttons on one campaign cannot both believe they moved it: the
+    // second one's WHERE clause no longer matches.
+    const updated = await db.campaignRepo.updateCampaign(campaign.id, { status: target }, req.admin, { guard: { status: campaign.status } });
     appConfigService.invalidate();
     await auditCampaign(req, {
       action: `CAMPAIGN_${target}`,
@@ -2217,7 +2313,8 @@ app.post('/api/admin/campaigns/:idOrCode/status', authenticateAdmin, requirePerm
     });
     res.json({ success: true, campaign: updated, dataSource: 'postgres' });
   } catch (err) {
-    res.status(err.code === 'CAMPAIGNS_UNAVAILABLE' ? 503 : 400).json({
+    appConfigService.invalidate();
+    res.status(campaignStatus(err)).json({
       success: false,
       ...(err.code ? { code: err.code } : {}),
       error: err.message,
@@ -2241,7 +2338,7 @@ app.delete('/api/admin/campaigns/:idOrCode', authenticateAdmin, requirePermissio
         error: `Campaign ${campaign.code} is already archived.`
       });
     }
-    const archived = await db.campaignRepo.updateCampaign(campaign.id, { status: 'ARCHIVED' }, req.admin);
+    const archived = await db.campaignRepo.updateCampaign(campaign.id, { status: 'ARCHIVED' }, req.admin, { guard: { status: campaign.status } });
     appConfigService.invalidate();
     await auditCampaign(req, {
       action: 'CAMPAIGN_ARCHIVED',
@@ -2251,7 +2348,8 @@ app.delete('/api/admin/campaigns/:idOrCode', authenticateAdmin, requirePermissio
     });
     res.json({ success: true, archived: true, campaign: archived, dataSource: 'postgres' });
   } catch (err) {
-    res.status(err.code === 'CAMPAIGNS_UNAVAILABLE' ? 503 : 400).json({
+    appConfigService.invalidate();
+    res.status(campaignStatus(err)).json({
       success: false,
       ...(err.code ? { code: err.code } : {}),
       error: err.message

@@ -113,6 +113,80 @@ function themeAssetLinks(theme, assets) {
   };
 }
 
+// The campaign row's own columns, with every key spelling the API accepts for them.
+// A write names only the fields the request actually sent. Rewriting the whole merged
+// row back to PostgreSQL is how one admin's save silently un-does another's, and that
+// is the lost update this file exists to prevent.
+const CAMPAIGN_PATCH_FIELDS = [
+  { field: 'code', column: 'code', aliases: ['code'] },
+  { field: 'name', column: 'name', aliases: ['name'] },
+  { field: 'status', column: 'status', aliases: ['status'] },
+  { field: 'priority', column: 'priority', aliases: ['priority'] },
+  { field: 'serviceTypes', column: 'service_types', aliases: ['serviceTypes', 'service_types'] },
+  { field: 'startsAt', column: 'starts_at', aliases: ['startsAt', 'starts_at'] },
+  { field: 'endsAt', column: 'ends_at', aliases: ['endsAt', 'ends_at'] },
+  { field: 'isActive', column: 'is_active', aliases: ['isActive', 'is_active'] },
+  { field: 'description', column: 'description', aliases: ['description'] }
+];
+
+function campaignError(code, message, status, details) {
+  const error = new Error(message);
+  error.code = code;
+  error.status = status;
+  if (details) error.details = details;
+  return error;
+}
+
+// A store that is refusing and a store that is gone are different answers. An outage
+// dressed up as a 4xx tells a client its data is wrong, so it retries with other data
+// instead of backing off — and an operator waiting for a festival to publish learns
+// nothing about which of the two happened.
+function isStoreUnreachable(err) {
+  if (!err) return false;
+  // supabase-js names the HTTP status two different ways depending on where the failure
+  // came from, and Kong answers a dead database with 502/503 rather than a connection
+  // error, so both spellings are checked.
+  const status = Number(err.status || err.statusCode);
+  if (status === 502 || status === 503 || status === 504) return true;
+  const cause = err.cause || {};
+  const text = [err.code, err.message, err.details, cause.code, cause.syscall, cause.message]
+    .filter(Boolean)
+    .join(' ');
+  return /ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|EPIPE|socket hang up|fetch failed|failed to contact database|not reachable|could not connect|connection terminated|upstream/i.test(text);
+}
+
+// PostgreSQL's rejection codes translated into something an operator can act on. The
+// database's own wording is logged rather than sent: `duplicate key value violates
+// unique constraint "campaigns_code_key"` is a schema diagram, not an error message.
+function storeRejection(err) {
+  if (isStoreUnreachable(err)) {
+    return campaignError('CAMPAIGNS_UNAVAILABLE',
+      'Campaign storage is not reachable, so nothing was written. Try again once PostgreSQL answers.', 503);
+  }
+  if (err && err.code === '23505') {
+    const constraint = String((err.details && err.details.constraint) || err.message || '');
+    if (constraint.includes('campaigns_code_key')) {
+      return campaignError('CAMPAIGN_CODE_TAKEN',
+        'Another campaign already uses that code. A code is how every client asks for one campaign, so two cannot share it — use a different code, or edit the campaign that already has this one.', 409);
+    }
+    return campaignError('CAMPAIGN_ROW_EXISTS',
+      'The campaign already holds a row that must stay unique, so the change was refused.', 409);
+  }
+  return null;
+}
+
+// Thrown when the row moved out from under a guarded write. Deleting a campaign
+// archives it rather than removing it, so the row is always there and zero rows
+// updated can only mean the state this request read has already changed.
+function staleWriteError(guard = {}) {
+  if (guard.status !== undefined) {
+    return campaignError('CAMPAIGN_STATE_CHANGED',
+      `Someone else changed this campaign while you were deciding — it is no longer ${guard.status}. Read it again before moving it.`, 409);
+  }
+  return campaignError('CAMPAIGN_STALE_EDIT',
+    `This campaign was edited after you loaded it (revision ${guard.updatedAt}). Read the current revision and re-apply your change, so the other edit survives.`, 412);
+}
+
 function normalizeAssets(value, errors) {
   if (value === undefined || value === null) return null;
   if (!Array.isArray(value)) {
@@ -223,6 +297,23 @@ class CampaignRepository {
     return Boolean(isLivePostgres && supabaseAdmin);
   }
 
+  // supabase-js answers a failed request two different ways: a PostgREST error sitting
+  // in `.error`, or a thrown network failure. Both mean the write did not happen, and
+  // a read that fails this way must never be reported as "no rows" — an unreachable
+  // store and an empty campaign are not the same answer to give a client.
+  async settle(builder) {
+    let result;
+    try {
+      result = await builder;
+    } catch (err) {
+      throw (isStoreUnreachable(err)
+        ? campaignError('CAMPAIGNS_UNAVAILABLE', 'Campaign storage is not reachable, so nothing was written.', 503)
+        : storeRejection(err) || err);
+    }
+    if (result.error) throw storeRejection(result.error) || result.error;
+    return result.data;
+  }
+
   // --- authoring -------------------------------------------------------------
 
   buildCampaignRow(payload, { errors, requireSchedule = true } = {}) {
@@ -260,9 +351,7 @@ class CampaignRepository {
 
   async validateAndShape(payload, { requireSchedule = true } = {}) {
     if (!this.live) {
-      const error = new Error('Campaigns are stored in PostgreSQL and it is not available.');
-      error.code = 'CAMPAIGNS_UNAVAILABLE';
-      throw error;
+      throw campaignError('CAMPAIGNS_UNAVAILABLE', 'Campaigns are stored in PostgreSQL and it is not available.', 503);
     }
     const errors = [];
     const row = this.buildCampaignRow(payload, { errors, requireSchedule });
@@ -298,9 +387,9 @@ class CampaignRepository {
         errors.push(`Each offer needs a serviceType from ${SERVICE_TYPES.join(', ')}.`);
         continue;
       }
-      const { data: promo, error: promoErr } = await supabaseAdmin.from('promotions')
-        .select('id, code').eq('id', promotionId).maybeSingle();
-      if (promoErr) throw promoErr;
+      const promo = await this.settle(
+        supabaseAdmin.from('promotions').select('id, code').eq('id', promotionId).maybeSingle()
+      );
       if (!promo) {
         errors.push(`offer references a promotion that does not exist: ${promotionId}.`);
         continue;
@@ -322,60 +411,73 @@ class CampaignRepository {
 
   async createCampaign(payload, admin = {}) {
     const { row, theme, assets, messages, offers } = await this.validateAndShape(payload);
-    const created = await supabaseAdmin.from('campaigns').insert({
+    // Two operators claiming one code at the same moment is answered by the database's
+    // UNIQUE, not by a read-then-write that can both see "free".
+    const created = await this.settle(supabaseAdmin.from('campaigns').insert({
       ...row,
       created_by: String(admin.id || admin.username || 'ADMIN').slice(0, 100)
-    }).select().single();
-    if (created.error) throw created.error;
+    }).select().single());
 
-    const campaignId = created.data.id;
+    const campaignId = created.id;
     try {
       let savedAssets = [];
       if (assets && assets.length) {
-        const inserted = await supabaseAdmin.from('campaign_assets')
-          .insert(assets.map(a => ({ ...a, campaign_id: campaignId }))).select();
-        if (inserted.error) throw inserted.error;
-        savedAssets = inserted.data || [];
+        savedAssets = await this.settle(supabaseAdmin.from('campaign_assets')
+          .insert(assets.map(a => ({ ...a, campaign_id: campaignId }))).select()) || [];
       }
       if (theme) {
-        const inserted = await supabaseAdmin.from('campaign_themes')
-          .insert({ campaign_id: campaignId, palette: theme, ...themeAssetLinks(payload.theme, savedAssets) });
-        if (inserted.error) throw inserted.error;
+        await this.settle(supabaseAdmin.from('campaign_themes')
+          .insert({ campaign_id: campaignId, palette: theme, ...themeAssetLinks(payload.theme, savedAssets) }));
       }
       if (offers && offers.length) {
-        const inserted = await supabaseAdmin.from('campaign_offers')
-          .insert(offers.map(o => ({ ...o, campaign_id: campaignId })));
-        if (inserted.error) throw inserted.error;
+        await this.settle(supabaseAdmin.from('campaign_offers')
+          .insert(offers.map(o => ({ ...o, campaign_id: campaignId }))));
       }
       if (messages && messages.length) {
-        const inserted = await supabaseAdmin.from('campaign_messages')
-          .insert(messages.map(m => ({ ...m, campaign_id: campaignId })));
-        if (inserted.error) throw inserted.error;
+        await this.settle(supabaseAdmin.from('campaign_messages')
+          .insert(messages.map(m => ({ ...m, campaign_id: campaignId }))));
       }
     } catch (childErr) {
       // A campaign whose banner failed to save would publish a festival with half its
       // face. ON DELETE CASCADE takes the partial children with the parent.
+      console.error(`[campaigns] create rolled back after a child write failed: ${childErr.message}`);
       await supabaseAdmin.from('campaigns').delete().eq('id', campaignId);
-      const error = new Error(`Campaign could not be saved completely: ${childErr.message}`);
-      error.code = 'CAMPAIGN_CHILD_REJECTED';
-      throw error;
+      // Whatever the real cause was, the answer stays in its own class: an unreachable
+      // store is not reported as bad input, and a unique collision is not a typo.
+      if (childErr.status) throw childErr;
+      throw campaignError('CAMPAIGN_CHILD_REJECTED',
+        'One of the campaign’s assets, offers or messages was refused, so nothing was kept. Check those sections and send the whole campaign again.', 400);
     }
     return this.getCampaign(campaignId);
   }
 
-  async updateCampaign(idOrCode, patch, admin = {}) {
+  /**
+   * Write a campaign, and only the row fields the patch actually names.
+   *
+   * `guard` is not optional: an edit carries the revision it was based on
+   * ({ updatedAt }, which the client echoes back in If-Match) and a state change
+   * carries the status it was offered from ({ status }). The guard value goes into the
+   * UPDATE's own WHERE clause, so a row that moved after the caller read it updates
+   * zero rows and the request is refused rather than quietly un-writing an edit it
+   * never saw.
+   */
+  async updateCampaign(idOrCode, patch, admin = {}, { guard } = {}) {
     if (!this.live) {
-      const error = new Error('Campaigns are stored in PostgreSQL and it is not available.');
-      error.code = 'CAMPAIGNS_UNAVAILABLE';
-      throw error;
+      throw campaignError('CAMPAIGNS_UNAVAILABLE', 'Campaigns are stored in PostgreSQL and it is not available.', 503);
     }
     const existing = await this.getCampaign(idOrCode);
     if (!existing) return null;
+    // No guard means nothing was read, and a write that read nothing cannot know what
+    // it is about to overwrite. This is a programming error, not an operator's.
+    if (!guard || (guard.status === undefined && !guard.updatedAt)) {
+      throw campaignError('CAMPAIGN_GUARD_REQUIRED',
+        'A campaign write has to name the state it read, so that concurrent writes refuse each other instead of overwriting each other.', 500);
+    }
 
     const errors = [];
-    const body = {};
-    // Schedule and targeting changes are merged with the stored row so a partial
-    // patch cannot blank the window it did not mention.
+    // Schedule and targeting changes are validated against the stored row so a partial
+    // patch cannot blank the window it did not mention. Validating the merged view is
+    // not the same as writing it back, though: the write below stays inside the patch.
     const merged = {
       code: patch.code ?? existing.code,
       name: patch.name ?? existing.name,
@@ -388,94 +490,94 @@ class CampaignRepository {
       description: patch.description ?? existing.description
     };
     const shaped = this.buildCampaignRow(merged, { errors });
+
+    // Every section the patch touches is shaped before the first row is written, so a
+    // request that fails validation leaves the campaign exactly as it was.
+    const sections = {};
+    if (patch.assets !== undefined) sections.assets = normalizeAssets(patch.assets, errors);
+    if (patch.theme !== undefined) {
+      sections.themeSource = patch.theme;
+      sections.theme = toPalette(patch.theme.palette ?? patch.theme, errors);
+    }
+    if (patch.offers !== undefined) sections.offers = await this.shapeOffers(patch.offers, errors);
+    if (patch.messages !== undefined) sections.messages = normalizeMessages(patch.messages, errors);
     if (errors.length) {
       fail(errors, 'CAMPAIGN_VALIDATION_FAILED', { statuses: STATUSES, serviceTypes: SERVICE_TYPES });
     }
-    Object.assign(body, {
-      code: shaped.code,
-      name: shaped.name,
-      status: shaped.status,
-      priority: shaped.priority,
-      service_types: shaped.service_types,
-      starts_at: shaped.starts_at,
-      ends_at: shaped.ends_at,
-      is_active: shaped.is_active,
-      description: shaped.description,
-      updated_at: new Date().toISOString()
-    });
-    // created_by is the author of the campaign, not the last person who edited it;
-    // that history is what audit_logs carries.
 
-    const updated = await supabaseAdmin.from('campaigns').update(body).eq('id', existing.id).select();
-    if (updated.error) throw updated.error;
-    if (!updated.data || !updated.data.length) return null;
-
-    let savedAssets = existing.assets || [];
-    if (patch.assets !== undefined) {
-      const assetErrors = [];
-      const assets = normalizeAssets(patch.assets, assetErrors);
-      if (assetErrors.length) fail(assetErrors);
-      await supabaseAdmin.from('campaign_assets').delete().eq('campaign_id', existing.id);
-      savedAssets = [];
-      if (assets && assets.length) {
-        const inserted = await supabaseAdmin.from('campaign_assets').insert(
-          assets.map(a => ({ ...a, campaign_id: existing.id }))
-        ).select();
-        if (inserted.error) throw inserted.error;
-        savedAssets = inserted.data || [];
-      }
+    const body = { updated_at: new Date().toISOString() };
+    for (const { column, aliases } of CAMPAIGN_PATCH_FIELDS) {
+      if (aliases.some(alias => patch[alias] !== undefined)) body[column] = shaped[column];
     }
-    if (patch.theme !== undefined) {
-      const themeErrors = [];
-      const palette = toPalette(patch.theme.palette ?? patch.theme, themeErrors);
-      if (themeErrors.length) fail(themeErrors);
-      const { error: themeErr } = await supabaseAdmin.from('campaign_themes')
-        .upsert({
+
+    // The compare-and-set. `updated_at` moves on every write to this row, so it is the
+    // revision; a token taken from an older read can no longer match it.
+    let write = supabaseAdmin.from('campaigns').update(body).eq('id', existing.id);
+    if (guard && guard.status !== undefined) write = write.eq('status', guard.status);
+    if (guard && guard.updatedAt) write = write.eq('updated_at', guard.updatedAt);
+    const written = await this.settle(write.select('id'));
+    if (!written || !written.length) throw staleWriteError(guard);
+
+    const applied = [];
+    let savedAssets = existing.assets || [];
+    try {
+      if ('assets' in sections) {
+        await this.settle(supabaseAdmin.from('campaign_assets').delete().eq('campaign_id', existing.id));
+        savedAssets = (sections.assets && sections.assets.length)
+          ? (await this.settle(supabaseAdmin.from('campaign_assets')
+            .insert(sections.assets.map(a => ({ ...a, campaign_id: existing.id }))).select())) || []
+          : [];
+        applied.push('assets');
+      }
+      if ('theme' in sections) {
+        await this.settle(supabaseAdmin.from('campaign_themes').upsert({
           campaign_id: existing.id,
-          palette: palette || {},
+          palette: sections.theme || {},
           // Re-linked against the rows this campaign now has, so replacing the
           // wordmark asset replaces the wordmark rather than dangling a stale id.
-          ...themeAssetLinks(patch.theme, savedAssets),
+          ...themeAssetLinks(sections.themeSource, savedAssets),
           updated_at: new Date().toISOString()
-        }, { onConflict: 'campaign_id' });
-      if (themeErr) throw themeErr;
-    }
-    if (patch.assets !== undefined && patch.theme === undefined && savedAssets.length) {
-      // Swapping an asset row SET NULLs the theme's pointer to it, so replacing a
-      // logo would silently take it out of the app. Re-point it at the new row of
-      // the same kind, which is what the operator who just uploaded one expects.
-      const { data: themeRow } = await supabaseAdmin.from('campaign_themes')
-        .select('id').eq('campaign_id', existing.id).maybeSingle();
-      if (themeRow) {
-        const { error: relinkError } = await supabaseAdmin.from('campaign_themes')
-          .update({ ...themeAssetLinks(null, savedAssets), updated_at: new Date().toISOString() })
-          .eq('id', themeRow.id);
-        if (relinkError) throw relinkError;
+        }, { onConflict: 'campaign_id' }));
+        applied.push('theme');
+      } else if ('assets' in sections && savedAssets.length) {
+        // Swapping an asset row SET NULLs the theme's pointer to it, so replacing a
+        // logo would silently take it out of the app. Re-point it at the new row of
+        // the same kind, which is what the operator who just uploaded one expects.
+        const themeRow = await this.settle(supabaseAdmin.from('campaign_themes')
+          .select('id').eq('campaign_id', existing.id).maybeSingle());
+        if (themeRow) {
+          await this.settle(supabaseAdmin.from('campaign_themes')
+            .update({ ...themeAssetLinks(null, savedAssets), updated_at: new Date().toISOString() })
+            .eq('id', themeRow.id));
+          applied.push('theme links');
+        }
       }
-    }
-    if (patch.offers !== undefined) {
-      const offerErrors = [];
-      const offers = await this.shapeOffers(patch.offers, offerErrors);
-      if (offerErrors.length) fail(offerErrors);
-      await supabaseAdmin.from('campaign_offers').delete().eq('campaign_id', existing.id);
-      if (offers && offers.length) {
-        const inserted = await supabaseAdmin.from('campaign_offers').insert(
-          offers.map(o => ({ ...o, campaign_id: existing.id }))
-        );
-        if (inserted.error) throw inserted.error;
+      if ('offers' in sections) {
+        await this.settle(supabaseAdmin.from('campaign_offers').delete().eq('campaign_id', existing.id));
+        if (sections.offers && sections.offers.length) {
+          await this.settle(supabaseAdmin.from('campaign_offers')
+            .insert(sections.offers.map(o => ({ ...o, campaign_id: existing.id }))));
+        }
+        applied.push('offers');
       }
-    }
-    if (patch.messages !== undefined) {
-      const messageErrors = [];
-      const messages = normalizeMessages(patch.messages, messageErrors);
-      if (messageErrors.length) fail(messageErrors);
-      await supabaseAdmin.from('campaign_messages').delete().eq('campaign_id', existing.id);
-      if (messages && messages.length) {
-        const inserted = await supabaseAdmin.from('campaign_messages').insert(
-          messages.map(m => ({ ...m, campaign_id: existing.id }))
-        );
-        if (inserted.error) throw inserted.error;
+      if ('messages' in sections) {
+        await this.settle(supabaseAdmin.from('campaign_messages').delete().eq('campaign_id', existing.id));
+        if (sections.messages && sections.messages.length) {
+          await this.settle(supabaseAdmin.from('campaign_messages')
+            .insert(sections.messages.map(m => ({ ...m, campaign_id: existing.id }))));
+        }
+        applied.push('messages');
       }
+    } catch (childErr) {
+      // The campaign row is already committed by the time a child can fail, so this is
+      // not a refused request — it is a half-applied one. Naming the sections that did
+      // land is the only way an operator learns to go and look instead of assuming
+      // nothing changed.
+      console.error(`[campaigns] ${existing.code}: the campaign row was written, then a section failed: ${childErr.message}`);
+      throw campaignError(childErr.code || 'CAMPAIGN_PARTIALLY_APPLIED',
+        `The campaign row was saved${applied.length ? ` and so did ${applied.join(', ')}` : ''}, but a later section was refused. This campaign is in a part-applied state — read it back before saving again.`,
+        childErr.status || 500,
+        { applied });
     }
     return this.getCampaign(existing.id);
   }
@@ -493,12 +595,10 @@ class CampaignRepository {
   async findByCodeOrId(idOrCode) {
     if (!this.live || !idOrCode) return null;
     const code = String(idOrCode).trim().toUpperCase();
-    let query = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-/.test(String(idOrCode))
+    const query = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-/.test(String(idOrCode))
       ? supabaseAdmin.from('campaigns').select('*').eq('id', idOrCode)
       : supabaseAdmin.from('campaigns').select('*').eq('code', code);
-    const { data, error } = await query.maybeSingle();
-    if (error) throw error;
-    return data || null;
+    return (await this.settle(query.maybeSingle())) || null;
   }
 
   async getCampaign(idOrCode) {
@@ -506,18 +606,21 @@ class CampaignRepository {
     if (!row) return null;
     const campaign = mapCampaign(row);
     campaign.effectiveStatus = effectiveStatus(campaign);
-    const [theme, assets, offers, messages] = await Promise.all([
-      supabaseAdmin.from('campaign_themes').select('*').eq('campaign_id', campaign.id).maybeSingle(),
-      supabaseAdmin.from('campaign_assets').select('*').eq('campaign_id', campaign.id).order('priority', { ascending: false }),
-      supabaseAdmin.from('campaign_offers').select('id, service_type, copy, priority, promotion_id, promotions(code, name, discount_type, discount_value, max_discount, min_order_amount, is_active)').eq('campaign_id', campaign.id).order('priority', { ascending: false }),
-      supabaseAdmin.from('campaign_messages').select('*').eq('campaign_id', campaign.id).order('priority', { ascending: false })
+    // A child section that fails to read is an error, not an empty list: publishing a
+    // campaign with no banner because the banner query timed out would look like the
+    // operator deleted it.
+    const [themeRow, assetRows, offerRows, messageRows] = await Promise.all([
+      this.settle(supabaseAdmin.from('campaign_themes').select('*').eq('campaign_id', campaign.id).maybeSingle()),
+      this.settle(supabaseAdmin.from('campaign_assets').select('*').eq('campaign_id', campaign.id).order('priority', { ascending: false })),
+      this.settle(supabaseAdmin.from('campaign_offers').select('id, service_type, copy, priority, promotion_id, promotions(code, name, discount_type, discount_value, max_discount, min_order_amount, is_active)').eq('campaign_id', campaign.id).order('priority', { ascending: false })),
+      this.settle(supabaseAdmin.from('campaign_messages').select('*').eq('campaign_id', campaign.id).order('priority', { ascending: false }))
     ]);
-    campaign.theme = theme.data ? { palette: theme.data.palette || {}, logoAssetId: theme.data.logo_asset_id, wordmarkAssetId: theme.data.wordmark_asset_id, splashAssetId: theme.data.splash_asset_id } : null;
-    campaign.assets = (assets.data || []).map(a => ({
+    campaign.theme = themeRow ? { palette: themeRow.palette || {}, logoAssetId: themeRow.logo_asset_id, wordmarkAssetId: themeRow.wordmark_asset_id, splashAssetId: themeRow.splash_asset_id } : null;
+    campaign.assets = (assetRows || []).map(a => ({
       id: a.id, kind: a.kind, url: a.url, cloudinaryPublicId: a.cloudinary_public_id,
       altText: a.alt_text, locale: a.locale, priority: Number(a.priority || 0)
     }));
-    campaign.offers = (offers.data || []).map(o => ({
+    campaign.offers = (offerRows || []).map(o => ({
       id: o.id, serviceType: o.service_type, copy: o.copy, priority: Number(o.priority || 0),
       promotionId: o.promotion_id,
       coupon: o.promotions ? {
@@ -526,7 +629,7 @@ class CampaignRepository {
         minOrderAmount: Number(o.promotions.min_order_amount || 0), isActive: o.promotions.is_active !== false
       } : null
     }));
-    campaign.messages = (messages.data || []).map(m => ({
+    campaign.messages = (messageRows || []).map(m => ({
       id: m.id, kind: m.kind, title: m.title, body: m.body, surface: m.surface,
       triggerEvent: m.trigger_event, dismissible: m.dismissible !== false,
       showOnce: m.show_once === true, locale: m.locale, priority: Number(m.priority || 0)
@@ -539,9 +642,9 @@ class CampaignRepository {
     let query = supabaseAdmin.from('campaigns').select('*');
     if (status) query = query.eq('status', String(status).toUpperCase());
     if (!includeArchived) query = query.neq('status', 'ARCHIVED');
-    const { data, error } = await query.order('priority', { ascending: false }).order('starts_at', { ascending: false });
-    if (error) throw error;
-    let campaigns = (data || []).map(row => {
+    query = query.order('priority', { ascending: false }).order('starts_at', { ascending: false });
+    const rows = (await this.settle(query)) || [];
+    let campaigns = rows.map(row => {
       const campaign = mapCampaign(row);
       campaign.effectiveStatus = effectiveStatus(campaign);
       return campaign;
@@ -558,13 +661,12 @@ class CampaignRepository {
   // priority wins, then the most recent schedule.
   async liveCampaigns(serviceType = null) {
     if (!this.live) return null;
-    const { data, error } = await supabaseAdmin.rpc('resolve_live_campaigns', {
+    const rows = (await this.settle(supabaseAdmin.rpc('resolve_live_campaigns', {
       p_service_type: serviceType ? String(serviceType).toUpperCase() : null
-    });
-    if (error) throw error;
-    const rows = (data || []).slice(0, LIVE_PUBLICATION_LIMIT);
+    }))) || [];
+    const limited = rows.slice(0, LIVE_PUBLICATION_LIMIT);
     const hydrated = [];
-    for (const row of rows) {
+    for (const row of limited) {
       const campaign = await this.getCampaign(row.id);
       if (campaign) hydrated.push(campaign);
     }

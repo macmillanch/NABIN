@@ -16,6 +16,18 @@ function webhookHeaders(body) {
   return { 'x-razorpay-signature': crypto.createHmac('sha256', secret).update(JSON.stringify(body)).digest('hex') };
 }
 
+// A fixture identifier must be one this table has never seen. Reusing one does not
+// refuse: `POST /api/admin/promotions` upserts on code, so a repeated coupon overwrites
+// the older row and inherits its redemption history — the run then tests a coupon some
+// earlier run already consumed. The last four digits of the clock repeat every ten
+// seconds, which the locally accumulating tables hit in practice, so the suffix carries
+// the moment in base36 plus 1296 random variants.
+function fixtureSuffix() {
+  const when = Date.now().toString(36).slice(-6);
+  const salt = Math.floor(Math.random() * 1296).toString(36).padStart(2, '0');
+  return `${when}${salt}`.toUpperCase();
+}
+
 function request(method, pathName, body = null, headers = {}) {
   return new Promise((resolve, reject) => {
     const url = new URL(pathName, BASE_URL);
@@ -36,11 +48,13 @@ function request(method, pathName, body = null, headers = {}) {
       let data = '';
       res.on('data', (chunk) => (data += chunk));
       res.on('end', () => {
+        // The response headers travel along because a contract can live in one: which
+        // conditions a browser may send, and which validator it may read back.
         try {
           const parsed = JSON.parse(data);
-          resolve({ status: res.statusCode, data: parsed });
+          resolve({ status: res.statusCode, data: parsed, headers: res.headers });
         } catch (e) {
-          resolve({ status: res.statusCode, raw: data });
+          resolve({ status: res.statusCode, raw: data, headers: res.headers });
         }
       });
     });
@@ -138,7 +152,7 @@ async function runAllTests() {
     const superToken = superLogin.data.token;
 
     // Super Admin Provisions New Admin Account
-    const testUsername = `ananyaroy_${Date.now().toString().slice(-4)}`;
+    const testUsername = `ananyaroy_${fixtureSuffix()}`;
     const newAdminRes = await request('POST', '/api/admin/accounts', {
       name: 'Ananya Roy',
       username: testUsername,
@@ -832,14 +846,22 @@ async function runAllTests() {
 
     // --- 17. MODULE 15: Full Grocery Express Cart & Dynamic Price Validation ---
     console.log('\n--- 17. MODULE 15: Grocery Express Cart & Price Validation ---');
+    // Both lines are products the seeded grocery merchant actually stocks. Revalidation
+    // is PostgreSQL-authoritative now, so an item the shelf does not carry answers
+    // `available: false` with the cart PRICE_CHANGED — the right answer, and not what
+    // this test is about. The cart it used to send included a chips line that exists only
+    // in the old in-memory fixture list, so the check could not reach the fields it names.
     const revalRes = await request('POST', '/api/grocery/cart/revalidate', {
       cartItems: [
         { productId: 'gprod_3', name: 'Amul Taaza Fresh Toned Milk', quantity: 2, price: 56.0 },
-        { productId: 'gprod_5', name: 'Lays Classic Salted Chips', quantity: 1, price: 20.0 }
+        { productId: 'gprod_1', name: 'Farm Fresh Tomatoes', quantity: 1, price: 60.0 }
       ]
     }, { 'Authorization': `Bearer ${customerToken}` });
     assert('POST /api/grocery/cart/revalidate returns valid cart subtotal and stock status',
-      revalRes.status === 200 && revalRes.data.success && revalRes.data.items.length === 2 && revalRes.data.status === 'VALIDATED'
+      revalRes.status === 200 && revalRes.data.success && revalRes.data.items.length === 2 && revalRes.data.status === 'VALIDATED' &&
+      revalRes.data.items.every(i => i.available === true && i.serverPrice === i.clientPrice) &&
+      revalRes.data.items.reduce((sum, i) => sum + Number(i.estimatedTotal || 0), 0) === 172,
+      `status=${revalRes.data.status} items=${JSON.stringify((revalRes.data.items || []).map(i => ({ p: i.productId, av: i.available, sp: i.serverPrice, e: i.estimatedTotal })))}`
     );
 
     const checkoutValRes = await request('POST', '/api/grocery/checkout/validate', {
@@ -1364,7 +1386,7 @@ async function runAllTests() {
 
     // AUD-03 (SEC): Admin lacking audit.view permission rejected with 403
     // Create an admin without audit.view permission
-    const opUsername = `ops_${Date.now().toString().slice(-4)}`;
+    const opUsername = `ops_${fixtureSuffix()}`;
     await request('POST', '/api/admin/accounts', {
       name: 'Ops Admin',
       username: opUsername,
@@ -1510,7 +1532,7 @@ async function runAllTests() {
     );
 
     // PROMO-03 (CRUD): Admin creates promotion persisting in PostgreSQL
-    const promoCode = `SAVE40_${Date.now().toString().slice(-4)}`;
+    const promoCode = `SAVE40_${fixtureSuffix()}`;
     const createPromoRes = await request('POST', '/api/admin/promotions', {
       code: promoCode,
       name: 'Special 40% Off Campaign',
@@ -1638,7 +1660,7 @@ async function runAllTests() {
     );
 
     // PROMO-11 (GLOBAL_LIMIT): total_usage_limit enforced under row-lock semantics
-    const singleUseCode = `ONEUSE_${Date.now().toString().slice(-4)}`;
+    const singleUseCode = `ONEUSE_${fixtureSuffix()}`;
     const createSingleUse = await request('POST', '/api/admin/promotions', {
       code: singleUseCode,
       name: 'Strictly 1 Global Usage Cap',
@@ -1707,7 +1729,7 @@ async function runAllTests() {
     // These checks cover the part PROMO-01..13 does not: that a discount is
     // computed and persisted by the server during a real checkout, that a replay
     // cannot burn a second redemption, and that client-supplied money is ignored.
-    const chkSuffix = Date.now().toString().slice(-6);
+    const chkSuffix = fixtureSuffix();
     const CART_LINE = [{ productId: 'gprod_3', quantity: 2, price: 56.0 }];
     const chkAddress = 'Flat 402, Civil Lines Hub, North Delhi';
 
@@ -1884,7 +1906,7 @@ async function runAllTests() {
     assert('SEC: Unauthorized admin cannot create surge zone (403)', kycSurgeCreate.status === 403);
 
     // GEO-05 (PERSIST): Circle geofence creation persists to PostgreSQL
-    const circleFenceCode = `ZONE_CIRC_${Date.now().toString().slice(-4)}`;
+    const circleFenceCode = `ZONE_CIRC_${fixtureSuffix()}`;
     const createCircleRes = await request('POST', '/api/admin/geofences', {
       name: 'South Delhi Hospital Corridor',
       code: circleFenceCode,
@@ -1906,7 +1928,7 @@ async function runAllTests() {
     const circleFenceId = createCircleRes.data.geoFence.id;
 
     // GEO-06 (PERSIST): Polygon geofence creation persists to PostgreSQL
-    const polyFenceCode = `ZONE_POLY_${Date.now().toString().slice(-4)}`;
+    const polyFenceCode = `ZONE_POLY_${fixtureSuffix()}`;
     const createPolyRes = await request('POST', '/api/admin/geofences', {
       name: 'Noida Expressway Tech Strip',
       code: polyFenceCode,
@@ -2362,7 +2384,7 @@ async function runAllTests() {
 
       await supabaseAdmin.from('jobs').insert({
         id: cancelJobId,
-        job_number: `JOB-CNC-${Date.now().toString().slice(-4)}`,
+        job_number: `JOB-CNC-${fixtureSuffix()}`,
         customer_id: '00000000-0000-0000-0000-000000000002',
         driver_id: '00000000-0000-0000-0000-000000000101',
         service_type: 'RIDE',
@@ -3956,7 +3978,7 @@ async function runAllTests() {
     // answered by the database clock, and the apps read that answer through the config
     // feed they already poll. So everything below travels over HTTP, the way the admin
     // console and a phone do it, and nothing here rebuilds or redeploys a client.
-    const cpStamp = Date.now().toString().slice(-6);
+    const cpStamp = fixtureSuffix();
     const cpHour = 3600 * 1000;
     const cpNow = Date.now();
     const cpIso = (ms) => new Date(ms).toISOString();
@@ -4069,10 +4091,11 @@ async function runAllTests() {
     );
 
     // CP-07 (STATE): an edit is not a publish. PUT drops `status` so changing a colour
-    // cannot quietly bring a festival back on screen.
+    // cannot quietly bring a festival back on screen. The If-Match is the revision this
+    // edit was based on — the same value the admin console echoes back.
     const cpEdit = await request('PUT', `/api/admin/campaigns/${cpCode}`, {
       status: 'ARCHIVED', name: 'Festival 2026 (renamed)'
-    }, cpAdmin);
+    }, { ...cpAdmin, 'If-Match': `"${cpStored.updatedAt}"` });
     assert('CP-07: An edit changes the copy but cannot move the state',
       cpEdit.status === 200 && cpEdit.data.campaign.status === 'DRAFT' &&
       cpEdit.data.campaign.name === 'Festival 2026 (renamed)',
@@ -4104,9 +4127,14 @@ async function runAllTests() {
 
     // CP-10/CP-11: opening the window is a data change, not a build. The same feed the
     // apps poll now carries the palette, the logo, the banner and the coupon terms.
+    //
+    // The revision this edit carries is the one CP-09's publish returned, not the one
+    // CP-07's edit started from: publishing moved the row, so an editor still holding
+    // the older revision is standing on a copy of the campaign that no longer exists
+    // and has to reload. That refusal is asserted on its own below.
     const cpOpen = await request('PUT', `/api/admin/campaigns/${cpCode}`, {
       startsAt: cpIso(cpNow - cpHour), endsAt: cpIso(cpNow + 7 * 24 * cpHour)
-    }, cpAdmin);
+    }, { ...cpAdmin, 'If-Match': `"${cpPublish.data.campaign.updatedAt}"` });
     const cpSection = await cpCampaigns();
     const cpServedNow = (cpSection.campaigns || []).find(c => c.code === cpCode) || {};
     assert('CP-10: Opening the window serves the campaign with no rebuild and no redeploy',
@@ -4128,6 +4156,19 @@ async function runAllTests() {
     );
     assert('CP-12: The internal operator note is never published to a client',
       !JSON.stringify(cpSection).includes(cpNote)
+    );
+
+    // The contract CP-10 had to respect, said out loud: a publish moves the revision, so
+    // the edit that was based on the pre-publish copy is refused rather than applied on
+    // top of a state it never saw.
+    const cpLateEditor = await request('PUT', `/api/admin/campaigns/${cpCode}`, {
+      description: `${cpNote} (rewritten by a stale editor)`
+    }, { ...cpAdmin, 'If-Match': `"${cpPublish.data.campaign.updatedAt}"` });
+    const cpStillOpen = await request('GET', `/api/admin/campaigns/${cpCode}`, null, cpAdmin);
+    assert('CP-12b: A publish moves the revision, so an edit still holding the older one is refused',
+      cpLateEditor.status === 412 && cpLateEditor.data.code === 'CAMPAIGN_STALE_EDIT' &&
+      cpStillOpen.data.campaign.description === cpNote,
+      `status=${cpLateEditor.status} code=${cpLateEditor.data.code} desc=${cpStillOpen.data.campaign && cpStillOpen.data.campaign.description}`
     );
 
     const cpLiveRide = await request('GET', '/api/admin/campaigns/live?serviceType=RIDE', null, cpAdmin);
@@ -4162,7 +4203,7 @@ async function runAllTests() {
 
     const cpExpire = await request('PUT', `/api/admin/campaigns/${cpRivalCode}`, {
       startsAt: cpIso(cpNow - 3 * 24 * cpHour), endsAt: cpIso(cpNow - cpHour)
-    }, cpAdmin);
+    }, { ...cpAdmin, 'If-Match': `"${cpRival.data.campaign.updatedAt}"` });
     const cpServedAfterExpiry = await cpServedCodes();
     assert('CP-16: The database clock closes a window — an ended campaign is EXPIRED and unserved',
       cpExpire.status === 200 && cpExpire.data.campaign.effectiveStatus === 'EXPIRED' &&
@@ -4440,6 +4481,232 @@ async function runAllTests() {
       !!resetRecord && !JSON.stringify(resetRecord).includes(rotated)
       && !(rowNow && JSON.stringify(resetRecord).includes(rowNow.password_hash)),
       `record=${JSON.stringify(resetRecord).slice(0, 180)}`
+    );
+
+    // --- 40. MODULE 36: Two operators, one campaign (concurrency) ---
+    //
+    // A festival is authored by people, and two of them open the same campaign. The
+    // write that reads a row, edits it in memory and writes the whole thing back loses
+    // whichever edit landed in between — silently, with a 200 on both screens. So every
+    // campaign write here is a compare-and-set against the state the caller read, and a
+    // claimed code is answered by the database's UNIQUE rather than by a race to notice
+    // it first.
+    console.log('\n--- 40. MODULE 36: Campaign Concurrency — No Lost Updates, No Duplicate Rows ---');
+    const ccAdmin = { 'Authorization': `Bearer ${superToken}` };
+    const ccStamp = fixtureSuffix();
+    const ccHour = 3600 * 1000;
+    const ccNow = Date.now();
+    const ccIso = (ms) => new Date(ms).toISOString();
+    const ccCode = `CC_RACE_${ccStamp}`;
+    const ccOpen = { status: 'DRAFT', startsAt: ccIso(ccNow - ccHour), endsAt: ccIso(ccNow + 24 * ccHour) };
+    const ccCreate = await request('POST', '/api/admin/campaigns', {
+      code: ccCode, name: 'Concurrency fixture', priority: 10, description: 'first', ...ccOpen
+    }, ccAdmin);
+    const ccRev0 = (ccCreate.data.campaign || {}).updatedAt;
+    assert('CC-00: The concurrency fixture exists and reports the revision its first edit must carry',
+      ccCreate.status === 201 && !!ccRev0,
+      `status=${ccCreate.status} rev=${ccRev0}`
+    );
+
+    // CC-01/CC-02: an edit is a conditional write. Leaving the precondition out is 428
+    // ("you never told me what you were looking at"); bringing the wrong one is 412
+    // ("what you were looking at has moved"). Both refuse without touching the row, so
+    // the difference between them is information rather than guesswork.
+    const ccNoToken = await request('PUT', `/api/admin/campaigns/${ccCode}`, { description: 'no token' }, ccAdmin);
+    const ccStaleToken = await request('PUT', `/api/admin/campaigns/${ccCode}`, { description: 'wrong token' },
+      { ...ccAdmin, 'If-Match': '"2000-01-01T00:00:00.000+00:00"' });
+    const ccAfterRefusals = await request('GET', `/api/admin/campaigns/${ccCode}`, null, ccAdmin);
+    assert('CC-01: An edit with no revision is refused with 428, not applied',
+      ccNoToken.status === 428 && ccNoToken.data.code === 'CAMPAIGN_REVISION_REQUIRED',
+      `status=${ccNoToken.status} code=${ccNoToken.data.code}`
+    );
+    assert('CC-02: An edit based on a revision the row no longer carries is refused with 412',
+      ccStaleToken.status === 412 && ccStaleToken.data.code === 'CAMPAIGN_STALE_EDIT' &&
+      ccAfterRefusals.data.campaign.description === 'first' &&
+      ccAfterRefusals.data.campaign.updatedAt === ccRev0,
+      `status=${ccStaleToken.status} code=${ccStaleToken.data.code} ` +
+      `desc=${ccAfterRefusals.data.campaign && ccAfterRefusals.data.campaign.description}`
+    );
+
+    // CC-03: the lost update itself. Both editors hold the same revision; one of them is
+    // about to be told, in as many words, that its save did not happen.
+    const ccRace = await Promise.all([
+      request('PUT', `/api/admin/campaigns/${ccCode}`, { description: 'A was here', priority: 11 },
+        { ...ccAdmin, 'If-Match': `"${ccRev0}"` }),
+      request('PUT', `/api/admin/campaigns/${ccCode}`, { description: 'B was here', priority: 22 },
+        { ...ccAdmin, 'If-Match': `"${ccRev0}"` })
+    ]);
+    const ccWinners = ccRace.filter(r => r.status === 200);
+    const ccLosers = ccRace.filter(r => r.status === 412);
+    const ccRowAfterRace = (await request('GET', `/api/admin/campaigns/${ccCode}`, null, ccAdmin)).data.campaign || {};
+    assert('CC-03: Two edits from one revision — exactly one saves, exactly one is refused',
+      ccWinners.length === 1 && ccLosers.length === 1 &&
+      ccLosers[0].data.code === 'CAMPAIGN_STALE_EDIT',
+      `statuses=${ccRace.map(r => r.status).join()} codes=${ccRace.map(r => r.data.code || 'ok').join()}`
+    );
+    // The winner's whole write is what the row says, not a merge of the two: a lost
+    // update is prevented by refusing the loser, never by blending both.
+    assert('CC-04: The row holds the winner edit in full, so no field of it was absorbed by the loser',
+      ccRowAfterRace.description === ccWinners[0].data.campaign.description &&
+      ccRowAfterRace.priority === ccWinners[0].data.campaign.priority &&
+      ccRowAfterRace.updatedAt === ccWinners[0].data.campaign.updatedAt,
+      `row=${JSON.stringify({ d: ccRowAfterRace.description, p: ccRowAfterRace.priority }).slice(0, 160)}`
+    );
+    // 412 is only a useful answer if the client can act on it: reload, re-apply, and
+    // both edits end up on the row.
+    const ccReloaded = await request('PUT', `/api/admin/campaigns/${ccCode}`, { priority: 22 },
+      { ...ccAdmin, 'If-Match': `"${ccRowAfterRace.updatedAt}"` });
+    assert('CC-05: The refused editor reloads, re-applies, and keeps the other edit',
+      ccReloaded.status === 200 && ccReloaded.data.campaign.priority === 22 &&
+      ccReloaded.data.campaign.description === ccRowAfterRace.description,
+      `status=${ccReloaded.status} desc=${ccReloaded.data.campaign && ccReloaded.data.campaign.description}`
+    );
+    // An edit that names one column must not rewrite the others it did not look at —
+    // the previous handler merged the whole stored row back in.
+    const ccPartial = await request('PUT', `/api/admin/campaigns/${ccCode}`, { name: 'Concurrency fixture (renamed)' },
+      { ...ccAdmin, 'If-Match': `"${ccReloaded.data.campaign.updatedAt}"` });
+    assert('CC-06: Editing one field leaves the untouched schedule, priority and description alone',
+      ccPartial.status === 200 && ccPartial.data.campaign.description === ccRowAfterRace.description &&
+      ccPartial.data.campaign.priority === 22 &&
+      Date.parse(ccPartial.data.campaign.startsAt) === Date.parse(ccOpen.startsAt) &&
+      Date.parse(ccPartial.data.campaign.endsAt) === Date.parse(ccOpen.endsAt),
+      `body=${JSON.stringify(ccPartial.data.campaign || {}).slice(0, 200)}`
+    );
+
+    // A refused write must leave the revision where it was, or "reload and retry" would
+    // be a lie: every failed validation would push the row forward under the editor.
+    const ccInvalid = await request('PUT', `/api/admin/campaigns/${ccCode}`, {
+      assets: [{ kind: 'NOT_A_KIND', url: 'https://cdn.nabin.in/x.png' }]
+    }, { ...ccAdmin, 'If-Match': `"${ccPartial.data.campaign.updatedAt}"` });
+    const ccAfterInvalid = await request('GET', `/api/admin/campaigns/${ccCode}`, null, ccAdmin);
+    assert('CC-07: A rejected field refuses the whole write and does not move the revision',
+      ccInvalid.status === 400 && ccInvalid.data.code === 'CAMPAIGN_VALIDATION_FAILED' &&
+      ccAfterInvalid.data.campaign.updatedAt === ccPartial.data.campaign.updatedAt &&
+      (ccAfterInvalid.data.campaign.assets || []).length === 0,
+      `status=${ccInvalid.status} moved=${ccAfterInvalid.data.campaign && ccAfterInvalid.data.campaign.updatedAt !== ccPartial.data.campaign.updatedAt}`
+    );
+
+    // State changes are guarded by the state they were offered from, so the campaign
+    // cannot be moved twice from one reading of it. Twelve requests, three targets, four
+    // of them terminal: the exact interleaving belongs to the database, but the
+    // bookkeeping is ours — one audit row per accepted move, and a 4xx naming a rule for
+    // the rest.
+    const ccTransitions = await Promise.all([
+      ...Array(4).fill(0).map(() => request('POST', `/api/admin/campaigns/${ccCode}/status`, { status: 'ACTIVE' }, ccAdmin)),
+      ...Array(4).fill(0).map(() => request('POST', `/api/admin/campaigns/${ccCode}/status`, { status: 'SCHEDULED' }, ccAdmin)),
+      ...Array(4).fill(0).map(() => request('POST', `/api/admin/campaigns/${ccCode}/status`, { status: 'ARCHIVED' }, ccAdmin))
+    ]);
+    const ccMoved = ccTransitions.filter(r => r.status === 200);
+    const ccRefused = ccTransitions.filter(r => r.status >= 400);
+    const ccStateNow = ((await request('GET', `/api/admin/campaigns/${ccCode}`, null, ccAdmin)).data.campaign || {}).status;
+    const ccAudit = await request('GET', '/api/admin/audit-logs?module=CAMPAIGNS&limit=200', null, ccAdmin);
+    const ccMoveRecords = (ccAudit.data.logs || []).filter(l =>
+      l.targetEntityId === ccCode && ['CAMPAIGN_ACTIVE', 'CAMPAIGN_SCHEDULED', 'CAMPAIGN_ARCHIVED'].includes(l.action));
+    assert('CC-08: Concurrent state changes — each move lands once and the rest are 4xx refusals',
+      ccMoved.length >= 1 && ccRefused.length >= 1 &&
+      ccRefused.every(r => r.status === 409 && ['CAMPAIGN_TRANSITION_REJECTED', 'CAMPAIGN_STATE_CHANGED'].includes(r.data.code)) &&
+      ['ACTIVE', 'SCHEDULED', 'ARCHIVED'].includes(ccStateNow),
+      `ok=${ccMoved.length} refused=${ccRefused.length} state=${ccStateNow} codes=${[...new Set(ccRefused.map(r => r.data.code))].join()}`
+    );
+    assert('CC-09: The audit trail carries exactly one record per accepted move — no phantom writes',
+      ccMoveRecords.length === ccMoved.length,
+      `accepted=${ccMoved.length} audited=${ccMoveRecords.length} actions=${ccMoveRecords.map(l => l.action).join()}`
+    );
+
+    // A code is how every client asks for one campaign, so claiming it twice is a
+    // business conflict with a name — not a Postgres message about an index, and not a
+    // second row that a later read has to guess between.
+    const ccDupCode = `CC_DUP_${ccStamp}`;
+    const ccSix = await Promise.all(Array(6).fill(0).map(() => request('POST', '/api/admin/campaigns', {
+      code: ccDupCode, name: 'Copycat festival', ...ccOpen
+    }, ccAdmin)));
+    const ccClaimed = ccSix.filter(r => r.status === 201).length;
+    const ccRejectedBodies = ccSix.filter(r => r.status !== 201);
+    const ccDupRows = isLivePostgres && supabaseAdmin
+      ? (await supabaseAdmin.from('campaigns').select('id').eq('code', ccDupCode)).data
+      : null;
+    assert('CC-10: One code, six simultaneous claims — the database accepts exactly one',
+      ccClaimed === 1 && ccRejectedBodies.length === 5 &&
+      ccRejectedBodies.every(r => r.status === 409 && r.data.code === 'CAMPAIGN_CODE_TAKEN') &&
+      (!ccDupRows || ccDupRows.length === 1),
+      `created=${ccClaimed} refusals=${ccRejectedBodies.map(r => `${r.status}:${r.data.code}`).join()} rows=${ccDupRows && ccDupRows.length}`
+    );
+    // The constraint is Postgres'; the wording is ours. A client that has to parse
+    // `campaigns_code_key` is a client that will show it to an operator.
+    assert('CC-11: The refusal explains itself without leaking the schema',
+      ccRejectedBodies.every(r => !/duplicate key|violates unique constraint|campaigns_code_key|23505/i
+        .test(JSON.stringify(r.data))),
+      `body=${JSON.stringify((ccRejectedBodies[0] || {}).data || {}).slice(0, 200)}`
+    );
+    assert('CC-12: The claims that lost wrote nothing, not even a field of the campaign they wanted',
+      (await request('GET', `/api/admin/campaigns/${ccCode}`, null, ccAdmin)).data.campaign.name
+        === 'Concurrency fixture (renamed)',
+      `name=${ccStateNow} / ${JSON.stringify(((await request('GET', `/api/admin/campaigns/${ccCode}`, null, ccAdmin)).data.campaign || {})).slice(0, 120)}`
+    );
+
+    const ccTeardown = await request('DELETE', `/api/admin/campaigns/${ccCode}`, null, ccAdmin);
+    const ccDupTeardown = await request('DELETE', `/api/admin/campaigns/${ccDupCode}`, null, ccAdmin);
+    const ccServed = (((await request('GET', '/api/app/config')).data.sections || {}).campaigns || {}).campaigns || [];
+    assert('CC-13: Teardown archives both fixtures, and an archived campaign serves nobody',
+      [200, 409].includes(ccTeardown.status) && [200, 409].includes(ccDupTeardown.status) &&
+      !ccServed.some(c => c.code === ccCode || c.code === ccDupCode),
+      `fixture=${ccTeardown.status}:${ccTeardown.data.code || 'ok'} copycat=${ccDupTeardown.status}:${ccDupTeardown.data.code || 'ok'} served=${ccServed.map(c => c.code).join()}`
+    );
+    // Two ways a writer can arrive without the revision the row carries, and they are
+    // different answers. A token that is not a revision at all is the client's own
+    // mistake, said in our words rather than as a timestamp error from the database; a
+    // real revision the row has moved past is the concurrent edit, refused with 412.
+    const ccFakeToken = await request('PUT', `/api/admin/campaigns/${ccCode}`, { description: 'resurrected' },
+      { ...ccAdmin, 'If-Match': '"anything-at-all"' });
+    const ccOldToken = await request('PUT', `/api/admin/campaigns/${ccCode}`, { description: 'resurrected' },
+      { ...ccAdmin, 'If-Match': `"${ccRev0}"` });
+    const ccAfterForgeries = (await request('GET', `/api/admin/campaigns/${ccCode}`, null, ccAdmin)).data.campaign || {};
+    assert('CC-14: A token that is not a revision is refused in our words, not the database’s',
+      ccFakeToken.status === 400 && ccFakeToken.data.code === 'CAMPAIGN_REVISION_INVALID' &&
+      !/invalid input syntax|timestamp|22007|timestamptz/i.test(JSON.stringify(ccFakeToken.data)),
+      `status=${ccFakeToken.status} code=${ccFakeToken.data.code} body=${JSON.stringify(ccFakeToken.data).slice(0, 200)}`
+    );
+    assert('CC-15: After teardown the campaign still refuses the revision it no longer holds, so nothing is written back',
+      ccOldToken.status === 412 && ccOldToken.data.code === 'CAMPAIGN_STALE_EDIT' &&
+      ccAfterForgeries.description !== 'resurrected',
+      `status=${ccOldToken.status} code=${ccOldToken.data.code} desc=${ccAfterForgeries.description}`
+    );
+
+    // A conditional write is only a contract if a browser is allowed to make it. Node and
+    // Flutter ignore CORS; the admin console on its own origin does not, so the preflight
+    // answer and the exposed validator are part of the feature rather than transport
+    // detail — without them every operator save fails before it reaches this API.
+    const ccBrowserOrigin = 'http://localhost:3001';
+    const ccPreflight = await request('OPTIONS', `/api/admin/campaigns/${ccCode}`, null, {
+      'Origin': ccBrowserOrigin,
+      'Access-Control-Request-Method': 'PUT',
+      'Access-Control-Request-Headers': 'content-type, authorization, if-match'
+    });
+    const ccAllowed = String(ccPreflight.headers['access-control-allow-headers'] || '').toLowerCase();
+    const ccPreflightOk = ccPreflight.status === 204 && ccAllowed.includes('if-match');
+    const ccRead = await request('GET', `/api/admin/campaigns/${ccCode}`, null, { ...ccAdmin, 'Origin': ccBrowserOrigin });
+    const ccExposed = String(ccRead.headers['access-control-expose-headers'] || '').toLowerCase();
+    const ccEtag = String(ccRead.headers['etag'] || '');
+    assert('CC-16: A browser may conditionally write a campaign, and may read back its revision',
+      ccPreflightOk && ccPreflight.headers['access-control-allow-origin'] === ccBrowserOrigin &&
+      ccExposed.includes('etag') && ccEtag === `"${(ccRead.data.campaign || {}).updatedAt}"`,
+      `preflight=${ccPreflight.status} allow=${ccAllowed.slice(0, 90)} origin=${ccPreflight.headers['access-control-allow-origin']} expose=${ccExposed} etag=${ccEtag}`
+    );
+    // The config feed is the one route every app calls on a schedule, and its 304 answer
+    // is what keeps a web client from re-downloading the whole configuration. Same reason,
+    // different route: if the browser cannot send If-None-Match, the cache never engages.
+    const ccConfigPreflight = await request('OPTIONS', '/api/app/config', null, {
+      'Origin': ccBrowserOrigin,
+      'Access-Control-Request-Method': 'GET',
+      'Access-Control-Request-Headers': 'if-none-match'
+    });
+    const ccConfigAllowed = String(ccConfigPreflight.headers['access-control-allow-headers'] || '').toLowerCase();
+    const ccConfigGet = await request('GET', '/api/app/config', null, { 'Origin': ccBrowserOrigin });
+    assert('CC-17: A browser may revalidate the config feed with the validator the feed hands it',
+      ccConfigPreflight.status === 204 && ccConfigAllowed.includes('if-none-match') &&
+      String(ccConfigGet.headers['etag'] || '').length > 2 &&
+      String(ccConfigGet.headers['access-control-expose-headers'] || '').toLowerCase().includes('etag'),
+      `preflight=${ccConfigPreflight.status} allow=${ccConfigAllowed.slice(0, 90)} etag=${ccConfigGet.headers['etag']}`
     );
   } catch (err) {
     console.error('Fatal Test Suite Exception:', err);
