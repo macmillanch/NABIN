@@ -4304,6 +4304,143 @@ async function runAllTests() {
     );
 
     locWs.close();
+
+    // --- 39. MODULE 35: Administrative mutations carry their own permission check ---
+    //
+    // Nine of these routes asked only "is this an administrator?" before writing, so
+    // a Support Agent's or KYC Specialist's token could create an advertisement,
+    // change the master catalogue, expire orders or disable a driver. The guard has
+    // to sit in front of the handler, because a refusal that runs after the write is
+    // not a refusal.
+    console.log('\n--- 39. MODULE 35: Explicit Permission Checks On Administrative Mutations ---');
+    const kycOnly = { 'Authorization': `Bearer ${kycToken}` };
+    const guardedRoutes = [
+      { name: 'create an advertisement', method: 'POST', path: '/api/admin/advertisements', body: { title: 'RBAC probe', placement: 'HOME_BANNER' }, perm: 'advertisement.create' },
+      { name: 'edit an advertisement', method: 'PUT', path: '/api/admin/advertisements/ad_absent_zzz', body: { status: 'PAUSED' }, perm: 'advertisement.edit' },
+      { name: 'delete an advertisement', method: 'DELETE', path: '/api/admin/advertisements/ad_absent_zzz', body: null, perm: 'advertisement.delete' },
+      { name: 'add a master catalogue product', method: 'POST', path: '/api/admin/master-catalog', body: { name: 'RBAC probe' }, perm: 'catalog.manage' },
+      { name: 'edit a master catalogue product', method: 'PUT', path: '/api/admin/master-catalog/gprod_1', body: { price: 1 }, perm: 'catalog.manage' },
+      { name: 'remove a master catalogue product', method: 'DELETE', path: '/api/admin/master-catalog/gprod_1', body: null, perm: 'catalog.manage' },
+      { name: 'expire stale orders', method: 'POST', path: '/api/admin/orders/expire-stale', body: {}, perm: 'orders.manage' },
+      { name: 'review a grocery product price', method: 'POST', path: '/api/admin/grocery/products/gprod_1/review', body: { action: 'APPROVE' }, perm: 'grocery.review' },
+      { name: 'change a driver status', method: 'POST', path: '/api/admin/drivers/DRV-1/status', body: { status: 'OFFLINE' }, perm: 'fleet.manage' }
+    ];
+
+    for (const route of guardedRoutes) {
+      const refused = await request(route.method, route.path, route.body, kycOnly);
+      assert(`RBAC-01: A KYC Specialist cannot ${route.name} — refused before the handler runs`,
+        refused.status === 403 && String(refused.data.error || '').includes(route.perm),
+        `status=${refused.status} error=${JSON.stringify(refused.data).slice(0, 140)} (expected ${route.perm})`
+      );
+    }
+
+    // A guard that also locks out the account it is meant to protect is not a
+    // security fix, it is an outage. Each of these reaches its handler: the
+    // deliberately-bad payloads are refused on the merits (4xx that is not 403),
+    // which is what proves the permission layer let them through.
+    const superOnly = { 'Authorization': `Bearer ${superToken}` };
+    const reachHandler = [
+      { name: 'edit a master catalogue product', method: 'PUT', path: '/api/admin/master-catalog/gprod_absent_zzz', body: {} },
+      { name: 'review a grocery product price', method: 'POST', path: '/api/admin/grocery/products/gprod_absent_zzz/review', body: { action: 'NOT_A_RULE' } },
+      { name: 'change a driver status', method: 'POST', path: '/api/admin/drivers/DRV_absent_zzz/status', body: {} }
+    ];
+    for (const route of reachHandler) {
+      const answered = await request(route.method, route.path, route.body, superOnly);
+      assert(`RBAC-02: Super Admin still reaches the handler to ${route.name} (refused on the merits, not at the gate)`,
+        answered.status !== 403 && answered.status !== 401,
+        `status=${answered.status} body=${JSON.stringify(answered.data).slice(0, 140)}`
+      );
+    }
+
+    const adProbe = await request('POST', '/api/admin/advertisements', {
+      title: 'RBAC reachability probe', placement: 'HOME_BANNER', imageUrl: 'https://cdn.nabin.in/rbac.png',
+      targetUrl: 'https://nabin.in/rbac', status: 'PAUSED',
+      startDate: new Date().toISOString(), endDate: new Date(Date.now() + 86400000).toISOString()
+    }, superOnly);
+    const adProbeId = adProbe.data.advertisement && adProbe.data.advertisement.id;
+    const adProbeCleanup = adProbeId
+      ? await request('DELETE', `/api/admin/advertisements/${adProbeId}`, null, superOnly)
+      : { status: 0 };
+    assert('RBAC-03: Creating and removing a campaign advertisement is still a Super Admin write',
+      adProbe.status === 200 && !!adProbeId && adProbeCleanup.status === 200,
+      `create=${adProbe.status}/${JSON.stringify(adProbe.data).slice(0, 120)} delete=${adProbeCleanup.status}`
+    );
+
+    const anonAds = await request('POST', '/api/admin/advertisements', { title: 'anon probe' });
+    assert('RBAC-04: No token is refused at the door before the permission question is even asked',
+      anonAds.status === 401, `status=${anonAds.status}`);
+
+    // --- Password reset: the credential has to land in PostgreSQL and stay secret ---
+    const beforeReset = isLivePostgres && supabaseAdmin
+      ? await supabaseAdmin.from('admin_accounts').select('password_hash, password_salt')
+          .eq('username', testUsername).maybeSingle()
+      : null;
+    assert('RBAC-05: The account under test has its credential in the authoritative store',
+      !!beforeReset && !!beforeReset.data && !!beforeReset.data.password_hash,
+      `row=${JSON.stringify(beforeReset && beforeReset.data).slice(0, 120)}`
+    );
+
+    const resetByKyc = await request('POST', '/api/admin/reset-password', {
+      identifier: 'superadmin', newPassword: 'StolenByKycSpecialist1!'
+    }, kycOnly);
+    assert('RBAC-06: A KYC Specialist cannot reset somebody else\'s password',
+      resetByKyc.status === 403 && resetByKyc.data.code === 'ADMIN_PASSWORD_RESET_FORBIDDEN',
+      `status=${resetByKyc.status} body=${JSON.stringify(resetByKyc.data).slice(0, 140)}`
+    );
+
+    const rotated = 'Rotated_By_Test_Suite_9';
+    const resetBySuper = await request('POST', '/api/admin/reset-password', {
+      identifier: testUsername, newPassword: rotated
+    }, superOnly);
+    const resetBody = JSON.stringify(resetBySuper.data || {});
+    assert('RBAC-07: A Super Admin resetting another account answers 200',
+      resetBySuper.status === 200 && resetBySuper.data.success === true,
+      `status=${resetBySuper.status} body=${resetBody.slice(0, 160)}`
+    );
+    // The old handler returned the whole account object, salt and password hash
+    // included, into a response body and whatever logged it.
+    assert('RBAC-08: The reset response carries no credential material — no hash, no salt',
+      !/password_hash|passwordHash|"salt"/.test(resetBody)
+      && !(beforeReset && beforeReset.data && resetBody.includes(beforeReset.data.password_hash)),
+      `body=${resetBody.slice(0, 200)}`
+    );
+
+    const afterReset = isLivePostgres && supabaseAdmin
+      ? await supabaseAdmin.from('admin_accounts').select('password_hash, password_salt')
+          .eq('username', testUsername).maybeSingle()
+      : null;
+    const rowNow = afterReset && afterReset.data;
+    const hashBefore = beforeReset && beforeReset.data && beforeReset.data.password_hash;
+    assert('RBAC-09: The rotated credential is the one PostgreSQL holds, so a restart cannot hand the old password back',
+      !!rowNow && rowNow.password_hash !== hashBefore
+      && crypto.scryptSync(rotated, rowNow.password_salt, 64).toString('hex') === rowNow.password_hash,
+      `changed=${!!rowNow && rowNow.password_hash !== hashBefore} ` +
+      `recomputed=${!!rowNow && (crypto.scryptSync(rotated, rowNow.password_salt, 64).toString('hex') === rowNow.password_hash)}`
+    );
+
+    const oldPasswordLogin = await request('POST', '/api/admin/login', {
+      username: testUsername, password: 'AdminPassword123!'
+    });
+    const newPasswordLogin = await request('POST', '/api/admin/login', {
+      username: testUsername, password: rotated
+    });
+    assert('RBAC-10: After the reset the old password is refused and the new one signs in',
+      oldPasswordLogin.status === 401 && newPasswordLogin.status === 200 && newPasswordLogin.data.success,
+      `old=${oldPasswordLogin.status} new=${newPasswordLogin.status}`
+    );
+
+    const resetAudit = await request('GET',
+      '/api/admin/audit-logs?action=ADMIN_PASSWORD_RESET&limit=50', null, superOnly);
+    const resetRecord = (resetAudit.data.logs || []).find(l =>
+      String(l.reason || '').includes(testUsername) && String(l.reason || '').includes('SUPER_ADMIN'));
+    assert('RBAC-11: The reset is on the trail, naming who acted and which account changed',
+      !!resetRecord, `found=${!!resetRecord} latest=${JSON.stringify((resetAudit.data.logs || [])[0] || {}).slice(0, 180)}`
+    );
+    assert('RBAC-12: The audit record itself does not carry the password or its hash',
+      !!resetRecord && !JSON.stringify(resetRecord).includes(rotated)
+      && !(rowNow && JSON.stringify(resetRecord).includes(rowNow.password_hash)),
+      `record=${JSON.stringify(resetRecord).slice(0, 180)}`
+    );
   } catch (err) {
     console.error('Fatal Test Suite Exception:', err);
     failed++;

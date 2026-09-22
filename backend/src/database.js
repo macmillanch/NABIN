@@ -4556,7 +4556,7 @@ class NabinDatabase {
     return alerts;
   }
 
-  resetAdminPassword({ identifier, newPassword, currentPassword, isSuperAdmin = false }) {
+  async resetAdminPassword({ identifier, newPassword, currentPassword, isSuperAdmin = false, actor = null }) {
     if (!identifier || !newPassword) {
       throw new Error('Username/Email and new password are required.');
     }
@@ -4586,24 +4586,85 @@ class NabinDatabase {
 
     const salt = crypto.randomBytes(16).toString('hex');
     const passwordHash = crypto.scryptSync(newPassword, salt, 64).toString('hex');
+
+    // The credential that decides who gets in is the row in PostgreSQL, not this
+    // process's copy of it — a reset that only reached memory was undone by the
+    // next restart, which rebuilds the copy from that unchanged row. So the row
+    // is written first, and an account the directory has no record of cannot
+    // have its password changed here at all.
+    const previous = { salt: admin.salt, passwordHash: admin.passwordHash };
+    const store = this.liveStore();
+    if (store) {
+      const written = await this.authoritativeWrite(
+        store.from('admin_accounts')
+          .update({ password_hash: passwordHash, password_salt: salt })
+          .eq('username', admin.username)
+          .select('username'),
+        { what: 'the administrator credential record' }
+      );
+      if (!written || written.length === 0) {
+        const refusal = new Error('This administrator account is not enrolled in the authoritative directory, so its password cannot be changed here.');
+        refusal.code = 'ADMIN_NOT_ENROLLED';
+        refusal.status = 409;
+        throw refusal;
+      }
+    }
+
     admin.salt = salt;
     admin.passwordHash = passwordHash;
     delete admin.password;
 
-    this.createAuditLog({
-      adminId: admin.id,
-      adminName: admin.name,
-      role: admin.role,
-      action: 'ADMIN_PASSWORD_RESET',
-      module: 'AUTH',
-      targetEntityType: 'ADMIN_USER',
-      targetEntityId: admin.id,
-      previousState: 'ACTIVE',
-      newState: 'ACTIVE',
-      reason: 'Administrator password reset via Authenticated Password Gateway.'
-    });
+    try {
+      await this.auditAuthoritative({
+        adminId: actor ? actor.id : admin.id,
+        adminName: actor ? actor.name : admin.name,
+        role: actor ? actor.role : admin.role,
+        action: 'ADMIN_PASSWORD_RESET',
+        module: 'AUTH',
+        targetEntityType: 'ADMIN_USER',
+        targetEntityId: admin.id,
+        previousState: 'ACTIVE',
+        newState: 'ACTIVE',
+        // No password, hash or salt here: an audit record is read by more people
+        // than the credential is. The actor and the account that changed are
+        // named apart, because a reset of someone else's password is exactly the
+        // event a later review has to be able to attribute.
+        reason: `${admin.username}'s credential was replaced by ` +
+          `${actor ? `${actor.role} ${actor.username || actor.id}` : 'the account holder'}.`
+      });
+    } catch (err) {
+      // The change is already in the row, so put the old credential back rather
+      // than leave a reset that no record shows ever happened.
+      if (store) {
+        await this.authoritativeWrite(
+          store.from('admin_accounts')
+            .update({ password_hash: previous.passwordHash, password_salt: previous.salt })
+            .eq('username', admin.username),
+          { what: 'the administrator credential record' }
+        ).catch(restoreErr => {
+          console.error('⚠️ Password reset audit failed and the previous credential could not be restored:',
+            restoreErr.cause || restoreErr.message);
+        });
+      }
+      admin.salt = previous.salt;
+      admin.passwordHash = previous.passwordHash;
+      throw err;
+    }
 
-    return { success: true, message: `Password reset successfully for ${admin.name} (${admin.username}).`, admin };
+    return {
+      success: true,
+      message: `Password reset successfully for ${admin.name} (${admin.username}).`,
+      // Deliberately not the account object: it carries the salt and hash.
+      account: {
+        id: admin.id,
+        username: admin.username,
+        name: admin.name,
+        role: admin.role,
+        email: admin.email,
+        department: admin.department,
+        status: admin.status
+      }
+    };
   }
 
   // --- Advertisement placement methods (PostgreSQL `advertisements` first) ---

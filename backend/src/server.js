@@ -1274,7 +1274,7 @@ app.post('/api/admin/login', async (req, res) => {
 });
 
 // Admin Password Recovery & Reset (Authenticated Gateway)
-app.post('/api/admin/reset-password', authenticateAdmin, (req, res) => {
+app.post('/api/admin/reset-password', authenticateAdmin, async (req, res) => {
   try {
     const { identifier, username, newPassword, currentPassword } = req.body;
     const targetIdentifier = identifier || username || req.admin.username || req.admin.email;
@@ -1282,17 +1282,33 @@ app.post('/api/admin/reset-password', authenticateAdmin, (req, res) => {
     const isSuperAdmin = req.admin.role === 'SUPER_ADMIN' || (req.admin.permissions && req.admin.permissions.includes('admin.manage'));
 
     if (!isSelf && !isSuperAdmin) {
-      return res.status(403).json({ success: false, error: 'Forbidden: Only SUPER_ADMIN can reset other administrators\' passwords.' });
+      return res.status(403).json({
+        success: false,
+        code: 'ADMIN_PASSWORD_RESET_FORBIDDEN',
+        error: 'Forbidden: Only SUPER_ADMIN can reset other administrators\' passwords.',
+        requestId: req.id
+      });
     }
 
     if (isSelf && !currentPassword && !isSuperAdmin) {
-      return res.status(400).json({ success: false, error: 'Current password is required to reset password.' });
+      return res.status(400).json({ success: false, code: 'CURRENT_PASSWORD_REQUIRED', error: 'Current password is required to reset password.', requestId: req.id });
     }
 
-    const result = db.resetAdminPassword({ identifier: targetIdentifier, newPassword, currentPassword, isSuperAdmin });
+    const result = await db.resetAdminPassword({
+      identifier: targetIdentifier, newPassword, currentPassword, isSuperAdmin,
+      actor: { id: req.admin.id, username: req.admin.username, name: req.admin.name, role: req.admin.role }
+    });
     res.json(result);
   } catch (err) {
-    res.status(400).json({ success: false, error: err.message });
+    // A credential the directory refused to store, or a trail that could not
+    // record the change, is an outage (5xx) and not a rejected form (4xx) — the
+    // caller did nothing wrong and retrying may work.
+    res.status(err.status || 400).json({
+      success: false,
+      code: err.code || 'ADMIN_PASSWORD_RESET_FAILED',
+      error: err.message,
+      requestId: req.id
+    });
   }
 });
 
@@ -1348,7 +1364,7 @@ app.get('/api/admin/drivers/:id', (req, res) => {
   res.json({ success: true, driver });
 });
 
-app.post('/api/admin/drivers/:id/status', authenticateAdmin, async (req, res) => {
+app.post('/api/admin/drivers/:id/status', authenticateAdmin, requirePermission('fleet.manage'), async (req, res) => {
   const { status, operationalStatus, kycStatus, reason } = req.body;
   const opStatus = operationalStatus || status;
   const result = await db.setDriverStatus(req.params.id, opStatus, reason, req.admin.id, req.admin.name, kycStatus);
@@ -1969,7 +1985,7 @@ app.get('/api/admin/advertisements', authenticateAdmin, async (req, res) => {
   }
 });
 
-app.post('/api/admin/advertisements', authenticateAdmin, async (req, res) => {
+app.post('/api/admin/advertisements', authenticateAdmin, requirePermission('advertisement.create'), async (req, res) => {
   try {
     const result = await db.createAdvertisement(req.body, req.admin.id, req.admin.name);
     appConfigService.invalidate();
@@ -1981,7 +1997,7 @@ app.post('/api/admin/advertisements', authenticateAdmin, async (req, res) => {
       ...(result.degraded ? { degraded: true } : {})
     });
   } catch (err) {
-    res.status(err.code === 'ADVERTISEMENT_NOT_FOUND' ? 404 : 400).json({
+    res.status(err.status || (err.code === 'ADVERTISEMENT_NOT_FOUND' ? 404 : 400)).json({
       success: false,
       ...(err.code ? { code: err.code } : {}),
       error: err.message,
@@ -1990,7 +2006,7 @@ app.post('/api/admin/advertisements', authenticateAdmin, async (req, res) => {
   }
 });
 
-app.put('/api/admin/advertisements/:id', authenticateAdmin, async (req, res) => {
+app.put('/api/admin/advertisements/:id', authenticateAdmin, requirePermission('advertisement.edit'), async (req, res) => {
   try {
     const result = await db.updateAdvertisement(req.params.id, req.body, req.admin.id, req.admin.name);
     appConfigService.invalidate();
@@ -2002,7 +2018,7 @@ app.put('/api/admin/advertisements/:id', authenticateAdmin, async (req, res) => 
       ...(result.degraded ? { degraded: true } : {})
     });
   } catch (err) {
-    res.status(err.code === 'ADVERTISEMENT_NOT_FOUND' ? 404 : 400).json({
+    res.status(err.status || (err.code === 'ADVERTISEMENT_NOT_FOUND' ? 404 : 400)).json({
       success: false,
       ...(err.code ? { code: err.code } : {}),
       error: err.message,
@@ -2011,7 +2027,7 @@ app.put('/api/admin/advertisements/:id', authenticateAdmin, async (req, res) => 
   }
 });
 
-app.delete('/api/admin/advertisements/:id', authenticateAdmin, async (req, res) => {
+app.delete('/api/admin/advertisements/:id', authenticateAdmin, requirePermission('advertisement.delete'), async (req, res) => {
   try {
     const result = await db.deleteAdvertisement(req.params.id, req.admin.id, req.admin.name);
     appConfigService.invalidate();
@@ -2023,7 +2039,7 @@ app.delete('/api/admin/advertisements/:id', authenticateAdmin, async (req, res) 
       ...(result.degraded ? { degraded: true } : {})
     });
   } catch (err) {
-    res.status(err.code === 'ADVERTISEMENT_NOT_FOUND' ? 404 : 400).json({
+    res.status(err.status || (err.code === 'ADVERTISEMENT_NOT_FOUND' ? 404 : 400)).json({
       success: false,
       ...(err.code ? { code: err.code } : {}),
       error: err.message,
@@ -3449,13 +3465,11 @@ app.post('/api/admin/restaurants/:id/status', authenticateAdmin, requirePermissi
 });
 
 // DRIVER FLEET GOVERNANCE & TELEMETRY
-app.post('/api/admin/drivers/:id/status', authenticateAdmin, requirePermission('fleet.manage'), async (req, res) => {
-  const { status, operationalStatus, kycStatus, reason } = req.body;
-  const opStatus = operationalStatus || status;
-  const result = await db.setDriverStatus(req.params.id, opStatus, reason, req.admin.id, req.admin.name, kycStatus);
-  if (!result.success) return res.status(400).json(result);
-  res.json(result);
-});
+// (POST /api/admin/drivers/:id/status is declared above, with its
+//  fleet.manage guard. A second, identical registration of that path used to sit
+//  here: Express dispatches the first match, so the copy carrying the permission
+//  check never ran and reading this file gave the wrong impression of what the
+//  route enforces.)
 
 app.post('/api/admin/drivers/:id/verify-payout-destination', authenticateAdmin, requirePermission('finance.settlement'), async (req, res) => {
   const { decision, evidenceUrl, bankAccountHolderName, reason } = req.body;
@@ -4740,7 +4754,7 @@ app.get('/api/admin/master-catalog', authenticateAdmin, (req, res) => {
   res.json({ success: true, count: masterProducts.length, masterProducts });
 });
 
-app.post('/api/admin/master-catalog', authenticateAdmin, (req, res) => {
+app.post('/api/admin/master-catalog', authenticateAdmin, requirePermission('catalog.manage'), (req, res) => {
   try {
     const product = db.addMasterProduct(req.body);
     broadcastToAdmins({ type: 'MASTER_PRODUCT_ADDED', product });
@@ -4750,7 +4764,7 @@ app.post('/api/admin/master-catalog', authenticateAdmin, (req, res) => {
   }
 });
 
-app.put('/api/admin/master-catalog/:id', authenticateAdmin, (req, res) => {
+app.put('/api/admin/master-catalog/:id', authenticateAdmin, requirePermission('catalog.manage'), (req, res) => {
   try {
     const updated = db.updateMasterProduct(req.params.id, req.body);
     broadcastToAdmins({ type: 'MASTER_PRODUCT_UPDATED', product: updated });
@@ -4760,7 +4774,7 @@ app.put('/api/admin/master-catalog/:id', authenticateAdmin, (req, res) => {
   }
 });
 
-app.delete('/api/admin/master-catalog/:id', authenticateAdmin, (req, res) => {
+app.delete('/api/admin/master-catalog/:id', authenticateAdmin, requirePermission('catalog.manage'), (req, res) => {
   try {
     const deleted = db.deleteMasterProduct(req.params.id);
     broadcastToAdmins({ type: 'MASTER_PRODUCT_DELETED', id: req.params.id });
@@ -5228,7 +5242,7 @@ app.post('/api/grocery/orders/:id/packed-weight', authenticateMerchant, requireM
 });
 
 // Admin Order State Maintenance: Trigger Expire Stale Orders (Migration 018 timeout authority)
-app.post('/api/admin/orders/expire-stale', authenticateAdmin, async (req, res) => {
+app.post('/api/admin/orders/expire-stale', authenticateAdmin, requirePermission('orders.manage'), async (req, res) => {
   try {
     const expiredCount = await db.orderRepo.expireStaleOrders();
     res.json({ success: true, expiredCount });
@@ -5244,7 +5258,7 @@ app.get('/api/admin/grocery/price-alerts', authenticateAdmin, (req, res) => {
 });
 
 // Admin Price Freeze / Correction API
-app.post('/api/admin/grocery/products/:id/review', authenticateAdmin, (req, res) => {
+app.post('/api/admin/grocery/products/:id/review', authenticateAdmin, requirePermission('grocery.review'), (req, res) => {
   try {
     const { action, newPrice, reason } = req.body;
     const product = db.adminReviewPrice({
