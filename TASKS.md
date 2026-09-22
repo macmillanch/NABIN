@@ -732,3 +732,84 @@ thing that can open or close it.
       been applied to any hosted project, so campaigns are live only against the local
       database; the driver and merchant apps do not read the campaign section.
 
+## PHASE 4 (production readiness) — 2026-09-22
+
+Owner's directive: no UI polishing, no new implementations of working systems, no
+weakened tests, local commits only, nothing pushed, no hosted database touched, no
+LIVE payment credentials, migration 027 stays local, and **STOP and ask** before any
+new migration, financial correction, production change or security tradeoff.
+
+### Done and verified (local only, NOT pushed)
+
+- [x] **CH-08 — one validator for both telemetry transports** (`c1f3d1d`).
+      `src/services/TelemetryValidator.js` is now the only place a driver position is
+      judged; REST `POST /api/driver/location` and the `LOCATION_UPDATE` socket frame
+      call it and report the same code, and the stored row takes the server's receive
+      time rather than the device's. `chaos_audit.js` CH-08 passes: 0/4 impossible or
+      stale fixes accepted, `COORDINATES_OUT_OF_RANGE` on both paths, no poisoned row.
+- [x] **Auth fails closed when the authoritative store cannot answer**
+      (`e994e44` + `31d0d62`). Six granting paths were wrong: an `ADMIN`/`SUPER_ADMIN`
+      OTP resolved to `adminUsers[0]` (role taken from the request body, so any
+      enrollable number became SUPER_ADMIN); `authoritativeRead`/`Write` now turn a
+      PostgREST `error` and a rejected connection into 503 `AUTH_STORE_UNAVAILABLE`
+      instead of reading "unreachable" as "no such row"; the audit trail is on the
+      critical path (a login or dispatch that cannot be evidenced is refused and
+      rolled back, `AUTH_AUDIT_STORE_UNAVAILABLE`); one `RuntimeMode.allowsTestConvenience()`
+      gate keyed on `NODE_ENV` replaces six `NODE_ENV !== 'production' ||
+      NABIN_TEST_MODE === 'true'` gates, so a stray flag can only narrow access;
+      deactivation closes password login, OTP login and already-issued tokens; and
+      password login re-reads `admin_accounts` through
+      `authoritativeAdminByUsername()` before granting, so an account disabled in
+      PostgreSQL stops signing in without a restart. Three `[DEBUG]` logs that printed
+      the admin object — salt and password hash included — are gone.
+- [x] **`backend/auth_failclosed_test.js`** is new and passes **15/0**: AUTH-00…06
+      against real `admin_accounts` enrolment state, AUTH-10…14 with the account store
+      or the audit store made to reject, AUTH-15…17 for the password gate.
+- [x] **`restart_test.js`** no longer `sleep(3500)`-and-hope: it polls `/api/health`
+      for up to 30 s and asserts the port actually bound (**35/0**).
+- [x] **FI-08 documented, not corrected** —
+      [`docs/FI08_SETTLEMENT_OVERPOSTING_EVIDENCE.md`](docs/FI08_SETTLEMENT_OVERPOSTING_EVIDENCE.md).
+      3 jobs the pre-fix chaos runs over-posted by **₹31,058.00** (commission of
+      ₹57.00 never recognised; books still balance because the error is symmetric;
+      no wallet balance was inflated). No reversal/adjustment routine exists in
+      `backend/src`, so a correction is new work that **modifies the financial
+      record** — stopped at the document, per the directive.
+
+### Chain as run (solo, fresh backend carrying the suite's test webhook secret)
+
+- [x] `auth_failclosed_test.js` **15/0** · `test_suite.js` **366/1 of 367** (the 1 is
+      the pre-existing `gprod_5` revalidate gap that fails identically at `HEAD`) ·
+      `restart_test.js` **35/0**.
+- [x] `chaos_audit.js` with the database up: `PASS=16 FINDING=1 BLOCKED=3 NOTE=1
+      FAIL=1` — the finding is CH-01b (50/100 accepts of an already-assigned job
+      returned success though ownership never slipped), the fail is FI-08 above.
+- [x] `CHAOS_DB_DOWN=1 node chaos_audit.js` against a stopped local `supabase_db_nabin`
+      (restarted immediately after; the backend recovered unaided): `PASS=4 NOTE=2`.
+      CH-10c/CH-10e now record auth **refusing** — `send-otp 503
+      AUTH_AUDIT_STORE_UNAVAILABLE`, `admin login 503`, `verify-otp` issued no token —
+      where they previously recorded a medium fail-open finding; CH-10f marks itself
+      unexercised instead of passing on a session that no longer exists.
+
+### Still open in this phase
+
+- [ ] **Error semantics (item 4).** 34 `this.createAuditLog(` call sites still fire and
+      forget, 9 are awaited; the highest-stakes is `validateAuthoritativeJobOtp`, where
+      a trip's state transition can be committed and its audit write dropped. The
+      hardcoded default Razorpay webhook secret in `src/server.js` — not repeated
+      here — is still the
+      fallback. An outage must read 5xx and a business rule 4xx, and never name the
+      fault to the client in a way that distinguishes a missing row from a missing
+      database.
+- [ ] **Campaign/admin surface security (items 7–9), concurrency (8), the other six
+      apps' campaign surfaces (5, 6), assets (10), public website (11), offline
+      recovery matrix (12), env isolation and secret scan (13), financial invariant
+      re-verification (14, 15).** None started.
+- [ ] No admin **deactivation route** exists at all — `is_active` can only be flipped
+      in the database, which is the path the new gate now defends.
+- [ ] `test_phase7_security.js` (45 assertions) fails 36/9 for a stale reason: it
+      probes `POST /api/ride/book`, a route that does not exist (the live one is
+      `/api/customer/book-ride`). Dead coverage, recorded rather than rewritten
+      mid-phase.
+- [ ] `authenticateAdmin` permissions are a login-time snapshot; `getAdminAccounts()`
+      still fabricates a display phone for accounts without one.
+

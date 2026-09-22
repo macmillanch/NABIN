@@ -149,6 +149,41 @@
 > `flutter test` **56/56**, `flutter analyze --no-pub` 67 issues / 0 errors / 0
 > warnings. 027 exists in Git and on the local Docker database only; no hosted project
 > was touched, and only `CUSTOMER_HOME` is a wired mobile surface.
+>
+> **Phase 4 — production readiness (2026-09-22, local only, NOT pushed):** three
+> items done. **CH-08** (`c1f3d1d`): `POST /api/driver/location` range-checked only
+> that two fields were present, so a fix the socket refused — latitude past the pole,
+> an 1899 timestamp, 1,000,000 km/h — reached the same fleet map dispatch reads. One
+> `TelemetryValidator` now backs both transports and reports the same reason on each,
+> and the stored row carries the server's receive time instead of a timestamp the
+> device asserts. **Auth fail-closed** (`e994e44` + `31d0d62`): an OTP login for role
+> `ADMIN` resolved to `adminUsers[0]`, so any number that could finish a challenge
+> became SUPER_ADMIN; PostgREST errors read as "no such row" and fell through to a
+> seeded account; six `NODE_ENV !== 'production' || NABIN_TEST_MODE === 'true'` gates
+> let a leftover flag reopen fixed OTPs and unauthenticated media writes; login and
+> OTP dispatch whose audit row could not be written answered 200 with an unhandled
+> rejection; and password login trusted the in-memory copy taken at boot, so an admin
+> disabled in the database kept signing in until a restart. Identity now comes from
+> enrolled `admin_accounts` rows only, unreachable-store reads/writes throw 503
+> `AUTH_STORE_UNAVAILABLE`, unauditable auth events are refused and rolled back, one
+> `RuntimeMode` gate keyed on `NODE_ENV` alone replaces the six, and deactivation
+> closes both doors including already-issued tokens. Three `[DEBUG]` admin-login logs
+> printed the account object with salt and password hash — gone. `restart_test.js`
+> (`cdb63aa`) now polls `/api/health` up to 30 s instead of `sleep(3500)`-and-hope.
+> **FI-08** is documented at
+> [`docs/FI08_SETTLEMENT_OVERPOSTING_EVIDENCE.md`](../docs/FI08_SETTLEMENT_OVERPOSTING_EVIDENCE.md)
+> and deliberately **not corrected**: 3 jobs that the pre-fix chaos runs over-posted
+> (₹31,058.00 of driver payable, ₹57.00 of commission never recognised, books still
+> balancing because the error is symmetric). Fixing that writes new financial records
+> against history and needs explicit approval. Chain (local, solo, fresh backend
+> carrying the suite's test webhook secret): `auth_failclosed_test.js` **15/0**,
+> `test_suite.js` **366/1 of 367** (the 1 is the pre-existing `gprod_5` gap that also
+> fails at `HEAD`), `restart_test.js` **35/0**, `chaos_audit.js` DB-up
+> `PASS=16 FINDING=1 BLOCKED=3 NOTE=1 FAIL=1` and with `CHAOS_DB_DOWN=1`
+> `PASS=4 NOTE=2` — where CH-10c/CH-10e now report auth **failing closed**
+> (`send-otp 503 AUTH_AUDIT_STORE_UNAVAILABLE`, `admin login 503`, no token) instead
+> of the earlier in-memory fail-open finding, and CH-10f marks itself unexercised
+> rather than passing on a session that no longer exists.
 
 ---
 
@@ -156,9 +191,9 @@
 
 | Field | Value |
 |-------|-------|
-| **Current HEAD** | this docs commit, on top of the Phase 3 chain `a85ca6d` (027 + `CampaignRepository`), `2697038` (campaign API + config section), `daf82cf` (MODULE 33), `77dd9d6` (restart-run surge restore), `eb492c5` (admin login requires a username), `7a882e1` (campaign console), `2b0c55b` (Flutter renders the live campaign) — which sit on the Phase 2 chain `9da93cd`, `b4803e5`, `8e8a30e`, `80940c2`, `a0bd024` and on `d628d0c`, `5824f36`, `f759dd3`, `46ab58a`, `904acd2` |
+| **Current HEAD** | this docs commit, on top of the Phase 4 chain `31d0d62` (password login and provisioning stop trusting memory), `cdb63aa` (restart run asks the cold backend), `e994e44` (auth fails closed instead of falling back to fixtures), `c1f3d1d` (one telemetry validator for both transports) — which sit on the Phase 3 chain `97fb57f` (docs), `2b0c55b` (Flutter renders the live campaign), `7a882e1` (campaign console), `eb492c5` (admin login requires a username), `77dd9d6` (restart-run surge restore), `daf82cf` (MODULE 33), `2697038` (campaign API + config section), `a85ca6d` (027 + `CampaignRepository`) and on the Phase 2 chain `9da93cd`, `b4803e5`, `8e8a30e`, `80940c2`, `a0bd024` and on `d628d0c`, `5824f36`, `f759dd3`, `46ab58a`, `904acd2` |
 | **origin/main** | `c974fc9` |
-| **HEAD == origin/main** | NO — `main` is **18 commits ahead locally and NOT pushed** |
+| **HEAD == origin/main** | NO — `main` is **23 commits ahead locally and NOT pushed** |
 | **Branch** | main |
 
 ### Untracked files of record (re-verified 2026-09-22, `git status --porcelain`)
@@ -181,6 +216,19 @@
 
 ### Recent Git History
 ```
+31d0d62 fix(backend): stop password login and admin provisioning trusting memory
+cdb63aa test(backend): ask a cold-started backend whether it is up instead of guessing
+e994e44 fix(backend): make authentication fail closed instead of falling back to fixtures
+c1f3d1d fix(backend): validate driver telemetry once, for both transports
+97fb57f docs: record Phase 3 — campaigns, the 027 approval, and the chain as run
+2b0c55b feat(mobile): paint the campaign the server says is live
+7a882e1 feat(admin-web): let an operator author a festival without a developer
+eb492c5 fix(admin-web): send the username that POST /api/admin/login requires
+77dd9d6 test(backend): stop the restart run from stranding a 1.18 global surge
+daf82cf test(backend): pin the campaign lifecycle to the server clock in MODULE 33
+2697038 feat(backend): publish campaigns through the admin API and the config section
+a85ca6d feat(backend): give a campaign its own rows and let the database clock rule it
+9da93cd docs: record the exactly-once settlement fix and the Phase 2 render pass
 f759dd3 feat(backend): serve advertisement campaigns from PostgreSQL within the frozen schema
 46ab58a test(backend): add a local-only chaos and resilience audit, and record its findings
 904acd2 feat(backend): make checkout coupons server-authoritative and add a data-only app config feed
