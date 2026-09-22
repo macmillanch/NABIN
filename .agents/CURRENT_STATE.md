@@ -183,7 +183,24 @@
 > `PASS=4 NOTE=2` — where CH-10c/CH-10e now report auth **failing closed**
 > (`send-otp 503 AUTH_AUDIT_STORE_UNAVAILABLE`, `admin login 503`, no token) instead
 > of the earlier in-memory fail-open finding, and CH-10f marks itself unexercised
-> rather than passing on a session that no longer exists.
+> rather than passing on a session that no longer exists. **Admin permission
+> checks + durable credential reset:** nine administrative writes (advertisement
+> create/edit/delete, master-catalogue add/edit/remove, `orders/expire-stale`,
+> grocery price review, driver status) required only *an* administrator, so a KYC
+> Specialist token could delete a campaign or take a driver offline; each now names
+> a permission and the guard runs before the handler. `POST
+> /api/admin/drivers/:id/status` was registered twice and Express dispatched the
+> ungated first copy, so the `fleet.manage` check below it never ran.
+> `resetAdminPassword` wrote the new hash into memory only — the next restart handed
+> the old password back — and its response body carried `salt` and `passwordHash`; it
+> now writes `admin_accounts`, refuses an unenrolled account (409
+> `ADMIN_NOT_ENROLLED`), restores the previous credential if the audit row fails, and
+> answers with a projection holding no secret. MODULE 35 (RBAC-01…12) proves the
+> refusals, the non-lockout, and durability by recomputing scrypt from the
+> **PostgreSQL** row. Chain after this pass (same solo conditions):
+> `test_suite.js` **388/1 of 389** (the 1 is still the `gprod_5` seeding gap),
+> `restart_test.js` **35/0**, `auth_failclosed_test.js` **15/0**,
+> `chaos_audit.js` unchanged at `PASS=16 FINDING=1 BLOCKED=3 NOTE=1 FAIL=1`.
 
 ---
 
@@ -191,9 +208,9 @@
 
 | Field | Value |
 |-------|-------|
-| **Current HEAD** | this docs commit, on top of the Phase 4 chain `31d0d62` (password login and provisioning stop trusting memory), `cdb63aa` (restart run asks the cold backend), `e994e44` (auth fails closed instead of falling back to fixtures), `c1f3d1d` (one telemetry validator for both transports) — which sit on the Phase 3 chain `97fb57f` (docs), `2b0c55b` (Flutter renders the live campaign), `7a882e1` (campaign console), `eb492c5` (admin login requires a username), `77dd9d6` (restart-run surge restore), `daf82cf` (MODULE 33), `2697038` (campaign API + config section), `a85ca6d` (027 + `CampaignRepository`) and on the Phase 2 chain `9da93cd`, `b4803e5`, `8e8a30e`, `80940c2`, `a0bd024` and on `d628d0c`, `5824f36`, `f759dd3`, `46ab58a`, `904acd2` |
+| **Current HEAD** | this docs commit, on top of the Phase 4 chain `a551dd6` (a permission check in front of every admin write, durable credential reset), `31d0d62` (password login and provisioning stop trusting memory), `cdb63aa` (restart run asks the cold backend), `e994e44` (auth fails closed instead of falling back to fixtures), `c1f3d1d` (one telemetry validator for both transports) — which sit on the Phase 3 chain `97fb57f` (docs), `2b0c55b` (Flutter renders the live campaign), `7a882e1` (campaign console), `eb492c5` (admin login requires a username), `77dd9d6` (restart-run surge restore), `daf82cf` (MODULE 33), `2697038` (campaign API + config section), `a85ca6d` (027 + `CampaignRepository`) and on the Phase 2 chain `9da93cd`, `b4803e5`, `8e8a30e`, `80940c2`, `a0bd024` and on `d628d0c`, `5824f36`, `f759dd3`, `46ab58a`, `904acd2` |
 | **origin/main** | `c974fc9` |
-| **HEAD == origin/main** | NO — `main` is **23 commits ahead locally and NOT pushed** |
+| **HEAD == origin/main** | NO — `main` is **25 commits ahead locally and NOT pushed** |
 | **Branch** | main |
 
 ### Untracked files of record (re-verified 2026-09-22, `git status --porcelain`)
@@ -216,6 +233,8 @@
 
 ### Recent Git History
 ```
+a551dd6 fix(backend): put a permission check in front of every admin write
+97578c4 docs: record the Phase 4 auth and telemetry work, and the FI-08 evidence
 31d0d62 fix(backend): stop password login and admin provisioning trusting memory
 cdb63aa test(backend): ask a cold-started backend whether it is up instead of guessing
 e994e44 fix(backend): make authentication fail closed instead of falling back to fixtures

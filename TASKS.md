@@ -783,6 +783,12 @@ new migration, financial correction, production change or security tradeoff.
 - [x] `chaos_audit.js` with the database up: `PASS=16 FINDING=1 BLOCKED=3 NOTE=1
       FAIL=1` — the finding is CH-01b (50/100 accepts of an already-assigned job
       returned success though ownership never slipped), the fail is FI-08 above.
+- [x] Re-run after the permission/reset pass (`a551dd6`), on a fresh backend (the
+      broadcast cooldown is process-local, so a restart clears it):
+      `test_suite.js` **388/1 of 389** (22 new RBAC assertions, all green; the 1 is
+      still `gprod_5`), `restart_test.js` **35/0**, `auth_failclosed_test.js`
+      **15/0**, `chaos_audit.js` unchanged at `PASS=16 FINDING=1 BLOCKED=3 NOTE=1
+      FAIL=1`.
 - [x] `CHAOS_DB_DOWN=1 node chaos_audit.js` against a stopped local `supabase_db_nabin`
       (restarted immediately after; the backend recovered unaided): `PASS=4 NOTE=2`.
       CH-10c/CH-10e now record auth **refusing** — `send-otp 503
@@ -792,6 +798,38 @@ new migration, financial correction, production change or security tradeoff.
 
 ### Still open in this phase
 
+- [x] **Admin mutations now carry their own permission check, and a credential
+      reset reaches PostgreSQL** (`backend/src/server.js`,
+      `backend/src/database.js`, `backend/test_suite.js` MODULE 35 — RBAC-01…12).
+      Nine administrative writes asked only "is this an administrator?": a KYC
+      Specialist's or Support Agent's token could create and delete advertisement
+      campaigns, add/edit/remove master-catalogue products, expire orders, review a
+      grocery price and take a driver offline. Each now names a permission
+      (`advertisement.create/edit/delete`, `catalog.manage`, `orders.manage`,
+      `grocery.review`, `fleet.manage`) and the guard runs **before** the handler, so
+      a refusal cannot have written anything. Those keys belong to no role but
+      SUPER_ADMIN, so the practical effect is control-plane writes are SUPER_ADMIN
+      only — a deliberate narrowing: an operator who had been using one of those
+      screens with a non-super account will now need a Super Admin session.
+      `POST /api/admin/drivers/:id/status` was also registered **twice**; Express
+      dispatches the first match, so the copy that carried
+      `requirePermission('fleet.manage')` never ran — the guard was decorative.
+      `resetAdminPassword` wrote the new hash into **only this process's memory**, so
+      the next restart handed the old password back, and its response returned the
+      whole account object including `salt` and `passwordHash`. It now writes
+      `admin_accounts`, refuses an account the directory has no row for
+      (`ADMIN_NOT_ENROLLED`, 409), restores the previous credential if the audit row
+      cannot be written, answers with a projection that holds no secret, and reports
+      actor and target apart in the trail. RBAC-09 proves durability by recomputing
+      scrypt from the **PostgreSQL** row, not from memory.
+- [ ] **`/api/admin/master-catalog` writes are memory-only.** `masterProducts` is
+      seeded in the constructor (`src/database.js:1137`) and never hydrated from or
+      written to PostgreSQL, even though migration 001 has a
+      `master_grocery_catalog` table. An operator who adds a catalogue product over
+      the admin API loses it at the next restart, and the Grocery Merchant App's
+      stocking screen reads whatever the boot seed produced. Out of scope for the
+      permission pass (no migration, no new table needed — but it is a persistence
+      bridge of its own and it changes what stores can stock).
 - [ ] **Error semantics (item 4).** 34 `this.createAuditLog(` call sites still fire and
       forget, 9 are awaited; the highest-stakes is `validateAuthoritativeJobOtp`, where
       a trip's state transition can be committed and its audit write dropped. The
