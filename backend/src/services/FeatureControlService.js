@@ -105,6 +105,24 @@ class FeatureControlService {
             throw error;
         }
     }
+
+    /**
+     * Which `platform_settings` keys the flag endpoints are allowed to write.
+     *
+     * Flags share one table with every other platform setting, and the flag endpoints take
+     * the key straight from the request, so a "toggle a feature" call could equally well
+     * address `PLATFORM_SERVICE_STATE`, `surge_multiplier` or a theme record — the state
+     * another control endpoint owns. Requirement 38 says a flag must never become a way
+     * around another control, so the write surface is narrowed to exactly what the readers
+     * can serve: a `FEATURE_%` row for this service, or one of the legacy flags
+     * `/api/features` still answers from memory. Anything else is not a flag, and a write
+     * that claims to be one is refused rather than quietly promoted.
+     */
+    isWritableFlagKey(key) {
+        if (typeof key !== 'string' || key.length === 0) return false;
+        if (/^FEATURE_[A-Z0-9_]{1,64}$/.test(key)) return true;
+        return Boolean(database.featureFlags && database.featureFlags.has(key));
+    }
 }
 
 module.exports = new FeatureControlService();

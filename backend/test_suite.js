@@ -797,6 +797,29 @@ async function runAllTests() {
       updateFlagRes.status === 200 && updateFlagRes.data.success && updateFlagRes.data.featureFlag.key === 'new_ride_matching_enabled'
     );
 
+    // Flags live in `platform_settings` beside every other setting, and this endpoint used
+    // to take the key from the body without checking what it was — so a "toggle a feature"
+    // request naming `PLATFORM_SERVICE_STATE` was a way to reach the emergency switchboard
+    // through the flags screen (requirement 38: a flag must not bypass another control).
+    // The probe uses a key that belongs to nothing, so a regression here cannot damage a
+    // real setting; the next assertion covers the keys that do.
+    const notAFlagRes = await request('POST', '/api/v1/admin/features', {
+      key: 'NOT_A_FLAG_PROBE',
+      enabled: false
+    }, { 'Authorization': `Bearer ${superToken}` });
+    assert('A flag write cannot address another control\'s setting',
+      notAFlagRes.status === 400 && notAFlagRes.data.code === 'FEATURE_FLAG_KEY_NOT_ALLOWED',
+      `status=${notAFlagRes.status} body=${JSON.stringify(notAFlagRes.data).slice(0, 140)}`
+    );
+
+    const { isWritableFlagKey } = require('./src/services/FeatureControlService');
+    const refused = ['PLATFORM_SERVICE_STATE', 'service_status', 'surge_multiplier', 'APP_CONFIG_THEME', 'NOT_A_FLAG_PROBE', '', null, 42];
+    const accepted = ['FEATURE_RIDE_TAXI', 'FEATURE_GROCERY', 'new_ride_matching_enabled'];
+    assert('The flag write surface is exactly what the flag readers can serve',
+      refused.every((k) => !isWritableFlagKey(k)) && accepted.every((k) => isWritableFlagKey(k)),
+      `wrongly accepted=${refused.filter((k) => isWritableFlagKey(k)).join(',')} wrongly refused=${accepted.filter((k) => !isWritableFlagKey(k)).join(',')}`
+    );
+
     // 3. Check compliant app version (Customer 1.0.0)
     const verCheckOk = await request('GET', '/api/v1/system/version-check?clientType=customer&version=1.0.0');
     assert('Version check reports compliant for customer app version 1.0.0',

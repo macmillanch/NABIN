@@ -229,15 +229,25 @@ names no code path consults yet.
 - **Still not persisted**: grants are derived from the role at read time and `admin_accounts`
   has no permissions column, so per-admin overrides remain a migration-028 question (§2.2, §9).
 
-### 2.4 A feature flag can write any platform setting
+### 2.4 A feature flag could write any platform setting — closed in Phase A2
 
-`POST /api/admin/features` (`server.js:5495`) upserts `platform_settings` keyed on the
-caller-supplied `key`. Because flags and settings share the one table, a request with
-`key: 'nabin.admin.theme_v1'` writes a theme record through the flag endpoint, and the
-flag endpoint's permission is a role check rather than `settings.edit`. Area 38's
-requirement — flags must not become a way around other controls — fails on this. Fix is
-small: namespace the key (`feature.<key>`) or move flags to their own table (same §9
-migration stop).
+`POST /api/admin/features` (`server.js:5495`) and `PUT /api/admin/features/:key`
+(`server.js:5539`) upsert `platform_settings` keyed on the caller-supplied `key`. Because
+flags and settings share the one table, a request with `key: 'nabin.admin.theme_v1'` used to
+write a theme record through the flag endpoint, and `PLATFORM_SERVICE_STATE` — the emergency
+switchboard — was equally reachable. Area 38's requirement that flags must not become a way
+around other controls therefore failed on the write path alone.
+
+**Closed:** both routes now admit only what the flag readers can serve — a `FEATURE_%` key
+(`FeatureControlService` loads exactly that prefix) or one of the legacy flags
+`/api/features` still answers from `db.featureFlags`. Anything else is a 400 with
+`FEATURE_FLAG_KEY_NOT_ALLOWED`. The predicate is `isWritableFlagKey()`, asserted both over
+HTTP and directly against the reserved names. Moving flags to their own table remains the
+§9 migration question; this closes the control failure without one.
+
+**Still open here:** the gate on these two routes is an in-handler `role === 'SUPER_ADMIN'`
+test rather than a named permission (§2.3), so `settings.edit` in §3 has nothing to bind to
+until the naming decision in §11 is answered.
 
 ### 2.5 Memory-only surfaces
 
@@ -423,7 +433,7 @@ configuration question once §2.2 is fixed, not a code change.
 | 34 | Security centre | MISSING as a surface | Sessions (`active_sessions`/`backend_sessions`), failed-login lockouts (`failed_attempts`, `locked_until`), admin session list + revoke. Revocation today is delayed rather than absent — see §1.4 | A |
 | 36 | Integrations, never display secret values | PARTIAL — `platform_settings` holds mixed data | Show presence/configured-state + last check, never a value; `PUT` rejects anything secret-shaped | A |
 | 37 | Settings, secrets not editable from admin UI | PARTIAL — `GET/PUT /api/admin/platform-settings` (`requireSuperAdmin`) | Needs an allow-list of keys, not an open key/value editor over a table that also holds config the server reads at boot | A |
-| 38 | Feature flags that cannot bypass controls | PARTIAL — `features` routes, `is_feature_enabled()` | §2.4: a flag write can address any `platform_settings` key; must be namespaced, and flags must remain unable to disable auth/authz/payment/RLS/audit | A |
+| 38 | Feature flags that cannot bypass controls | PARTIAL — `features` routes, `is_feature_enabled()`, and since A2 a write surface limited to flag keys (§2.4) | Flags must remain unable to disable auth/authz/payment/RLS/audit; the routes are still role-checked rather than name-checked, and neither write is audited | A |
 | 39 | Reports with CSV/XLSX/PDF | MISSING | CSV first (no dependency), XLSX and PDF only if a library already exists in the tree — it does not, so both are a §9 dependency decision | B |
 | 42 | Data export with field filtering + audit | MISSING | Built on `report.export`/`audit.export`; field filtering is *subtraction from a fixed projection*, never caller-supplied column names | B |
 | 44 | Admin AI assistant on authorised tools only | MISSING — **no LLM integration exists anywhere in the repo** (verified: no `openai`/`anthropic`/`llm` reference in `backend/src`, `admin-web/src`, `customer-web/src`, `mobile/lib`) | Requires (a) an external model provider = new dependency + new secret + customer data leaving the boundary, and (b) the tool layer must call the same permission-checked services with the *caller's* session. See §11 — this is a decision to make, not a phase to build | — |
@@ -489,8 +499,8 @@ before its gate passes, and each phase ends in one local commit. **No push, no d
    (§2.4) and the `identity_verification` decision checks are still in-handler.
 4. ✅ **Found during A1, done.** Sessions no longer persist a password hash and salt, and
    `/api/admin/me` no longer serves them (§2.1 item 3, `RBAC-14`–`RBAC-16`).
-5. ⬜ Namespace feature-flag keys so a flag write cannot address another domain's setting
-   (§2.4).
+5. ✅ **Done (A2).** Namespace feature-flag keys so a flag write cannot address another
+   domain's setting (§2.4).
 6. ⬜ Awaited audit writes on every admin mutation (closes the `database.js` half of #57).
 7. ⬜ Security centre read surface: sessions, lockouts, revoke — plus the single dangerous-
    action confirmation component (area 49).

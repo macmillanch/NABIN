@@ -5503,6 +5503,14 @@ app.post(['/api/v1/admin/features', '/api/admin/features'], authenticateAdmin, a
       return res.status(403).json({ success: false, error: 'Only SUPER_ADMIN can modify feature controls' });
     }
 
+    if (!featureControlService.isWritableFlagKey(key)) {
+      return res.status(400).json({
+        success: false,
+        code: 'FEATURE_FLAG_KEY_NOT_ALLOWED',
+        error: `'${key}' is not a feature flag. Flag keys are FEATURE_-prefixed; a setting another control owns — service state, pricing, surge, theme — changes through that control, not through this one.`
+      });
+    }
+
     const { data, error } = await supabaseHelper.supabaseAdmin.from('platform_settings')
       .select('setting_value')
       .eq('setting_key', key)
@@ -5535,6 +5543,14 @@ app.put('/api/admin/features/:key', authenticateAdmin, async (req, res) => {
     const adminRole = req.admin?.role || req.user?.role;
     if (adminRole !== 'SUPER_ADMIN') {
       return res.status(403).json({ success: false, error: 'Only SUPER_ADMIN can modify feature controls' });
+    }
+
+    if (!featureControlService.isWritableFlagKey(key)) {
+      return res.status(400).json({
+        success: false,
+        code: 'FEATURE_FLAG_KEY_NOT_ALLOWED',
+        error: `'${key}' is not a feature flag. Flag keys are FEATURE_-prefixed; a setting another control owns — service state, pricing, surge, theme — changes through that control, not through this one.`
+      });
     }
 
     const { data, error } = await supabaseHelper.supabaseAdmin.from('platform_settings')
