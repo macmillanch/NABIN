@@ -133,7 +133,7 @@ already exists, it is just not visible to any screen.
 
 ---
 
-## 2. Five facts that constrain every design choice
+## 2. Seven facts that constrain every design choice
 
 These are not bugs to note and move past; each one changes what an honest admin build
 looks like.
@@ -261,7 +261,7 @@ copies of `pricingConfig`, `geoFences`, `surgeZones`, `ledgerEntries`,
 
 ### 2.6 One anonymous route I did **not** change, on purpose
 
-`POST /api/grocery/products/:id/photo` **and its `/api/admin/` alias** (`server.js:6634`)
+`POST /api/grocery/products/:id/photo` **and its `/api/admin/` alias** (`server.js:6650`)
 accept a base64 image with no credentials, and can create rows in the grocery catalogue.
 `backend/cloudinary_test.js:126` posts to it with no `Authorization` header, so gating it
 turns a green test red. Per the standing rule *"fix the implementation rather than
@@ -270,6 +270,33 @@ requirement, STOP and report the conflict"*, it is **reported, not silently fixe
 belongs to task #51 (campaign asset architecture), where the media surface gets a real
 upload contract. This is the only unauthenticated `/api/admin/*` path other than the two
 login entry points.
+
+### 2.7 A mutation can succeed while its audit record is lost
+
+`database.js` holds 42 audit writes: **32 are fired without awaiting**, from synchronous
+methods (`pauseService`, `setDriverStatus`, `processFinancialAdjustment`, the advertisement
+and identity-review helpers) that cannot await because they are not async. The other 10 are
+awaited — 5 direct `await this.createAuditLog` and 5 through `auditAuthoritative`, which is
+itself a thin awaited wrapper (`database.js:5063`).
+
+So when the store refused a trail, the rejection had one destination: the process-wide
+`unhandledRejection` net at `server.js:153`, which prints that *a* promise rejected. Nothing
+in that line said an operator action had just lost its audit record, or which one — and the
+route had already answered 200.
+
+**Fixed in Phase A3 for the visibility half:** `createAuditLog` now attaches a report-only
+handler before returning, so a drop is logged as `[audit] DROPPED TRAIL for MODULE/ACTION on
+Type/id: <reason>` and never reaches the net, while the original promise is still what
+callers await — an awaiting caller keeps its ability to fail closed. Pinned by
+`backend/audit_drop_visibility_test.js` (AD-01…AD-08), which asserts both directions: a
+refusal is announced with its context, and a resolved write reports nothing.
+
+**Not fixed, and it is the half area 31 actually asks for:** the 32 un-awaited writes are
+still un-awaited, so a 200 from a synchronous-path mutation is not proof its trail landed.
+Making that true means either awaiting inside those methods (which makes them async and
+touches every caller) or writing the trail before the state change and reverting on failure.
+That is the remaining part of §7 Phase A item 6, and it is where the admin control-plane
+routes should go first.
 
 ---
 
@@ -428,7 +455,7 @@ configuration question once §2.2 is fixed, not a code change.
 |---|---|---|---|---|
 | 29 | Support | EXISTS — `GET /api/admin/support`, `assign`, `resolve` (`support.*`) | UI missing; tickets are boot-synced copies (§2.5) | G |
 | 30 | Disputes | MISSING — no table, no route, no screen | New domain: a migration to create `disputes`, or model as a typed `support_tickets`. §11 decision, and the migration branch is a §9 stop | G |
-| 31 | Audit log protected from normal deletion | EXISTS — `trg_audit_logs_immutable` + `GET /api/admin/audit-logs` | 32 audit writes in `database.js` are un-awaited vs 6 awaited (task #57): the trail can silently lose rows | A |
+| 31 | Audit log protected from normal deletion | EXISTS — `trg_audit_logs_immutable` + `GET /api/admin/audit-logs`; since A3 a refused write is announced instead of vanishing (§2.7) | 32 of the 42 trail writes are still un-awaited, so a 200 is not yet proof the record landed; and several admin mutations write no trail at all | A |
 | 33 | Permission matrix with named permissions, enforced server-side | PARTIAL — `requirePermission` gates 51 routes on 38 named strings, and since A1 the grants come from one file (§2.3) | 9 catalogue names have no gate and 11 gated names belong to no non-super role; 5 checks sit inside handlers; nothing is persisted, so per-admin overrides need the §9 migration. §3 is the target catalogue | A |
 | 34 | Security centre | MISSING as a surface | Sessions (`active_sessions`/`backend_sessions`), failed-login lockouts (`failed_attempts`, `locked_until`), admin session list + revoke. Revocation today is delayed rather than absent — see §1.4 | A |
 | 36 | Integrations, never display secret values | PARTIAL — `platform_settings` holds mixed data | Show presence/configured-state + last check, never a value; `PUT` rejects anything secret-shaped | A |
@@ -501,7 +528,10 @@ before its gate passes, and each phase ends in one local commit. **No push, no d
    `/api/admin/me` no longer serves them (§2.1 item 3, `RBAC-14`–`RBAC-16`).
 5. ✅ **Done (A2).** Namespace feature-flag keys so a flag write cannot address another
    domain's setting (§2.4).
-6. ⬜ Awaited audit writes on every admin mutation (closes the `database.js` half of #57).
+6. ➜ **Part done (A3).** A dropped audit write is now announced with its action and target
+   rather than falling into the process-wide rejection net (§2.7,
+   `audit_drop_visibility_test.js`). **Open:** the 32 un-awaited writes themselves, and the
+   admin mutations that leave no trail at all.
 7. ⬜ Security centre read surface: sessions, lockouts, revoke — plus the single dangerous-
    action confirmation component (area 49).
 8. ⬜ Settings/integrations: key allow-list, secret values never rendered, never writable.

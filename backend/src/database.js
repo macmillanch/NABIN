@@ -2374,9 +2374,29 @@ class NabinDatabase {
   }
 
   // --- Audit Log Methods ---
+  /**
+   * Write an audit trail entry.
+   *
+   * 32 of this file's 42 audit writes are fired from synchronous methods — `pauseService`,
+   * `setDriverStatus`, `processFinancialAdjustment` — which do not await because they cannot.
+   * When the store refused such a write, the rejection fell through to the process-wide
+   * `unhandledRejection` net in `server.js`, which logs only "a promise rejected, here is its
+   * reason": an operator reading that could not tell that a specific control action had just
+   * lost its trail, or which one.
+   *
+   * The reporting handler attached here does not swallow anything. The original promise is
+   * what gets returned, so a caller that awaits still sees the rejection and can fail
+   * closed; the handler only makes the drop legible at the moment it happens.
+   */
   createAuditLog(entry) {
     if (this.auditLogRepo && typeof this.auditLogRepo.create === 'function') {
-      return this.auditLogRepo.create(entry);
+      const written = this.auditLogRepo.create(entry);
+      written.catch((err) => {
+        const who = `${entry?.module || '?'}/${entry?.action || '?'}`;
+        const what = `${entry?.targetEntityType || '?'}/${entry?.targetEntityId || '?'}`;
+        console.error(`[audit] DROPPED TRAIL for ${who} on ${what}: ${err.message}`);
+      });
+      return written;
     }
     const log = {
       id: `AUD-${Date.now().toString().slice(-4)}${Math.floor(Math.random() * 90)}`,
