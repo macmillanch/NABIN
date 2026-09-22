@@ -419,6 +419,19 @@ async function runRestartTest() {
 
     assert('Production mode strictly fails closed when PostgreSQL/Supabase is unconfigured', failClosedCheck.status !== 0);
 
+    // 14. Put back what the persistence check above borrowed. The 1.18 global multiplier is
+    //     left in PostgreSQL on purpose until it has been read back after the cold start;
+    //     leaving it there afterwards makes the next `test_suite.js` run fail its
+    //     "outside every geofence: standard 1.0x surge" assertion for a reason that has
+    //     nothing to do with geofencing.
+    const restoredSurgeRes = await request('POST', '/api/admin/pricing', {
+      globalSurgeMultiplier: 1.0
+    }, { 'Authorization': `Bearer ${postAdminToken}` });
+    assert('Restart test leaves the global surge multiplier at baseline for the next run',
+      restoredSurgeRes.status === 200 &&
+      restoredSurgeRes.data.pricingConfig.globalSurgeMultiplier === 1.0
+    );
+
   } catch (err) {
     console.error('Fatal Restart Test Exception:', err);
     failed++;
