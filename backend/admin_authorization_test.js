@@ -187,6 +187,10 @@ const ALLOW_PROBES = {
   'campaign.create': { method: 'POST', route: '/api/admin/campaigns', body: {}, note: 'validateAndShape refuses code/name/startsAt/endsAt before any insert' },
   'advertisement.create': { method: 'POST', route: '/api/admin/advertisements', body: {}, note: 'the repository validates before it inserts' },
   'catalog.manage': { method: 'PUT', route: `/api/admin/master-catalog/${ABSENT}`, body: {} },
+  // An absent id is refused by the status validation before the directory is read at all,
+  // so the allow half proves the handler is reachable without writing to anybody.
+  'customers.read': { method: 'GET', route: '/api/admin/customers?limit=1' },
+  'customers.suspend': { method: 'POST', route: `/api/admin/customers/${ABSENT}/status`, body: {}, note: 'no status in the body, so CUSTOMER_STATUS_INVALID before any lookup or write' },
   'grocery.review': { method: 'POST', route: `/api/admin/grocery/products/${ABSENT}/review`, body: { action: 'NOT_A_RULE' } },
   'pricing.edit': { method: 'GET', route: '/api/admin/pricing' },
   'services.pause': { method: 'POST', route: '/api/admin/services/pause', body: {}, note: 'serviceId required before any pause' },

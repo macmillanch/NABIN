@@ -17,6 +17,42 @@ const AdvertisementRepository = require('./repositories/AdvertisementRepository'
 const { CampaignRepository } = require('./repositories/CampaignRepository');
 const { allowsTestConvenience } = require('./services/RuntimeMode');
 
+// -------------------------------------------------------------
+// CUSTOMER ACCOUNT SURFACE (admin area 4)
+// -------------------------------------------------------------
+//
+// `users.account_status` is the only column in this schema that means "this account may
+// or may not transact", and its CHECK (`001_central_schema.sql:25`) allows exactly three
+// values, so a customer suspension written here is durable and reversible — which is more
+// than a merchant suspension can claim (§2.5: `merchants` has no suspension column at all).
+//
+// CUSTOMER_ACCOUNT_STATUSES is that CHECK restated in code, not a wish list: a status
+// outside it is refused before the write rather than discovered as a database error after.
+const CUSTOMER_ACCOUNT_STATUSES = Object.freeze(['ACTIVE', 'SUSPENDED', 'BLOCKED']);
+
+// Every read on the authentication path is projected column by column because RLS is
+// bypassed for all backend traffic (§2.1) — the list below is the only thing between a
+// customer's wallet balance, date of birth and home address, and an admin screen that
+// asked for a name. Money and documents are read by the surfaces that own those names
+// (`finance.view`, `identity_documents.view`), not from here.
+const CUSTOMER_ACCOUNT_PROJECTION =
+  'id, name, phone, email, account_status, identity_status, rating, created_at, updated_at';
+
+// A `backend_sessions` row is addressed by 64 hex characters, and `entity_id` is either a
+// uuid or a legacy `usr_1`. Anything else coming from a request body is not an id.
+const SESSION_HANDLE_PATTERN = /^[0-9a-f]{64}$/;
+const USER_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const LEGACY_USER_ID_PATTERN = /^usr_[A-Za-z0-9_-]{1,32}$/;
+
+// Single source for "is this session one of this customer's". Login resolves a customer by
+// phone, and `entity_id` is written from whatever id the resolution happened to have, so
+// neither column alone is safe to match on and both are checked.
+function isCustomerSessionOf(session, { userIds, phone }) {
+  if (!session || session.role !== 'CUSTOMER') return false;
+  if (userIds.has(String(session.entityId))) return true;
+  return Boolean(phone) && String(session.phone || '') === String(phone);
+}
+
 // Shared relational store with durable persistence, crash recovery & double-entry accounting
 class NabinDatabase {
   constructor() {
@@ -5400,6 +5436,10 @@ class NabinDatabase {
             entity.uuid = dbUser.id;
             if (dbUser.wallet_balance !== undefined) entity.walletBalance = Number(dbUser.wallet_balance);
           }
+          // The row is the authority on whether the account may hold a session, so the
+          // in-memory entity is brought in line with it here rather than left holding
+          // whatever it read at boot.
+          entity.accountStatus = dbUser.account_status || 'ACTIVE';
         } else {
           if (!userUuid) {
             const crypto = require('crypto');
@@ -5458,6 +5498,23 @@ class NabinDatabase {
           createdAt: new Date().toISOString()
         };
         this.users.unshift(entity);
+      }
+
+      // A closed account is refused here, at the point the token would be minted, and not
+      // only where it is presented. `authenticateUser` reads the bearer out of the session
+      // store, so a refusal on that path alone would leave every session issued before the
+      // suspension working until it happened to expire — thirty days of it. The
+      // suspension write ends those sessions (`setCustomerAccountStatus`); this line is
+      // what stops a new one being created, including by a process that never saw the
+      // write. An unreadable row cannot reach here at all: the read above is
+      // `authoritativeRead`, which fails the request closed as a 503.
+      const closedAccount = this.customerAccountBlocked(entity);
+      if (closedAccount) {
+        const refusal = this.customerClosedRefusal(closedAccount);
+        const closed = new Error(refusal.error);
+        closed.code = refusal.code;
+        closed.status = refusal.status;
+        throw closed;
       }
 
       let matchingDriver = this.drivers.find(d => this.normalizePhone(d.phone) === normPhone);
@@ -5962,6 +6019,604 @@ class NabinDatabase {
       revokedInMemory: sessionIds.length,
       storeChecked: !!store
     };
+  }
+
+  /**
+   * The id spaces one customer account occupies.
+   *
+   * A `users` row is keyed by uuid; the in-memory entity that signs in through it has
+   * carried a legacy `usr_1` since before the uuid was attached, and `registerSession`
+   * writes `entityId: entity.id` — so `backend_sessions.entity_id` holds whichever of the
+   * two the login happened to resolve. Revoke that matches only one of them leaves the
+   * other kind of session alive, which is the difference between a suspension that holds
+   * and one that appears not to.
+   */
+  customerIdSpaces(identifier) {
+    const wanted = String(identifier || '').trim();
+    const known = this.userRepo ? this.userRepo.findById(wanted) : this.users.find(u => u.id === wanted);
+    const uuid = (known && known.uuid) || (USER_UUID_PATTERN.test(wanted) ? wanted.toLowerCase() : null);
+    const legacyId = known && known.id && String(known.id) !== uuid ? String(known.id) : null;
+    const userIds = [uuid, legacyId, wanted].filter(Boolean);
+    return {
+      known: known || null,
+      uuid,
+      phone: known ? known.phone || null : null,
+      userIds: [...new Set(userIds.filter(id =>
+        USER_UUID_PATTERN.test(id) || LEGACY_USER_ID_PATTERN.test(id)))]
+    };
+  }
+
+  /**
+   * Every session one customer holds, in both places that honour them.
+   *
+   * Read from the store first and the local map second, then de-duplicated by session
+   * handle: the same session can be known to both, and an operator asking "what will
+   * signing this account out do" has to be told the truth about how many tokens stop
+   * working — not this process's count presented as the platform's.
+   */
+  async listCustomerSessions({ userIds = [], phone = null } = {}) {
+    const ids = new Set(userIds.map(id => String(id)));
+    const store = this.liveStore();
+    const found = [];
+
+    if (store) {
+      const columns = 'token_hash, entity_id, phone, created_at, expires_at';
+      if (ids.size) {
+        found.push(...await this.authoritativeRead(
+          store.from('backend_sessions').select(columns).eq('role', 'CUSTOMER').in('entity_id', [...ids]),
+          { what: 'this customer’s sessions' }
+        ) || []);
+      }
+      if (phone) {
+        found.push(...await this.authoritativeRead(
+          store.from('backend_sessions').select(columns).eq('role', 'CUSTOMER').eq('phone', String(phone)),
+          { what: 'this customer’s sessions by number' }
+        ) || []);
+      }
+    }
+
+    for (const [key, session] of Array.from(this.activeSessions.entries())) {
+      if (!isCustomerSessionOf(session, { userIds: ids, phone })) continue;
+      found.push({
+        token_hash: SESSION_HANDLE_PATTERN.test(key) ? key : this.hashSessionToken(key),
+        entity_id: session.entityId,
+        phone: session.phone,
+        created_at: session.createdAt,
+        expires_at: session.expiresAt
+      });
+    }
+
+    const byHandle = new Map();
+    for (const row of found) if (row.token_hash) byHandle.set(row.token_hash, row);
+    const now = Date.now();
+    const sessions = [...byHandle.values()]
+      .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))
+      .map(row => ({
+        sessionId: row.token_hash,
+        issuedAt: row.created_at || null,
+        expiresAt: row.expires_at || null,
+        // Listed rather than hidden while expired: the bearer is refused at the gate, but
+        // the row is still in the store until something prunes it, and an operator
+        // sweeping a compromised account should see it sitting there.
+        expired: !!(row.expires_at && Date.parse(row.expires_at) <= now)
+      }));
+
+    return { sessions, storeChecked: !!store };
+  }
+
+  /**
+   * Sign one customer out everywhere, without ending their account.
+   *
+   * The store is asked first and the memory afterwards, for the reason documented on
+   * `revokeAdminSession`: a token deleted locally and still present in
+   * `backend_sessions` comes back on the next reconcile, and the operator has already
+   * been told it is gone. The delete keeps its `role = 'CUSTOMER'` filter even though the
+   * handles were selected as a customer's, so a malformed handle list cannot reach
+   * another role's row.
+   */
+  async revokeCustomerSessions({ userIds = [], phone = null } = {}) {
+    const { sessions, storeChecked } = await this.listCustomerSessions({ userIds, phone });
+    const handles = sessions.map(s => s.sessionId).filter(h => SESSION_HANDLE_PATTERN.test(h));
+    const store = this.liveStore();
+
+    let revokedInStore = 0;
+    if (store && handles.length) {
+      const deleted = await this.authoritativeWrite(
+        store.from('backend_sessions').delete().in('token_hash', handles).eq('role', 'CUSTOMER').select('token_hash'),
+        { what: 'this customer’s sessions' }
+      );
+      revokedInStore = (deleted || []).length;
+    }
+
+    const ids = new Set(userIds.map(id => String(id)));
+    let revokedInMemory = 0;
+    for (const [key, session] of Array.from(this.activeSessions.entries())) {
+      if (!isCustomerSessionOf(session, { userIds: ids, phone })) continue;
+      this.activeSessions.delete(key);
+      revokedInMemory += 1;
+    }
+
+    return {
+      sessionIds: handles,
+      revokedInStore,
+      revokedInMemory,
+      storeChecked,
+      // The count an operator is shown, kept separate from the two mechanisms that
+      // produced it: a session known to both stores is one sign-out, not two.
+      signedOut: sessions.length
+    };
+  }
+
+  /**
+   * Sign a customer out of every device without closing the account.
+   *
+   * A suspension already ends its sessions, so this route exists for the case where the
+   * account stays open and a token still has to die: a phone reported stolen, a shared
+   * family device, a session the customer did not start. It resolves through
+   * `getCustomerAccount` first rather than revoking straight from the caller's string,
+   * because signing out by a legacy `usr_1` the directory has never heard of would report
+   * success while ending nothing.
+   */
+  async signOutCustomerSessions(identifier, actor) {
+    const wanted = String(identifier || '').trim();
+    const account = await this.getCustomerAccount(wanted);
+    const { userIds, phone } = this.customerIdSpaces(wanted);
+    const sessions = await this.revokeCustomerSessions({
+      userIds,
+      phone: account.customer.phone || phone
+    });
+
+    await this.auditAppliedChange({
+      adminId: actor ? actor.id : 'SYSTEM',
+      adminName: actor ? (actor.name || actor.username) : 'System',
+      role: actor ? actor.role : 'SYSTEM',
+      action: 'CUSTOMER_SESSIONS_REVOKED',
+      module: 'CUSTOMER',
+      targetEntityType: 'CUSTOMER',
+      targetEntityId: String(account.customer.id),
+      previousState: 'SIGNED_IN',
+      newState: 'SIGNED_OUT',
+      // The count is in the sentence as well as the metadata because this is the record
+      // that answers "did you actually get them off that device" months later.
+      reason: `${actor ? (actor.name || actor.username || actor.id) : 'System'} signed customer ${account.customer.id} out of ${sessions.signedOut} active session(s). The account status is unchanged (${account.customer.accountStatus}).`,
+      metadata: {
+        accountStatus: account.customer.accountStatus,
+        sessionsSignedOut: sessions.signedOut,
+        sessionsRevokedInStore: sessions.revokedInStore,
+        sessionsRevokedInMemory: sessions.revokedInMemory,
+        storeChecked: sessions.storeChecked,
+        dataSource: account.dataSource
+      }
+    });
+
+    return {
+      customer: account.customer,
+      sessions,
+      dataSource: account.dataSource,
+      ...(account.degraded ? { degraded: true } : {})
+    };
+  }
+
+  /**
+   * Suspend, block or reinstate a customer account, and end the sessions that change
+   * invalidates.
+   *
+   * Three things make this more than an `UPDATE`:
+   *
+   *  - A status with no reason is unsweepable. Suspensions require one, because the
+   *    audit record is the only place a customer's complaint can be answered with
+   *    "compliance, on this date, by this administrator" — and unlike the driver
+   *    suspension, this one sends no notification, so nothing else remembers it.
+   *  - The sessions are taken as the account is closed. `authenticateUser` reads a
+   *    bearer out of the session store and nothing else, so a suspension that did not
+   *    revoke would leave a signed-in customer shopping for the rest of the token's
+   *    thirty days. The new sign-in is refused where the token is minted
+   *    (`verifyAuthOtp`), and this call is what closes the ones already minted.
+   *  - A half-finished version of that is reported, not smoothed over. If the store
+   *    refuses the revocation, the account is suspended and the bearer still works, so
+   *    the answer is a 503 that says exactly that (`applied: true`) rather than a 200
+   *    that implies the door is shut.
+   */
+  async setCustomerAccountStatus({ identifier, status, reason, actor } = {}) {
+    const wanted = String(identifier || '').trim();
+    if (!wanted) {
+      const refusal = new Error('A customer id is required.');
+      refusal.code = 'CUSTOMER_TARGET_REQUIRED';
+      refusal.status = 400;
+      throw refusal;
+    }
+    if (!CUSTOMER_ACCOUNT_STATUSES.includes(status)) {
+      const refusal = new Error(`account_status can only be ${CUSTOMER_ACCOUNT_STATUSES.join(', ')} — the three values the column allows. Nothing was written.`);
+      refusal.code = 'CUSTOMER_STATUS_INVALID';
+      refusal.status = 400;
+      throw refusal;
+    }
+    const note = typeof reason === 'string' ? reason.trim() : '';
+    if (status !== 'ACTIVE' && note.length < 5) {
+      const refusal = new Error('A suspension or block needs a reason of at least 5 characters. It is the only record of why this account was closed.');
+      refusal.code = 'CUSTOMER_SUSPENSION_REASON_REQUIRED';
+      refusal.status = 400;
+      throw refusal;
+    }
+
+    const { uuid, phone, known, userIds } = this.customerIdSpaces(wanted);
+    const store = this.liveStore();
+
+    if (!store) {
+      if (!known) {
+        const refusal = new Error('Customer account not found.');
+        refusal.code = 'CUSTOMER_NOT_FOUND';
+        refusal.status = 404;
+        throw refusal;
+      }
+      // Offline development mode: memory is the store, so the write is as durable as
+      // anything else here — and labelled, because it is not durable in the sense that
+      // matters after a deploy.
+      const previousStatus = known.accountStatus || 'ACTIVE';
+      known.accountStatus = status;
+      const local = await this.revokeCustomerSessions({ userIds, phone });
+      await this.auditAppliedChange({
+        adminId: actor ? actor.id : 'SYSTEM',
+        adminName: actor ? (actor.name || actor.username) : 'System',
+        role: actor ? actor.role : 'SYSTEM',
+        action: status === 'ACTIVE' ? 'CUSTOMER_REINSTATED' : `CUSTOMER_${status}`,
+        module: 'CUSTOMER',
+        targetEntityType: 'CUSTOMER',
+        targetEntityId: String(known.id),
+        previousState: previousStatus,
+        newState: status,
+        reason: note || 'Account reinstated.',
+        metadata: { sessionsSignedOut: local.signedOut, dataSource: 'memory' }
+      });
+      return {
+        customer: this.projectCustomerAccount(known),
+        previousStatus,
+        status,
+        sessions: local,
+        dataSource: 'memory',
+        persisted: false
+      };
+    }
+
+    if (!uuid) {
+      const refusal = new Error('That customer cannot be addressed in the authoritative store: no account id matches it. Nothing was written.');
+      refusal.code = 'CUSTOMER_NOT_FOUND';
+      refusal.status = 404;
+      throw refusal;
+    }
+
+    const current = await this.authoritativeRead(
+      store.from('users').select(CUSTOMER_ACCOUNT_PROJECTION).eq('id', uuid).maybeSingle(),
+      { what: 'the customer account' }
+    );
+    if (!current) {
+      const refusal = new Error(known
+        ? 'This account exists in this process’s list but not in the authoritative directory, so its status cannot be changed here.'
+        : 'No customer account with that id exists in the authoritative directory.');
+      refusal.code = known ? 'CUSTOMER_NOT_ENROLLED' : 'CUSTOMER_NOT_FOUND';
+      refusal.status = known ? 409 : 404;
+      throw refusal;
+    }
+
+    const previousStatus = current.account_status || 'ACTIVE';
+    const written = await this.authoritativeWrite(
+      store.from('users')
+        .update({ account_status: status, updated_at: new Date().toISOString() })
+        .eq('id', uuid)
+        .select(CUSTOMER_ACCOUNT_PROJECTION),
+      { what: 'the customer account status' }
+    );
+    if (!written || written.length === 0) {
+      const refusal = new Error('The authoritative directory refused the status change and reported no such row.');
+      refusal.code = 'CUSTOMER_NOT_ENROLLED';
+      refusal.status = 409;
+      throw refusal;
+    }
+    const row = written[0];
+    // The in-memory entity is what `authenticateUser` and every other read in this
+    // process resolves through, so a suspension that only reached PostgreSQL would be
+    // honoured by the next sign-in but not by the guard on the current one.
+    if (known) known.accountStatus = row.account_status;
+
+    const target = { userIds, phone: row.phone || phone };
+    let sessions;
+    try {
+      sessions = status === 'ACTIVE'
+        ? { sessionIds: [], revokedInStore: 0, revokedInMemory: 0, signedOut: 0, storeChecked: true }
+        : await this.revokeCustomerSessions(target);
+    } catch (err) {
+      if (err.code === 'AUTH_STORE_UNAVAILABLE' || err.status === 503 || err.statusCode === 503) {
+        const refusal = new Error(`The account is ${status}, but its existing sessions could not be revoked: ${err.cause || err.message}. The change is live and must be reconciled — new sign-ins are closed, already-issued tokens are not.`);
+        refusal.code = 'CUSTOMER_SESSION_REVOKE_UNAVAILABLE';
+        refusal.status = 503;
+        refusal.statusCode = 503;
+        refusal.applied = true;
+        refusal.cause = err.message;
+        throw refusal;
+      }
+      throw err;
+    }
+
+    await this.auditAppliedChange({
+      adminId: actor ? actor.id : 'SYSTEM',
+      adminName: actor ? (actor.name || actor.username) : 'System',
+      role: actor ? actor.role : 'SYSTEM',
+      action: status === 'ACTIVE' ? 'CUSTOMER_REINSTATED' : `CUSTOMER_${status}`,
+      module: 'CUSTOMER',
+      targetEntityType: 'CUSTOMER',
+      // The uuid, because the legacy `usr_1` is not the same address in two processes and
+      // a trail that cannot be joined to a row is not evidence.
+      targetEntityId: String(row.id),
+      previousState: previousStatus,
+      newState: row.account_status,
+      // The reason is the operator's sentence, so it is stored; the customer's phone is
+      // not repeated here, because the target id already identifies the account and the
+      // trail is read by more people than the directory is.
+      reason: status === 'ACTIVE'
+        ? `Customer account reinstated.${note ? ` Note: ${note}` : ''}`
+        : note,
+      metadata: {
+        sessionsSignedOut: sessions.signedOut,
+        sessionsRevokedInStore: sessions.revokedInStore,
+        sessionsRevokedInMemory: sessions.revokedInMemory
+      }
+    });
+
+    return {
+      customer: this.projectCustomerAccount(row),
+      previousStatus,
+      status: row.account_status,
+      sessions,
+      dataSource: 'postgres',
+      persisted: true
+    };
+  }
+
+  /**
+   * A customer account, narrowed to the columns the customer surface is allowed to serve.
+   *
+   * Applied to whatever the caller holds — a store row in snake_case or the in-memory
+   * entity in camelCase — because both reach the response, and a projection that only
+   * understands one shape leaks through the other.
+   */
+  projectCustomerAccount(account) {
+    if (!account) return null;
+    return {
+      id: account.id ?? account.uuid ?? null,
+      name: account.name ?? null,
+      phone: account.phone ?? null,
+      email: account.email ?? null,
+      accountStatus: account.account_status ?? account.accountStatus ?? null,
+      identityStatus: account.identity_status ?? account.identityStatus ?? null,
+      rating: account.rating !== undefined && account.rating !== null ? Number(account.rating) : null,
+      createdAt: account.created_at ?? account.createdAt ?? null,
+      updatedAt: account.updated_at ?? account.updatedAt ?? null,
+      allowedStatuses: [...CUSTOMER_ACCOUNT_STATUSES]
+    };
+  }
+
+  /**
+   * The customer directory an operator browses.
+   *
+   * `search` is never embedded in a PostgREST filter expression: free text typed into a
+   * form can turn a comma or a parenthesis in an `or=(...)` header into a different
+   * query, so each field is filtered by its own parameterised predicate and the pages are
+   * merged in code. `status` comes from a fixed list rather than the caller, for the same
+   * reason — see `CUSTOMER_ACCOUNT_STATUSES`.
+   */
+  async listCustomerAccounts({ search = '', status = '', limit = 25, offset = 0 } = {}) {
+    const wantedStatus = String(status || '').toUpperCase();
+    if (wantedStatus && !CUSTOMER_ACCOUNT_STATUSES.includes(wantedStatus)) {
+      const refusal = new Error(`status must be one of ${CUSTOMER_ACCOUNT_STATUSES.join(', ')}.`);
+      refusal.code = 'CUSTOMER_STATUS_INVALID';
+      refusal.status = 400;
+      throw refusal;
+    }
+    const text = String(search || '').trim();
+    const size = Math.min(100, Math.max(1, Number(limit) || 25));
+    const skip = Math.max(0, Number(offset) || 0);
+    const store = this.liveStore();
+
+    if (!store) {
+      const all = this.users.filter(u =>
+        (!wantedStatus || (u.accountStatus || 'ACTIVE') === wantedStatus) &&
+        (!text || [u.name, u.phone, u.email].some(v => String(v || '').toLowerCase().includes(text.toLowerCase()))));
+      return {
+        customers: all.slice(skip, skip + size).map(u => this.projectCustomerAccount(u)),
+        total: all.length,
+        limit: size,
+        offset: skip,
+        dataSource: 'memory',
+        degraded: true
+      };
+    }
+
+    const pages = [];
+    if (text) {
+      // Three bounded reads rather than one expression the caller can reshape. A customer
+      // table is not staff-sized, so each is capped; a search that matches more than the
+      // cap says so instead of presenting a partial page as the whole answer.
+      const cap = 200;
+      const like = `%${text.replace(/[%,()]/g, ' ')}%`;
+      for (const field of ['name', 'email', 'phone']) {
+        const query = store.from('users').select(CUSTOMER_ACCOUNT_PROJECTION)
+          .ilike(field, like)
+          .limit(cap);
+        if (wantedStatus) query.eq('account_status', wantedStatus);
+        pages.push(await this.authoritativeRead(query, { what: 'the customer directory' }) || []);
+      }
+    } else {
+      const query = store.from('users').select(CUSTOMER_ACCOUNT_PROJECTION, { count: 'exact' })
+        .order('created_at', { ascending: false })
+        .range(skip, skip + size - 1);
+      if (wantedStatus) query.eq('account_status', wantedStatus);
+      const { data, error, count } = await this.settleAuthoritative(query, 'the customer directory');
+      if (error) throw this.authStoreUnavailable(error, 'the customer directory');
+      return {
+        customers: (data || []).map(row => this.projectCustomerAccount(row)),
+        total: count ?? (data || []).length,
+        limit: size,
+        offset: skip,
+        dataSource: 'postgres'
+      };
+    }
+
+    const byId = new Map();
+    for (const row of pages.flat()) byId.set(row.id, row);
+    const matched = [...byId.values()]
+      .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+    return {
+      customers: matched.slice(skip, skip + size).map(row => this.projectCustomerAccount(row)),
+      total: matched.length,
+      searchCappedAt: 200,
+      limit: size,
+      offset: skip,
+      dataSource: 'postgres'
+    };
+  }
+
+  /**
+   * One customer, with the sessions the operator is about to act on beside it.
+   *
+   * The session count is part of the read rather than something the screen guesses,
+   * because area 49 asks a confirmation to state exactly what will happen: "sign this
+   * account out" is a different action when it ends one device and when it ends nine.
+   */
+  async getCustomerAccount(identifier) {
+    const { uuid, phone, known, userIds } = this.customerIdSpaces(identifier);
+    const store = this.liveStore();
+    let row = null;
+    if (store && uuid) {
+      row = await this.authoritativeRead(
+        store.from('users').select(CUSTOMER_ACCOUNT_PROJECTION).eq('id', uuid).maybeSingle(),
+        { what: 'the customer account' }
+      );
+      if (!row && known) {
+        const refusal = new Error('This account exists in this process’s list but not in the authoritative directory, so it cannot be managed from here.');
+        refusal.code = 'CUSTOMER_NOT_ENROLLED';
+        refusal.status = 409;
+        throw refusal;
+      }
+    } else if (!store) {
+      row = known || null;
+    }
+    if (!row) {
+      const refusal = new Error('No customer account with that id.');
+      refusal.code = 'CUSTOMER_NOT_FOUND';
+      refusal.status = 404;
+      throw refusal;
+    }
+    const sessions = await this.listCustomerSessions({ userIds, phone: (row.phone || phone) });
+    return {
+      customer: this.projectCustomerAccount(row),
+      sessions,
+      dataSource: store ? 'postgres' : 'memory',
+      ...(store ? {} : { degraded: true })
+    };
+  }
+
+  /**
+   * Whether a customer account may hold a session at all.
+   *
+   * Answered from the account record rather than the session, because the session carries
+   * a snapshot of the entity from the moment it was minted — and a suspension is precisely
+   * the change that snapshot cannot see.
+   */
+  customerAccountBlocked(account) {
+    const status = String((account && (account.account_status ?? account.accountStatus)) || 'ACTIVE').toUpperCase();
+    return CUSTOMER_ACCOUNT_STATUSES.includes(status) && status !== 'ACTIVE' ? status : null;
+  }
+
+  /**
+   * The account record a customer session belongs to, or `null`.
+   *
+   * `getUser` answers with the first seeded user when nothing matches its argument, which
+   * is right for a convenience read on a demo token and wrong here: an authorisation check
+   * that cannot resolve the account must say "cannot tell", not borrow somebody else's
+   * status. Both id spaces are tried, because `entity_id` carries whichever one the login
+   * happened to resolve.
+   */
+  findCustomerSessionAccount(session) {
+    if (!session || session.role !== 'CUSTOMER') return null;
+    const byRepo = this.userRepo ? this.userRepo.findById(session.entityId) : null;
+    if (byRepo) return byRepo;
+    const wanted = String(session.entityId ?? '');
+    return this.users.find(u => String(u.id) === wanted || (u.uuid && String(u.uuid) === wanted))
+      || null;
+  }
+
+  /**
+   * Whether a customer session may be honoured right now.
+   *
+   * Three answers rather than two, because a closed account and an unreadable one are
+   * different facts and the client must not confuse them: a handset that reads an outage
+   * as "your account is closed" tells a paying customer they have been suspended because
+   * a container restarted. So this returns `null` to let the request through, a 403
+   * refusal when the account is closed or genuinely unknowable, or a 503 when the
+   * directory could not be asked.
+   *
+   * The store is consulted only when this process cannot resolve the account locally —
+   * a customer who signed in on another instance, or a session outliving its row. That is
+   * the rare branch, so the common request pays nothing for the check.
+   */
+  async customerSessionRefusal(session) {
+    // Another role's session is that role's middleware's business — `authenticateDriver`
+    // checks its own status, and answering here would put two authorities on one bearer.
+    if (!session || session.role !== 'CUSTOMER') return null;
+    const account = this.findCustomerSessionAccount(session);
+    if (account) {
+      const closed = this.customerAccountBlocked(account);
+      return closed ? this.customerClosedRefusal(closed) : null;
+    }
+
+    const store = this.liveStore();
+    if (!store) {
+      // Offline development mode: the in-memory list is the whole directory, and a
+      // session pointing outside it is the demo fixture it has always been.
+      return null;
+    }
+
+    const wanted = String(session.entityId ?? '');
+    const byUuid = USER_UUID_PATTERN.test(wanted) ? wanted : (this.userRepo?.resolveUuid(wanted) || null);
+    const phone = session.phone || (account && account.phone) || null;
+    const query = byUuid
+      ? store.from('users').select('id, account_status').eq('id', byUuid).maybeSingle()
+      : phone
+        ? store.from('users').select('id, account_status').eq('phone', String(phone)).maybeSingle()
+        : null;
+
+    if (!query) {
+      return {
+        status: 403,
+        code: 'CUSTOMER_ACCOUNT_UNRESOLVED',
+        error: 'This session does not name an addressable customer account. Please sign in again.'
+      };
+    }
+
+    const row = await this.authoritativeRead(query, { what: 'the customer account behind this session' });
+    if (!row) {
+      return {
+        status: 403,
+        code: 'CUSTOMER_ACCOUNT_UNRESOLVED',
+        error: 'The account behind this session is not in the customer directory, so its status cannot be confirmed. Please sign in again.'
+      };
+    }
+    const closed = this.customerAccountBlocked(row);
+    return closed ? this.customerClosedRefusal(closed) : null;
+  }
+
+  customerClosedRefusal(status) {
+    return status === 'BLOCKED'
+      ? {
+        status: 403,
+        code: 'ACCOUNT_BLOCKED',
+        error: 'This NABIN account is blocked and cannot be used. Contact NABIN support.'
+      }
+      : {
+        status: 403,
+        code: 'ACCOUNT_SUSPENDED',
+        error: 'This NABIN account is suspended. Contact NABIN support to ask why and when it will be restored.'
+      };
   }
 
   /**

@@ -39,8 +39,11 @@ const KNOWN_ADMIN_ROLES = Object.freeze([
  * and eleven guarded routes (`advertisement.*`, `campaign.*`, `catalog.manage`,
  * `grocery.review`, `orders.manage`) appeared in nobody's list at all.
  *
- * Granting any of those to a *non*-super role is the area-33 matrix decision and is
- * deliberately not made here.
+ * Granting any of those to a *non*-super role is the area-33 matrix decision, and it is
+ * made in `docs/ADMIN_FEATURE_SPECIFICATION.md` §4 rather than here: a name appears in a
+ * non-super list below only because §4 says that role holds it. `customers.read` is the
+ * first such grant made from the catalogue itself — before it, the matrix in §4 and the
+ * lists here had never been reconciled, because no customer route existed to gate.
  */
 const SUPER_ADMIN_GRANTS = Object.freeze([
   'admin_accounts.create', 'admin_accounts.manage',
@@ -48,6 +51,7 @@ const SUPER_ADMIN_GRANTS = Object.freeze([
   'audit.view', 'audit.export',
   'campaign.view', 'campaign.create', 'campaign.edit', 'campaign.publish', 'campaign.delete',
   'catalog.manage',
+  'customers.read', 'customers.suspend',
   'finance.view', 'finance.refund', 'finance.adjust', 'finance.settlement',
   'fleet.manage',
   'geofence.view', 'geofence.create', 'geofence.edit', 'geofence.delete',
@@ -72,7 +76,7 @@ const KYC_SPECIALIST_GRANTS = Object.freeze([
 ]);
 
 const OPERATIONS_GRANTS = Object.freeze([
-  'identity_verification.view', 'fleet.manage', 'merchant.manage', 'support.view', 'support.respond', 'geofence.view', 'surge.view'
+  'identity_verification.view', 'customers.read', 'fleet.manage', 'merchant.manage', 'support.view', 'support.respond', 'geofence.view', 'surge.view'
 ]);
 
 const FINANCE_AUDITOR_GRANTS = Object.freeze([
@@ -80,7 +84,7 @@ const FINANCE_AUDITOR_GRANTS = Object.freeze([
 ]);
 
 const SUPPORT_AGENT_GRANTS = Object.freeze([
-  'support.view', 'support.respond', 'support.resolve', 'audit.view'
+  'support.view', 'support.respond', 'support.resolve', 'audit.view', 'customers.read'
 ]);
 
 const ROLE_GRANTS = Object.freeze({

@@ -665,7 +665,7 @@ function dropLocalAdminSessionsForAccount(adminId) {
   return dropped;
 }
 
-function authenticateUser(req, res, next) {
+async function authenticateUser(req, res, next) {
   const authHeader = req.headers['authorization'] || '';
   const token = authHeader.replace(/^Bearer\s+/, '').trim();
 
@@ -690,6 +690,30 @@ function authenticateUser(req, res, next) {
     return res.status(403).json({
       success: false,
       error: 'Forbidden: Customer role required.',
+      requestId: req.id
+    });
+  }
+
+  // A bearer is proof of a sign-in, not proof that the account is still open. Suspension
+  // revokes sessions as it writes, but that revocation can fail while the status change
+  // succeeds — and this gate is what keeps such an account from buying in the meantime.
+  // Express 4 does not catch a rejected async middleware, so the outage path is answered
+  // here rather than left to hang the socket.
+  try {
+    const refusal = await db.customerSessionRefusal(session);
+    if (refusal) {
+      return res.status(refusal.status).json({
+        success: false,
+        code: refusal.code,
+        error: refusal.error,
+        requestId: req.id
+      });
+    }
+  } catch (err) {
+    return res.status(err.status || err.statusCode || 503).json({
+      success: false,
+      code: err.code || 'CUSTOMER_ACCOUNT_STATE_UNREADABLE',
+      error: err.message,
       requestId: req.id
     });
   }
@@ -948,7 +972,7 @@ app.post('/api/auth/verify-otp', async (req, res) => {
 });
 
 // Get Current Authenticated Profile
-app.get('/api/auth/me', (req, res) => {
+app.get('/api/auth/me', async (req, res) => {
   const authHeader = req.headers['authorization'] || '';
   const token = authHeader.replace(/^Bearer\s+/, '') || req.query.token;
 
@@ -959,6 +983,29 @@ app.get('/api/auth/me', (req, res) => {
   const session = db.getSessionByToken(token);
   if (!session) {
     return res.status(401).json({ success: false, error: 'Invalid or expired session token.' });
+  }
+
+  // A client decides "am I signed in, and who am I" from this route, so it cannot be
+  // allowed to answer that question for a closed account from a mint-time snapshot —
+  // otherwise a suspension whose revocation failed shows an app its owner is still a
+  // customer while every call that spends money is refused.
+  try {
+    const refusal = await db.customerSessionRefusal(session);
+    if (refusal) {
+      return res.status(refusal.status).json({
+        success: false,
+        code: refusal.code,
+        error: refusal.error,
+        requestId: req.id
+      });
+    }
+  } catch (err) {
+    return res.status(err.status || err.statusCode || 503).json({
+      success: false,
+      code: err.code || 'CUSTOMER_ACCOUNT_STATE_UNREADABLE',
+      error: err.message,
+      requestId: req.id
+    });
   }
 
   res.json({
@@ -986,12 +1033,34 @@ app.post('/api/auth/logout', (req, res) => {
 });
 
 // Refresh / Validate Token
-app.post('/api/auth/refresh-token', (req, res) => {
+app.post('/api/auth/refresh-token', async (req, res) => {
   const { token } = req.body;
   const session = db.getSessionByToken(token);
   if (!session) {
     return res.status(401).json({ success: false, error: 'Session token invalid or expired.' });
   }
+
+  // "Refresh" is a second place a closed account can be told it is still current, so it
+  // asks the same question the profile read asks.
+  try {
+    const refusal = await db.customerSessionRefusal(session);
+    if (refusal) {
+      return res.status(refusal.status).json({
+        success: false,
+        code: refusal.code,
+        error: refusal.error,
+        requestId: req.id
+      });
+    }
+  } catch (err) {
+    return res.status(err.status || err.statusCode || 503).json({
+      success: false,
+      code: err.code || 'CUSTOMER_ACCOUNT_STATE_UNREADABLE',
+      error: err.message,
+      requestId: req.id
+    });
+  }
+
   res.json({ success: true, valid: true, session: { ...session, token } });
 });
 
@@ -1464,9 +1533,15 @@ app.get('/api/admin/audit-logs', authenticateAdmin, requirePermission('audit.vie
 // unauthenticated caller could list every driver with phone numbers, document paths and
 // wallet balances, or read the platform's gross fare totals. They are admin sessions only
 // from here. The coarse gate is deliberate: the fine-grained `drivers.read` /
-// `users.read` / `payments.read` matrix the admin specification calls for does not exist
-// yet, and no permission string can be enforced before it is persisted — see
+// `payments.read` matrix the admin specification calls for does not exist yet, and no
+// permission string can be enforced before it is persisted — see
 // docs/ADMIN_FEATURE_SPECIFICATION.md, section "Permission matrix".
+//
+// The customer directory is the exception, and it is not coarse: `GET /api/admin/customers`
+// asks for `customers.read` and projects an account rather than a row, because the
+// specification's §4 matrix names that grant for three of the five roles. These routes
+// answer for every administrator session, so a driver or wallet listing stays here while
+// its own grant is still unbuilt.
 app.get('/api/admin/drivers', authenticateAdmin, (req, res) => {
   const category = req.query.category || 'ALL';
   let list = db.drivers || [];
@@ -2064,6 +2139,112 @@ app.post('/api/admin/accounts/:id/status', authenticateAdmin, requirePermission(
     res.status(err.status || err.statusCode || 503).json({
       success: false,
       code: err.code || 'ADMIN_ACCOUNT_STATUS_FAILED',
+      ...(err.applied === true ? { applied: true } : {}),
+      error: err.message,
+      requestId: req.id
+    });
+  }
+});
+
+// -------------------------------------------------------------
+// 3c. CUSTOMER ACCOUNTS (area 4) — directory, status, sign-out
+// -------------------------------------------------------------
+//
+// `users.account_status` is a real column constrained by
+// `CHECK (account_status IN ('ACTIVE','SUSPENDED','BLOCKED'))`, so a suspension written
+// here survives a restart and is honoured by the next sign-in — and the sessions that
+// predate it are ended by the same call, because the bearer in hand is what actually
+// keeps a suspended customer shopping. See `setCustomerAccountStatus`.
+//
+// There is no delete route, on purpose. A customer row is referenced by their orders,
+// wallet movements and audit records, so "remove this account" would either orphan that
+// history or break the financial trail; closing an account is what SUSPENDED and BLOCKED
+// are for, and both are reversible.
+
+app.get('/api/admin/customers', authenticateAdmin, requirePermission('customers.read'), async (req, res) => {
+  try {
+    const result = await db.listCustomerAccounts({
+      search: req.query.search || '',
+      status: req.query.status || '',
+      limit: req.query.limit,
+      offset: req.query.offset
+    });
+    res.json({ success: true, ...result });
+  } catch (err) {
+    res.status(err.status || err.statusCode || 503).json({
+      success: false,
+      code: err.code || 'CUSTOMER_DIRECTORY_READ_FAILED',
+      error: err.message,
+      requestId: req.id
+    });
+  }
+});
+
+// One account, with its live sessions listed: the confirmation dialog has to be able to
+// say "this signs 3 devices out" rather than ask the operator to guess what the button
+// does (area 49). Session handles are the SHA-256 the store keys on, not bearer tokens.
+app.get('/api/admin/customers/:id', authenticateAdmin, requirePermission('customers.read'), async (req, res) => {
+  try {
+    const result = await db.getCustomerAccount(req.params.id);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    res.status(err.status || err.statusCode || 503).json({
+      success: false,
+      code: err.code || 'CUSTOMER_READ_FAILED',
+      error: err.message,
+      requestId: req.id
+    });
+  }
+});
+
+app.post('/api/admin/customers/:id/status', authenticateAdmin, requirePermission('customers.suspend'), async (req, res) => {
+  try {
+    const { status, reason } = req.body || {};
+    const result = await db.setCustomerAccountStatus({
+      identifier: req.params.id,
+      status: String(status || '').toUpperCase(),
+      reason,
+      actor: { id: req.admin.id, username: req.admin.username, name: req.admin.name, role: req.admin.role }
+    });
+
+    // Only the id and the new state go on the wire. `broadcastToAdmins` reaches every
+    // connected administrator dashboard, including sessions whose role has no
+    // `customers.read` at all, so a name or phone number in this payload would be the
+    // directory leaking through the socket that the HTTP gate closes.
+    broadcastToAdmins({
+      type: 'CUSTOMER_ACCOUNT_STATUS_CHANGED',
+      customerId: result.customer.id,
+      accountStatus: result.status
+    });
+
+    res.json({ success: true, ...result });
+  } catch (err) {
+    res.status(err.status || err.statusCode || 503).json({
+      success: false,
+      code: err.code || 'CUSTOMER_STATUS_FAILED',
+      ...(err.applied === true ? { applied: true } : {}),
+      error: err.message,
+      requestId: req.id
+    });
+  }
+});
+
+// Sign out without closing: the stolen-phone case, where the account itself is not the
+// problem. Audited inside `signOutCustomerSessions`, awaited like every other mutation
+// on this control plane.
+app.post('/api/admin/customers/:id/sign-out', authenticateAdmin, requirePermission('customers.suspend'), async (req, res) => {
+  try {
+    const result = await db.signOutCustomerSessions(req.params.id, {
+      id: req.admin.id,
+      username: req.admin.username,
+      name: req.admin.name,
+      role: req.admin.role
+    });
+    res.json({ success: true, ...result });
+  } catch (err) {
+    res.status(err.status || err.statusCode || 503).json({
+      success: false,
+      code: err.code || 'CUSTOMER_SIGN_OUT_FAILED',
       ...(err.applied === true ? { applied: true } : {}),
       error: err.message,
       requestId: req.id
