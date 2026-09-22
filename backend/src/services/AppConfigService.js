@@ -14,6 +14,103 @@ const SETTINGS_PREFIX = 'APP_CONFIG_';
 const RESERVED_PREFIXES = ['FEATURE_'];
 const RESERVED_KEYS = ['PLATFORM_SERVICE_STATE', 'service_status', 'surge_multiplier'];
 
+// The settings endpoint reaches this table, and every `APP_CONFIG_` row in it is
+// published verbatim to every client device by `loadSettings()` below. So the write
+// surface is narrowed to exactly the namespace this service publishes: a key outside
+// it is not this endpoint's to create, and a credential has no business being here at
+// all, because a credential written as configuration is a credential shipped to phones.
+
+// Whole words in a key name, after camelCase and separator splitting, that mean
+// "credential". Bare `key` is deliberately absent — configuration is full of keys that
+// name nothing sensitive, and refusing those would push an operator to a worse place.
+// So are `client_id` and `certificate`, which identify rather than authorise, and bare
+// `token`, which in this project names a palette entry long before it names a session
+// credential — the credential spellings are the phrases below, and a token-shaped *value*
+// is caught by the value scan whatever its field is called.
+const SECRET_NAME_WORDS = new Set([
+  'secret', 'secretkey', 'apisecret', 'clientsecret', 'webhooksecret', 'appsecret',
+  'password', 'passwd', 'pwd', 'accesstoken', 'refreshtoken', 'idtoken',
+  'bearertoken', 'authtoken', 'apikey', 'apikeys', 'authkey', 'privatekey', 'privkey',
+  'accesskey', 'accesskeyid', 'credential', 'credentials', 'p12', 'pfx', 'keystore',
+  'salt', 'passphrase'
+]);
+// Two-word names the splitter reads as harmless on their own.
+const SECRET_NAME_PHRASES = [
+  ['api', 'key'], ['api', 'keys'], ['api', 'token'], ['access', 'key'],
+  ['access', 'token'], ['refresh', 'token'], ['bearer', 'token'], ['auth', 'token'],
+  ['session', 'token'], ['id', 'token'], ['private', 'key'], ['secret', 'key'],
+  ['signing', 'key'], ['webhook', 'secret'], ['client', 'secret'], ['app', 'secret'],
+  ['basic', 'auth'], ['service', 'account']
+];
+
+// Shapes that are a credential whatever field they sit under. Matched against a string
+// on its own, so an innocent long value cannot trip one by containing a short word.
+// Only the *secret* half of each provider's key pair is here: a Razorpay `key_id` or a
+// Stripe publishable key is designed to reach the client, and masking one would break a
+// working integration while telling nobody that it had.
+const SECRET_VALUE_PATTERNS = [
+  /^\s*-----BEGIN [A-Z ]*PRIVATE KEY-----/,
+  /^\s*-----BEGIN (RSA |EC |OPENSSH |DSA )?PRIVATE/,
+  /\bsk_(live|test)_[0-9a-zA-Z]{16,}\b/,
+  /\bAKIA[0-9A-Z]{16}\b/,
+  /\bxox[baprs]-[0-9A-Za-z-]{10,}\b/,
+  /\bgh[pousr]_[0-9A-Za-z]{20,}\b/,
+  /\bey[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/,
+  /\bSG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}\b/,
+  /[?&](key|token|sig|signature|secret)=[0-9A-Za-z_-]{16,}/
+];
+
+const REDACTED = '__REDACTED__';
+
+function nameTokens(name) {
+  return String(name == null ? '' : name)
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .split(/[^A-Za-z0-9]+/)
+    .filter(Boolean)
+    .map(token => token.toLowerCase());
+}
+
+function isSecretShapedName(name) {
+  const tokens = nameTokens(name);
+  if (tokens.some(token => SECRET_NAME_WORDS.has(token))) return true;
+  // Padded so a phrase has to span whole tokens: `RID_TOKEN` is not an `ID_TOKEN`.
+  const sequence = ` ${tokens.join(' ')} `;
+  return SECRET_NAME_PHRASES.some(phrase => sequence.includes(` ${phrase.join(' ')} `));
+}
+
+function isSecretShapedString(value) {
+  return typeof value === 'string' && SECRET_VALUE_PATTERNS.some(pattern => pattern.test(value));
+}
+
+// Walks a JSON document and returns the dotted paths that hold a credential — by field
+// name or by value shape — alongside a copy with those leaves replaced. The copy is what
+// may reach a response body or an audit row; the paths are what tells the operator that
+// something is stored where it should not be.
+function redactSecrets(value, path = '', found = []) {
+  if (Array.isArray(value)) {
+    return value.map((entry, index) =>
+      redactSecrets(entry, `${path}[${index}]`, found));
+  }
+  if (value && typeof value === 'object') {
+    const out = {};
+    for (const [key, entry] of Object.entries(value)) {
+      const childPath = path ? `${path}.${key}` : key;
+      if (isSecretShapedName(key)) {
+        found.push(childPath);
+        out[key] = REDACTED;
+        continue;
+      }
+      out[key] = redactSecrets(entry, childPath, found);
+    }
+    return out;
+  }
+  if (isSecretShapedString(value)) {
+    found.push(path || '<value>');
+    return REDACTED;
+  }
+  return value;
+}
+
 // A client theme is remote only if the server can say which tokens exist. An
 // allow-list keeps an operator typo from silently repainting the wrong surface,
 // and a hex pattern keeps the value data: no expression can survive either gate.
@@ -90,6 +187,61 @@ function validateSettingValue(value) {
     return `Configuration values must be at most ${MAX_VALUE_BYTES} bytes when serialised.`;
   }
   return null;
+}
+
+// The write-side gate for the admin settings endpoint, answered in refusal order: is the
+// name well-formed and not another control's, is it in the namespace this endpoint owns,
+// and is any part of this exchange a credential. A refusal never echoes the submitted
+// value — the point of the check is that the value must not be repeated back.
+function validateSettingWrite(key, value) {
+  const shapeError = validateSettingKey(key);
+  if (shapeError) return { code: 'INVALID_SETTING_KEY', error: shapeError };
+
+  if (!isPublishableKey(key)) {
+    return {
+      code: 'SETTING_KEY_NOT_ALLOWED',
+      error: `"${key}" is outside the configuration this endpoint owns. Keys under ${SETTINGS_PREFIX} are published to client apps; everything else — a feature flag, service state, pricing, surge — changes through the control that owns it, which is the only place that can apply it correctly. Nothing was written.`
+    };
+  }
+
+  if (isSecretShapedName(key)) {
+    return {
+      code: 'SETTING_NAME_IS_CREDENTIAL',
+      error: `"${key}" names a credential. A setting written here is stored in plain rows and published to every client app that reads ${SETTINGS_PREFIX}, so it belongs in the server's environment, where it never leaves the process that holds it. Nothing was written.`
+    };
+  }
+
+  const valueError = validateSettingValue(value);
+  if (valueError) return { code: 'INVALID_SETTING_VALUE', error: valueError };
+
+  const paths = [];
+  redactSecrets(value, '', paths);
+  if (paths.length) {
+    return {
+      code: 'SETTING_VALUE_IS_CREDENTIAL',
+      error: `The value holds what looks like a credential at ${paths.slice(0, 5).map(p => `"${p}"`).join(', ')}${paths.length > 5 ? ` and ${paths.length - 5} more` : ''}. Configuration reaches client devices; credentials belong in the server's environment. Nothing was written, and the field names are reported without their values.`
+    };
+  }
+  return null;
+}
+
+// The read-side gate. A row that already holds a credential — written before this gate
+// existed, or by a subsystem outside it — is answered with its shape, never its value.
+function redactSettingRow(row) {
+  if (!row || typeof row !== 'object') return row;
+  if (isSecretShapedName(row.setting_key)) {
+    return {
+      ...row,
+      setting_value: null,
+      valueRedacted: true,
+      redactedPaths: ['<setting_key>'],
+      redactedReason: 'The key itself names a credential, so its value is never served.'
+    };
+  }
+  const paths = [];
+  const value = redactSecrets(row.setting_value, '', paths);
+  if (!paths.length) return row;
+  return { ...row, setting_value: value, valueRedacted: true, redactedPaths: paths };
 }
 
 class AppConfigService {
@@ -184,12 +336,19 @@ class AppConfigService {
 
     const values = {};
     const rejected = [];
+    const redacted = [];
     for (const row of data || []) {
       if (!isPublishableKey(row.setting_key) || !isPlainData(row.setting_value)) {
         rejected.push(row.setting_key);
         continue;
       }
-      values[row.setting_key] = row.setting_value;
+      // The write gate refuses a credential from now on; this is the same rule on the way
+      // out, because a row stored before it — or written by a subsystem outside it — would
+      // otherwise reach every device that polls the feed.
+      const paths = [];
+      const isCredentialName = isSecretShapedName(row.setting_key);
+      values[row.setting_key] = isCredentialName ? null : redactSecrets(row.setting_value, '', paths);
+      if (isCredentialName || paths.length) redacted.push(row.setting_key);
     }
 
     return {
@@ -197,7 +356,8 @@ class AppConfigService {
       source: 'platform_settings',
       prefix: SETTINGS_PREFIX,
       values,
-      rejectedKeys: rejected
+      rejectedKeys: rejected,
+      redactedKeys: redacted
     };
   }
 
@@ -418,6 +578,9 @@ class AppConfigService {
 const appConfigService = new AppConfigService();
 appConfigService.validateSettingKey = validateSettingKey;
 appConfigService.validateSettingValue = validateSettingValue;
+appConfigService.validateSettingWrite = validateSettingWrite;
+appConfigService.redactSettingRow = redactSettingRow;
+appConfigService.isSecretShapedName = isSecretShapedName;
 appConfigService.isPlainData = isPlainData;
 appConfigService.isPublishableKey = isPublishableKey;
 appConfigService.SETTINGS_PREFIX = SETTINGS_PREFIX;

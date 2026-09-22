@@ -5990,7 +5990,15 @@ app.get('/api/admin/platform-settings', authenticateAdmin, requireSuperAdmin, as
 
     const { data, error } = await query;
     if (error) return replyStoreError(res, req, error, 'platform settings');
-    res.json({ success: true, dataSource: 'postgres', settings: data || [] });
+    // Never served raw: a row that holds a credential — stored before the write gate
+    // existed, or by a subsystem outside it — reads back as its shape, not its value.
+    const settings = (data || []).map(row => appConfigService.redactSettingRow(row));
+    res.json({
+      success: true,
+      dataSource: 'postgres',
+      settings,
+      redactedKeys: settings.filter(row => row.valueRedacted).map(row => row.setting_key)
+    });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message, requestId: req.id });
   }
@@ -5998,14 +6006,12 @@ app.get('/api/admin/platform-settings', authenticateAdmin, requireSuperAdmin, as
 
 app.put('/api/admin/platform-settings/:key', authenticateAdmin, requireSuperAdmin, async (req, res) => {
   const key = req.params.key;
-  const keyError = appConfigService.validateSettingKey(key);
-  if (keyError) {
-    return res.status(400).json({ success: false, code: 'INVALID_SETTING_KEY', error: keyError, requestId: req.id });
-  }
-
-  const valueError = appConfigService.validateSettingValue(req.body?.value);
-  if (valueError) {
-    return res.status(400).json({ success: false, code: 'INVALID_SETTING_VALUE', error: valueError, requestId: req.id });
+  // One gate answers name shape, whose namespace the key is, and whether any part of this
+  // exchange is a credential. A refusal echoes the key and the offending field *names*
+  // only — repeating the submitted value would put it in a response body and a log line.
+  const refusal = appConfigService.validateSettingWrite(key, req.body?.value);
+  if (refusal) {
+    return res.status(400).json({ success: false, code: refusal.code, error: refusal.error, requestId: req.id });
   }
 
   try {
@@ -6015,7 +6021,9 @@ app.put('/api/admin/platform-settings/:key', authenticateAdmin, requireSuperAdmi
 
     const { data: existing } = await supabaseHelper.supabaseAdmin
       .from('platform_settings')
-      .select('setting_key, updated_by, updated_at')
+      // `description` is here because an update that sends no description keeps the one
+      // already on the row; selecting it without the rest made every write erase it.
+      .select('setting_key, description, updated_by, updated_at')
       .eq('setting_key', key)
       .maybeSingle();
 
@@ -6056,7 +6064,7 @@ app.put('/api/admin/platform-settings/:key', authenticateAdmin, requireSuperAdmi
       metadata: { key, valueSha256: crypto.createHash('sha256').update(JSON.stringify(req.body.value)).digest('hex').slice(0, 16) }
     });
 
-    res.json({ success: true, dataSource: 'postgres', setting: data });
+    res.json({ success: true, dataSource: 'postgres', setting: appConfigService.redactSettingRow(data) });
   } catch (error) {
     console.error('⚠️ PUT /api/admin/platform-settings failed:', error.message);
     res.status(500).json({ success: false, error: 'Failed to update platform setting', requestId: req.id });

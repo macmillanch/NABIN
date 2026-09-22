@@ -62,21 +62,25 @@ Existing route groups by prefix: `services` (4), `accounts` (2), `audit-logs` (1
 
 ### 1.2 The admin web surface
 
-`admin-web/` (Next.js) has **six pages** and **five components/lib files**:
+`admin-web/` (Next.js) has **seven pages** and **eight components/lib files** (re-measured
+after A5 added the security screen and the confirmation modal):
 
 ```
 src/app/login/page.tsx      src/app/page.tsx        (metrics + service switchboard)
 src/app/drivers/page.tsx    src/app/merchants/page.tsx
 src/app/orders/page.tsx     src/app/campaigns/page.tsx
-src/components/{AdminLayout,AuthProvider,ResourceTable,CampaignEditor}.tsx
-src/lib/{api.ts,campaigns.ts}
+src/app/security/page.tsx
+src/components/{AdminLayout,AuthProvider,ResourceTable,CampaignEditor,ConfirmAction}.tsx
+src/lib/{api.ts,campaigns.ts,refusals.ts}
 ```
 
-`src/lib/api.ts` exposes 22 methods, but only **15** are called by any page. Measured
-absences in this surface:
+`src/lib/api.ts` exposes 24 methods and every one of them is now reached by a page — the
+five security calls arrived with the screen that needed them. Measured absences:
 
-- **Zero** permission or role checks — `grep -rn "permission\|role ===" admin-web/src`
-  returns no matches. The nav is the same for every administrator.
+- Permission checks exist in **two** places: `/security` gates each action button on
+  `user.permissions`, and `AdminLayout` hides its own nav entry without `security.view`.
+  Every other page still renders the same controls for every role, so a least-privilege
+  administrator is refused by the server rather than by the screen (#61, §11 decision 10).
 - **Zero** realtime code — `grep -nE "socket|WebSocket|realtime|EventSource|setInterval|
   refreshInterval" admin-web/src` returns no matches. Nothing moves unless you reload.
 - **Zero** charts, **zero** maps, **zero** CSV/XLSX/PDF export, **zero** global search.
@@ -277,7 +281,7 @@ rather than restated by hand.
 - **Still not persisted**: grants are derived from the role at read time and `admin_accounts`
   has no permissions column, so per-admin overrides remain a migration-028 question (§2.2, §9).
 
-### 2.4 A feature flag could write any platform setting — closed in Phase A2
+### 2.4 Two endpoints could write any platform setting — closed in Phase A2 and A6
 
 `POST /api/admin/features` (`server.js:5579`) and `PUT /api/admin/features/:key`
 (`server.js:5664`) upsert `platform_settings` keyed on the caller-supplied `key`. Because
@@ -296,6 +300,24 @@ HTTP and directly against the reserved names. Moving flags to their own table re
 **Still open here:** the gate on these two routes is an in-handler `role === 'SUPER_ADMIN'`
 test rather than a named permission (§2.3), so `settings.edit` in §3 has nothing to bind to
 until the naming decision in §11 is answered.
+
+**The mirror image, closed in A6.** The flags endpoint could reach any key; so could
+`PUT /api/admin/platform-settings/:key`, which took a caller-supplied key for any row and
+published `APP_CONFIG_*` values to every device that polls `/api/app/config` — so a
+credential typed into configuration would have been stored in plain text, readable by an
+admin screen and shipped to phones. `GET` had no rule either: it returned every row's
+`setting_value` verbatim, including whatever the flag and switchboard writers put there.
+
+Both directions now answer from one gate in `AppConfigService`, so a rule cannot be added to
+one read and forgotten on the other: `validateSettingWrite()` (namespace allow-list, then
+credential-by-name, then plain-data, then credential-anywhere-in-the-value) on the way in,
+and `redactSettingRow()`/`redactSecrets()` on the way out of the admin read, the write
+echo, and the anonymous feed. **A refusal reports the field names and never their contents**
+— the error path is where a guard most often becomes the leak. One naming rule worth
+recording because it is not obvious: bare `token` cannot be a refused word in a project whose
+published palette is a list of tokens, so the credential spellings are `access_token`,
+`apiKey`, `bearer token` and their phrases, and a field simply called `token` is caught by
+its value's shape instead. See `admin_settings_surface_test.js` (SS-01…SS-27).
 
 ### 2.5 Memory-only surfaces
 
@@ -576,8 +598,8 @@ configuration question once §2.2 is fixed, not a code change.
 | 31 | Audit log protected from normal deletion | EXISTS — `trg_audit_logs_immutable` + `GET /api/admin/audit-logs`; since A3 a refused write is announced instead of vanishing, and since A3b the 26 control-plane writes are awaited and a refusal answers 503 (§2.7) | 20 writes stay un-awaited for stated reasons (§2.7's table), so a 200 on those is still not proof the record landed; and three admin mutations have no column to land in at all (§2.5) | A |
 | 33 | Permission matrix with named permissions, enforced server-side | PARTIAL — 55 of 72 `authenticateAdmin` routes gate on 40 names, and since A1 the grants come from one file (§2.3). Since A4 the whole map is **proven rather than described**: `admin_authorization_test.js` parses the route table out of `src/server.js` and refuses all 193 (route, role) pairs that should be closed, allow-probes 36 names through a handler-validated request, and compares `GET /api/admin/me` against the catalogue per role | 12 ungated admin reads answer to any token, 9 catalogue names grant nothing anywhere, and 26 gated names are unreachable for a least-privilege role (§2.3); 4 decisions sit inside handlers in a fourth spelling; nothing is persisted, so per-admin overrides need the §9 migration. 4 names (`notification.broadcast`, `orders.manage`, `geofence.create`, `surge.create`) have no *safe* allow probe, so a holder reaching them is unproven — recorded in the harness, not hidden. §3 is the target catalogue | A |
 | 34 | Security centre | EXISTS as an API surface **and, since A5, as a screen** — `GET /api/admin/security/sessions` (`security.view`), `GET /api/admin/security/login-lockouts` (`security.view`), `POST /api/admin/security/sessions/revoke` (`security.session.revoke`, by handle or by account, durable-store-first, audited through `auditAppliedChange`), and the account enable/disable write that cuts sessions with it (§1.4). `admin-web/src/app/security/page.tsx` reads all three and gates every action button on `user.permissions` from `GET /api/admin/me`, so a role without `security.session.revoke` sees the directory with no buttons rather than a button that answers 403 | The lockout counters are this-process-only because `failed_attempts`/`locked_until` are dead columns (§1.4) — durable lockouts and a last-seen-IP trail need a migration → §9. `security.view`-only roles cannot list the account directory it acts on (`admin_accounts.manage`), sessions are unpaged, and the nav entry itself disappears for a role with no `security.view` | A |
-| 36 | Integrations, never display secret values | PARTIAL — `platform_settings` holds mixed data | Show presence/configured-state + last check, never a value; `PUT` rejects anything secret-shaped | A |
-| 37 | Settings, secrets not editable from admin UI | PARTIAL — `GET/PUT /api/admin/platform-settings` (`requireSuperAdmin`) | Needs an allow-list of keys, not an open key/value editor over a table that also holds config the server reads at boot | A |
+| 36 | Integrations, never display secret values | EXISTS since A6, at the API: `GET /api/admin/platform-settings` serves every row through one redactor, so a row that holds a credential reads back as its *shape* — the sensitive leaves replaced by `__REDACTED__`, their dotted paths listed in `redactedPaths`, the key named in the response's `redactedKeys`, and the fields an operator does need (`homepage`, `name`, `updated_at`) left alone. `loadSettings()` applies the same rule on the way out, so the anonymous `/api/app/config` feed masks it too rather than shipping it to devices | No integrations screen exists, so "presence + last check" is only proven in the payload; there is **no last-check or configured column to show** — `platform_settings` has key/value/description/updated_by/updated_at and nothing that records a connection test, so a real integrations surface needs §9 schema work; and rows whose legacy secrets are merely masked stay in the table until someone deletes them, which is §9 too | A |
+| 37 | Settings, secrets not editable from admin UI | EXISTS since A6 — the write gate is an allow-list rather than a block-list: `PUT /api/admin/platform-settings/:key` answers `SETTING_KEY_NOT_ALLOWED` for anything outside the `APP_CONFIG_` namespace the endpoint publishes (`FEATURE_*`, `PLATFORM_SERVICE_STATE`, `service_status`, `surge_multiplier` keep the `INVALID_SETTING_KEY` refusal they had), `SETTING_NAME_IS_CREDENTIAL` for a key that names a credential, and `SETTING_VALUE_IS_CREDENTIAL` for one anywhere in the value at any depth — and a refusal reports the offending **field names**, never the contents, so the error path cannot become the leak it guards | Still `requireSuperAdmin` rather than a catalogue name, which is #61 and §11 decision 10; the gate is on this surface only — the flag route, the service-state mirror and pricing keep their own namespace checks by design, which is why the allow-list refuses rather than reroutes; and bare `token` cannot be a refused word in a project that publishes a palette of them, so a field named `token` is caught by its value's shape, not its name | A |
 | 38 | Feature flags that cannot bypass controls | PARTIAL — `features` routes, `is_feature_enabled()`, and since A2 a write surface limited to flag keys (§2.4) | Flags must remain unable to disable auth/authz/payment/RLS/audit; the routes are still role-checked rather than name-checked, and neither write is audited | A |
 | 39 | Reports with CSV/XLSX/PDF | MISSING | CSV first (no dependency), XLSX and PDF only if a library already exists in the tree — it does not, so both are a §9 dependency decision | B |
 | 42 | Data export with field filtering + audit | MISSING | Built on `report.export`/`audit.export`; field filtering is *subtraction from a fixed projection*, never caller-supplied column names | B |
@@ -694,7 +716,24 @@ before its gate passes, and each phase ends in one local commit. **No push, no d
    `readRefusal(err, …)`, so a `503` carrying `applied: true` says the change landed and only
    its record failed — instead of "the change was not applied", the one sentence about it
    that would be false.
-9. ⬜ Settings/integrations: key allow-list, secret values never rendered, never writable.
+9. ✅ **Done (A6).** The settings surface is an allow-list with a redactor, not an open
+   key/value editor. `PUT /api/admin/platform-settings/:key` now answers
+   `SETTING_KEY_NOT_ALLOWED` for anything outside the `APP_CONFIG_` namespace it publishes
+   (the four keys another control owns keep the `INVALID_SETTING_KEY` refusal they had),
+   `SETTING_NAME_IS_CREDENTIAL` for a key that names a credential, and
+   `SETTING_VALUE_IS_CREDENTIAL` for a credential anywhere in the value at any depth — and a
+   refusal reports the offending **field names** and never their contents, so the error path
+   cannot become the leak it is guarding. `GET` and the anonymous `/api/app/config` feed both
+   run every row through the same redactor, so a credential already in the table — written
+   before the gate, or by a subsystem outside it — reads back as its shape with the paths
+   named, instead of being served to an admin screen and shipped to devices
+   (`admin_settings_surface_test.js`, SS-01…SS-27).
+   **Found while writing it, fixed:** an update that sent no description erased the one on the
+   row, because the route read the existing row without that column and then upserted `null`
+   over it (SS-19). **Open:** still `requireSuperAdmin` rather than a catalogue name (#61); no
+   integrations screen exists, so area 36's "presence + last check" is proven in the payload
+   only, and there is no last-check or configured column to show — that is §9 schema work;
+   and the masked legacy rows stay in the table until someone deletes them, which is §9 too.
 
 **Gate:** ✅ `test_suite.js` green *plus* `admin_authorization_test.js`, which replaced the
 hand-picked `RBAC-01..12` model with the whole measured map: 109 assertions — 193
@@ -776,6 +815,7 @@ the same area-49 confirmation with no shortcut path.
 | `backend/audit_drop_visibility_test.js` (**new, A3**) | a refused trail is announced with its module, action and target, and never reaches the process-wide rejection net | any audit-path change |
 | `backend/admin_audit_fail_closed_test.js` (**new, A3b**) | each converted mutation rejects 503 `applied: true` when its record is refused, the state really did change, no route that awaits one can hang or answer 400, and the deliberately unconverted paths stay unconverted | any audit-path change |
 | `backend/admin_authorization_test.js` (**new, A4**) | 109 assertions: the guard map parsed from `src/server.js` (55 gated routes / 40 names), all 193 (route, non-super role) pairs refused with 403 naming the permission, one handler-validated allow probe per permission, `GET /api/admin/me` equal to the catalogue per role, revocation proven by using the revoked bearer, cross-instance sessions honoured and revocable, disable-cuts-sessions, and the four guards that must never be fired over HTTP proven against a stubbed store | phases A–G |
+| `backend/admin_settings_surface_test.js` (**new, A6**) | 31 assertions: the write allow-list refuses a key outside the published namespace and a credential by name or at any depth in the value, a refusal never echoes what it rejected, an ordinary name and a real published theme are *not* refused, a legacy row seeded outside the gate is masked in the admin read **and** in the anonymous config feed, the non-sensitive fields beside it survive, and an update with no description keeps the description it has | any settings, config-feed or redaction change |
 | Flutter `main_admin.dart` widget tests + `flutter analyze` | the admin mobile app | phases with mobile changes |
 | `admin-web`: `npm run lint`, `npm run build`, then a real browser walk of each confirmation (local backend on :4000, local dev server on :3001) | area 49's component, the security screen, and that a dialog's words match what the route does | phases A5 and G — **there is no automated admin-web harness**, so this is the only thing between a copy edit and a false promise to an operator |
 
