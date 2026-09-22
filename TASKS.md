@@ -1,13 +1,12 @@
 # NABIN — Task Tracker
 
-**Updated**: 2026-09-21
-**State**: `HEAD` = this docs commit, on top of `f759dd3` (advertisements →
-PostgreSQL), `46ab58a` (chaos harness) and `904acd2` (coupons + app config);
-`origin/main` = `c974fc9`, so `main` is **4 commits ahead locally and NOT pushed**.
-The approved **advertisements option (c)** work (new
-`backend/src/repositories/AdvertisementRepository.js` + `database.js`/`server.js`/
-`AppConfigService.js`/`test_suite.js`/`restart_test.js`) is committed in `f759dd3`;
-these three docs land in the commit after it.
+**Updated**: 2026-09-22
+**State**: Phase 2 (client render pass + the CRITICAL trip settlement race fix) and
+Phase 3 (dynamic campaigns, festival themes and assets) are complete locally and
+**NOT pushed**: `origin/main` = `c974fc9`, with 17 verified commits plus this docs
+commit on top of it. Nothing was deployed and no hosted database was touched;
+migration `027` exists in Git and has been applied to the **local Docker PostgreSQL
+only**.
 Earlier history: the 2026-09-20/21 work reached the remote by fast-forward
 `9b2804c..b13cdb3`, `55a1836` re-baselined `.agents/CURRENT_STATE.md`, and the same day's
 follow-ups (`1b128e7` un-stock + merchant notification backend, `239c134` mobile
@@ -572,4 +571,164 @@ needed: every primitive required already exists in the frozen schema.
       not a step to take silently. `CH-08` remains a separate medium finding:
       `POST /api/driver/location` accepts impossible or stale fixes that the socket
       path rejects with `COORDINATES_OUT_OF_RANGE`.
+
+## PHASE 3 (dynamic campaigns, festival themes and assets) — 2026-09-22
+
+A campaign previously had to be assembled out of three unrelated stores — one
+advertisement row per banner, one promotion row per coupon, one `platform_settings`
+blob for the palette — and none of them could answer "what is running right now, and
+when two overlap which one wins". This phase gives a campaign a row of its own, hangs
+its theme/assets/offers/messages off it, and makes the **PostgreSQL clock** the only
+thing that can open or close it.
+
+### Approved migration
+- [x] **`supabase/migrations/027_dynamic_campaigns_and_themes.sql` (268 lines) —
+      approved as "Option A" by the owner, applied to the LOCAL Docker instance only.**
+      Five tables: `campaigns` (unique `code`, `name`, operator-intent `status`
+      CHECKed to `DRAFT|SCHEDULED|ACTIVE|PAUSED|ARCHIVED`, `priority`, `service_types
+      TEXT[]` CHECKed against `RIDE|FOOD|GROCERY|PARCEL`, `starts_at`/`ends_at` with a
+      `ends_at > starts_at` constraint, a non-destructive `is_active` off switch,
+      `code ~ '^[A-Z0-9][A-Z0-9_-]{1,39}$'`); `campaign_assets` (`kind` LOGO/WORDMARK/
+      BANNER/PROMOTIONAL_IMAGE/POPUP_BACKGROUND/SPLASH/FAVICON, URL CHECKed to
+      `https?://`, `cloudinary_public_id`, `alt_text`, `locale`, `priority`);
+      `campaign_themes` (one per campaign by UNIQUE `campaign_id`, `palette JSONB`,
+      logo/wordmark/splash asset FKs `ON DELETE SET NULL`); `campaign_offers`
+      (`promotion_id` FK **RESTRICT**, so archiving a campaign never eats a coupon, and
+      `UNIQUE (campaign_id, promotion_id)`); `campaign_messages` (`kind`
+      ANNOUNCEMENT/POPUP/INLINE_BANNER/TOAST, `surface`, `trigger_event` CHECKed,
+      `dismissible`, `show_once`, `locale`, `priority`). Indexes: window lookup, a
+      **partial** `(priority DESC, starts_at DESC) WHERE status <> 'ARCHIVED'` for the
+      live ordering, a GIN on `service_types`, and one per child lookup path.
+      Two SQL functions: `campaign_effective_status(...)` derives
+      `DRAFT|SCHEDULED|ACTIVE|PAUSED|EXPIRED|ARCHIVED` from the row's own intent plus
+      `now()` — `EXPIRED` is never stored, and `is_active = false` resolves to `PAUSED`
+      — and `resolve_live_campaigns(service, at)` returns only rows whose effective
+      status is `ACTIVE`, in publication order. **RLS is enabled on all five tables with
+      no policies *and* `REVOKE ALL FROM anon, authenticated`**, so the anonymous REST
+      role is refused outright (`42501`) rather than being handed an empty list;
+      `service_role` gets an explicit SELECT plus EXECUTE on the two functions, and
+      writes reach it through the platform's default privileges for a `postgres`-owned
+      table (verified live: `INSERT/SELECT/UPDATE/DELETE` for `service_role`, nothing
+      for `anon`). No festival content is seeded — inventing one would put fake
+      production data into a real catalogue.
+
+### Backend
+- [x] **`backend/src/repositories/CampaignRepository.js` (583 lines)** owns every
+      campaign read and write: create/update in one request with the children replaced
+      wholesale, `effectiveStatus` on every row that is surfaced, live reads through
+      `resolve_live_campaigns`, `LIVE_PUBLICATION_LIMIT = 5`, and a status machine
+      (`CAMPAIGN_STATUS_TRANSITIONS`: `ARCHIVED` terminal, `ACTIVE` reachable only via
+      its own window or an explicit publish) that refuses a jump with
+      `CAMPAIGN_TRANSITION_REJECTED` plus the list of states actually allowed.
+      Wired into `database.js` as `this.campaignRepo`.
+- [x] **Admin API** (`backend/src/server.js`, +219 lines):
+      `GET/POST /api/admin/campaigns`, `GET/PUT /api/admin/campaigns/:idOrCode`,
+      `POST /api/admin/campaigns/:idOrCode/status`, `DELETE` (⇒ archive, never
+      destroy), `GET /api/admin/campaigns/live?serviceType=`. Permissions
+      `campaign.view|create|edit|publish|delete`; every write leaves an audit row under
+      module `CAMPAIGNS` naming the admin. `PUT` strips `status`, so a copy edit cannot
+      publish anything.
+- [x] **`campaigns` is now a section of the composed `GET /api/app/config` feed**
+      (`AppConfigService.js`, +103 lines): theme palette, logo/wordmark/splash URLs,
+      banners, offers **by coupon reference** (`couponCode` + the coupon's own
+      `discountType`/`discountValue`, never a copied number), messages, plus
+      `resolvedBy: 'postgresql clock (resolve_live_campaigns)'` and a 30-second cache
+      that campaign, advertisement and settings writes invalidate.
+
+### Admin console
+- [x] **`admin-web/src/app/campaigns/page.tsx`, `components/CampaignEditor.tsx`
+      (720 lines), `lib/campaigns.ts` (253 lines), nav entry in `AdminLayout`.**
+      An operator writes Christmas 2026 → window → theme tokens → logo/banner URLs →
+      per-service coupon offers picked from the real coupon list → announcement/popup,
+      and presses publish. The server names every field it refuses; the editor never
+      re-implements validation.
+- [x] **Real blocker found while proving it in a browser: the admin console could not
+      log in at all.** `authApi.login` posted only `{ password }` while
+      `POST /api/admin/login` requires `username` — fixed across
+      `lib/api.ts`, `AuthProvider.tsx`, `app/login/page.tsx`.
+- [x] **A lost-update bug caught in the browser before this code ever landed.** Clicking
+      three service chips in one frame left only the last one pressed, because the
+      handler read the render closure (`draft.serviceTypes`) instead of deriving the next
+      state from the updater argument. `toggleService` now uses
+      `setDraft((d) => …)`; `RIDE + FOOD + PARCEL` all stay selected.
+- [x] **Proved through a real browser against the local stack, not only by
+      assertions.** Christmas 2026 (`XMAS-UI-2026`, priority 60, 20–27 Dec, brand
+      `#0F5C2E` + food accent `#C0392B`, logo and banner URLs, RIDE 10% / FOOD 20% /
+      PARCEL ₹30 chosen from the live coupon picker, one `CUSTOMER_HOME` announcement)
+      was authored entirely in the console. Publishing it left the **server clock**
+      holding it back as `SCHEDULED` with nothing live for any service on 22 Sep 2026;
+      moving its start date put it into `GET /api/app/config` moments later with no
+      rebuild; archiving it from the UI emptied the feed again.
+
+### Flutter (no APK rebuild for a festival)
+- [x] `mobile/lib/core/config/nabin_app_config.dart` (+454) parses the `campaigns`
+      section into immutable models; `nabin_palette.dart` maps a published palette onto
+      the existing theme extension; `core/widgets/nabin_campaign.dart` (459 lines)
+      renders the campaign banner slot, the festival logo in place of the built-in
+      wordmark, and a gated popup; `customer_home_screen.dart` consumes them. Nothing
+      festival-specific is hard-coded in Dart.
+
+### Two behaviour fixes that fell out of testing
+- [x] **An offer on a dead coupon is no longer advertised.** `AppConfigService` drops
+      campaign offers whose coupon row has been switched off (or deleted), so the feed
+      never promises a discount the server would then refuse (CP-14).
+- [x] **Coupon writes invalidate the composed feed.** `POST /api/admin/promotions` and
+      `PUT /api/admin/promotions/:id` now call `appConfigService.invalidate()`, so
+      switching a coupon off stops the advertisement in the same moment rather than one
+      cache window later.
+
+### Test-ordering fix (why the geofence assertion looked flaky)
+- [x] `restart_test.js` deliberately sets `global_surge_multiplier = 1.18` to prove the
+      value survives a cold start, and used to **leave it there**. Any `test_suite.js`
+      run afterwards would fail `Point outside geofenced zones evaluates … standard
+      1.0x surge` for a reason that has nothing to do with geofencing. The run now
+      restores 1.0 through the admin pricing route after the persistence assertion has
+      passed
+      (`Restart test leaves the global surge multiplier at baseline for the next run`),
+      and the suite passes when run directly after it. The assertion's condition was
+      not touched; it only gained a diagnostic that names the observed multiplier.
+
+### Verification (all local, 2026-09-22)
+- [x] `test_suite.js` → **352 passed / 1 failed of 353**; the single failure is the
+      pre-existing `gprod_5` revalidate seeding gap that also fails at the previous
+      `HEAD`. New `MODULE 33` covers CP-00…CP-22: auth 401/403, one-request authoring,
+      offer-by-reference, a full invalid-payload refusal that names every offender, no
+      orphan rows after a refusal, edits cannot change state, illegal transition lists
+      its options, ACTIVE-before-window resolves SCHEDULED and reaches no client,
+      opening the window serves it with no rebuild, the feed carries colours/logo/
+      banner/coupon terms, an internal operator note is never published, service
+      targeting admits RIDE and refuses GROCERY, dead-coupon offers withheld, priority
+      ordering, the database clock expiring a window, delete-archives-and-keeps-rows,
+      ARCHIVED terminal, audit rows naming the admin, the anonymous REST role refused,
+      duplicate codes refused, and a teardown that leaves no test campaign live.
+- [x] `restart_test.js` → **34 passed / 0 failed** (33 previous + the surge restore).
+- [x] `chaos_audit.js` → `PASS=15 FINDING=1 BLOCKED=3 FAIL=2 NOTE=1`. `CH-02` still
+      passes (50 concurrent completions of one ₹105 trip → 1 accepted, 2 postings
+      totalling ₹123); financial invariants `FI-01…FI-07` green (2,177 headers all
+      reconciling, ₹293,557 both sides, 0 over-refunds, 0 checkout/order arithmetic
+      mismatches, 0 negative wallets, 0 promotion limit violations). The two red lines
+      are unchanged and both are already owned: `CH-08` (REST `/api/driver/location`
+      accepts impossible fixes) and `FI-08` (3 jobs booked over-entitlement by
+      **pre-fix** runs; the owner's decision is "leave it, report it").
+- [x] `flutter test` → **56 passed / 0 failed**, including `campaign_config_test.dart`
+      (450 lines: the customer home follows a live campaign, a popup asks once and
+      remembers, a campaign with no logo keeps the wordmark, an expired campaign paints
+      nothing). `flutter analyze --no-pub` → **67 issues, all `info`, 0 warnings, 0
+      errors**, none in a campaign/config file.
+- [x] `admin-web` → `tsc --noEmit` clean, `eslint .` **0 errors / 1 warning**, and the
+      warning is the pre-existing `window.location.href` logout redirect in
+      `src/lib/api.ts`, not campaign code.
+- [x] **Local database state left behind (dev instance only).** 11 campaign rows exist
+      and **every one is `ARCHIVED`**, so nothing is live for any client: the 5 probe/UI
+      rows from the browser pass (`XMAS_PROBE_*`, `XMAS-LIVE*`, `XMAS-UI-2026`) and 6
+      suite rows (`CP_FEST_*`/`CP_RIVAL_*` across three runs). Rows are archived rather
+      than deleted because that is the lifecycle under test. 13 of the 412
+      `promotions` rows are test coupons from these runs (`CP_*`, `XMAS_*`).
+      `pricing_configurations.GLOBAL.global_surge_multiplier` is back to `1.00`.
+- [ ] **Honest limits of this phase.** Only `CUSTOMER_HOME` is a wired Flutter surface —
+      other `surface` values are stored and published but nothing renders them yet; the
+      popup is proven by widget test, not on a device; the editor takes asset **URLs**,
+      so there is no in-admin Cloudinary picker/upload for campaigns; `027` has not
+      been applied to any hosted project, so campaigns are live only against the local
+      database; the driver and merchant apps do not read the campaign section.
 

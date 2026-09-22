@@ -120,7 +120,35 @@
 > Still open and not this fix: FI-08's 3 jobs were over-booked by the *pre-fix* chaos
 > runs (cleaning them deletes financial history — a decision, not a step), and CH-08
 > shows the REST `/api/driver/location` path accepting fixes the socket rejects.
-> Phase 3 and migration 027 were not started.
+> Phase 3 was not started at that point.
+>
+> **Phase 3 — dynamic campaigns, festival themes and assets (2026-09-22, local only,
+> NOT pushed):** a campaign now has rows of its own under approved migration **027**
+> (`campaigns`, `campaign_assets`, `campaign_themes`, `campaign_offers`,
+> `campaign_messages`, plus `campaign_effective_status()` and `resolve_live_campaigns()`),
+> so a festival is data rather than a release: **PostgreSQL's clock** decides what is
+> live, `EXPIRED` is derived and never stored, an offer references a `promotions` row
+> instead of copying a discount, and the anonymous REST role is refused outright (RLS
+> on with no policies *and* `REVOKE ALL FROM anon, authenticated`). `CampaignRepository`
+> + the `/api/admin/campaigns*` routes (permissions `campaign.*`, audit module
+> `CAMPAIGNS`, `CAMPAIGN_TRANSITION_REJECTED` listing what a state may become, delete ⇒
+> archive) publish a `campaigns` section on the existing `GET /api/app/config` feed, the
+> admin console gained a full campaign editor, and the Customer App renders the palette,
+> logo, banner and popup from that feed — no festival string is hard-coded in Dart, and
+> no APK rebuild is needed to run one. Three real defects were found on the way: the
+> console could not log in (`authApi.login` omitted `username`, which
+> `POST /api/admin/login` requires), the new editor's service chips dropped all but the
+> last one clicked in a frame (fixed with a functional state updater before the file
+> landed), and `restart_test.js` left
+> `global_surge_multiplier` at 1.18, which broke the next suite run's geofence assertion
+> for an unrelated reason. Two behaviour choices: an offer on a switched-off coupon is
+> withheld from the feed, and coupon writes invalidate it. Chain (local, solo):
+> `test_suite.js` **352/1 of 353** (MODULE 33 CP-00…CP-22 green; the 1 is the
+> pre-existing `gprod_5` seeding gap), `restart_test.js` **34/0**, `chaos_audit.js`
+> `PASS=15 FINDING=1 BLOCKED=3 FAIL=2` with CH-02 PASS and FI-01…FI-07 green,
+> `flutter test` **56/56**, `flutter analyze --no-pub` 67 issues / 0 errors / 0
+> warnings. 027 exists in Git and on the local Docker database only; no hosted project
+> was touched, and only `CUSTOMER_HOME` is a wired mobile surface.
 
 ---
 
@@ -128,9 +156,9 @@
 
 | Field | Value |
 |-------|-------|
-| **Current HEAD** | this docs commit, on top of `b4803e5` (Phase 2 client render pass), `8e8a30e` (MODULE 32 + AC-15..19 + GEO-07 teardown), `80940c2` (exactly-once settlement) and `a0bd024` (`sections.theme`) — which sit on `d628d0c`, `5824f36`, `f759dd3` (advertisements), `46ab58a` (chaos harness) and `904acd2` (coupons + app config) |
+| **Current HEAD** | this docs commit, on top of the Phase 3 chain `a85ca6d` (027 + `CampaignRepository`), `2697038` (campaign API + config section), `daf82cf` (MODULE 33), `77dd9d6` (restart-run surge restore), `eb492c5` (admin login requires a username), `7a882e1` (campaign console), `2b0c55b` (Flutter renders the live campaign) — which sit on the Phase 2 chain `9da93cd`, `b4803e5`, `8e8a30e`, `80940c2`, `a0bd024` and on `d628d0c`, `5824f36`, `f759dd3`, `46ab58a`, `904acd2` |
 | **origin/main** | `c974fc9` |
-| **HEAD == origin/main** | NO — `main` is **10 commits ahead locally and NOT pushed** |
+| **HEAD == origin/main** | NO — `main` is **18 commits ahead locally and NOT pushed** |
 | **Branch** | main |
 
 ### Untracked files of record (re-verified 2026-09-22, `git status --porcelain`)
@@ -215,16 +243,19 @@ d7ef7f5 feat(phase-16): implement postgres kyc, verified vpa, partial refund and
 ### Migrations
 | Migration | Status | Notes |
 |-----------|--------|-------|
-| 001–015 | APPROVED | Baseline migrations, do not modify |
+| 001–015 | APPROVED / FROZEN | Baseline migrations, do not modify |
 | 016 | AUTHORIZED IN GIT / FORMAL APPROVAL PENDING | Present at `supabase/migrations/016_driver_kyc_payout_and_partial_refund.sql` only; added in authorized commit c0cdf47; does not exist in `backend/migrations/` |
 | 017 | ABSENT / REVERTED | Deleted by revert commits 66c0718 and 1d404a6; does not exist in working tree or Git index; NOT approved for future implementation |
+| 018–026 | APPROVED / FROZEN | `018` order state lines + checkout link, `019` atomic order creation, `020` dispatch security, `021` cross-domain hardening, `022` notifications/support/dispute security, `023` ledger security, `024` application-surface security, `025` feature control system, `026` backend session persistence. Do not modify. |
+| 027 | OWNER-APPROVED ("Option A") / LOCAL ONLY | `supabase/migrations/027_dynamic_campaigns_and_themes.sql` — campaigns, assets, themes, offers, messages, `campaign_effective_status()`, `resolve_live_campaigns()`, RLS-on-with-no-policies plus `REVOKE ALL` from client roles. Applied to the **local Docker PostgreSQL only**; never pushed to a hosted project |
 
 ### Authoritative PostgreSQL Persistence
 - Migrations 001–015 establish: `users`, `drivers`, `jobs`, `payments`, `ledger_accounts`, `journal_transactions`, `journal_lines`, `geo_fences`, `surge_zones`, `promotions`, `support_tickets`, `audit_logs`, `notifications`, `checkouts`, `dispatch_offers`, `merchants`, `products`, `grocery_catalog`, etc.
 - Migration 016 adds: `verified_upi_id`, `payout_upi_verified`, `kyc_status`, `user_id` on `drivers` table (present in authorized Git baseline via c0cdf47)
 - Migration 017 is absent; menu customization, kitchen workflow, tax configs are NOT in current schema
+- Migration 027 adds five campaign tables (`campaigns`, `campaign_assets`, `campaign_themes`, `campaign_offers`, `campaign_messages`) and two SQL functions; `campaign_offers.promotion_id` is `ON DELETE RESTRICT`, so a campaign never owns or destroys the coupon it advertises
 
-### Local data changes made this session (2026-09-21, local Docker only)
+### Local data changes made this session (2026-09-21/22, local Docker only)
 - `master_grocery_catalog`: 11 duplicate "Test Basmati Rice" rows set to `is_active = false` with the
   owner's approval; `6e617e3a-e377-4d7b-ae2c-0e8de0208a77` left active because `Test Supermarket M2`
   sells it. No row was deleted — `order_lines` is `ON DELETE RESTRICT` and orders are immutable.
@@ -233,6 +264,13 @@ d7ef7f5 feat(phase-16): implement postgres kyc, verified vpa, partial refund and
   paths (`ORD-00000318`, `ORD-00000319` and the earlier pair); they are permanent records by design.
 - A stocking/un-stocking round trip ran through `POST`/`DELETE /api/merchant/inventory` only, and
   the test listing was removed, so `Test Supermarket M2` is back to its single seeded row.
+- Campaign rows: 11 exist and **all are `ARCHIVED`**, so nothing is live for any client — the 5
+  probe/UI rows from the browser pass (`XMAS_PROBE_*`, `XMAS-LIVE*`, `XMAS-UI-2026`) and 6 rows
+  written by `MODULE 33` across three suite runs (`CP_FEST_*`, `CP_RIVAL_*`). They are archived
+  rather than deleted because archive is the lifecycle under test and the tables keep history.
+  13 of 412 `promotions` rows are test coupons from these runs. `pricing_configurations`
+  `GLOBAL.global_surge_multiplier` was left at `1.00` (the value `restart_test.js` used to
+  strand at `1.18`; it now restores it).
 
 ### Remote Supabase
 - OFF LIMITS
@@ -248,23 +286,30 @@ d7ef7f5 feat(phase-16): implement postgres kyc, verified vpa, partial refund and
 |-----------|--------|
 | `backend/src/server.js` | REST + WebSocket API |
 | `backend/src/database.js` | In-memory + PostgreSQL bridge |
-| Repositories | User, Driver, Job, Ledger, Payment (Phase 13+), Promotion, SchoolChild |
-| Test Suite | 295 passing tests (Phase 18 claim; needs re-verification post-revert) |
-| Cold Restart Tests | 34 passing |
+| Repositories | User, Driver, Job, Ledger, Payment (Phase 13+), Promotion, SchoolChild, Advertisement, **Campaign** (`repositories/CampaignRepository.js`, 583 lines, added in Phase 3) |
+| Server-driven config | `services/AppConfigService.js` composes `GET /api/app/config` sections: `services, features, offers, settings, theme, campaigns, advertisements`, 30s cache, invalidated by ad/campaign/settings/**coupon** writes |
+| Test Suite | **352 passed / 1 failed of 353** (2026-09-22); the 1 is the pre-existing `gprod_5` revalidate seeding gap that also fails at older `HEAD`s |
+| Cold Restart Tests | **34 passed / 0 failed** (includes the new step that restores `global_surge_multiplier` to 1.0) |
+| Chaos / resilience | `chaos_audit.js` → `PASS=15 FINDING=1 BLOCKED=3 FAIL=2 NOTE=1`; CH-02 settlement race PASS; FI-01…FI-07 green; CH-08 and FI-08 open and owned |
 
 ### Flutter Mobile Apps
 | App | Status |
 |-----|--------|
-| Customer App | Flutter 3.47, Stitch design system |
+| Customer App | Flutter 3.47, Stitch design system; reads the config feed's `campaigns` section for palette, festival logo, banner slot and gated popup (`core/widgets/nabin_campaign.dart`) — no festival content hard-coded |
 | Driver App | Flutter, GPS telemetry, dispatch |
 | Merchant App | Flutter, restaurant/grocery operations |
-| Widget Tests | 18/18 passing |
-| Static Analysis | 0 issues |
+| Widget Tests | 56/56 passing (2026-09-22) |
+| Static Analysis | 67 issues, **all `info`** (0 errors / 0 warnings); none in a campaign or config file |
 
 ### Admin Web
-- HTML5 / Tailwind / Leaflet dashboard
-- 7,000+ lines
-- Live analytics, KYC queue, dispatch tracking, zone editors
+- Next.js app-router console (HTML/Tailwind/Leaflet dashboard alongside it)
+- Live analytics, KYC queue, dispatch tracking, zone editors, advertisements, and a
+  **campaign editor** (`app/campaigns/page.tsx`, `components/CampaignEditor.tsx`,
+  `lib/campaigns.ts`): window, priority, service targeting, theme tokens, logo/banner
+  asset rows, coupon-referenced offers picked from the live coupon list, announcements
+  and popups, publish/pause/archive through the status route only
+- Fixed 2026-09-22: the console could not log in at all — `authApi.login` omitted
+  `username`, which `POST /api/admin/login` requires
 
 ---
 
@@ -280,6 +325,9 @@ d7ef7f5 feat(phase-16): implement postgres kyc, verified vpa, partial refund and
 | Phase 16 | REJECTED | Unauthorized implementation; forensic audit completed; restoration committed |
 | Phase 17 | DOES NOT EXIST | No approved plan |
 | Phase 18 | REJECTED | Unauthorized implementation; reverted via `1d404a6` |
+| Server-driven Phase 1 | COMPLETE (local, unpushed) | Advertisements on PostgreSQL, server-authoritative checkout coupons, `GET /api/app/config`, local chaos audit |
+| Server-driven Phase 2 | COMPLETE (local, unpushed) | Client render pass (remote-config layer + cache + server-time authority, theme/offers/features sections, banner and feature gating in Flutter) and the CRITICAL trip settlement race fixed at database level with a 50-way ledger-asserting regression (MODULE 32) |
+| Server-driven Phase 3 | COMPLETE (local, unpushed) | Dynamic campaigns / festival themes / assets on migration 027: PostgreSQL clock resolves what is live, admin campaign editor, `campaigns` section on the config feed, Customer App renders theme + logo + banner + popup with no rebuild. **Limits:** `CUSTOMER_HOME` is the only wired surface, assets are pasted URLs (no in-admin upload), 027 is not applied to any hosted project |
 
 ---
 
@@ -293,6 +341,21 @@ d7ef7f5 feat(phase-16): implement postgres kyc, verified vpa, partial refund and
 3. **34 of 38 PostgreSQL tables unused** — Backend predominantly uses in-memory arrays
 4. **Migration 016 formal approval workflow** — Present in authorized Git baseline via c0cdf47; explicit user approval record not yet documented (see DEC-017)
 5. **Migration 017** — Absent; NOT approved for future implementation
+
+### Open from the server-driven phases (2026-09-21/22)
+6. **`gprod_5` seeding gap** — the only failing assertion in `test_suite.js`
+   (`POST /api/grocery/cart/revalidate …`); it fails at older `HEAD`s too, so it is a
+   fixture gap rather than a regression.
+7. **CH-08** — REST `POST /api/driver/location` accepts impossible or stale fixes that
+   the WebSocket path rejects with `COORDINATES_OUT_OF_RANGE` (medium).
+8. **FI-08** — 3 jobs (`JOB-92412647-611`, `JOB-92768166-552`, `JOB-93587159-696`) carry
+   over-entitlement bookings written by **pre-fix** chaos runs. The owner's decision is
+   "leave it, report it", so the check stays red as evidence.
+9. **Campaign reach** — only `CUSTOMER_HOME` renders a campaign on mobile; driver/merchant
+   apps and other `surface` values store and publish but render nothing, and a campaign
+   asset is a pasted URL (no in-admin Cloudinary picker).
+10. **Nothing newer than `c974fc9` is pushed** and `027` is applied to the local Docker
+    database only; running it against a hosted project needs explicit approval.
 
 ---
 

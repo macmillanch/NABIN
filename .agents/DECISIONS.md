@@ -114,6 +114,18 @@
   A commit being in `origin/main` does not automatically constitute a formal approval record. Conversely, a formal approval record without corresponding Git implementation does not make the code authorized.
 - **Rationale**: Prevents agents from inferring approval from Git history alone, or from treating documented approval as implemented code. Migration 016 is currently in the authorized Git baseline via c0cdf47, but lacks a documented formal approval record.
 
+### DEC-018: Migration 027 Approved In Option-A Form, Local Application Only
+- **Date**: 2026-09-22
+- **Status**: APPROVED BY USER (scoped)
+- **Decision**: Create `supabase/migrations/027_dynamic_campaigns_and_themes.sql` in the "Option A" shape — five new tables (`campaigns`, `campaign_assets`, `campaign_themes`, `campaign_offers`, `campaign_messages`) plus `campaign_effective_status()` and `resolve_live_campaigns()`, with **no column altered on any existing table** — and apply it to the **local Docker PostgreSQL only**. Approval covered that file and that environment: it did not extend to any hosted project, a push, or a deploy.
+- **Rationale**: The build spec requires stopping before a new migration and reporting number, purpose, tables/columns, RLS changes, indexes and rollback. Frozen 001–026 offer nowhere to hang a campaign, and assembling one from advertisements + promotions + `platform_settings` cannot answer "what is live right now" or decide which of two overlapping campaigns a customer sees. Rollback is the documented drop order in the file's own comment block; the app layer treats those tables' absence as "no campaign published".
+
+### DEC-019: Pre-Fix Over-Bookings Left In Place As Evidence
+- **Date**: 2026-09-21, re-confirmed 2026-09-22
+- **Status**: USER DECISION — LEAVE IT, REPORT IT
+- **Decision**: The three jobs `FI-08` names (`JOB-92412647-611`, `JOB-92768166-552`, `JOB-93587159-696`) keep their ledger rows, and the invariant check stays red in local runs.
+- **Rationale**: Those postings were written by **pre-fix** chaos runs on the local database. Deleting financial history to turn a check green would hide the very thing the check exists to catch; the fix itself is covered by MODULE 32 and `CH-02`, which are green.
+
 ---
 
 ## REJECTED DECISIONS
