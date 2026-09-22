@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/components/AuthProvider';
-import { LogOut, LayoutDashboard, Store, Menu, X, Car, Package } from 'lucide-react';
+import { LogOut, LayoutDashboard, Store, Menu, X, Car, Package, Megaphone } from 'lucide-react';
 import { usePathname } from 'next/navigation';
 
 const NAV_ITEMS = [
@@ -11,6 +11,7 @@ const NAV_ITEMS = [
   { name: 'Drivers', href: '/drivers', icon: Car },
   { name: 'Merchants', href: '/merchants', icon: Store },
   { name: 'Jobs/Orders', href: '/orders', icon: Package },
+  { name: 'Campaigns', href: '/campaigns', icon: Megaphone },
 ];
 
 export default function AdminLayout({ children, title }: { children: React.ReactNode; title?: string }) {

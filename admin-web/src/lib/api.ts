@@ -43,4 +43,14 @@ export const adminApi = {
   getRestaurants: () => api.get('/admin/restaurants'),
   updateRestaurantStatus: (id: string, status: string) => api.post(`/admin/restaurants/${id}/status`, { status }),
   getJobs: () => api.get('/admin/jobs'),
+  getPromotions: (params?: Record<string, string>) => api.get('/admin/promotions', { params }),
+  getCampaigns: (params?: Record<string, string>) => api.get('/admin/campaigns', { params }),
+  getCampaign: (idOrCode: string) => api.get(`/admin/campaigns/${encodeURIComponent(idOrCode)}`),
+  getLiveCampaigns: (serviceType?: string) =>
+    api.get('/admin/campaigns/live', { params: serviceType ? { serviceType } : undefined }),
+  createCampaign: (body: unknown) => api.post('/admin/campaigns', body),
+  updateCampaign: (idOrCode: string, body: unknown) =>
+    api.put(`/admin/campaigns/${encodeURIComponent(idOrCode)}`, body),
+  setCampaignStatus: (idOrCode: string, status: string, reason?: string) =>
+    api.post(`/admin/campaigns/${encodeURIComponent(idOrCode)}/status`, { status, reason }),
 };
