@@ -38,6 +38,7 @@ class NabinPalette extends ThemeExtension<NabinPalette> {
     this.foodAccent = NabinColor.foodOrange,
     this.groceryAccent = NabinColor.groceryGreen,
     this.publishedTokens = const <String>[],
+    this.campaignName,
   });
 
   final NabinPaletteSource source;
@@ -45,6 +46,11 @@ class NabinPalette extends ThemeExtension<NabinPalette> {
   /// Token names the server published and this palette accepted. A screen shows
   /// these when it says "this theme came from NABIN's servers".
   final List<String> publishedTokens;
+
+  /// The campaign whose palette is painted here, when a campaign is the reason
+  /// the app is not in its published theme. A chip can name the festival rather
+  /// than claim an operator edited the brand by hand.
+  final String? campaignName;
 
   final Color brand;
   final Color brandTint;
@@ -167,10 +173,12 @@ class NabinPalette extends ThemeExtension<NabinPalette> {
   }
 
   /// Convenience for the config → palette step every role app performs at
-  /// startup.
+  /// startup: the published theme with any live campaign's palette over it.
   static NabinPalette from(NabinAppConfig? config) {
     if (config == null || !config.hasRemoteTheme) return defaults();
-    return defaults().withRemote(config.theme);
+    return defaults()
+        .withRemote(config.effectiveTheme)
+        .copyWith(campaignName: config.themeCampaignName);
   }
 
   @override
@@ -192,6 +200,7 @@ class NabinPalette extends ThemeExtension<NabinPalette> {
     Color? foodAccent,
     Color? groceryAccent,
     List<String>? publishedTokens,
+    String? campaignName,
   }) =>
       NabinPalette(
         source: source ?? this.source,
@@ -211,6 +220,7 @@ class NabinPalette extends ThemeExtension<NabinPalette> {
         foodAccent: foodAccent ?? this.foodAccent,
         groceryAccent: groceryAccent ?? this.groceryAccent,
         publishedTokens: publishedTokens ?? this.publishedTokens,
+        campaignName: campaignName ?? this.campaignName,
       );
 
   @override
@@ -220,6 +230,7 @@ class NabinPalette extends ThemeExtension<NabinPalette> {
     return NabinPalette(
       source: t < 0.5 ? source : other.source,
       publishedTokens: t < 0.5 ? publishedTokens : other.publishedTokens,
+      campaignName: t < 0.5 ? campaignName : other.campaignName,
       brand: mix(brand, other.brand),
       brandTint: mix(brandTint, other.brandTint),
       onBrand: mix(onBrand, other.onBrand),

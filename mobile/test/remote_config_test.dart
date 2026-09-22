@@ -19,6 +19,8 @@ Map<String, dynamic> configBody({
   Map<String, dynamic> features = const <String, dynamic>{},
   List<Map<String, dynamic>> services = const <Map<String, dynamic>>[],
   Map<String, dynamic> summary = const <String, dynamic>{},
+  List<Map<String, dynamic>> campaigns = const <Map<String, dynamic>>[],
+  bool campaignsDegraded = false,
   String serverTime = '2026-09-21T12:00:00.000Z',
 }) {
   return <String, dynamic>{
@@ -39,6 +41,13 @@ Map<String, dynamic> configBody({
         'knownTokens': knownTokens,
         'tokens': tokens,
         'rejectedTokens': rejectedTokens,
+      },
+      'campaigns': <String, dynamic>{
+        'source': 'postgres:campaigns',
+        'resolvedBy': 'postgresql clock (resolve_live_campaigns)',
+        'available': campaigns.isNotEmpty,
+        'degraded': campaignsDegraded,
+        'campaigns': campaigns,
       },
       'advertisements': <String, dynamic>{
         'available': true,

@@ -7,6 +7,7 @@ import '../../../../core/config/nabin_app_config.dart';
 import '../../../../core/config/nabin_config_controller.dart';
 import '../../../../core/widgets/nabin_service_card.dart';
 import '../../../../core/widgets/nabin_remote_banner.dart';
+import '../../../../core/widgets/nabin_campaign.dart';
 import '../../../../core/models/school_child_repository.dart';
 import '../../../../core/network/session_manager.dart';
 
@@ -130,13 +131,17 @@ class _CustomerHomeScreenState extends ConsumerState<CustomerHomeScreen> {
             ),
           ),
         ),
-        title: Text(
-          'NABIN',
-          style: TextStyle(
-            fontWeight: FontWeight.w900,
-            fontSize: 20,
-            color: palette.brand,
-            letterSpacing: 1.0,
+        title: NabinCampaignWordmark(
+          // The built-in wordmark is also the fallback for a campaign that
+          // published none, so the header never depends on a fetch succeeding.
+          fallback: Text(
+            'NABIN',
+            style: TextStyle(
+              fontWeight: FontWeight.w900,
+              fontSize: 20,
+              color: palette.brand,
+              letterSpacing: 1.0,
+            ),
           ),
         ),
         centerTitle: true,
@@ -203,6 +208,10 @@ class _CustomerHomeScreenState extends ConsumerState<CustomerHomeScreen> {
               // nothing at all when every service is running.
               const NabinPlatformNotice(),
 
+              // What a live campaign published for this surface, or nothing.
+              const NabinCampaignAnnouncement(surface: 'CUSTOMER_HOME'),
+              const NabinCampaignPopup(surface: 'CUSTOMER_HOME'),
+
               // Modern Search Bar ("Where to?")
               GestureDetector(
                 onTap: () => context.push('/ride-booking'),
@@ -251,6 +260,10 @@ class _CustomerHomeScreenState extends ConsumerState<CustomerHomeScreen> {
               ),
 
               const SizedBox(height: 20),
+
+              // A campaign the platform is running: its creatives and its
+              // discounts, or nothing when no campaign applies to this surface.
+              const NabinCampaignBanner(),
 
               // A published campaign slot. Renders nothing when no campaign is
               // live for this placement, which is the honest state of an ad slot.
