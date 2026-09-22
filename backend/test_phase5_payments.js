@@ -11,7 +11,7 @@ const { Client } = require('pg');
 // restart_test.js, and test_phase4_orders.js so a server spawned by a
 // preceding suite can be safely reused by this suite (test isolation fix).
 process.env.PAYMENT_WEBHOOK_SECRET ||= 'test_webhook_secret_not_for_deployment';
-process.env.PAYMENT_KEY_SECRET ||= 'rzp_sec_nabin_beta_test_secret_2026';
+process.env.PAYMENT_KEY_SECRET ||= 'test_key_secret_not_for_deployment';
 process.env.NABIN_TEST_MODE = 'true';
 
 const BASE_URL = 'http://127.0.0.1:4000';

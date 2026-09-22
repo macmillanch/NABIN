@@ -1,4 +1,4 @@
-const { isLivePostgres, supabaseAdmin } = require('../supabase');
+const { isLivePostgres, supabaseAdmin, isStoreUnreachable } = require('../supabase');
 
 // The campaign palette vocabulary is the same list the config feed publishes for the
 // global theme. Two allow-lists that can drift apart would let a campaign publish a
@@ -141,19 +141,11 @@ function campaignError(code, message, status, details) {
 // dressed up as a 4xx tells a client its data is wrong, so it retries with other data
 // instead of backing off — and an operator waiting for a festival to publish learns
 // nothing about which of the two happened.
-function isStoreUnreachable(err) {
-  if (!err) return false;
-  // supabase-js names the HTTP status two different ways depending on where the failure
-  // came from, and Kong answers a dead database with 502/503 rather than a connection
-  // error, so both spellings are checked.
-  const status = Number(err.status || err.statusCode);
-  if (status === 502 || status === 503 || status === 504) return true;
-  const cause = err.cause || {};
-  const text = [err.code, err.message, err.details, cause.code, cause.syscall, cause.message]
-    .filter(Boolean)
-    .join(' ');
-  return /ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|EPIPE|socket hang up|fetch failed|failed to contact database|not reachable|could not connect|connection terminated|upstream/i.test(text);
-}
+//
+// The test itself now lives in supabase.js next to the shared classifier, because the
+// rest of the API needed the same judgement and two copies of it drift: this one did
+// not know PostgREST's `PGRST001` wire code, so an unreachable database reached the
+// admin campaign list as a 500 carrying that code in its body.
 
 // PostgreSQL's rejection codes translated into something an operator can act on. The
 // database's own wording is logged rather than sent: `duplicate key value violates

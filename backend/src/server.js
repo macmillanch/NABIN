@@ -219,6 +219,30 @@ app.use(express.json({
   }
 }));
 
+/**
+ * Answer a database failure with the status that failure actually deserves.
+ *
+ * Every route that talks to PostgreSQL had its own copy of
+ * `res.status(400).json({ error: error.message })`, which is two bugs standing in one
+ * line: an outage arrives as a client error, so the caller stops retrying and the work
+ * is lost, and the database's own sentence about itself travels out to whoever asked.
+ * The classification lives in one place now (`storeReply` in supabase.js) and this is
+ * the one place that applies it to a response, so a route cannot be added that gets it
+ * wrong by construction. `outage_semantics_audit.js` is the check that they stay fixed.
+ */
+function replyStoreError(res, req, err, what, options = {}) {
+  const reply = supabaseHelper.storeReply(err, { what, ...options });
+  // The engine's words go to the log, where an operator can act on them, and not to the
+  // response, where they hand a stranger a map of the schema.
+  console.error(`[store] ${req.method} ${req.originalUrl} ${reply.status} ${reply.code}: ${reply.detail}`);
+  return res.status(reply.status).json({
+    success: false,
+    code: reply.code,
+    error: reply.error,
+    requestId: req.id
+  });
+}
+
 // Root API Discovery Endpoint
 app.get('/', (req, res) => {
   res.json({
@@ -263,6 +287,10 @@ app.get('/api/health', async (req, res) => {
     mode: 'POSTGRES_ERROR',
     error: err.message
   }));
+  // The connection's own words — a driver error, an internal host and port, a PostgREST
+  // code — go to the log and not to the body. This endpoint needs no credentials, so
+  // shipping them would hand an anonymous caller the shape of the infrastructure.
+  if (connection.error) console.warn(`[health] database detail: ${connection.error}`);
   res.json({
     status: 'ONLINE',
     service: 'NABIN Unified Multi-App Backend',
@@ -272,8 +300,7 @@ app.get('/api/health', async (req, res) => {
     database: {
       configured: connection.configured,
       connected: connection.connected,
-      mode: connection.mode,
-      ...(connection.error ? { error: connection.error } : {})
+      mode: connection.mode
     },
     activeDrivers: db.drivers.filter(d => d.isOnline).length,
     activeJobs: db.jobs.filter(j => j.status !== 'COMPLETED').length,
@@ -288,13 +315,15 @@ app.get('/api/ready', async (req, res) => {
   const status = db.getServicesStatus();
   const locked = status.summary.platformStatus === 'EMERGENCY_LOCKDOWN';
   const ready = Boolean(connection.ready) && !locked;
+  // Same rule as /api/health: the 503 says what an orchestrator needs (not ready), and
+  // the database's own sentence about why goes to the log.
+  if (connection.error) console.warn(`[ready] database detail: ${connection.error}`);
   res.status(ready ? 200 : 503).json({
     ready,
     platformStatus: status.summary.platformStatus,
     database: {
       connected: connection.connected,
-      mode: connection.mode,
-      ...(connection.error ? { error: connection.error } : {})
+      mode: connection.mode
     },
     services: status.summary,
     timestamp: new Date().toISOString()
@@ -975,7 +1004,13 @@ app.post('/api/admin/services/pause', authenticateAdmin, requirePermission('serv
       summary: statusObj.summary
     });
   } catch (err) {
-    res.status(400).json({ success: false, error: err.message });
+    // `persistServiceState` now throws when the switchboard could not be mirrored into
+    // PostgreSQL, and that is a 503-shaped outage, not a 400-shaped bad request.
+    res.status(err.status || 400).json({
+      success: false,
+      ...(err.code ? { code: err.code } : {}),
+      error: err.message
+    });
   }
 });
 
@@ -1010,7 +1045,11 @@ app.post('/api/admin/services/resume', authenticateAdmin, requirePermission('ser
       summary: statusObj.summary
     });
   } catch (err) {
-    res.status(400).json({ success: false, error: err.message });
+    res.status(err.status || 400).json({
+      success: false,
+      ...(err.code ? { code: err.code } : {}),
+      error: err.message
+    });
   }
 });
 
@@ -1050,7 +1089,14 @@ app.post('/api/admin/services/emergency-killswitch', authenticateAdmin, requireP
       summary: statusObj.summary
     });
   } catch (err) {
-    res.status(400).json({ success: false, error: err.message });
+    // The killswitch is the one control an operator must never be able to believe they
+    // pulled when it did not stick, so a failed mirror is reported as a 503 outage here
+    // rather than a 200 or a caller-blaming 400.
+    res.status(err.status || 400).json({
+      success: false,
+      ...(err.code ? { code: err.code } : {}),
+      error: err.message
+    });
   }
 });
 
@@ -1360,7 +1406,14 @@ app.get('/api/admin/audit-logs', authenticateAdmin, requirePermission('audit.vie
 // -------------------------------------------------------------
 // FLEET & DRIVER ACTIVITIES & TELEMETRY
 // -------------------------------------------------------------
-app.get('/api/admin/drivers', (req, res) => {
+// These five admin reads used to be registered with no middleware at all, so an
+// unauthenticated caller could list every driver with phone numbers, document paths and
+// wallet balances, or read the platform's gross fare totals. They are admin sessions only
+// from here. The coarse gate is deliberate: the fine-grained `drivers.read` /
+// `users.read` / `payments.read` matrix the admin specification calls for does not exist
+// yet, and no permission string can be enforced before it is persisted — see
+// docs/ADMIN_FEATURE_SPECIFICATION.md, section "Permission matrix".
+app.get('/api/admin/drivers', authenticateAdmin, (req, res) => {
   const category = req.query.category || 'ALL';
   let list = db.drivers || [];
   if (category !== 'ALL') {
@@ -1369,7 +1422,7 @@ app.get('/api/admin/drivers', (req, res) => {
   res.json({ success: true, drivers: list, total: list.length });
 });
 
-app.get('/api/admin/drivers/:id', (req, res) => {
+app.get('/api/admin/drivers/:id', authenticateAdmin, (req, res) => {
   const driver = (db.drivers || []).find(d => d.id === req.params.id);
   if (!driver) return res.status(404).json({ success: false, error: 'Driver not found' });
   res.json({ success: true, driver });
@@ -1684,7 +1737,7 @@ app.post('/api/admin/finance/refund', authenticateAdmin, requirePermission('fina
     });
 
     if (error) {
-      return res.status(400).json({ success: false, error: error.message });
+      return replyStoreError(res, req, error, 'settlement', { unreachableCode: 'SETTLEMENT_STORE_UNAVAILABLE' });
     }
     if (!data.success) {
       const statusCode = data.code === 'IDEMPOTENCY_CONFLICT' ? 409 : 400;
@@ -1797,7 +1850,16 @@ app.post('/api/admin/promotions', authenticateAdmin, requirePermission('promotio
     appConfigService.invalidate();
     res.json({ success: true, promotion: promo });
   } catch (err) {
-    res.status(400).json({ success: false, error: err.message, requestId: req.id });
+    // The repository classifies its own store failures, so a coupon that could not be
+    // written because PostgreSQL is unreachable is answered as an outage (503) and a
+    // coupon with a bad discount as the caller's error (400). Before this, both were 400.
+    if (err.detail) console.error(`[promotions] create failed (${err.status || 400}): ${err.detail}`);
+    res.status(err.status || 400).json({
+      success: false,
+      ...(err.code ? { code: err.code } : {}),
+      error: err.message,
+      requestId: req.id
+    });
   }
 });
 
@@ -4276,7 +4338,7 @@ app.post(['/api/rides/:id/cancel', '/api/jobs/:id/cancel'], async (req, res) => 
       });
 
       if (error) {
-        return res.status(400).json({ success: false, error: error.message });
+        return replyStoreError(res, req, error, 'cancellation', { unreachableCode: 'CANCELLATION_STORE_UNAVAILABLE' });
       }
 
       const memJob = db.getJob(jobId);
@@ -4492,7 +4554,7 @@ app.delete('/api/children/:id', requireCustomerAuth, async (req, res) => {
 });
 
 // MASTER ADMIN METRICS & HEALTH
-app.get('/api/admin/metrics', (req, res) => {
+app.get('/api/admin/metrics', authenticateAdmin, (req, res) => {
   const activeDrivers = db.drivers.filter(d => d.isOnline).length;
   const pendingKyc = db.identityApplications.filter(a => a.status === 'IDENTITY_VERIFICATION_PENDING').length;
   const activeJobs = db.jobs.filter(j => j.status !== 'COMPLETED' && j.status !== 'CANCELLED').length;
@@ -4517,9 +4579,9 @@ app.get('/api/admin/metrics', (req, res) => {
   });
 });
 
-app.get('/api/admin/drivers', (req, res) => res.json({ success: true, drivers: db.drivers }));
-app.get('/api/admin/jobs', (req, res) => res.json({ success: true, jobs: db.jobs }));
-app.get('/api/admin/restaurants', (req, res) => res.json({ success: true, restaurants: db.restaurants }));
+app.get('/api/admin/drivers', authenticateAdmin, (req, res) => res.json({ success: true, drivers: db.drivers }));
+app.get('/api/admin/jobs', authenticateAdmin, (req, res) => res.json({ success: true, jobs: db.jobs }));
+app.get('/api/admin/restaurants', authenticateAdmin, (req, res) => res.json({ success: true, restaurants: db.restaurants }));
 
 // Safe document previews
 app.get('/docs/:filename', (req, res) => {
@@ -4622,7 +4684,7 @@ app.get('/api/grocery/products', async (req, res) => {
       .select('id, name')
       .in('merchant_type', GROCERY_TYPES)
       .order('name', { ascending: true });
-    if (storeError) return res.status(400).json({ success: false, error: storeError.message });
+    if (storeError) return replyStoreError(res, req, storeError, 'grocery catalogue');
 
     let storeIds = (stores || []).map((s) => s.id);
     if (req.query.merchantId) {
@@ -4643,7 +4705,7 @@ app.get('/api/grocery/products', async (req, res) => {
     if (category && category !== 'All') query = query.eq('master_grocery_catalog.category', category);
 
     const { data, error } = await query.order('store_price', { ascending: true });
-    if (error) return res.status(400).json({ success: false, error: error.message });
+    if (error) return replyStoreError(res, req, error, 'grocery catalogue');
 
     let products = (data || []).map(projectGroceryInventoryForCustomer);
     if (search) {
@@ -4771,7 +4833,7 @@ app.get('/api/restaurants', async (req, res) => {
     if (search) query = query.ilike('name', likePattern(search));
 
     const { data, error } = await query;
-    if (error) return res.status(400).json({ success: false, error: error.message });
+    if (error) return replyStoreError(res, req, error, 'restaurant list');
 
     res.json({
       success: true,
@@ -4798,7 +4860,7 @@ app.get('/api/restaurants/:id', async (req, res) => {
     .eq('id', req.params.id)
     .in('merchant_type', RESTAURANT_TYPES)
     .maybeSingle();
-  if (error) return res.status(400).json({ success: false, error: error.message });
+  if (error) return replyStoreError(res, req, error, 'restaurant');
   if (!data) return res.status(404).json({ success: false, error: 'Restaurant not found.' });
 
   res.json({ success: true, restaurant: projectRestaurantForCustomer(data), dataSource: 'postgres' });
@@ -4833,7 +4895,7 @@ app.get('/api/restaurants/:id/menu', async (req, res) => {
   if (category && category !== 'ALL') query = query.eq('category', category);
 
   const { data, error } = await query;
-  if (error) return res.status(400).json({ success: false, error: error.message });
+  if (error) return replyStoreError(res, req, error, 'menu');
 
   const items = (data || []).map(projectMenuItemForCustomer);
   res.json({
@@ -4945,7 +5007,7 @@ app.get('/api/merchant/catalog', authenticateMerchant, requireMerchantTenant, as
       .eq('merchant_id', merchant.id)
       .order('category', { ascending: true })
       .order('name', { ascending: true });
-    if (error) return res.status(400).json({ success: false, error: error.message });
+    if (error) return replyStoreError(res, req, error, 'merchant product list');
     res.json({ success: true, merchantId: merchant.id, count: (data || []).length, products: data || [] });
   } catch (err) {
     res.status(400).json({ success: false, error: err.message });
@@ -4965,7 +5027,7 @@ app.get('/api/merchant/master-catalog', authenticateMerchant, requireMerchantTen
       .eq('is_active', true)
       .order('category', { ascending: true })
       .order('name', { ascending: true });
-    if (error) return res.status(400).json({ success: false, error: error.message });
+    if (error) return replyStoreError(res, req, error, 'master catalogue');
     res.json({ success: true, count: (data || []).length, products: data || [] });
   } catch (err) {
     res.status(400).json({ success: false, error: err.message });
@@ -5006,7 +5068,7 @@ app.post('/api/grocery/cart/revalidate', authenticateUser, async (req, res) => {
         .from('merchant_grocery_inventory')
         .select('id, product_id, merchant_id, store_price, stock_quantity, is_available, status, master_grocery_catalog(id, name, standard_unit, pricing_model)')
         .or(`id.in.(${requestedIds.join(',')}),product_id.in.(${requestedIds.join(',')})`);
-      if (error) return res.status(400).json({ success: false, error: error.message });
+      if (error) return replyStoreError(res, req, error, 'cart prices');
       for (const row of data || []) {
         inventoryById.set(row.id, row);
         if (row.product_id && !inventoryById.has(row.product_id)) inventoryById.set(row.product_id, row);
@@ -5373,11 +5435,16 @@ app.post('/api/admin/grocery/products/:id/review', authenticateAdmin, requirePer
 });
 
 // Supabase Database Connection & Status Check API
-app.get('/api/admin/supabase-status', async (req, res) => {
+// Anonymous before this, which made it the most useful endpoint an attacker could ask
+// for: it confirmed live connectivity to the database and echoed the driver's own error
+// text, which names the host. Admin sessions only, and the engine's words stop at the log.
+app.get('/api/admin/supabase-status', authenticateAdmin, async (req, res) => {
   const status = await supabaseHelper.checkSupabaseConnection();
+  if (status.error) console.warn(`[supabase-status] ${req.admin.id}: ${status.error}`);
+  const { error, ...safeStatus } = status;
   res.json({
     success: true,
-    supabase: status,
+    supabase: safeStatus,
     timestamp: new Date().toISOString()
   });
 });
@@ -5533,7 +5600,7 @@ app.get('/api/admin/platform-settings', authenticateAdmin, requireSuperAdmin, as
     if (req.query.prefix) query = query.like('setting_key', `${String(req.query.prefix)}%`);
 
     const { data, error } = await query;
-    if (error) return res.status(400).json({ success: false, error: error.message });
+    if (error) return replyStoreError(res, req, error, 'platform settings');
     res.json({ success: true, dataSource: 'postgres', settings: data || [] });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message, requestId: req.id });
@@ -5579,7 +5646,7 @@ app.put('/api/admin/platform-settings/:key', authenticateAdmin, requireSuperAdmi
       .select('setting_key, setting_value, description, updated_by, updated_at')
       .single();
 
-    if (error) return res.status(400).json({ success: false, error: error.message, requestId: req.id });
+    if (error) return replyStoreError(res, req, error, 'platform setting', { unreachableCode: 'DATABASE_UNAVAILABLE' });
 
     appConfigService.invalidate();
 
@@ -6004,12 +6071,21 @@ app.post('/api/payments/webhook', async (req, res) => {
       });
     }
 
-    const secret = process.env.PAYMENT_WEBHOOK_SECRET || 'whsec_nabin_secure_beta_2026';
-    if (!process.env.PAYMENT_WEBHOOK_SECRET && process.env.NODE_ENV === 'production') {
-      return res.status(500).json({
+    // There is no default here on purpose. A committed fallback let any deployment that
+    // forgot the variable keep verifying money against a key printed in the repository —
+    // which is to say, let anyone who can read the repository authorise a payment — and
+    // the previous guard only refused when NODE_ENV was exactly 'production', so beta,
+    // staging and a local `npm start` all ran fail-open.
+    const secret = process.env.PAYMENT_WEBHOOK_SECRET;
+    if (!secret) {
+      // This is the server's own condition, so it answers as one. A 4xx here would tell
+      // the gateway its legitimate webhook was rejected on the merits, and a gateway
+      // that believes that stops retrying — which loses the payment record.
+      console.error('[payments] PAYMENT_WEBHOOK_SECRET is not configured; webhook refused without verification.');
+      return res.status(503).json({
         success: false,
-        error: 'Payment webhook secret unconfigured in production environment.',
-        code: 'WEBHOOK_CONFIG_MISSING',
+        error: 'This server cannot verify payment webhooks right now, because no webhook secret is configured. Retry later.',
+        code: 'WEBHOOK_NOT_CONFIGURED',
         requestId: req.id
       });
     }

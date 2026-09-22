@@ -3,7 +3,9 @@ const http = require('http');
 const crypto = require('crypto');
 
 const BASE_URL = process.env.NABIN_API_URL || 'http://127.0.0.1:4000';
-const KEY_SECRET = process.env.PAYMENT_KEY_SECRET || 'rzp_sec_nabin_beta_test_secret_2026';
+// The backend has no fallback key any more, so this run and the server it targets must
+// be given the same one; `PAYMENT_KEY_SECRET=<this value> node src/server.js`.
+const KEY_SECRET = process.env.PAYMENT_KEY_SECRET || 'test_key_secret_not_for_deployment';
 
 function request(method, path, body, headers = {}) {
   return new Promise((resolve, reject) => {

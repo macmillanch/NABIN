@@ -6,6 +6,7 @@ const crypto = require('crypto');
 const { spawn, spawnSync, execSync } = require('child_process');
 const path = require('path');
 process.env.PAYMENT_WEBHOOK_SECRET ||= 'test_webhook_secret_not_for_deployment';
+process.env.PAYMENT_KEY_SECRET ||= 'test_key_secret_not_for_deployment';
 process.env.NABIN_TEST_MODE = 'true';
 const { supabaseAdmin, isLivePostgres } = require('./src/supabase');
 

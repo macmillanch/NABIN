@@ -5,7 +5,9 @@ const crypto = require('crypto');
 
 const BASE_URL = process.env.NABIN_API_URL || 'http://localhost:4000';
 const WS_URL = process.env.NABIN_WS_URL || 'ws://localhost:4000';
-const WEBHOOK_SECRET = process.env.PAYMENT_WEBHOOK_SECRET || 'whsec_nabin_secure_beta_2026';
+// Same reason as the other payment harnesses: the server keeps no fallback, so the
+// webhook secret has to be the one it was started with.
+const WEBHOOK_SECRET = process.env.PAYMENT_WEBHOOK_SECRET || 'test_webhook_secret_not_for_deployment';
 
 function request(method, path, body, headers = {}) {
   return new Promise((resolve, reject) => {

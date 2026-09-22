@@ -3,7 +3,10 @@ const crypto = require('crypto');
 const { spawn } = require('child_process');
 const path = require('path');
 const WebSocket = require('ws');
+// A server spawned by a suite carries these, and the payment verifiers refuse without
+// them — neither one falls back to a value written in the source any more.
 process.env.PAYMENT_WEBHOOK_SECRET ||= 'test_webhook_secret_not_for_deployment';
+process.env.PAYMENT_KEY_SECRET ||= 'test_key_secret_not_for_deployment';
 process.env.NABIN_TEST_MODE = 'true';
 const { supabaseAdmin, isLivePostgres } = require('./src/supabase');
 const { createClient } = require('@supabase/supabase-js');

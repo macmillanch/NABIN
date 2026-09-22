@@ -5689,7 +5689,28 @@ class NabinDatabase {
       updated_by: 'BACKEND',
       updated_at: new Date().toISOString()
     }, { onConflict: 'setting_key' });
-    if (error) console.error('⚠️ Could not persist platform service state:', error.message);
+    if (error) {
+      // This used to log and carry on, so `/api/admin/services/pause` answered 200
+      // "paused successfully" with the database unreachable. The pause was real in this
+      // process and nowhere else: the next restart re-applied whatever the store held,
+      // which is to say it un-paused a service an operator believed was suspended. That
+      // is the same failure the state was made persistent to fix, arriving from the
+      // other direction, and an outage audit caught it red-handed.
+      //
+      // The change is *not* reverted — a killswitch that un-pulls itself because the
+      // database is down is worse than one that reports honestly. The caller is told
+      // what is true: applied here, not saved anywhere.
+      const { storeReply } = require('./supabase');
+      const reply = storeReply(error, { what: 'platform service state', unreachableCode: 'SERVICE_STATE_STORE_UNAVAILABLE' });
+      const refusal = new Error(
+        `${reply.error} The change took effect in this server process only, so it will not survive a restart. Re-apply it once PostgreSQL answers.`
+      );
+      refusal.code = reply.code;
+      refusal.status = reply.status;
+      refusal.detail = reply.detail;
+      console.error('⚠️ Could not persist platform service state:', reply.detail);
+      throw refusal;
+    }
   }
 
   async restoreServiceState() {

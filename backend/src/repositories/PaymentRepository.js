@@ -420,24 +420,29 @@ class PaymentRepository {
     }
 
     // Handle SUCCESS: Cryptographic HMAC Signature Verification
-    const paymentSecret = process.env.PAYMENT_KEY_SECRET || (process.env.NODE_ENV !== 'production' ? 'rzp_sec_nabin_beta_test_secret_2026' : null);
-    if (!paymentSecret && process.env.NODE_ENV === 'production') {
-      const err = new Error('Payment gateway credentials not configured.');
-      err.statusCode = 500;
-      err.code = 'GATEWAY_CONFIG_MISSING';
+    // The key is read from the environment and nowhere else. It used to fall back to a
+    // value written in this file whenever NODE_ENV was anything but 'production' — so
+    // the sandbox, beta and a developer laptop all verified "this ride is paid for"
+    // against a secret any reader of the repository could sign with, and a client could
+    // mark a trip paid without money moving.
+    const paymentSecret = process.env.PAYMENT_KEY_SECRET;
+    if (!paymentSecret) {
+      // 503, not 400: the server is the thing that cannot verify, and answering
+      // INVALID_SIGNATURE would blame the customer's payment for the operator's missing
+      // configuration.
+      const err = new Error('This server cannot verify a payment right now, because the payment key secret is not configured.');
+      err.statusCode = 503;
+      err.code = 'PAYMENT_VERIFIER_UNCONFIGURED';
       throw err;
     }
 
     const verificationPayload = `${orderId}|${paymentId}`;
-    const expectedSignature = paymentSecret
-      ? crypto.createHmac('sha256', paymentSecret).update(verificationPayload).digest('hex')
-      : null;
+    const expectedSignature = crypto.createHmac('sha256', paymentSecret).update(verificationPayload).digest('hex');
 
     const suppliedSignature = Buffer.from(signature || '', 'utf8');
-    const expectedSignatureBuffer = Buffer.from(expectedSignature || '', 'utf8');
+    const expectedSignatureBuffer = Buffer.from(expectedSignature, 'utf8');
 
     if (
-      !expectedSignature ||
       suppliedSignature.length !== expectedSignatureBuffer.length ||
       !crypto.timingSafeEqual(suppliedSignature, expectedSignatureBuffer)
     ) {

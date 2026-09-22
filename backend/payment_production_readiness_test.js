@@ -3,8 +3,12 @@ const https = require('https');
 const http = require('http');
 
 const BASE_URL = process.env.NABIN_API_URL || 'http://127.0.0.1:4000';
-const WEBHOOK_SECRET = process.env.PAYMENT_WEBHOOK_SECRET || 'whsec_nabin_secure_beta_2026';
-const KEY_SECRET = process.env.PAYMENT_KEY_SECRET || 'rzp_sec_nabin_beta_test_secret_2026';
+// The backend has no fallback keys any more — a verifier that cannot be configured
+// refuses rather than guessing from a value printed in the repository. So this run and
+// the server it targets must be given the same pair:
+// `PAYMENT_WEBHOOK_SECRET=… PAYMENT_KEY_SECRET=… node src/server.js`.
+const WEBHOOK_SECRET = process.env.PAYMENT_WEBHOOK_SECRET || 'test_webhook_secret_not_for_deployment';
+const KEY_SECRET = process.env.PAYMENT_KEY_SECRET || 'test_key_secret_not_for_deployment';
 
 function request(method, path, body, headers = {}) {
   return new Promise((resolve, reject) => {

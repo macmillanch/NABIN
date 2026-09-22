@@ -1,4 +1,4 @@
-const { supabaseAdmin, isLivePostgres } = require('../supabase');
+const { supabaseAdmin, isLivePostgres, storeReply } = require('../supabase');
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -140,7 +140,17 @@ class PromotionRepository {
         .single();
 
       if (error) {
-        throw new Error(`Failed to create promotion in PostgreSQL: ${error.message}`);
+        // Classified rather than interpolated. This used to throw
+        // `Failed to create promotion in PostgreSQL: ${error.message}`, which did two
+        // damage jobs at once: it made an unreachable database look like a malformed
+        // coupon (the route answered 400), and it pasted PostgreSQL's own sentence —
+        // table and column names and all — into a response body.
+        const reply = storeReply(error, { what: `coupon ${code}`, unreachableCode: 'PROMOTIONS_UNAVAILABLE' });
+        const refusal = new Error(reply.error);
+        refusal.code = reply.code;
+        refusal.status = reply.status;
+        refusal.detail = reply.detail;
+        throw refusal;
       }
 
       const dto = mapRowToDTO(data);
