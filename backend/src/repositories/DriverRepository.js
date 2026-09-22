@@ -11,6 +11,39 @@ const LEGACY_DRIVER_MAP = {
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// The two status columns are CHECK-constrained: migration 001:60 allows five operational
+// states, migration 016:12 six KYC states. Anything else was sent to the store and came back
+// as that constraint's own PostgREST text in a 400 body.
+const DRIVER_OPERATIONAL_STATUSES = Object.freeze(['AVAILABLE', 'BUSY', 'ON_TRIP', 'ON_DELIVERY', 'SUSPENDED']);
+const DRIVER_KYC_STATUSES = Object.freeze(['PENDING', 'SUBMITTED', 'UNDER_REVIEW', 'VERIFIED', 'REJECTED', 'SUSPENDED']);
+// Both admin surfaces post 'ACTIVE' for "this driver may work again", and driver KYC approval
+// has always been sent as 'APPROVED'. Neither value exists in its column. The aliases stay —
+// dropping them would break the buttons that use them — but each mapping is now reported back
+// to the caller and into the audit record instead of happening silently.
+const DRIVER_OPERATIONAL_STATUS_ALIASES = Object.freeze({ ACTIVE: 'AVAILABLE' });
+const DRIVER_KYC_STATUS_ALIASES = Object.freeze({ APPROVED: 'VERIFIED' });
+
+function statusToken(value) {
+  if (value === undefined || value === null) return null;
+  return String(value).trim().toUpperCase() || null;
+}
+
+function invalidDriverStatus(field, code, sent, allowed) {
+  return {
+    success: false,
+    code,
+    error: `'${sent}' is not a valid driver ${field}. Allowed values are ${allowed.join(', ')}. Nothing was updated.`,
+    allowedValues: [...allowed]
+  };
+}
+
+function driverStatusAction(appliedOperationalStatus) {
+  if (appliedOperationalStatus === 'SUSPENDED') return 'DRIVER_SUSPENDED';
+  if (appliedOperationalStatus === 'AVAILABLE') return 'DRIVER_ACTIVATED';
+  // Moving a driver to BUSY or ON_TRIP is not activating them, and was recorded as if it were.
+  return `DRIVER_STATUS_${appliedOperationalStatus}`;
+}
+
 function normalizePhone(phone) {
   if (!phone) return '';
   return phone.replace(/\s+/g, '');
@@ -368,43 +401,110 @@ class DriverRepository {
     if (!driver) return { success: false, error: 'Driver not found' };
 
     const targetUuid = this.resolveUuid(driverId) || driver.uuid || (UUID_REGEX.test(driverId) ? driverId : null);
+
+    const requestedOp = statusToken(operationalStatus);
+    const requestedKyc = statusToken(kycStatus);
+    const appliedOp = requestedOp ? (DRIVER_OPERATIONAL_STATUS_ALIASES[requestedOp] || requestedOp) : null;
+    const appliedKyc = requestedKyc ? (DRIVER_KYC_STATUS_ALIASES[requestedKyc] || requestedKyc) : null;
+
+    if (!appliedOp && !appliedKyc) {
+      return {
+        success: false,
+        code: 'NO_DRIVER_STATUS_CHANGE',
+        error: 'Nothing was updated: send operationalStatus and/or kycStatus.'
+      };
+    }
+    if (appliedOp && !DRIVER_OPERATIONAL_STATUSES.includes(appliedOp)) {
+      return invalidDriverStatus('operationalStatus', 'INVALID_DRIVER_OPERATIONAL_STATUS', requestedOp, DRIVER_OPERATIONAL_STATUSES);
+    }
+    if (appliedKyc && !DRIVER_KYC_STATUSES.includes(appliedKyc)) {
+      return invalidDriverStatus('kycStatus', 'INVALID_DRIVER_KYC_STATUS', requestedKyc, DRIVER_KYC_STATUSES);
+    }
+
+    const liveStore = Boolean(isLivePostgres && supabaseAdmin && targetUuid);
+
+    // The state the change is measured against, captured before anything is written and read
+    // from the store when there is one. The audit record used to report the driver's status
+    // *after* mutating it as `previousState`, and reported the alias the caller sent
+    // ('ACTIVE') as `newState` — a value the column cannot hold.
+    let previous = {
+      operationalStatus: driver.operationalStatus || 'AVAILABLE',
+      isOnline: Boolean(driver.isOnline),
+      kycStatus: driver.kycStatus || driver.status || 'PENDING'
+    };
+    if (liveStore) {
+      const rows = await this.db.authoritativeRead(
+        supabaseAdmin.from('drivers').select('operational_status, is_online, kyc_status').eq('id', targetUuid),
+        { what: `the current status of driver ${driver.id}` }
+      );
+      const row = Array.isArray(rows) ? rows[0] : null;
+      if (!row) {
+        return {
+          success: false,
+          code: 'DRIVER_RECORD_MISSING',
+          error: `Driver ${driver.id} is listed in memory but has no row in the fleet directory, so its status is not being changed.`
+        };
+      }
+      previous = {
+        operationalStatus: row.operational_status || 'AVAILABLE',
+        isOnline: Boolean(row.is_online),
+        kycStatus: row.kyc_status || 'PENDING'
+      };
+    }
+
     const updates = {};
-    if (operationalStatus) {
-      const normOpStatus = (operationalStatus === 'ACTIVE' ? 'AVAILABLE' : operationalStatus).toUpperCase();
-      updates.operational_status = normOpStatus;
-      driver.operationalStatus = normOpStatus;
-      if (normOpStatus === 'SUSPENDED') {
-        driver.isOnline = false;
-        updates.is_online = false;
-      }
+    if (appliedOp) updates.operational_status = appliedOp;
+    if (appliedKyc) {
+      updates.kyc_status = appliedKyc;
+      if (appliedKyc === 'VERIFIED') updates.kyc_verified_at = new Date().toISOString();
+      else if (appliedKyc === 'REJECTED') updates.kyc_rejected_reason = reason || 'Compliance rejection';
     }
-    if (kycStatus) {
-      const normalizedKyc = (kycStatus === 'APPROVED' ? 'VERIFIED' : kycStatus).toUpperCase();
-      updates.kyc_status = normalizedKyc;
-      driver.kycStatus = normalizedKyc;
-      driver.status = normalizedKyc;
-      if (normalizedKyc === 'VERIFIED') {
-        updates.kyc_verified_at = new Date().toISOString();
-        driver.kycVerifiedAt = updates.kyc_verified_at;
-      } else if (normalizedKyc === 'REJECTED') {
-        updates.kyc_rejected_reason = reason || 'Compliance rejection';
-        driver.kycRejectedReason = updates.kyc_rejected_reason;
-      }
-    }
-    if (reason) {
-      driver.suspensionReason = reason;
+    // Suspension takes a driver off the road immediately rather than at their next app open.
+    // The reverse is deliberately not done: coming back online stays the driver's own action.
+    if (appliedOp === 'SUSPENDED') updates.is_online = false;
+
+    if (liveStore) {
+      const write = await this.db.settleAuthoritative(
+        supabaseAdmin.from('drivers').update(updates).eq('id', targetUuid),
+        `the status of driver ${driver.id}`
+      );
+      // A store that refuses the write is an outage, not a bad request: the previous code
+      // returned its message as a 400, which read as "the status you asked for is wrong".
+      if (write.error) throw this.db.authStoreUnavailable(write.error, `the status of driver ${driver.id}`);
     }
 
-    if (isLivePostgres && supabaseAdmin && targetUuid) {
-      const { error } = await supabaseAdmin
-        .from('drivers')
-        .update(updates)
-        .eq('id', targetUuid);
+    // Memory only follows a write that landed, so a failed update cannot leave the fleet
+    // listing showing a status no row holds.
+    if (appliedOp) driver.operationalStatus = appliedOp;
+    if (appliedKyc) {
+      driver.kycStatus = appliedKyc;
+      driver.status = appliedKyc;
+      if (appliedKyc === 'VERIFIED') driver.kycVerifiedAt = updates.kyc_verified_at;
+      else if (appliedKyc === 'REJECTED') driver.kycRejectedReason = updates.kyc_rejected_reason;
+    }
+    if (appliedOp === 'SUSPENDED') {
+      driver.isOnline = false;
+      driver.driverState = 'OFFLINE';
+    }
+    if (reason) driver.suspensionReason = reason;
 
-      if (error) {
-        return { success: false, error: error.message };
-      }
+    const change = {
+      operationalStatus: appliedOp ? {
+        requested: requestedOp,
+        applied: appliedOp,
+        previous: previous.operationalStatus,
+        normalised: requestedOp !== appliedOp,
+        forcedOffline: appliedOp === 'SUSPENDED' && previous.isOnline,
+        isOnlineNow: Boolean(driver.isOnline)
+      } : null,
+      kycStatus: appliedKyc ? {
+        requested: requestedKyc,
+        applied: appliedKyc,
+        previous: previous.kycStatus
+      } : null
+    };
 
+    if (liveStore) {
       // The drivers row is already updated at this point, so a refused record cannot be
       // reported as a refused action. `auditAppliedChange` is the fail-closed shape for
       // that: it throws a 503 carrying `applied: true`, which the route's catch turns
@@ -413,18 +513,20 @@ class DriverRepository {
         adminId: adminId || 'admin',
         adminName: adminName || 'Admin',
         role: 'ADMIN',
-        action: kycStatus ? `DRIVER_KYC_${updates.kyc_status || kycStatus}` : (operationalStatus === 'SUSPENDED' ? 'DRIVER_SUSPENDED' : 'DRIVER_ACTIVATED'),
+        // A call that changes both keeps its KYC action name, which is what the queue reads;
+        // the fleet half of the change is in `metadata.operationalStatus` rather than lost.
+        action: appliedKyc ? `DRIVER_KYC_${appliedKyc}` : driverStatusAction(appliedOp),
         module: 'DRIVER_FLEET',
         targetEntityType: 'DRIVER',
         targetEntityId: targetUuid,
-        previousState: driver.operationalStatus,
-        newState: operationalStatus || updates.kyc_status || kycStatus,
-        reason: reason || `Driver status updated to ${operationalStatus || updates.kyc_status || kycStatus}`
+        previousState: appliedKyc ? previous.kycStatus : previous.operationalStatus,
+        newState: appliedKyc || appliedOp,
+        reason: reason || `Driver status updated to ${appliedKyc || appliedOp}`,
+        metadata: change
       });
 
       // Post-commit KYC lifecycle event publication
-      if (kycStatus && this.db?.notificationEventBus) {
-        const normKyc = updates.kyc_status || kycStatus;
+      if (appliedKyc && this.db?.notificationEventBus) {
         let driverUserId = driver.userId || driver.user_id;
         if (!driverUserId && targetUuid) {
           const { data: dbDrv } = await supabaseAdmin.from('drivers').select('user_id').eq('id', targetUuid).maybeSingle();
@@ -435,7 +537,7 @@ class DriverRepository {
           }
         }
 
-        if (normKyc === 'VERIFIED') {
+        if (appliedKyc === 'VERIFIED') {
           if (driverUserId) {
             this.db.notificationEventBus.publish('KYC_APPROVED', {
               driverId: driver.id,
@@ -450,7 +552,7 @@ class DriverRepository {
           } else {
             console.warn(`[NOTIF_SKIPPED] KYC_APPROVED for driver ${driver.id} skipped: unlinked driver has no user_id.`);
           }
-        } else if (normKyc === 'REJECTED') {
+        } else if (appliedKyc === 'REJECTED') {
           if (driverUserId) {
             this.db.notificationEventBus.publish('KYC_REJECTED', {
               driverId: driver.id,
@@ -469,7 +571,7 @@ class DriverRepository {
       }
     }
 
-    return { success: true, driver };
+    return { success: true, driver, change };
   }
 
   async requestPayoutDestination(driverId, upiId) {

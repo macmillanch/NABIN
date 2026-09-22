@@ -115,9 +115,71 @@ function grantsForRole(role) {
   return Object.prototype.hasOwnProperty.call(ROLE_GRANTS, normalised) ? ROLE_GRANTS[normalised] : null;
 }
 
+/**
+ * The gates, next to the grants they consult.
+ *
+ * These three lived in `server.js`, which meant two things. A test that wanted to prove a
+ * refusal had to boot a second server on the port the first one holds, so the conditional
+ * gate below — the one no real role can be denied by, because the grants never split that
+ * way — was unprovable. And `adminHoldsPermission` was the only copy of the answer while
+ * handlers kept re-spelling the question (`req.admin.permissions.includes(...)` plus a role
+ * equality test), which is how the same permission came to be enforced four ways with four
+ * wordings. A refusal that reads differently depending on which check caught you is not a
+ * policy; it is whatever the nearest line of code happened to be.
+ */
+function adminHoldsPermission(admin, requiredPerm) {
+  return Boolean(admin) && (admin.role === 'SUPER_ADMIN' ||
+    (Array.isArray(admin.permissions) && admin.permissions.includes(requiredPerm)));
+}
+
+function permissionRefusal(req, res, requiredPerm, status) {
+  return res.status(status).json({
+    success: false,
+    error: status === 401
+      ? 'Authentication required'
+      : `Access Denied: Missing required permission [${requiredPerm}]. Current role: ${req.admin.role}`,
+    requestId: req.id
+  });
+}
+
+/**
+ * Route middleware: refuse before the handler unless the account holds `requiredPerm`.
+ *
+ * `SUPER_ADMIN` passes by wildcard before its list is consulted, which is why every probe
+ * of a super-only name proves reachability and nothing about the grant.
+ */
+function requirePermission(requiredPerm) {
+  return (req, res, next) => {
+    if (!req.admin) return permissionRefusal(req, res, requiredPerm, 401);
+    if (adminHoldsPermission(req.admin, requiredPerm)) return next();
+    return permissionRefusal(req, res, requiredPerm, 403);
+  };
+}
+
+// One route carries three different powers, so the decision in the body chooses which
+// permission the call needs. An unknown decision is left to the method, which refuses it
+// as a 400 — this gate is not a validator.
+const IDENTITY_DECISION_PERMISSIONS = Object.freeze({
+  APPROVE: 'identity_verification.approve',
+  REJECT: 'identity_verification.reject',
+  REQUEST_RESUBMISSION: 'identity_verification.request_resubmission'
+});
+
+function requireIdentityDecision(req, res, next) {
+  const required = IDENTITY_DECISION_PERMISSIONS[String((req.body && req.body.decision) || '').toUpperCase()];
+  if (!required) return next();
+  if (!req.admin) return permissionRefusal(req, res, required, 401);
+  if (adminHoldsPermission(req.admin, required)) return next();
+  return permissionRefusal(req, res, required, 403);
+}
+
 module.exports = {
   KNOWN_ADMIN_ROLES,
   ROLE_GRANTS,
   isKnownAdminRole,
-  grantsForRole
+  grantsForRole,
+  adminHoldsPermission,
+  requirePermission,
+  requireIdentityDecision,
+  IDENTITY_DECISION_PERMISSIONS
 };

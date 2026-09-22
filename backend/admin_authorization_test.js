@@ -135,6 +135,8 @@ function readGuardedRoutes() {
     if (!m) return;
     if (!line.includes('authenticateAdmin')) return;
     const perms = [...line.matchAll(/requirePermission\('([^']+)'\)/g)].map(x => x[1]);
+    const condPerms = Object.keys(CONDITIONAL_GATES)
+      .filter(fn => line.includes(fn)).flatMap(fn => CONDITIONAL_GATES[fn].names);
     routes.push({
       method: m[1].toUpperCase(),
       pattern: m[2],
@@ -142,6 +144,7 @@ function readGuardedRoutes() {
       // reaches its handler is refused there rather than acting on real data.
       probePath: m[2].replace(/:[A-Za-z0-9_]+/g, ABSENT),
       perms,
+      condPerms,
       superOnly: line.includes('requireSuperAdmin'),
       line: index + 1
     });
@@ -165,6 +168,9 @@ const ALLOW_PROBES = {
   'finance.adjust': { method: 'POST', route: '/api/admin/finance/adjustments', body: {}, note: 'amount validated before the ledger RPC' },
   'identity_verification.view': { method: 'GET', route: '/api/admin/identity-verifications' },
   'identity_verification.review': { method: 'POST', route: `/api/admin/identity-verifications/${ABSENT}/lock`, body: {}, note: 'no such application, so 409 before any lock' },
+  // Since D2 the document preview asks for this name instead of serving anyone who asks.
+  // The bytes are still the hard-coded mock, so what the probe proves is the gate.
+  'identity_documents.view': { method: 'GET', route: '/docs/preview_aadhaar.png', note: 'a mock SVG — reaching the handler is the claim, not the image' },
   'fleet.manage': { method: 'POST', route: `/api/admin/drivers/${ABSENT}/status`, body: {} },
   'merchant.manage': { method: 'POST', route: `/api/admin/restaurants/${ABSENT}/status`, body: {} },
   'support.view': { method: 'GET', route: '/api/admin/support' },
@@ -207,6 +213,23 @@ const NOT_PROBED = {
   'orders.manage': 'POST /api/admin/orders/expire-stale takes no input at all, so any accepted call expires live orders',
   'geofence.create': 'addGeoFence is not verified to validate before inserting, so an empty body could persist a junk zone',
   'surge.create': 'the surge write is not verified to validate before inserting, and an accepted row changes pricing for a live zone'
+};
+
+// A gate that one body field selects between cannot appear as `requirePermission('name')`
+// in the route chain, so the parser above would lose it. Each entry names the middleware,
+// the catalogue names it enforces, and why its refusal side is not reachable over HTTP —
+// which is a fact about the *grants*, not about the gate: no role holds the route's own
+// permission without also holding all three decisions, so the pair (route, refusing role)
+// does not exist. The refusals are proven by calling the middleware in
+// `admin_identity_gates_test.js` instead, and this file's CAT-03 accepts a name on this
+// list the way it accepts a probe.
+const CONDITIONAL_GATES = {
+  requireIdentityDecision: {
+    names: ['identity_verification.approve', 'identity_verification.reject',
+      'identity_verification.request_resubmission'],
+    proof: 'admin_identity_gates_test.js KG-10..12 (middleware called directly, one refusal per decision)',
+    why: 'the route gate is identity_verification.review, and the only non-super role that holds it holds all three decisions'
+  }
 };
 
 function holderFor(permission, tokens) {
@@ -276,12 +299,13 @@ async function main() {
 
   // --- CAT: the guard map, measured ------------------------------------
   const routes = readGuardedRoutes();
-  const gated = routes.filter(r => r.perms.length);
-  const names = [...new Set(gated.flatMap(r => r.perms))].sort();
-  const ungated = routes.filter(r => !r.perms.length && !r.superOnly);
+  const gated = routes.filter(r => r.perms.length || r.condPerms.length);
+  const conditionalNames = [...new Set(gated.flatMap(r => r.condPerms))].sort();
+  const names = [...new Set([...gated.flatMap(r => r.perms), ...conditionalNames])].sort();
+  const ungated = routes.filter(r => !r.perms.length && !r.condPerms.length && !r.superOnly);
 
   check('CAT-01', routes.length >= 70 && gated.length >= 55,
-    `parsed ${routes.length} authenticateAdmin routes from src/server.js, ${gated.length} of them permission-gated on ${names.length} names`);
+    `parsed ${routes.length} authenticateAdmin routes from src/server.js, ${gated.length} of them permission-gated on ${names.length} names (${conditionalNames.length} of those through a body-selected middleware)`);
 
   const deadGates = names.filter(n => !Object.values(ROLE_GRANTS).some(list => list.includes(n)));
   check('CAT-02', deadGates.length === 0,
@@ -289,13 +313,34 @@ async function main() {
 
   const superOnly = names.filter(n => !['KYC_SPECIALIST', 'OPERATIONS', 'FINANCE_AUDITOR', 'SUPPORT_AGENT']
     .some(r => ROLE_GRANTS[r].includes(n)));
-  check('CAT-03', names.length === Object.keys(ALLOW_PROBES).length + Object.keys(NOT_PROBED).length
-    && [...names].every(n => ALLOW_PROBES[n] || NOT_PROBED[n]),
-    `every gated permission has either a safe allow probe or a recorded reason not to probe one (${names.length} names, ${Object.keys(ALLOW_PROBES).length} probed, ${Object.keys(NOT_PROBED).length} refused-with-reason)`);
+  const conditionalSet = new Set(conditionalNames);
+  const uncovered = names.filter(n => !ALLOW_PROBES[n] && !NOT_PROBED[n] && !conditionalSet.has(n));
+  const staleBookkeeping = [...Object.keys(ALLOW_PROBES), ...Object.keys(NOT_PROBED)]
+    .filter(n => !names.includes(n));
+  check('CAT-03', uncovered.length === 0 && staleBookkeeping.length === 0,
+    `every gated permission has a safe allow probe, a recorded reason not to probe one, or a named conditional middleware proven elsewhere (${names.length} names, ${Object.keys(ALLOW_PROBES).length} probed, ${Object.keys(NOT_PROBED).length} refused-with-reason, ${conditionalNames.length} conditional${staleBookkeeping.length ? `; STALE entries no longer gating anything: ${staleBookkeeping.join(', ')}` : ''}${uncovered.length ? `; UNCOVERED: ${uncovered.join(', ')}` : ''})`);
 
-  check('CAT-04', ungated.length <= 15,
-    `admin routes with no permission check: ${ungated.length} (baseline 15) — least-privilege debt, named in CAT-05`);
+  // D2 closed §11 decision 9 by deleting the second, unreachable
+  // `app.get('/api/admin/drivers', ...)`. A deletion only stays closed if something fails
+  // when it is undone, and the ceiling below was the shape *before* that deletion — so the
+  // count is now held at what the tree actually measures, and CAT-06 names the fault rather
+  // than letting it hide inside a route tally.
+  check('CAT-04', ungated.length <= 14,
+    `admin routes with no permission check: ${ungated.length} (ceiling 14, the count after §11 answer 9's duplicate was deleted) — least-privilege debt, named in CAT-05`);
   console.log(`   · CAT-04 detail  ${ungated.map(r => `${r.method} ${r.pattern}@${r.line}`).join('\n     ')}\n`);
+
+  const linesOfServer = fs.readFileSync(path.join(__dirname, 'src/server.js'), 'utf8').split('\n');
+  const allRegistrations = new Map();
+  linesOfServer.forEach((line, index) => {
+    const m = line.match(/^app\.(get|post|put|patch|delete)\('([^']+)'/);
+    if (!m) return;
+    const key = `${m[1].toUpperCase()} ${m[2]}`;
+    if (!allRegistrations.has(key)) allRegistrations.set(key, []);
+    allRegistrations.get(key).push(index + 1);
+  });
+  const doubleRegistered = [...allRegistrations].filter(([, lns]) => lns.length > 1);
+  check('CAT-06', doubleRegistered.length === 0,
+    `every method+path in src/server.js is registered exactly once (${allRegistrations.size} registrations${doubleRegistered.length ? `, duplicates: ${doubleRegistered.map(([k, lns]) => `${k}@${lns.join(',')}`).join(' | ')}` : ''}) — a second one is not a second route, it is dead code Express never reaches, and the first one's projection is what leaks or holds`);
 
   const unenforced = Object.values(ROLE_GRANTS).reduce((all, list) => {
     for (const p of list) if (!names.includes(p)) all.add(p);
@@ -339,6 +384,11 @@ async function main() {
   // --- ALLOW: one probe per permission, held by a role that may pass ---
   const notProbed = [];
   for (const perm of names) {
+    if (conditionalSet.has(perm)) {
+      const gate = Object.entries(CONDITIONAL_GATES).find(([, g]) => g.names.includes(perm))[0];
+      console.log(`   · ALLOW.${perm.padEnd(32)} CONDITIONAL MIDDLEWARE — ${gate}(): ${CONDITIONAL_GATES[gate].proof}; ${CONDITIONAL_GATES[gate].why}`);
+      continue;
+    }
     const probe = ALLOW_PROBES[perm];
     if (!probe) {
       notProbed.push(perm);

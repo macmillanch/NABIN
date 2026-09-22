@@ -900,23 +900,10 @@ function authenticateAdmin(req, res, next) {
   next();
 }
 
-function requirePermission(requiredPerm) {
-  return (req, res, next) => {
-    if (!req.admin) {
-      return res.status(401).json({ success: false, error: 'Authentication required', requestId: req.id });
-    }
-
-    if (req.admin.role === 'SUPER_ADMIN' || (req.admin.permissions && req.admin.permissions.includes(requiredPerm))) {
-      return next();
-    }
-
-    return res.status(403).json({
-      success: false,
-      error: `Access Denied: Missing required permission [${requiredPerm}]. Current role: ${req.admin.role}`,
-      requestId: req.id
-    });
-  };
-}
+// The predicate and both middlewares sit in `adminPermissions.js` with the grants they read
+// (see the note there). Requiring them by these names keeps every route line in the shape
+// the authorization matrix parses.
+const { adminHoldsPermission, requirePermission, requireIdentityDecision } = require('./adminPermissions');
 
 function requireSuperAdmin(req, res, next) {
   if (!req.admin) {
@@ -1458,8 +1445,9 @@ app.post('/api/admin/reset-password', authenticateAdmin, async (req, res) => {
     // `admin.manage` was tested here for as long as this route has existed, and nothing
     // has ever granted it: the name in the matrix is `admin_accounts.manage`. A check
     // against a string no one holds is not a narrow gate, it is a dead branch that reads
-    // like one.
-    const isSuperAdmin = req.admin.role === 'SUPER_ADMIN' || (req.admin.permissions && req.admin.permissions.includes('admin_accounts.manage'));
+    // like one. The answer now comes from the same predicate `requirePermission` uses. The
+    // name stays `isSuperAdmin` because that is the parameter `resetAdminPassword` reads.
+    const isSuperAdmin = adminHoldsPermission(req.admin, 'admin_accounts.manage');
 
     if (!isSelf && !isSuperAdmin) {
       return res.status(403).json({
@@ -3161,9 +3149,19 @@ app.get('/api/admin/identity-verifications', authenticateAdmin, requirePermissio
     limit: req.query.limit || 20
   };
   const data = db.getIdentityApplications(filters);
+  // The queue handed `getIdentityApplications`' rows straight out, so a role holding
+  // `identity_verification.view` but not `identity_documents.view` — OPERATIONS is in the
+  // catalogue exactly that way — read every applicant's full Aadhaar and Voter ID numbers in
+  // one call, while the detail route below had been withholding those same two fields from
+  // that role all along. One predicate, both routes, so the answers cannot drift.
+  const canListUnmasked = adminHoldsPermission(req.admin, 'identity_documents.view');
+  const applications = canListUnmasked
+    ? data.applications
+    : data.applications.map(({ aadhaarNumberRaw, voterIdNumberRaw, ...rest }) => rest);
   res.json({
     success: true,
     ...data,
+    applications,
     metrics: {
       total: db.identityApplications.length,
       pending: db.identityApplications.filter(a => a.status === 'IDENTITY_VERIFICATION_PENDING').length,
@@ -3179,8 +3177,11 @@ app.get('/api/admin/identity-verifications/:id', authenticateAdmin, requirePermi
   const appRecord = db.getIdentityApplicationById(req.params.id);
   if (!appRecord) return res.status(404).json({ success: false, error: 'Application not found' });
 
-  const canViewUnmasked = req.admin.role === 'SUPER_ADMIN' ||
-    (req.admin.permissions && req.admin.permissions.includes('identity_documents.view'));
+  // Field-level, so it cannot be route middleware: one read is a queue row for a role
+  // without the name and an examiner's file for a role with it. It used to ask
+  // `req.admin.permissions.includes(...)` by hand — a fourth spelling of the answer
+  // `requirePermission` already gives — so it asks the same predicate now.
+  const canViewUnmasked = adminHoldsPermission(req.admin, 'identity_documents.view');
 
   let auditLogs = [];
   if (db.auditLogRepo && typeof db.auditLogRepo.list === 'function') {
@@ -3232,18 +3233,12 @@ app.post('/api/admin/identity-verifications/:id/unlock', authenticateAdmin, requ
   res.json(result);
 });
 
-app.post('/api/admin/identity-verifications/:id/review', authenticateAdmin, requirePermission('identity_verification.review'), async (req, res) => {
+// The decision in the body chooses which permission this call needs; the gate is
+// `adminPermissions.js`'s `requireIdentityDecision`, so its three names are enforced in the
+// same wording as every other route and can be refusal-tested without a server. An unknown
+// decision is left to the method, which refuses it as a 400.
+app.post('/api/admin/identity-verifications/:id/review', authenticateAdmin, requirePermission('identity_verification.review'), requireIdentityDecision, async (req, res) => {
   const { decision, reason, checklist } = req.body;
-
-  if (decision === 'APPROVE' && !req.admin.permissions.includes('identity_verification.approve') && req.admin.role !== 'SUPER_ADMIN') {
-    return res.status(403).json({ success: false, error: 'Permission denied: Cannot approve identity verification.' });
-  }
-  if (decision === 'REJECT' && !req.admin.permissions.includes('identity_verification.reject') && req.admin.role !== 'SUPER_ADMIN') {
-    return res.status(403).json({ success: false, error: 'Permission denied: Cannot reject identity verification.' });
-  }
-  if (decision === 'REQUEST_RESUBMISSION' && !req.admin.permissions.includes('identity_verification.request_resubmission') && req.admin.role !== 'SUPER_ADMIN') {
-    return res.status(403).json({ success: false, error: 'Permission denied: Cannot request document resubmission.' });
-  }
 
   let result;
   try {
@@ -5050,12 +5045,17 @@ app.get('/api/admin/metrics', authenticateAdmin, (req, res) => {
   });
 });
 
-app.get('/api/admin/drivers', authenticateAdmin, (req, res) => res.json({ success: true, drivers: db.drivers }));
 app.get('/api/admin/jobs', authenticateAdmin, (req, res) => res.json({ success: true, jobs: db.jobs }));
 app.get('/api/admin/restaurants', authenticateAdmin, (req, res) => res.json({ success: true, restaurants: db.restaurants }));
 
-// Safe document previews
-app.get('/docs/:filename', (req, res) => {
+// Document previews. What this serves today is a hard-coded SVG mock — the name, date of
+// birth and address in it are the fixture's, not anyone's — so the gate protects nothing
+// that exists yet. It is here because the seed rows hand this path out as
+// `aadhaarDocUrl`/`voterIdDocUrl`, and the day one of those fields names a real upload, an
+// ungated preview turns into a document leak on the exact permission the examiners'
+// queue already uses. `identity_documents.view` is that name; no client renders these URLs,
+// which is why gating an `<img>` source is safe here.
+app.get('/docs/:filename', authenticateAdmin, requirePermission('identity_documents.view'), (req, res) => {
   const filename = req.params.filename || '';
   const isAadhaar = filename.includes('aadhaar');
   const isBlurry = filename.includes('blurry');
