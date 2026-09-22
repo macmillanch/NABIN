@@ -201,6 +201,44 @@
 > `test_suite.js` **388/1 of 389** (the 1 is still the `gprod_5` seeding gap),
 > `restart_test.js` **35/0**, `auth_failclosed_test.js` **15/0**,
 > `chaos_audit.js` unchanged at `PASS=16 FINDING=1 BLOCKED=3 NOTE=1 FAIL=1`.
+>
+> **Phase 4 — campaign concurrency (2026-09-22, local only, NOT pushed):** the
+> directive's "no lost updates or duplicate unique records" now holds at three levels.
+> **Write:** `updateCampaign` names only the columns the request actually sent —
+> rewriting the merged row back is what un-did another operator's edit — and every
+> section is validated *before* the first write, so a refused field leaves the campaign
+> byte-identical. A child section that fails after the campaign row committed is
+> reported as `CAMPAIGN_PARTIALLY_APPLIED` (500) naming what did land, not as a clean
+> refusal. **Guard:** `guard` is mandatory (a write that read nothing throws
+> `CAMPAIGN_GUARD_REQUIRED`); the row's own `updated_at` is the revision and goes into
+> the UPDATE's WHERE, so a stale edit updates zero rows and answers **412**
+> `CAMPAIGN_STALE_EDIT`; a state move is guarded on the status it was offered from and
+> answers **409** `CAMPAIGN_STATE_CHANGED`; an edit with no `If-Match` is refused
+> **428** before anything is read; a token that is not an instant is refused **400**
+> `CAMPAIGN_REVISION_INVALID` at the edge, because passing one down reached PostgreSQL's
+> own `invalid input syntax for type timestamp` (22007) — an infrastructure complaint
+> wearing a validation error's clothes. `*` is refused for the same reason as anywhere
+> else: it lets a writer claim a revision it never read. **Uniqueness:** one code, six
+> simultaneous claims → exactly one 201 and five 409 `CAMPAIGN_CODE_TAKEN`, translated
+> from the 027 UNIQUE constraint by `storeRejection` so the schema's wording never
+> reaches a client. Reads distinguish an unreachable store from no rows
+> (`settle`/`isStoreUnreachable` → 503 `CAMPAIGNS_UNAVAILABLE`), so a banner that failed
+> to load never publishes as "no banner". **CORS was the blocker the suite could not
+> see:** the console's conditional write failed only in a browser, because `If-Match`
+> was not in `Access-Control-Allow-Headers` and `ETag` not in
+> `Access-Control-Expose-Headers` — Node and Flutter clients never preflight, so 400+
+> green assertions passed over it. `test_suite.js` gained MODULE 36 CC-00…CC-17
+> (18 assertions; the last two pin the preflight and the exposed validator), `request()`
+> now returns
+> response headers because a contract can live in one, and fixture identifiers come from
+> `fixtureSuffix()` because `POST /api/admin/promotions` **upserts on `code`**: a
+> colliding fixture id overwrote a 2026-09-15 coupon, inherited its redemption history
+> and reset `usage_count`, which is what made PROMO-04/05/08/09 go red here. Chain
+> (local, solo, fresh backend carrying the suite's test webhook secret — restarting also
+> clears the process-local 15-minute broadcast window): `test_suite.js` **408 PASSED /
+> 0 FAILED**, `restart_test.js` **35/0**, `auth_failclosed_test.js` **15/0**, plus the
+> admin console driven in a browser through create → stale-save refusal → reload →
+> re-apply → archive, with the rival's write intact at every step.
 
 ---
 
@@ -208,9 +246,9 @@
 
 | Field | Value |
 |-------|-------|
-| **Current HEAD** | this docs commit, on top of the Phase 4 chain `a551dd6` (a permission check in front of every admin write, durable credential reset), `31d0d62` (password login and provisioning stop trusting memory), `cdb63aa` (restart run asks the cold backend), `e994e44` (auth fails closed instead of falling back to fixtures), `c1f3d1d` (one telemetry validator for both transports) — which sit on the Phase 3 chain `97fb57f` (docs), `2b0c55b` (Flutter renders the live campaign), `7a882e1` (campaign console), `eb492c5` (admin login requires a username), `77dd9d6` (restart-run surge restore), `daf82cf` (MODULE 33), `2697038` (campaign API + config section), `a85ca6d` (027 + `CampaignRepository`) and on the Phase 2 chain `9da93cd`, `b4803e5`, `8e8a30e`, `80940c2`, `a0bd024` and on `d628d0c`, `5824f36`, `f759dd3`, `46ab58a`, `904acd2` |
+| **Current HEAD** | this docs commit, on top of the Phase 4 chain `ea4c146` (a campaign edit carries the revision it was based on), `a551dd6` (a permission check in front of every admin write, durable credential reset), `31d0d62` (password login and provisioning stop trusting memory), `cdb63aa` (restart run asks the cold backend), `e994e44` (auth fails closed instead of falling back to fixtures), `c1f3d1d` (one telemetry validator for both transports) — which sit on the Phase 3 chain `97fb57f` (docs), `2b0c55b` (Flutter renders the live campaign), `7a882e1` (campaign console), `eb492c5` (admin login requires a username), `77dd9d6` (restart-run surge restore), `daf82cf` (MODULE 33), `2697038` (campaign API + config section), `a85ca6d` (027 + `CampaignRepository`) and on the Phase 2 chain `9da93cd`, `b4803e5`, `8e8a30e`, `80940c2`, `a0bd024` and on `d628d0c`, `5824f36`, `f759dd3`, `46ab58a`, `904acd2` |
 | **origin/main** | `c974fc9` |
-| **HEAD == origin/main** | NO — `main` is **25 commits ahead locally and NOT pushed** |
+| **HEAD == origin/main** | NO — `main` is **27 commits ahead locally and NOT pushed** |
 | **Branch** | main |
 
 ### Untracked files of record (re-verified 2026-09-22, `git status --porcelain`)
@@ -233,6 +271,8 @@
 
 ### Recent Git History
 ```
+ea4c146 fix(backend): make a campaign edit carry the revision it is based on
+69202df docs: record the permission-check pass and the master-catalogue gap it found
 a551dd6 fix(backend): put a permission check in front of every admin write
 97578c4 docs: record the Phase 4 auth and telemetry work, and the FI-08 evidence
 31d0d62 fix(backend): stop password login and admin provisioning trusting memory
@@ -353,10 +393,12 @@ d7ef7f5 feat(phase-16): implement postgres kyc, verified vpa, partial refund and
 |-----------|--------|
 | `backend/src/server.js` | REST + WebSocket API |
 | `backend/src/database.js` | In-memory + PostgreSQL bridge |
-| Repositories | User, Driver, Job, Ledger, Payment (Phase 13+), Promotion, SchoolChild, Advertisement, **Campaign** (`repositories/CampaignRepository.js`, 583 lines, added in Phase 3) |
-| Server-driven config | `services/AppConfigService.js` composes `GET /api/app/config` sections: `services, features, offers, settings, theme, campaigns, advertisements`, 30s cache, invalidated by ad/campaign/settings/**coupon** writes |
-| Test Suite | **352 passed / 1 failed of 353** (2026-09-22); the 1 is the pre-existing `gprod_5` revalidate seeding gap that also fails at older `HEAD`s |
-| Cold Restart Tests | **34 passed / 0 failed** (includes the new step that restores `global_surge_multiplier` to 1.0) |
+| Repositories | User, Driver, Job, Ledger, Payment (Phase 13+), Promotion, SchoolChild, Advertisement, **Campaign** (`repositories/CampaignRepository.js`, 685 lines — Phase 3, then given touched-column writes, a mandatory revision guard and store-rejection translation in Phase 4) |
+| Server-driven config | `services/AppConfigService.js` composes `GET /api/app/config` sections: `services, features, offers, settings, theme, campaigns, advertisements`, 30s cache, invalidated by ad/campaign/settings/**coupon** writes; ETag/304 on the feed, `ETag` exposed to browsers |
+| Campaign writes | Conditional: `PUT /api/admin/campaigns/:idOrCode` requires `If-Match` with the revision the reader was given (428 without it, 400 if it is not an instant, 412 if the row moved, 409 if the state moved, 409 `CAMPAIGN_CODE_TAKEN` on a duplicate code, 503 on an unreachable store) |
+| Test Suite | **408 passed / 0 failed of 408** (2026-09-22, `ea4c146`) — MODULE 36 CC-00…CC-17 covers campaign concurrency; the previously chronic `gprod_5` revalidate failure is fixed at the fixture |
+| Cold Restart Tests | **35 passed / 0 failed** (includes the step that restores `global_surge_multiplier` to 1.0) |
+| Auth fail-closed | `backend/auth_failclosed_test.js` **15 passed / 0 failed** (AUTH-00…06, 10…17) |
 | Chaos / resilience | `chaos_audit.js` → `PASS=15 FINDING=1 BLOCKED=3 FAIL=2 NOTE=1`; CH-02 settlement race PASS; FI-01…FI-07 green; CH-08 and FI-08 open and owned |
 
 ### Flutter Mobile Apps
@@ -377,6 +419,11 @@ d7ef7f5 feat(phase-16): implement postgres kyc, verified vpa, partial refund and
   and popups, publish/pause/archive through the status route only
 - Fixed 2026-09-22: the console could not log in at all — `authApi.login` omitted
   `username`, which `POST /api/admin/login` requires
+- Saves are conditional since `ea4c146`: `adminApi.updateCampaign(idOrCode, body,
+  revision)` sends the `updatedAt` the editor loaded as `If-Match`, and a refused edit
+  shows the server's own words ("This campaign was edited after you loaded it …"), so a
+  second console's save cannot be quietly overwritten. Verified in a browser, including
+  the reload-and-re-apply path. `npm run lint` 0 errors and a production build pass
 
 ---
 
@@ -395,6 +442,7 @@ d7ef7f5 feat(phase-16): implement postgres kyc, verified vpa, partial refund and
 | Server-driven Phase 1 | COMPLETE (local, unpushed) | Advertisements on PostgreSQL, server-authoritative checkout coupons, `GET /api/app/config`, local chaos audit |
 | Server-driven Phase 2 | COMPLETE (local, unpushed) | Client render pass (remote-config layer + cache + server-time authority, theme/offers/features sections, banner and feature gating in Flutter) and the CRITICAL trip settlement race fixed at database level with a 50-way ledger-asserting regression (MODULE 32) |
 | Server-driven Phase 3 | COMPLETE (local, unpushed) | Dynamic campaigns / festival themes / assets on migration 027: PostgreSQL clock resolves what is live, admin campaign editor, `campaigns` section on the config feed, Customer App renders theme + logo + banner + popup with no rebuild. **Limits:** `CUSTOMER_HOME` is the only wired surface, assets are pasted URLs (no in-admin upload), 027 is not applied to any hosted project |
+| Server-driven Phase 4 | IN PROGRESS (local, unpushed) | Done: telemetry validated once for both transports (`c1f3d1d`), authentication fails closed on an unreachable store (`e994e44`, `31d0d62`), a permission check in front of every admin write with a durable credential reset (`a551dd6`), and campaign concurrency — touched-columns writes, mandatory revision guard (428/412/409/400), UNIQUE code answered as 409, outage as 503, `CAMPAIGN_PARTIALLY_APPLIED` naming what landed, and the CORS headers the conditional write needs (`ea4c146`). FI-08 documented, not corrected (`97578c4`). Open: the "Still open in this phase" list in `TASKS.md` — the codebase-wide 5xx/4xx sweep, driver/merchant campaign surfaces, the campaign asset decision, mobile offline matrix, env isolation + secret scan, financial re-verification, the public-website decision, and the Phase 4 verification chain A–O |
 
 ---
 
@@ -410,11 +458,12 @@ d7ef7f5 feat(phase-16): implement postgres kyc, verified vpa, partial refund and
 5. **Migration 017** — Absent; NOT approved for future implementation
 
 ### Open from the server-driven phases (2026-09-21/22)
-6. **`gprod_5` seeding gap** — the only failing assertion in `test_suite.js`
-   (`POST /api/grocery/cart/revalidate …`); it fails at older `HEAD`s too, so it is a
-   fixture gap rather than a regression.
-7. **CH-08** — REST `POST /api/driver/location` accepts impossible or stale fixes that
-   the WebSocket path rejects with `COORDINATES_OUT_OF_RANGE` (medium).
+6. ~~**`gprod_5` seeding gap**~~ — **closed in `ea4c146`.** The revalidate fixture asked
+   for a chip packet PostgreSQL has never stocked (only two products exist locally); it
+   now uses those two and additionally asserts per-line availability, server/client price
+   agreement and the ₹172 estimated total. The suite has no standing failure.
+7. ~~**CH-08**~~ — **closed in `c1f3d1d`** (one `TelemetryValidator` behind REST and the
+   socket, server receive time stored); see item 7 of §6 in `TASKS.md`.
 8. **FI-08** — 3 jobs (`JOB-92412647-611`, `JOB-92768166-552`, `JOB-93587159-696`) carry
    over-entitlement bookings written by **pre-fix** chaos runs. The owner's decision is
    "leave it, report it", so the check stays red as evidence.
@@ -423,6 +472,23 @@ d7ef7f5 feat(phase-16): implement postgres kyc, verified vpa, partial refund and
    asset is a pasted URL (no in-admin Cloudinary picker).
 10. **Nothing newer than `c974fc9` is pushed** and `027` is applied to the local Docker
     database only; running it against a hosted project needs explicit approval.
+11. **`POST /api/admin/promotions` upserts on `code`** — re-issuing a code resets
+    `usage_count` and inherits the old row's redemption history, so a spent limited-use
+    voucher comes back to life. Fixing it to refuse conflicts with `test_suite.js:270`,
+    which re-creates fixed code `FESTIVAL30` every run and asserts 200 — reported, not
+    chosen for, because which of the two is the requirement is the owner's call.
+12. **`GET /api/admin/promotions` caps at 50 rows with no total and no search**, so an
+    older coupon is invisible to the console on a local table that now holds 539.
+13. **The campaign outage branch (503 `CAMPAIGNS_UNAVAILABLE`) has no test** — auth
+    fails closed before any admin token can exist during an outage, so it is verified by
+    code reading and the `CHAOS_DB_DOWN=1` audit only.
+14. **`Idempotency-Key` is not CORS-allowed** (only `X-Idempotency-Key` is). No browser
+    client sends it today; it is a trap for the next one.
+15. **Local fixture rows accumulate with no reaper** — 539 promotions, 45 campaigns, 13
+    orphan "Test Basmati Rice" catalogue rows. Hygiene only; nothing financial is deleted
+    by a test run unasked.
+16. **`test_phase7_security.js` is red (36/9)**, partly against a route that no longer
+    exists; it is outside this phase's chain and repairing it must not mean loosening it.
 
 ---
 

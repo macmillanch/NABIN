@@ -1,12 +1,14 @@
 # NABIN — Task Tracker
 
 **Updated**: 2026-09-22
-**State**: Phase 2 (client render pass + the CRITICAL trip settlement race fix) and
-Phase 3 (dynamic campaigns, festival themes and assets) are complete locally and
-**NOT pushed**: `origin/main` = `c974fc9`, with 17 verified commits plus this docs
-commit on top of it. Nothing was deployed and no hosted database was touched;
-migration `027` exists in Git and has been applied to the **local Docker PostgreSQL
-only**.
+**State**: Phase 2 (client render pass + the CRITICAL trip settlement race fix),
+Phase 3 (dynamic campaigns, festival themes and assets) and part of Phase 4
+(production readiness: telemetry, fail-closed auth, admin permissions, credential
+reset, campaign concurrency) are complete locally and **NOT pushed**: `origin/main` =
+`c974fc9`, with 26 verified commits plus this docs commit on top of it. Nothing was
+deployed and no hosted database was touched; migration `027` exists in Git and has been
+applied to the **local Docker PostgreSQL only**. `test_suite.js` is **408 PASSED / 0
+FAILED** — green end to end for the first time in this phase.
 Earlier history: the 2026-09-20/21 work reached the remote by fast-forward
 `9b2804c..b13cdb3`, `55a1836` re-baselined `.agents/CURRENT_STATE.md`, and the same day's
 follow-ups (`1b128e7` un-stock + merchant notification backend, `239c134` mobile
@@ -774,6 +776,43 @@ new migration, financial correction, production change or security tradeoff.
       no wallet balance was inflated). No reversal/adjustment routine exists in
       `backend/src`, so a correction is new work that **modifies the financial
       record** — stopped at the document, per the directive.
+- [x] **Campaign concurrency — directive item 8, "no lost updates or duplicate unique
+      records"** (`ea4c146`: `backend/src/repositories/CampaignRepository.js`,
+      `backend/src/server.js`, `backend/test_suite.js` MODULE 36 CC-00…CC-17,
+      `admin-web/src/lib/api.ts`, `admin-web/src/app/campaigns/page.tsx`).
+      A campaign save used to write the whole merged row back, so two operators on one
+      campaign silently un-did each other. It now writes **only the columns the request
+      named**, validates every section it touches **before** the first write (a refused
+      field leaves the row byte-identical), and requires a **guard**: the row's own
+      `updated_at` is the revision and goes into the UPDATE's WHERE clause, so a stale
+      edit matches zero rows and is refused — **428** `CAMPAIGN_REVISION_REQUIRED` when
+      no `If-Match` was sent, **412** `CAMPAIGN_STALE_EDIT` on a revision the row no
+      longer holds, **409** `CAMPAIGN_STATE_CHANGED` when a state move is no longer the
+      state it was offered from, **500** `CAMPAIGN_GUARD_REQUIRED` for an unguarded
+      write from inside the code. One code, six simultaneous claims → exactly one 201
+      and five 409 `CAMPAIGN_CODE_TAKEN`, translated from the 027 UNIQUE by
+      `storeRejection()` so the schema's own wording never reaches a client. Reads
+      distinguish **503** `CAMPAIGNS_UNAVAILABLE` from "no rows" (`settle()` /
+      `isStoreUnreachable()`), so a banner whose query failed never publishes as "no
+      banner", and a section that fails *after* the campaign row committed answers 500
+      `CAMPAIGN_PARTIALLY_APPLIED` naming what did land instead of pretending nothing
+      happened. A revision that is not an instant is refused **400**
+      `CAMPAIGN_REVISION_INVALID` at the edge, because passing it down returned
+      PostgreSQL's `invalid input syntax for type timestamp` (22007) — an infrastructure
+      complaint wearing a validation error's clothes; `*` is refused for the same reason
+      as in any compare-and-set. **The blocker the suite could not see was CORS:** the
+      console's conditional write worked from Node and Flutter and failed only in a
+      browser, because `If-Match` was missing from `Access-Control-Allow-Headers` and
+      `ETag` from `Access-Control-Expose-Headers` — 400+ green assertions passed over
+      it. CC-16/CC-17 now pin the preflight and the exposed validator, `request()`
+      returns response headers (a contract can live in one), and fixture identifiers
+      come from `fixtureSuffix()`: `POST /api/admin/promotions` **upserts on `code`**, so
+      a colliding fixture id had silently overwritten a 2026-09-15 coupon, inherited its
+      redemption history and reset `usage_count` — that, not the campaign code, is what
+      made PROMO-04/05/08/09 red. The `gprod_5` revalidate assertion is fixed at the
+      fixture (it asked for a chip packet PostgreSQL has never stocked; it now uses the
+      two products that exist, and asserts per-line availability, price agreement and
+      the ₹172 estimated total).
 
 ### Chain as run (solo, fresh backend carrying the suite's test webhook secret)
 
@@ -795,6 +834,18 @@ new migration, financial correction, production change or security tradeoff.
       AUTH_AUDIT_STORE_UNAVAILABLE`, `admin login 503`, `verify-otp` issued no token —
       where they previously recorded a medium fail-open finding; CH-10f marks itself
       unexercised instead of passing on a session that no longer exists.
+
+- [x] Re-run after the concurrency/CORS pass (`ea4c146`), same solo conditions:
+      `test_suite.js` **408 PASSED / 0 FAILED of 408** — the suite is green end to end
+      for the first time in this phase, because the 18 CC assertions are new (+18) and
+      the chronic `gprod_5` failure is fixed (+1) — `restart_test.js` **35/0**,
+      `auth_failclosed_test.js` **15/0**. `chaos_audit.js` has **not** been re-run since
+      `ea4c146`.
+- [x] The admin console driven in a browser against the local backend: create (the
+      server's own validation words surface verbatim), a save on a superseded revision
+      refused with the 412 message shown to the operator, the rival's write still intact
+      afterwards, reload-and-re-apply succeeding and moving the revision, then archive —
+      and `GET /api/app/config` serving none of it.
 
 ### Still open in this phase
 
@@ -838,10 +889,38 @@ new migration, financial correction, production change or security tradeoff.
       fallback. An outage must read 5xx and a business rule 4xx, and never name the
       fault to the client in a way that distinguishes a missing row from a missing
       database.
-- [ ] **Campaign/admin surface security (items 7–9), concurrency (8), the other six
-      apps' campaign surfaces (5, 6), assets (10), public website (11), offline
-      recovery matrix (12), env isolation and secret scan (13), financial invariant
-      re-verification (14, 15).** None started.
+- [ ] **The rest of the phase: the other six apps' campaign surfaces (directive items
+      5–6), campaign assets (10), the public website (11), the offline/recovery matrix
+      (12), env isolation and secret scan (13), financial invariant re-verification
+      (14–15), and the A–O verification chain with the A–M report.** None started.
+      Items 7–9 (security) and 8 (concurrency) are done — see above.
+- [ ] **`POST /api/admin/promotions` upserts on `code`, so re-issuing a code silently
+      resets `usage_count`** and inherits the previous row's redemption history. That is
+      a coupon-issuance accounting hazard (a limited-use voucher comes back to life), and
+      it is what turned this phase's PROMO-04/05/08/09 red before the fixture identifiers
+      were made collision-free. **Reported, not fixed:** changing it to refuse a
+      duplicate conflicts with `test_suite.js:270`, which re-creates the fixed code
+      `FESTIVAL30` on every run and asserts 200, so a fix needs the owner's call on
+      which of the two is the requirement.
+- [ ] **`GET /api/admin/promotions` returns at most 50 rows with no total and no
+      search,** so on a local database that has accumulated 539 promotion rows an older
+      coupon is simply invisible to the console — a list assertion cannot distinguish
+      "not there" from "not on this page".
+- [ ] **The campaign outage branch has no test.** `CAMPAIGNS_UNAVAILABLE` → 503 is
+      reachable only when PostgreSQL refuses, and authentication then fails closed
+      first, so no admin token exists to make the request. Verified by reading the code
+      and by the `CHAOS_DB_DOWN=1` audit, not by an assertion.
+- [ ] **`Idempotency-Key` is not in `Access-Control-Allow-Headers`** (only the
+      `X-Idempotency-Key` spelling is), so a browser client cannot send it. No browser
+      surface sends one today, so nothing is broken; it is a trap for the next one.
+- [ ] **Local fixture rows accumulate and nothing reaps them** — 539 promotions, 45
+      campaigns, 13 orphan "Test Basmati Rice" catalogue rows from earlier sessions.
+      Every one is a test fixture on the local Docker database, created by harnesses
+      rather than by a customer; they are listed as hygiene, and deleting financial rows
+      is not something a test run should do unasked.
+- [ ] **`test_phase7_security.js` is not part of this chain and is red** (36/9),
+      including an assertion against a route that no longer exists. Repairing it is its
+      own piece of work and must not be done by loosening it.
 - [ ] No admin **deactivation route** exists at all — `is_active` can only be flipped
       in the database, which is the path the new gate now defends.
 - [ ] `test_phase7_security.js` (45 assertions) fails 36/9 for a stale reason: it
