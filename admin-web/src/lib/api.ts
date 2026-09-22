@@ -74,4 +74,19 @@ export const adminApi = {
   // names a role on a status change is a promotion button wearing a toggle.
   setAdminAccountStatus: (id: string, isActive: boolean) =>
     api.post(`/admin/accounts/${encodeURIComponent(id)}/status`, { isActive }),
+  // CUSTOMER ACCOUNTS (area 4). The directory is a projected read rather than a row dump —
+  // `id, name, phone, email, account_status, identity_status, rating, created_at,
+  // updated_at` and nothing else, because RLS is bypassed for every backend query and this
+  // route is reachable by three of the five roles. The detail read carries the live session
+  // list so a confirmation can state how many devices it signs out instead of guessing.
+  getCustomers: (params?: { search?: string; status?: string; limit?: number; offset?: number }) =>
+    api.get('/admin/customers', { params }),
+  getCustomer: (id: string) => api.get(`/admin/customers/${encodeURIComponent(id)}`),
+  // `status` and `reason` are the whole body. A closing is refused server-side below five
+  // characters of reason, because the audit record is the only notice the customer gets —
+  // this write sends no notification — so an unexplained suspension cannot be answered
+  // when the customer appeals.
+  setCustomerStatus: (id: string, status: string, reason?: string) =>
+    api.post(`/admin/customers/${encodeURIComponent(id)}/status`, { status, reason }),
+  signOutCustomer: (id: string) => api.post(`/admin/customers/${encodeURIComponent(id)}/sign-out`),
 };

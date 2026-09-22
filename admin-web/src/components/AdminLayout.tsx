@@ -3,7 +3,8 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/components/AuthProvider';
-import { LogOut, LayoutDashboard, Store, Menu, X, Car, Package, Megaphone, ShieldCheck } from 'lucide-react';
+import { holdsPermission } from '@/lib/access';
+import { LogOut, LayoutDashboard, Store, Menu, X, Car, Package, Megaphone, ShieldCheck, Users } from 'lucide-react';
 import { usePathname } from 'next/navigation';
 
 interface NavItem {
@@ -24,6 +25,7 @@ const NAV_ITEMS: NavItem[] = [
   { name: 'Merchants', href: '/merchants', icon: Store },
   { name: 'Jobs/Orders', href: '/orders', icon: Package },
   { name: 'Campaigns', href: '/campaigns', icon: Megaphone },
+  { name: 'Customers', href: '/customers', icon: Users, permission: 'customers.read' },
   { name: 'Security', href: '/security', icon: ShieldCheck, permission: 'security.view' },
 ];
 
@@ -70,9 +72,7 @@ export default function AdminLayout({ children, title }: { children: React.React
         </div>
 
         <nav className="nabin-nav__list" aria-label="Admin sections">
-          {NAV_ITEMS.filter(
-            (item) => !item.permission || (user.permissions as string[] | undefined)?.includes(item.permission)
-          ).map((item) => {
+          {NAV_ITEMS.filter((item) => !item.permission || holdsPermission(user, item.permission)).map((item) => {
             const isActive = pathname === item.href;
             const Icon = item.icon;
             return (

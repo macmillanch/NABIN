@@ -5,6 +5,7 @@ import React, {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from 'react';
@@ -28,7 +29,23 @@ import { TriangleAlert } from 'lucide-react';
  *     server remains the enforcement point (§2.1, area 50).
  *   - With no provider mounted, `useConfirmAction()` resolves `false`. A dialog that
  *     cannot open does not wave the action through.
+ *
+ * A spec may also carry a `reason` field, which makes the dialog collect a sentence before
+ * it will confirm, and `useConfirmDetails()` is the hook that reads it back. The confirm
+ * button stays disabled while the field is short of the server's own minimum.
  */
+export interface ReasonField {
+  label: string;
+  placeholder?: string;
+  /**
+   * The minimum the server refuses below. Mirrored here rather than discovered by a 400:
+   * a customer suspension is rejected outright under five characters, because the audit
+   * record is the only notice the customer ever gets of it.
+   */
+  minLength: number;
+  help?: string;
+}
+
 export interface Confirmation {
   /** Names the object being changed, e.g. `Suspend Fresh Bites`. */
   title: string;
@@ -43,49 +60,80 @@ export interface Confirmation {
   cancelLabel?: string;
   /** `danger` for a state change that stops something working; `warning` for the rest. */
   tone?: 'danger' | 'warning';
+  /** Set this to make the dialog collect a sentence before it will confirm. */
+  reason?: ReasonField;
 }
 
+/** What an open dialog resolves to: the answer, and whatever was typed into it. */
+export interface ConfirmationResult {
+  confirmed: boolean;
+  reason: string;
+}
+
+type OpenFn = (confirmation: Confirmation) => Promise<ConfirmationResult>;
 type ConfirmFn = (confirmation: Confirmation) => Promise<boolean>;
 
-const ConfirmContext = createContext<ConfirmFn>(async () => false);
+interface ConfirmApi {
+  open: OpenFn;
+  confirm: ConfirmFn;
+}
+
+const ConfirmContext = createContext<ConfirmApi>({
+  open: async () => ({ confirmed: false, reason: '' }),
+  confirm: async () => false
+});
 
 export function ConfirmActionProvider({ children }: { children: React.ReactNode }) {
   const [spec, setSpec] = useState<Confirmation | null>(null);
-  const resolverRef = useRef<((confirmed: boolean) => void) | null>(null);
+  const [reasonValue, setReasonValue] = useState('');
+  const resolverRef = useRef<((result: ConfirmationResult) => void) | null>(null);
   const openerRef = useRef<HTMLElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const cancelRef = useRef<HTMLButtonElement | null>(null);
+  const reasonRef = useRef<HTMLTextAreaElement | null>(null);
 
   const settle = useCallback((confirmed: boolean) => {
     const resolve = resolverRef.current;
     resolverRef.current = null;
     setSpec(null);
-    if (resolve) resolve(confirmed);
+    if (resolve) resolve({ confirmed, reason: reasonValue.trim() });
     // Back to the button the operator was on, so a keyboard walk does not restart at the
     // top of the table after every refusal.
     openerRef.current?.focus?.();
     openerRef.current = null;
-  }, []);
+  }, [reasonValue]);
 
-  const confirm = useCallback<ConfirmFn>((confirmation) => {
-    return new Promise<boolean>((resolve) => {
+  const open = useCallback<OpenFn>((confirmation) => {
+    return new Promise<ConfirmationResult>((resolve) => {
       // A second request while one is open is refused, not queued. Two dialogs stacked on
       // the same operator is exactly how a wrong "yes" gets clicked.
       if (resolverRef.current) {
-        resolve(false);
+        resolve({ confirmed: false, reason: '' });
         return;
       }
       openerRef.current = document.activeElement as HTMLElement | null;
       resolverRef.current = resolve;
+      setReasonValue('');
       setSpec(confirmation);
     });
   }, []);
 
+  const confirm = useCallback(async (confirmation: Confirmation) => {
+    return (await open(confirmation)).confirmed;
+  }, [open]);
+
+  const api = useMemo<ConfirmApi>(() => ({ open, confirm }), [open, confirm]);
+
+  const requiredLength = spec?.reason?.minLength ?? 0;
+  const reasonMissing = reasonValue.trim().length < requiredLength;
+
   useEffect(() => {
     if (!spec) return;
     // Cancel takes focus, never the confirm button: an accidental Enter on a freshly
-    // opened dialog must not be the dangerous answer.
-    cancelRef.current?.focus();
+    // opened dialog must not be the dangerous answer. With a reason to type, the field
+    // takes it instead, and Enter inside a textarea is a newline rather than a yes.
+    if (spec.reason) reasonRef.current?.focus();
+    else cancelRef.current?.focus();
 
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === 'Escape') {
@@ -95,7 +143,7 @@ export function ConfirmActionProvider({ children }: { children: React.ReactNode 
       }
       if (event.key !== 'Tab' || !panelRef.current) return;
       const focusable = Array.from(
-        panelRef.current.querySelectorAll<HTMLElement>('button:not([disabled])')
+        panelRef.current.querySelectorAll<HTMLElement>('button:not([disabled]), textarea:not([disabled])')
       );
       if (!focusable.length) return;
       const first = focusable[0];
@@ -115,7 +163,7 @@ export function ConfirmActionProvider({ children }: { children: React.ReactNode 
   }, [spec, settle]);
 
   return (
-    <ConfirmContext.Provider value={confirm}>
+    <ConfirmContext.Provider value={api}>
       {children}
       {spec && (
         <div
@@ -145,6 +193,26 @@ export function ConfirmActionProvider({ children }: { children: React.ReactNode 
                 ))}
               </ul>
             )}
+            {spec.reason && (
+              <div className="nabin-stack" style={{ gap: 'var(--space-xxs)' }}>
+                <label className="nabin-label" htmlFor="nabin-confirm-reason">
+                  {spec.reason.label}
+                </label>
+                <textarea
+                  id="nabin-confirm-reason"
+                  ref={reasonRef}
+                  className="nabin-input"
+                  rows={3}
+                  value={reasonValue}
+                  placeholder={spec.reason.placeholder}
+                  onChange={(event) => setReasonValue(event.target.value)}
+                />
+                <span className="nabin-cell-meta">
+                  {spec.reason.help ??
+                    `At least ${spec.reason.minLength} characters. The server refuses a shorter one.`}
+                </span>
+              </div>
+            )}
             <div className="nabin-row" style={{ justifyContent: 'flex-end' }}>
               <button
                 ref={cancelRef}
@@ -157,6 +225,9 @@ export function ConfirmActionProvider({ children }: { children: React.ReactNode 
               <button
                 type="button"
                 onClick={() => settle(true)}
+                // Missing required text is not a confirmable state; the alternative is a
+                // 400 from the route and an operator who has to read why.
+                disabled={reasonMissing}
                 className={`nabin-btn ${spec.tone === 'danger' ? 'nabin-btn--danger' : 'nabin-btn--primary'}`}
               >
                 {spec.confirmLabel}
@@ -169,6 +240,15 @@ export function ConfirmActionProvider({ children }: { children: React.ReactNode 
   );
 }
 
-export function useConfirmAction() {
-  return useContext(ConfirmContext);
+export function useConfirmAction(): ConfirmFn {
+  return useContext(ConfirmContext).confirm;
+}
+
+/**
+ * The same dialog for an action the server will not accept without a sentence: a customer
+ * suspension or block is refused under five characters of reason, because the audit record
+ * is the only notice the account holder gets — this write sends no notification.
+ */
+export function useConfirmDetails(): OpenFn {
+  return useContext(ConfirmContext).open;
 }

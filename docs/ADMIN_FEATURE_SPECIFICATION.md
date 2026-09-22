@@ -68,25 +68,31 @@ Existing route groups by prefix: `services` (4), `accounts` (2), `audit-logs` (1
 
 ### 1.2 The admin web surface
 
-`admin-web/` (Next.js) has **seven pages** and **eight components/lib files** (re-measured
-after A5 added the security screen and the confirmation modal):
+`admin-web/` (Next.js) has **eight pages** and **nine components/lib files** (re-measured
+after D3 added the customers screen and `lib/access.ts`; A5 had added the security screen and
+the confirmation modal):
 
 ```
 src/app/login/page.tsx      src/app/page.tsx        (metrics + service switchboard)
 src/app/drivers/page.tsx    src/app/merchants/page.tsx
 src/app/orders/page.tsx     src/app/campaigns/page.tsx
-src/app/security/page.tsx
+src/app/security/page.tsx   src/app/customers/page.tsx
 src/components/{AdminLayout,AuthProvider,ResourceTable,CampaignEditor,ConfirmAction}.tsx
-src/lib/{api.ts,campaigns.ts,refusals.ts}
+src/lib/{api.ts,campaigns.ts,refusals.ts,access.ts}
 ```
 
-`src/lib/api.ts` exposes 24 methods and every one of them is now reached by a page — the
-five security calls arrived with the screen that needed them. Measured absences:
+`src/lib/api.ts` exposes 28 methods — 25 on `adminApi`, 3 on `authApi` — and every one of
+them is now reached by a page; the four customer calls arrived with the screen that needed
+them. Measured absences:
 
-- Permission checks exist in **two** places: `/security` gates each action button on
-  `user.permissions`, and `AdminLayout` hides its own nav entry without `security.view`.
-  Every other page still renders the same controls for every role, so a least-privilege
-  administrator is refused by the server rather than by the screen (#61, §11 decision 10).
+- Permission checks exist in **three** places: `/security` and `/customers` each gate their
+  action buttons on the caller's grants, and `AdminLayout` hides a nav entry whose permission
+  the caller lacks — now through `holdsPermission()`, the client's copy of
+  `adminHoldsPermission`, so `SUPER_ADMIN`'s wildcard is applied the same way the server
+  applies it rather than relying on its grant list happening to be complete. Every other page
+  still renders the same controls for every role, so a least-privilege administrator there is
+  refused by the server rather than by the screen (#61, §11 decision 10 — carried out on the
+  one surface it was answered for, not platform-wide).
 - **Zero** realtime code — `grep -nE "socket|WebSocket|realtime|EventSource|setInterval|
   refreshInterval" admin-web/src` returns no matches. Nothing moves unless you reload.
 - **Zero** charts, **zero** maps, **zero** CSV/XLSX/PDF export, **zero** global search.
@@ -274,8 +280,13 @@ rather than restated by hand.
   rather than an accident of the wildcard, so the
   surface has to carry it: a control bound to one of those names is either hidden or shown
   as super-only for a caller whose `GET /api/admin/me` does not report the name, and never
-  rendered as an ordinary button that answers 403. `security.view` is the shape to copy —
-  `admin-web/src/app/security/page.tsx` already gates each action on `user.permissions`.
+  rendered as an ordinary button that answers 403. `security.view` was the shape to copy —
+  `admin-web/src/app/security/page.tsx` already gated each action on `user.permissions` — and
+  since D3 `app/customers/page.tsx` carries it too, through `lib/access.ts` so the wildcard
+  rule matches the server's rather than depending on a grant list being complete, with the
+  missing name stated in the row where the control would have been. That is two of the six
+  pages; the other four still render whatever the role cannot do (§11 answer 10's remaining
+  reach, #61).
 - **In the catalogue, gated on no route** (9): `audit.export`, `geofence.edit`,
   `identity_documents.download`, `notification.view`, `promotion.activate`, `services.view`,
   `support.escalate`, `surge.{edit,activate}`. Until D2 this list had thirteen entries, and
@@ -594,7 +605,7 @@ configuration question once §2.2 is fixed, not a code change.
 
 | # | Area | Today | Gap | Phase |
 |---|---|---|---|---|
-| 4 | Customer management incl. suspend + force logout | EXISTS since D1 — `GET /api/admin/customers` and `/:id` (`customers.read`), `POST /:id/status` and `/:id/sign-out` (`customers.suspend`), over `users.account_status` with its `CHECK (ACTIVE\|SUSPENDED\|BLOCKED)`. **Not `is_active`, which the inventory guessed: `users` has no such column**, and `account_status` is the one migration 024 already shields from the client roles | Profile edit (`customers.update`) and `customers.impersonate` remain unbuilt; **no hard delete of records with financial or audit trail** — there is no delete route, and the harness asserts one stays that way; and five customer handlers still resolve a bearer by hand without asking the account's status, which is safe only because each requires a live session (§7's D1 remainder names them) | D |
+| 4 | Customer management incl. suspend + force logout | EXISTS since D1 (routes) and D3 (screen) — `GET /api/admin/customers` and `/:id` (`customers.read`), `POST /:id/status` and `/:id/sign-out` (`customers.suspend`), over `users.account_status` with its `CHECK (ACTIVE\|SUSPENDED\|BLOCKED)`, reached from `admin-web/src/app/customers/page.tsx` whose four actions all go through the area-49 dialog and whose suspend control is hidden-and-named for the three roles without the grant (§11 answer 10). **Not `is_active`, which the inventory guessed: `users` has no such column**, and `account_status` is the one migration 024 already shields from the client roles | Profile edit (`customers.update`) and `customers.impersonate` remain unbuilt, and neither has a screen waiting for it; **no hard delete of records with financial or audit trail** — there is no delete route, and the harness asserts one stays that way; and five customer handlers still resolve a bearer by hand without asking the account's status, which is safe only because each requires a live session (§7's D1 remainder names them). The screen has no realtime refresh, so a suspension made in another console shows on the next reload | D |
 | 5 | Driver management | PARTIAL — `GET /api/admin/drivers`, `GET /:id`, `POST /:id/status` (`fleet.manage`) | No profile edit, no document list, no per-driver timeline. Since D2 the status write is honest about what it did: `ACTIVE`/`APPROVED`/lower-case are still accepted because both UIs post them, but the response now carries `change.operationalStatus.{requested,applied,previous,normalised,forcedOffline,isOnlineNow}` and the audit row records the value the column can actually hold (`DriverRepository.js:407`). Suspending still writes `is_online = false`, and re-activating still leaves the driver offline — that is the driver's own action to take — but the answer says so instead of implying a restore that never happened. What is still not there: suspend is **not reversible to what it was** — no column holds the pre-suspension operational status, so reinstating always lands on `AVAILABLE`; the UI's "Activate" copy still promises a restore (§7 Phase D, admin-web task); and a driver who exists only in memory is now refused (`DRIVER_RECORD_MISSING`) rather than half-updated | D |
 | 6 | KYC queue with private document storage | PARTIAL — `identity-verifications` list/`review`/`lock`/`unlock`, `identity_documents` table, `/docs/:filename` preview | D2 made the two document powers real gates instead of descriptions: `GET /docs/:filename` asks for `identity_documents.view` (`server.js:5058`), which it previously did not check at all — what that route serves today is a hard-coded SVG mock, so the gate closes a hole ahead of the first real upload rather than patching a live leak, and it is `§7`'s D2 item 1 that says so at length — and the review route chains `requireIdentityDecision` after its route permission so `identity_verification.{approve,reject,request_resubmission}` are enforced by one middleware each (`adminPermissions.js`) rather than by three `req.admin.permissions.includes` calls inside the handler. The queue's own list route also stopped leaking: it answers with raw Aadhaar and Voter ID numbers only to a holder of `identity_documents.view`, and withholds the *keys* — not blanked strings — from every other role, matching what the detail route already did (§2.3). Still true and still the ceiling: the `identity_documents` table holds **0 rows and no code touches it**, the queue's applications live in **process memory** (§2.5), and an unmasked identity read is not itself audited | D |
 | 7 | Merchant management with tenant isolation | PARTIAL — `POST /api/admin/restaurants/:id/status`, `GET /api/restaurants` for admin | No merchant detail/edit; **the suspend action writes a memory copy that no column can hold** (`merchants` has 39 rows and only `is_open`, §2.5); merchant-scoped endpoints already prove tenant isolation via `requireMerchantTenant` and reuse it here | D |
@@ -890,6 +901,30 @@ actually finish, and what it must stop short of.
   `admin-web/src` reads `accountStatus` at all — so this is a reporting change, not a
   behaviour change. If area 5-6's work ever needs the identity stage, it must read
   `identity_status`, which is where it is durable.
+- **Area 4's screen is built — D3, 2026-09-23.** `admin-web/src/app/customers/page.tsx` on
+  the D1 routes, and it is the surface §11 answer 10 was answered for. The directory is the
+  projected read with a bounded search, a status filter and real paging behind the count;
+  suspend, block, reinstate and sign-out-everywhere each go through the area-49 dialog, whose
+  effect line states what the route does rather than what a button implies — sessions end,
+  orders and wallet history do not, nothing is deleted, the account holder is not notified so
+  the reason you type is the only record left, and reinstating reopens sign-in without
+  restoring the sessions the suspension ended. The device count in that sentence comes from
+  `GET /api/admin/customers/:id` before the dialog opens, because area 49 forbids guessing at
+  it, and a read that fails is reported as unknown rather than as zero.
+  `ConfirmAction` grew the `reason` field this needed — the server refuses a suspension under
+  five characters, so the confirm button stays disabled below the same minimum rather than
+  letting the operator discover it through a 400 — and `lib/access.ts` is the client's copy of
+  `adminHoldsPermission`, wildcard included, used to hide `customers.suspend` controls from
+  the three roles that hold `customers.read` without them and to say, in the row, which grant
+  is missing. The read-only "Your role and grants" section is the other half of answer 10:
+  with no permission editor by decision, the screen states the caller's role and grants
+  instead of leaving the absent buttons to be inferred. Walked end to end, both directions,
+  with the refusals re-proven against the routes with the same non-super token — §8.
+  What this does **not** do: it does not carry answer 10 to the other five pages, which still
+  render controls their caller may be refused on (#61); it adds no realtime refresh, so a
+  suspension made in another console appears on the next reload; and the driver screen's
+  "Activate" copy still promises a restore that D2 showed is not what happens, which is area
+  5's UI work and unchanged here.
 - **Areas 5 and 6 are built — D2, 2026-09-23.** The condition recorded when this phase was
   scoped said it in one line: area 6's *enforcement* is buildable, its *durability* is not.
   That is exactly what happened. Four measured faults, four fixes, and one harness
@@ -1015,12 +1050,58 @@ the same area-49 confirmation with no shortcut path.
 | `backend/admin_customers_test.js` (**new, D1**) | 65 assertions: the two customer permissions refuse exactly the roles §4 says must not hold them, the directory is projected (no wallet, dob, address or credential key reaches the response) with a bounded search and a real count behind the paging, a suspension lands in `users.account_status`, signs the customer's live sessions out, makes the bearers already in hand fail and a fresh sign-in answer 403 `ACCOUNT_SUSPENDED`, and leaves an audit row that states how many sessions it killed; `BLOCKED` refuses at sign-in too, and reinstating reports the status it replaced; a sign-out ends sessions *without* closing the account, proven by its 401 being distinguishable from a closed account's 403; no delete route exists; the in-process guard is proven against the identity-overloaded statuses, a mint-time snapshot, and a status written out of process, and the two routes that resolve a bearer without `authenticateUser` (`/api/auth/me`, `/api/auth/refresh-token`) are checked both ways — normal `200` for an open account over HTTP, and a source check that a deleted guard fails the run; the fixture deletes itself and sweeps orphaned probe accounts | any customer account-status or customer-session change |
 | `backend/admin_identity_gates_test.js` (**new, D2**) | 64 assertions: the document preview refuses an anonymous caller and refuses every role §4 did not give `identity_documents.view` to, by name; the two identity reads mask the *same* field pair for the *same* token, with the withheld keys absent rather than blanked and the row count unchanged either way, so the list route can no longer publish what the detail route withholds; the three review decisions each refuse on their own permission in `requirePermission`'s own wording, proven by calling `requireIdentityDecision` directly (`KG-10..12`) plus an assertion of the grants fact that makes direct calling correct rather than a shortcut (`KG-17`); and `updateDriverStatus` refusing a value the column's `CHECK` cannot hold without writing it or a trail row, applying the aliases both admin UIs send while *reporting* `requested`/`applied`/`previous`/`normalised`/`forcedOffline`, agreeing with the live row at every step, and leaving exactly its own five truthful records — one action per kind of change, never `DRIVER_ACTIVATED` for a driver moved to `BUSY`. It creates and deletes its own fixture driver row and disables its own `idg_*` probe accounts, sweeping an aborted run's leftovers before making new ones | any driver status/KYC write, identity queue read or document route change |
 | Flutter `main_admin.dart` widget tests + `flutter analyze` | the admin mobile app | phases with mobile changes |
-| `admin-web`: `npm run lint`, `npm run build`, then a real browser walk of each confirmation (local backend on :4000, local dev server on :3001) | area 49's component, the security screen, and that a dialog's words match what the route does | phases A5 and G — **there is no automated admin-web harness**, so this is the only thing between a copy edit and a false promise to an operator |
+| `admin-web`: `npm run lint`, `npm run build`, then a real browser walk of each confirmation (local backend on :4000, local dev server on :3001) | area 49's component, the security screen, the customers screen, and that a dialog's words match what the route does | phases A5, D3 and G — **there is no automated admin-web harness**, so this is the only thing between a copy edit and a false promise to an operator |
 
 The walk is not cosmetic. It is what found that the dashboard's pause and resume had never
 worked (§7 item 8), and that a first draft of the security screen reported "Every session
 taken down: 0 removal(s)" for a no-op and "2 session(s) revoked" for one session by adding
 the durable store's row to this process's in-memory copy of the same session.
+
+**The D3 walk, run 2026-09-23 against the local store.** It found two more before either was
+committed, both of the same kind — a screen stating something the route does not do:
+
+- The first draft's suspension dialog said "0 signed-in devices is signed out by the same
+  call" for an account with nothing signed in. A count of zero is not a plural, and it is
+  also not the same sentence as "nothing to end", so `devicesEnding()` now answers four ways
+  (unknown, none, one, many) and the unknown branch says it is unknown rather than borrowing
+  zero's confidence.
+- The directory header rendered the server's `searchCappedAt: 200` as "the search matched
+  more than 200 and is capped" whenever the field was present. It is present on **every**
+  searched read, because it describes the search's shape rather than its outcome, so a
+  one-row search was telling the operator it had missed 199. The note now appears only when
+  the matched count actually reaches the ceiling.
+
+What it proved, on `6abb651f…` (a `New NABIN Customer` fixture with exactly one live
+session, chosen so the singular wording and the session count were both observable): the
+reason field refused to confirm at 4 characters and accepted at the server's own minimum;
+the suspend landed as `SUSPENDED` with the outcome line reading "1 session(s) ended — 1
+row(s) deleted in the durable store, 0 held by this process" — the two mechanisms kept
+apart, as §2.7 requires; `GET /api/admin/audit-logs?module=CUSTOMER` returned
+`CUSTOMER_SUSPENDED` with the typed sentence as `reason`, `ACTIVE → SUSPENDED`, and
+`metadata.sessionsSignedOut: 1`; the `Suspended` chip listed the row and the reinstatement
+returned it to `ACTIVE` with its own `CUSTOMER_REINSTATED` record, whose `reason` reads
+"Customer account reinstated. Note: …" — and left the account with **0** sessions, which is
+what the dialog promised rather than what a "restore" copy would have implied.
+
+§11 answer 10 was walked as a second identity, not as a code read: a throwaway
+`ui_walk_operations` OPERATIONS account saw the directory at 25 rows with **no button in the
+action column at all** and the row's own sentence naming the missing `customers.suspend`
+grant, saw the Security entry absent from the navigation, and saw its grants counted as 8
+against `SUPER_ADMIN`'s 55 in the read-only "Your role and grants" section. Then the same
+token was used against the routes directly, because hiding is not allowing:
+`GET /api/admin/customers` answered 200, and both `POST …/status` and `POST …/sign-out`
+answered 403 naming `customers.suspend`. The account was disabled at the end of the walk —
+`isActive: false` revoked its 3 sessions in the same call and its next sign-in was refused —
+so no enabled credential was left behind, and its two audit rows are.
+
+Not walked, and not claimed: the 503 `applied: true` path (the store would have to refuse
+the audit write mid-mutation, which `admin_audit_fail_closed_test.js` does prove and a
+browser cannot), the memory-only branch where `persisted: false`, the "Block" button as
+distinct from "Suspend" (same route, same permission, different word — the dialog says so
+rather than the walk proving it), and the responsive layout below 768px, which is Phase G's
+gate. The walk also does not exercise a second backend instance, so the "another instance
+honours its own copy until its next reconcile" line is carried from §1.4's measured
+behaviour, not observed here.
 
 Preconditions that make a run trustworthy are recorded in project memory
 (`nabin-backend-suite-preconditions.md`): both payment secrets exported into the server's
