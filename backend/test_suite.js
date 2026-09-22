@@ -6,6 +6,7 @@ const WebSocket = require('ws');
 process.env.PAYMENT_WEBHOOK_SECRET ||= 'test_webhook_secret_not_for_deployment';
 process.env.NABIN_TEST_MODE = 'true';
 const { supabaseAdmin, isLivePostgres } = require('./src/supabase');
+const { createClient } = require('@supabase/supabase-js');
 
 const BASE_URL = 'http://127.0.0.1:4000';
 
@@ -445,7 +446,9 @@ async function runAllTests() {
       serviceType: 'RIDE'
     });
     assert('Point outside geofenced zones evaluates inside: false with standard 1.0x surge',
-      outsideEval.status === 200 && outsideEval.data.inside === false && outsideEval.data.effectiveSurgeMultiplier === 1.0
+      outsideEval.status === 200 && outsideEval.data.inside === false && outsideEval.data.effectiveSurgeMultiplier === 1.0,
+      `inside=${outsideEval.data.inside}, multiplier=${outsideEval.data.effectiveSurgeMultiplier}, ` +
+      `zones=${(outsideEval.data.matchedZones || []).map(z => `${z.name}/${z.surgeMultiplier}`).join(', ')}`
     );
 
     // 5. Dynamic Fare Estimate incorporating live pickup coordinates
@@ -3944,6 +3947,293 @@ async function runAllTests() {
       concReplayPostings.length === 2,
       `replay=${concReplay.status}:${(concReplay.data && concReplay.data.code) || 'none'}, ` +
       `wallet=${concWalletAfter.wallet_balance}->${concReplayWallet.wallet_balance}, postings=${concReplayPostings.length}`
+    );
+
+    // --- 37. MODULE 33: Dynamic campaigns, festival themes and server-time publishing ---
+    console.log('\n--- 37. MODULE 33: Dynamic Campaigns, Festival Themes & Server-Time Publishing ---');
+
+    // Migration 027 made PostgreSQL the authority over campaigns: which one is live is
+    // answered by the database clock, and the apps read that answer through the config
+    // feed they already poll. So everything below travels over HTTP, the way the admin
+    // console and a phone do it, and nothing here rebuilds or redeploys a client.
+    const cpStamp = Date.now().toString().slice(-6);
+    const cpHour = 3600 * 1000;
+    const cpNow = Date.now();
+    const cpIso = (ms) => new Date(ms).toISOString();
+    const cpAdmin = { 'Authorization': `Bearer ${superToken}` };
+    const cpCode = `CP_FEST_${cpStamp}`;
+    const cpRivalCode = `CP_RIVAL_${cpStamp}`;
+    const cpNote = `internal-operator-note-${cpStamp}`;
+    const cpCampaigns = async () => (await request('GET', '/api/app/config')).data.sections.campaigns;
+    const cpServedCodes = async () => ((await cpCampaigns()).campaigns || []).map(c => c.code);
+
+    const cpRidePromo = (await request('POST', '/api/admin/promotions', {
+      code: `CP_RIDE_${cpStamp}`, name: 'Festival ride coupon', description: 'Campaign regression coupon',
+      discountType: 'PERCENTAGE', discountValue: 10, maxDiscount: 60, minOrderAmount: 0,
+      serviceType: 'RIDE', totalUsageLimit: 500, perUserLimit: 20
+    }, cpAdmin)).data.promotion;
+    const cpFoodPromo = (await request('POST', '/api/admin/promotions', {
+      code: `CP_FOOD_${cpStamp}`, name: 'Festival food coupon', description: 'Campaign regression coupon',
+      discountType: 'FLAT', discountValue: 30, maxDiscount: 30, minOrderAmount: 0,
+      serviceType: 'FOOD', totalUsageLimit: 500, perUserLimit: 20
+    }, cpAdmin)).data.promotion;
+    assert('CP-00: The coupons a campaign will point at exist in PostgreSQL',
+      !!cpRidePromo && !!cpFoodPromo,
+      `ride=${JSON.stringify(cpRidePromo)}, food=${JSON.stringify(cpFoodPromo)}`
+    );
+
+    // CP-01/CP-02 (SEC): campaigns are their own permission, not a free rider on the
+    // "any authenticated admin" precedent the older admin routes use.
+    const cpListUnauth = await request('GET', '/api/admin/campaigns');
+    const cpListForbidden = await request('GET', '/api/admin/campaigns', null, { 'Authorization': `Bearer ${kycToken}` });
+    const cpCreateForbidden = await request('POST', '/api/admin/campaigns', {
+      code: `CP_KYC_${cpStamp}`, name: 'Should not exist',
+      startsAt: cpIso(cpNow), endsAt: cpIso(cpNow + cpHour)
+    }, { 'Authorization': `Bearer ${kycToken}` });
+    assert('CP-01: Unauthenticated campaign access rejected with 401', cpListUnauth.status === 401);
+    assert('CP-02: An admin without campaign permissions refused read and write with 403',
+      cpListForbidden.status === 403 && cpCreateForbidden.status === 403,
+      `read=${cpListForbidden.status}, write=${cpCreateForbidden.status}`
+    );
+
+    // CP-03 (CRUD): one request authors the whole festival — palette, logo, banner,
+    // per-service coupons, an announcement and a popup — and the response reads back
+    // what was stored rather than what was sent.
+    const cpCreate = await request('POST', '/api/admin/campaigns', {
+      code: cpCode.toLowerCase(),
+      name: 'Festival 2026',
+      status: 'DRAFT',
+      priority: 65,
+      serviceTypes: ['RIDE', 'FOOD'],
+      startsAt: cpIso(cpNow + 24 * cpHour),
+      endsAt: cpIso(cpNow + 8 * 24 * cpHour),
+      description: cpNote,
+      theme: { palette: { brand: '#0f5c2e', foodAccent: '#C0392B' } },
+      assets: [
+        { kind: 'LOGO', url: 'https://res.cloudinary.com/nabin/image/upload/v1/festival-logo.png', altText: 'Festival logo' },
+        { kind: 'BANNER', url: 'https://res.cloudinary.com/nabin/image/upload/v1/festival-banner.jpg', altText: 'Festival banner' }
+      ],
+      offers: [
+        { serviceType: 'RIDE', promotionId: cpRidePromo.id, copy: 'Festival rides' },
+        { serviceType: 'FOOD', promotionId: cpFoodPromo.id, copy: 'Festival meals' }
+      ],
+      messages: [
+        { kind: 'ANNOUNCEMENT', title: 'Festival is live', body: 'Coupons on rides and meals.', surface: 'CUSTOMER_HOME', triggerEvent: 'APP_OPEN' },
+        { kind: 'POPUP', title: 'One tap away', body: 'Tap to see the festival offers.', surface: 'CUSTOMER_HOME', triggerEvent: 'HOME', showOnce: true }
+      ]
+    }, cpAdmin);
+    const cpStored = cpCreate.data.campaign || {};
+    const cpLogoRow = (cpStored.assets || []).find(a => a.kind === 'LOGO');
+    assert('CP-03: A campaign and all of its children are saved in one request and read back',
+      cpCreate.status === 201 && cpCreate.data.success && cpCreate.data.dataSource === 'postgres' &&
+      cpStored.code === cpCode && cpStored.status === 'DRAFT' && cpStored.priority === 65 &&
+      cpStored.serviceTypes.join() === 'RIDE,FOOD' &&
+      cpStored.theme.palette.brand === '#0F5C2E' && cpStored.theme.palette.foodAccent === '#C0392B' &&
+      (cpStored.assets || []).length === 2 && cpStored.theme.logoAssetId === (cpLogoRow && cpLogoRow.id) &&
+      (cpStored.offers || []).length === 2 && (cpStored.messages || []).length === 2,
+      `status=${cpCreate.status}, body=${JSON.stringify(cpCreate.data).slice(0, 300)}`
+    );
+
+    // An offer is a pointer at a coupon, never a second number. Two discount values in
+    // one system is how a campaign starts promising what checkout will not give.
+    assert('CP-04: Offers reference the coupon row instead of copying its terms',
+      (cpStored.offers || []).every(o => o.discountValue === undefined && o.discountType === undefined &&
+        o.coupon && o.coupon.code && (o.coupon.discountValue > 0)) &&
+      cpStored.offers.map(o => o.coupon.code).sort().join() === [cpRidePromo.code, cpFoodPromo.code].sort().join(),
+      `offers=${JSON.stringify(cpStored.offers)}`
+    );
+
+    // CP-05/CP-06 (VALIDATION): the server names every field it refused, and a refused
+    // request stores nothing — not even a parent row to clean up by hand.
+    const cpInvalid = await request('POST', '/api/admin/campaigns', {
+      code: 'bad code!',
+      name: '',
+      startsAt: 'whenever',
+      theme: { palette: { notAToken: 'blue', brand: '#FFF' } },
+      assets: [{ kind: 'BANNER', url: 'ftp://example.com/banner.png' }],
+      offers: [{ serviceType: 'RIDE', promotionId: '00000000-0000-0000-0000-000000000000' }],
+      messages: [{ kind: 'SHOUT', title: 'x', body: 'y', triggerEvent: 'WHENEVER' }]
+    }, cpAdmin);
+    const cpInvalidErrors = ((cpInvalid.data.details || {}).errors || []).join(' ');
+    const cpInvalidRead = await request('GET', '/api/admin/campaigns/bad-code', null, cpAdmin);
+    assert('CP-05: Invalid campaign fields are refused with each offender named',
+      cpInvalid.status === 400 && cpInvalid.data.code === 'CAMPAIGN_VALIDATION_FAILED' &&
+      /code is required/.test(cpInvalidErrors) && /name is required/.test(cpInvalidErrors) &&
+      /startsAt/.test(cpInvalidErrors) && /endsAt/.test(cpInvalidErrors) &&
+      /theme\.palette/.test(cpInvalidErrors) && /http\(s\) url/.test(cpInvalidErrors) &&
+      /does not exist/.test(cpInvalidErrors) && /message/i.test(cpInvalidErrors),
+      `errors=${cpInvalidErrors.slice(0, 400)}`
+    );
+    assert('CP-06: A refused campaign stored nothing, not even a parent row',
+      cpInvalidRead.status === 404 && cpInvalidRead.data.code === 'CAMPAIGN_NOT_FOUND'
+    );
+
+    // CP-07 (STATE): an edit is not a publish. PUT drops `status` so changing a colour
+    // cannot quietly bring a festival back on screen.
+    const cpEdit = await request('PUT', `/api/admin/campaigns/${cpCode}`, {
+      status: 'ARCHIVED', name: 'Festival 2026 (renamed)'
+    }, cpAdmin);
+    assert('CP-07: An edit changes the copy but cannot move the state',
+      cpEdit.status === 200 && cpEdit.data.campaign.status === 'DRAFT' &&
+      cpEdit.data.campaign.name === 'Festival 2026 (renamed)',
+      `status=${cpEdit.data.campaign && cpEdit.data.campaign.status}`
+    );
+
+    const cpBadTransition = await request('POST', `/api/admin/campaigns/${cpCode}/status`, { status: 'PAUSED' }, cpAdmin);
+    assert('CP-08: DRAFT cannot jump to PAUSED, and the refusal lists what it may become',
+      cpBadTransition.status === 409 && cpBadTransition.data.code === 'CAMPAIGN_TRANSITION_REJECTED' &&
+      (cpBadTransition.data.allowedTransitions || []).includes('ACTIVE') &&
+      !(cpBadTransition.data.allowedTransitions || []).includes('PAUSED'),
+      `body=${JSON.stringify(cpBadTransition.data).slice(0, 240)}`
+    );
+
+    // CP-09 (SERVER TIME): the whole point of the lifecycle. The operator set ACTIVE,
+    // the window opens tomorrow, so no client is shown anything and the database says
+    // SCHEDULED. A device clock, a browser clock or this test process is not consulted.
+    const cpPublish = await request('POST', `/api/admin/campaigns/${cpCode}/status`,
+      { status: 'ACTIVE', reason: 'Festival launch' }, cpAdmin);
+    const cpLiveBefore = await request('GET', '/api/admin/campaigns/live', null, cpAdmin);
+    const cpServedBefore = await cpServedCodes();
+    assert('CP-09: ACTIVE before its window resolves to SCHEDULED and reaches no client',
+      cpPublish.status === 200 && cpPublish.data.campaign.status === 'ACTIVE' &&
+      cpPublish.data.campaign.effectiveStatus === 'SCHEDULED' &&
+      !(cpLiveBefore.data.campaigns || []).some(c => c.code === cpCode) &&
+      !cpServedBefore.includes(cpCode),
+      `effective=${cpPublish.data.campaign && cpPublish.data.campaign.effectiveStatus}, served=${cpServedBefore.join()}`
+    );
+
+    // CP-10/CP-11: opening the window is a data change, not a build. The same feed the
+    // apps poll now carries the palette, the logo, the banner and the coupon terms.
+    const cpOpen = await request('PUT', `/api/admin/campaigns/${cpCode}`, {
+      startsAt: cpIso(cpNow - cpHour), endsAt: cpIso(cpNow + 7 * 24 * cpHour)
+    }, cpAdmin);
+    const cpSection = await cpCampaigns();
+    const cpServedNow = (cpSection.campaigns || []).find(c => c.code === cpCode) || {};
+    assert('CP-10: Opening the window serves the campaign with no rebuild and no redeploy',
+      cpOpen.status === 200 && cpSection.available === true &&
+      cpSection.source === 'postgres:campaigns' && /postgresql clock/.test(cpSection.resolvedBy || '') &&
+      cpServedNow.code === cpCode && cpServedNow.priority === 65,
+      `available=${cpSection.available}, served=${JSON.stringify(cpSection.campaigns || []).slice(0, 200)}`
+    );
+    assert('CP-11: The client feed carries theme colours, the logo, the banner and the coupon terms',
+      cpServedNow.theme.palette.brand === '#0F5C2E' &&
+      cpServedNow.theme.logoUrl === 'https://res.cloudinary.com/nabin/image/upload/v1/festival-logo.png' &&
+      cpServedNow.banners.length === 1 && cpServedNow.banners[0].kind === 'BANNER' &&
+      cpServedNow.offers.length === 2 &&
+      cpServedNow.offers.some(o => o.serviceType === 'RIDE' && o.couponCode === cpRidePromo.code && o.discountValue === 10) &&
+      cpServedNow.offers.some(o => o.serviceType === 'FOOD' && o.discountType === 'FLAT' && o.discountValue === 30) &&
+      cpServedNow.messages.length === 2 &&
+      cpServedNow.messages.some(m => m.kind === 'POPUP' && m.surface === 'CUSTOMER_HOME' && m.showOnce === true),
+      `served=${JSON.stringify(cpServedNow).slice(0, 400)}`
+    );
+    assert('CP-12: The internal operator note is never published to a client',
+      !JSON.stringify(cpSection).includes(cpNote)
+    );
+
+    const cpLiveRide = await request('GET', '/api/admin/campaigns/live?serviceType=RIDE', null, cpAdmin);
+    const cpLiveGrocery = await request('GET', '/api/admin/campaigns/live?serviceType=GROCERY', null, cpAdmin);
+    assert('CP-13: Service targeting admits RIDE and turns GROCERY away',
+      (cpLiveRide.data.campaigns || []).some(c => c.code === cpCode) &&
+      !(cpLiveGrocery.data.campaigns || []).some(c => c.code === cpCode),
+      `ride=${(cpLiveRide.data.campaigns || []).map(c => c.code).join()}, grocery=${(cpLiveGrocery.data.campaigns || []).map(c => c.code).join()}`
+    );
+
+    // CP-14: a coupon pulled out of checkout must stop being advertised by the campaign
+    // too, or the app promises a discount the server then refuses.
+    await request('PUT', `/api/admin/promotions/${cpFoodPromo.id}`, { status: 'INACTIVE' }, cpAdmin);
+    const cpAfterPause = ((await cpCampaigns()).campaigns || []).find(c => c.code === cpCode) || {};
+    await request('PUT', `/api/admin/promotions/${cpFoodPromo.id}`, { status: 'ACTIVE' }, cpAdmin);
+    assert('CP-14: An offer on a deactivated coupon is withheld from the client feed',
+      (cpAfterPause.offers || []).length === 1 && cpAfterPause.offers[0].couponCode === cpRidePromo.code,
+      `offers=${JSON.stringify(cpAfterPause.offers)}`
+    );
+
+    const cpRival = await request('POST', '/api/admin/campaigns', {
+      code: cpRivalCode, name: 'Rival festival', status: 'ACTIVE', priority: 90, serviceTypes: [],
+      startsAt: cpIso(cpNow - cpHour), endsAt: cpIso(cpNow + 3 * 24 * cpHour),
+      theme: { palette: { brand: '#112233' } }
+    }, cpAdmin);
+    const cpOrdered = ((await request('GET', '/api/admin/campaigns/live', null, cpAdmin)).data.campaigns || []).map(c => c.code);
+    assert('CP-15: Where two live campaigns overlap, the higher priority is served first',
+      cpRival.status === 201 && cpOrdered.includes(cpCode) && cpOrdered.includes(cpRivalCode) &&
+      cpOrdered.indexOf(cpRivalCode) < cpOrdered.indexOf(cpCode),
+      `order=${cpOrdered.join()}`
+    );
+
+    const cpExpire = await request('PUT', `/api/admin/campaigns/${cpRivalCode}`, {
+      startsAt: cpIso(cpNow - 3 * 24 * cpHour), endsAt: cpIso(cpNow - cpHour)
+    }, cpAdmin);
+    const cpServedAfterExpiry = await cpServedCodes();
+    assert('CP-16: The database clock closes a window — an ended campaign is EXPIRED and unserved',
+      cpExpire.status === 200 && cpExpire.data.campaign.effectiveStatus === 'EXPIRED' &&
+      !cpServedAfterExpiry.includes(cpRivalCode),
+      `effective=${cpExpire.data.campaign && cpExpire.data.campaign.effectiveStatus}, served=${cpServedAfterExpiry.join()}`
+    );
+
+    // CP-17/CP-18: delete means archive. A festival customers saw is the record of an
+    // offer, and its coupons carry their own redemption history.
+    const cpArchive = await request('DELETE', `/api/admin/campaigns/${cpCode}`, null, cpAdmin);
+    const cpArchiveAgain = await request('DELETE', `/api/admin/campaigns/${cpCode}`, null, cpAdmin);
+    const cpAfterArchive = await request('GET', `/api/admin/campaigns/${cpCode}`, null, cpAdmin);
+    const cpReopen = await request('POST', `/api/admin/campaigns/${cpCode}/status`, { status: 'ACTIVE' }, cpAdmin);
+    assert('CP-17: Deleting archives the campaign and keeps every row',
+      cpArchive.status === 200 && cpArchive.data.archived === true &&
+      cpArchiveAgain.status === 409 && cpArchiveAgain.data.code === 'CAMPAIGN_ALREADY_ARCHIVED' &&
+      cpAfterArchive.data.campaign.status === 'ARCHIVED' &&
+      cpAfterArchive.data.campaign.assets.length === 2 &&
+      cpAfterArchive.data.campaign.offers.length === 2 &&
+      cpAfterArchive.data.campaign.messages.length === 2,
+      `first=${cpArchive.status}, second=${cpArchiveAgain.status}:${cpArchiveAgain.data.code}`
+    );
+    assert('CP-18: ARCHIVED is terminal — a festival that ran is authored again, not re-dated',
+      cpReopen.status === 409 && cpReopen.data.code === 'CAMPAIGN_TRANSITION_REJECTED' &&
+      (cpReopen.data.allowedTransitions || []).length === 0,
+      `allowed=${JSON.stringify(cpReopen.data.allowedTransitions)}`
+    );
+
+    const cpAudit = await request('GET', '/api/admin/audit-logs?module=CAMPAIGNS', null, cpAdmin);
+    const cpAuditRows = (cpAudit.data.logs || []).filter(l => l.targetEntityId === cpCode);
+    const cpAuditActions = cpAuditRows.map(l => l.action);
+    assert('CP-19: Every campaign write left an audit row naming the admin who made it',
+      ['CAMPAIGN_CREATED', 'CAMPAIGN_UPDATED', 'CAMPAIGN_ACTIVE', 'CAMPAIGN_ARCHIVED']
+        .every(action => cpAuditActions.includes(action)) &&
+      cpAuditRows.every(l => !!l.adminName && !!l.newState),
+      `actions=${cpAuditActions.join()}`
+    );
+
+    // CP-20 (RLS): the REST layer must not be a side door around the API. Campaign rows
+    // are readable only by the service role this backend uses.
+    const cpAnon = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
+    const cpAnonRead = await cpAnon.from('campaigns').select('*');
+    const cpAnonChildRead = await cpAnon.from('campaign_offers').select('*');
+    const cpAnonWrite = await cpAnon.from('campaigns').insert({
+      code: 'CP_ANON_WRITE', name: 'Side door', starts_at: cpIso(cpNow), ends_at: cpIso(cpNow + cpHour)
+    });
+    assert('CP-20: The anonymous REST role gets no campaign rows and cannot write one',
+      (cpAnonRead.data || []).length === 0 && (cpAnonChildRead.data || []).length === 0 &&
+      !!cpAnonWrite.error,
+      // Migration 027 both enables RLS with no policies and revokes the grants, so the
+      // anon role is refused outright rather than being handed an empty list.
+      `read=${cpAnonRead.error ? cpAnonRead.error.code : `${(cpAnonRead.data || []).length} rows`}, ` +
+      `childRead=${cpAnonChildRead.error ? cpAnonChildRead.error.code : `${(cpAnonChildRead.data || []).length} rows`}, ` +
+      `write=${cpAnonWrite.error ? cpAnonWrite.error.code : 'accepted'}`
+    );
+
+    const cpDuplicate = await request('POST', '/api/admin/campaigns', {
+      code: cpCode, name: 'Copycat', startsAt: cpIso(cpNow), endsAt: cpIso(cpNow + cpHour)
+    }, cpAdmin);
+    const cpAfterDuplicate = await request('GET', `/api/admin/campaigns/${cpCode}`, null, cpAdmin);
+    assert('CP-21: A campaign code cannot be claimed twice, and the refusal leaves the original alone',
+      cpDuplicate.status >= 400 && cpDuplicate.data.success === false &&
+      cpAfterDuplicate.data.campaign.name === 'Festival 2026 (renamed)',
+      `duplicate=${cpDuplicate.status}:${cpDuplicate.data.code || 'none'}`
+    );
+
+    await request('POST', `/api/admin/campaigns/${cpRivalCode}/status`, { status: 'ARCHIVED' }, cpAdmin);
+    const cpServedAtTeardown = await cpServedCodes();
+    assert('CP-22: Teardown leaves no test campaign live, so the local database cannot leak a festival',
+      !cpServedAtTeardown.includes(cpCode) && !cpServedAtTeardown.includes(cpRivalCode),
+      `served=${cpServedAtTeardown.join()}`
     );
   } catch (err) {
     console.error('Fatal Test Suite Exception:', err);
