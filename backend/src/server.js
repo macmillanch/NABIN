@@ -1154,6 +1154,7 @@ app.post('/api/admin/services/emergency-killswitch', authenticateAdmin, requireP
     const salt = crypto.randomBytes(16).toString('hex');
     const passwordHash = crypto.scryptSync(password, salt, 64).toString('hex');
 
+    const { grantsForRole } = require('./adminPermissions');
     const firstAdmin = {
       id: 'adm_bootstrap_1',
       username,
@@ -1162,17 +1163,9 @@ app.post('/api/admin/services/emergency-killswitch', authenticateAdmin, requireP
       email: 'admin@nabin.in',
       salt,
       passwordHash,
-      permissions: [
-        'identity_verification.view', 'identity_verification.review', 'identity_verification.approve',
-        'identity_verification.reject', 'identity_verification.request_resubmission',
-        'identity_documents.view', 'identity_documents.download', 'fleet.manage', 'merchant.manage',
-        'finance.view', 'finance.refund', 'finance.adjust', 'finance.settlement', 'pricing.edit',
-        'support.view', 'support.respond', 'support.resolve', 'support.escalate', 'promotion.view',
-        'promotion.create', 'promotion.edit', 'promotion.activate', 'geofence.view', 'geofence.create',
-        'geofence.edit', 'geofence.delete', 'surge.view', 'surge.create', 'surge.edit', 'surge.activate',
-        'audit.view', 'audit.export', 'services.view', 'services.pause', 'services.resume', 'services.emergency_killswitch',
-        'campaign.view', 'campaign.create', 'campaign.edit', 'campaign.publish', 'campaign.delete'
-      ]
+      // The same list the boot sync and provisioning derive from the role, so there is
+      // one answer to "what can this role do" instead of a fourth copy that can drift.
+      permissions: [...grantsForRole('SUPER_ADMIN')]
     };
 
     db.adminUsers = [firstAdmin];
@@ -1276,16 +1269,22 @@ app.post('/api/admin/login', async (req, res) => {
   const admin = authResult.admin;
   // Bearer credential: must come from a CSPRNG, not Date.now()+Math.random().
   const token = `adm_token_${require('crypto').randomBytes(32).toString('base64url')}`;
+  // What the session carries is *who* is signed in. `admin` is the record the credential
+  // check loaded, salt and password hash included, and this object is both written into
+  // `backend_sessions` and handed back by `/api/admin/me` — so carrying it whole copied a
+  // crackable credential pair into a table read on every request. `registerSession`
+  // strips it again; doing it here as well keeps the in-process map honest.
+  const principal = db.withoutCredentialFields(admin);
   const session = {
     token,
     role: admin.role,
     entityId: admin.id,
-    entity: admin,
+    entity: principal,
     createdAt: new Date().toISOString(),
     expiresAt: new Date(Date.now() + 24 * 3600 * 1000).toISOString()
   };
 
-  activeAdminSessions.set(token, admin);
+  activeAdminSessions.set(token, principal);
   await db.registerSession(session);
 
   try {
@@ -1336,7 +1335,11 @@ app.post('/api/admin/reset-password', authenticateAdmin, async (req, res) => {
     const { identifier, username, newPassword, currentPassword } = req.body;
     const targetIdentifier = identifier || username || req.admin.username || req.admin.email;
     const isSelf = targetIdentifier.toLowerCase() === (req.admin.username || '').toLowerCase() || targetIdentifier.toLowerCase() === (req.admin.email || '').toLowerCase();
-    const isSuperAdmin = req.admin.role === 'SUPER_ADMIN' || (req.admin.permissions && req.admin.permissions.includes('admin.manage'));
+    // `admin.manage` was tested here for as long as this route has existed, and nothing
+    // has ever granted it: the name in the matrix is `admin_accounts.manage`. A check
+    // against a string no one holds is not a narrow gate, it is a dead branch that reads
+    // like one.
+    const isSuperAdmin = req.admin.role === 'SUPER_ADMIN' || (req.admin.permissions && req.admin.permissions.includes('admin_accounts.manage'));
 
     if (!isSelf && !isSuperAdmin) {
       return res.status(403).json({
@@ -1800,18 +1803,18 @@ app.post('/api/admin/finance/refund', authenticateAdmin, requirePermission('fina
 // -------------------------------------------------------------
 // 6. ADMINISTRATOR ACCOUNT PROVISIONING (SUPER ADMIN ONLY)
 // -------------------------------------------------------------
-app.get('/api/admin/accounts', authenticateAdmin, (req, res) => {
-  if (req.admin.role !== 'SUPER_ADMIN') {
-    return res.status(403).json({ success: false, error: 'Access Denied: Super Admin privilege required to view administrator accounts.' });
-  }
+// Provisioning and reading the control plane is the most privileged thing an admin screen
+// can do, so it goes through the matrix like everything else rather than an inline role
+// test the permission list cannot see. `admin_accounts.manage` and `admin_accounts.create`
+// are granted to SUPER_ADMIN only, so the gate answers exactly as the old check did — with
+// the difference that a grant to another role is now one line in `adminPermissions.js`
+// instead of an edit to this route.
+app.get('/api/admin/accounts', authenticateAdmin, requirePermission('admin_accounts.manage'), (req, res) => {
   const accounts = db.getAdminAccounts();
   res.json({ success: true, accounts, total: accounts.length });
 });
 
-app.post('/api/admin/accounts', authenticateAdmin, async (req, res) => {
-  if (req.admin.role !== 'SUPER_ADMIN') {
-    return res.status(403).json({ success: false, error: 'Access Denied: Super Admin privilege required to provision new administrator accounts.' });
-  }
+app.post('/api/admin/accounts', authenticateAdmin, requirePermission('admin_accounts.create'), async (req, res) => {
   try {
     const result = await db.createAdminAccount(req.body, req.admin.id, req.admin.name);
     if (!result.success) return res.status(400).json(result);

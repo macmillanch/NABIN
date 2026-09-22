@@ -112,6 +112,9 @@ async function ensureServerRunning() {
 }
 
 async function runAllTests() {
+  // Sign-in happens before the containment assertions run, so "written by this run"
+  // needs a timestamp from before the first request rather than from where it is read.
+  const runStartedAt = Date.now();
   console.log('========================================================================');
   console.log('🚀 RUNNING NABIN FULL-PLATFORM QA TEST SUITE — 5 REQUIRED ADMIN MODULES');
   console.log('========================================================================\n');
@@ -4484,6 +4487,72 @@ async function runAllTests() {
       !!resetRecord && !JSON.stringify(resetRecord).includes(rotated)
       && !(rowNow && JSON.stringify(resetRecord).includes(rowNow.password_hash)),
       `record=${JSON.stringify(resetRecord).slice(0, 180)}`
+    );
+
+    // --- 39b. MODULE 35B: A session records who you are, not what you know ---
+    //
+    // Two separate leaks, both found while wiring the administrator permission source, and
+    // both invisible from the client side: `POST /api/admin/login` stored the whole
+    // administrator record — salt and scrypt hash included — inside `backend_sessions`
+    // because the session's `entity` was the object the password check had just loaded,
+    // and `GET /api/admin/me` returned that same object. 307 credential-bearing session
+    // rows were sitting in the local store when this was measured.
+    console.log('\n--- 39b. MODULE 35B: Administrator Credential Containment ---');
+    const containmentRunStart = new Date(runStartedAt).toISOString();
+
+    // A role this build cannot interpret used to fall through to OPERATIONS privileges at
+    // the hydration site. A typo at provisioning time therefore produced an account that
+    // signed in happily and acted as a job nobody had given it.
+    const ghostRole = await request('POST', '/api/admin/accounts', {
+      username: `ghost_${fixtureSuffix()}`, name: 'Ghost Role Probe',
+      email: `ghost_${fixtureSuffix()}@probe.nabin.in`, role: 'OPS_MANAGER',
+      password: 'AdminPassword123!', department: 'Probe'
+    }, superOnly);
+    assert('RBAC-13: A role the platform cannot read is refused at provisioning, not rounded down to OPERATIONS',
+      ghostRole.status === 400 && ghostRole.data.code === 'ADMIN_ROLE_UNKNOWN'
+      && String(ghostRole.data.error || '').includes('OPERATIONS'),
+      `status=${ghostRole.status} body=${JSON.stringify(ghostRole.data).slice(0, 160)}`
+    );
+
+    const meRes = await request('GET', '/api/admin/me', null, superOnly);
+    const meAdmin = meRes.data?.admin || {};
+    const meJson = JSON.stringify(meRes.data || {});
+    assert('RBAC-14: /api/admin/me answers with the identity and the grants a client needs',
+      meRes.status === 200 && meAdmin.username === 'superadmin' && meAdmin.role === 'SUPER_ADMIN'
+      && Array.isArray(meAdmin.permissions) && meAdmin.permissions.length > 0,
+      `keys=${Object.keys(meAdmin).join(',')} perms=${(meAdmin.permissions || []).length}`
+    );
+    const { data: superHash } = await supabaseAdmin.from('admin_accounts')
+      .select('password_hash, password_salt').eq('username', 'superadmin').maybeSingle();
+    assert('RBAC-15: It carries no credential material — the hash the store holds appears nowhere in the answer',
+      !!superHash?.password_hash && !meJson.includes(superHash.password_hash)
+      && !meJson.includes(superHash.password_salt || '\u0000') && !/"salt"|passwordHash/i.test(meJson),
+      `leaked=${/"salt"|passwordHash/i.test(meJson)}`
+    );
+
+    // Checked against the store rather than the process, because the write path is the
+    // one that mattered: a session row is read on every request and is the table a
+    // support or analytics query reaches for. The key's presence is the test, not its
+    // value — a row holding a hash from before a password rotation is the same leak.
+    const { data: hashBearing } = await supabaseAdmin.from('backend_sessions')
+      .select('token_hash, role, created_at')
+      .not('entity->>passwordHash', 'is', null)
+      .gte('created_at', containmentRunStart)
+      .limit(5);
+    assert('RBAC-16: No session row written by this run carries a password hash',
+      !(hashBearing || []).length,
+      `rows=${JSON.stringify(hashBearing || []).slice(0, 160)}`
+    );
+
+    // The administrator list invented a shared phone number for any account without one —
+    // the same placeholder provisioning had stopped using because two administrators on
+    // one number is an ambiguous OTP enrolment, not a cosmetic default.
+    const accountsList = await request('GET', '/api/admin/accounts', null, superOnly);
+    const phoneless = (accountsList.data?.accounts || []).filter(a => !a.phone);
+    assert('RBAC-17: An administrator with no phone is reported as having no phone',
+      (accountsList.data?.accounts || []).length > 0 && phoneless.length > 0
+      && phoneless.every(a => a.phone === null),
+      `phoneless=${phoneless.length} sample=${JSON.stringify((phoneless[0] || {}).phone)}`
     );
 
     // --- 40. MODULE 36: Two operators, one campaign (concurrency) ---

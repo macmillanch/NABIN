@@ -1799,32 +1799,15 @@ class NabinDatabase {
         .select('*');
 
       if (!admErr && dbAdmins && dbAdmins.length > 0) {
+        const { grantsForRole } = require('./adminPermissions');
         for (const adm of dbAdmins) {
-          const defaultPermissionsMap = {
-            SUPER_ADMIN: [
-              'identity_verification.view', 'identity_verification.review', 'identity_verification.approve', 'identity_verification.reject',
-              'identity_verification.request_resubmission', 'identity_documents.view', 'identity_documents.download',
-              'fleet.manage', 'merchant.manage', 'finance.view', 'finance.refund', 'finance.adjust', 'finance.settlement', 'pricing.edit',
-              'support.view', 'support.respond', 'support.resolve', 'support.escalate', 'promotion.view',
-              'promotion.create', 'promotion.edit', 'promotion.activate', 'geofence.view', 'geofence.create',
-              'geofence.edit', 'geofence.delete', 'surge.view', 'surge.create', 'surge.edit', 'surge.activate',
-              'audit.view', 'audit.export', 'services.view', 'services.pause', 'services.resume', 'services.emergency_killswitch',
-              'admin_accounts.create', 'admin_accounts.manage', 'notification.view', 'notification.broadcast'
-            ],
-            KYC_SPECIALIST: [
-              'identity_verification.view', 'identity_verification.review', 'identity_verification.approve', 'identity_verification.reject',
-              'identity_verification.request_resubmission', 'identity_documents.view', 'audit.view'
-            ],
-            OPERATIONS: [
-              'identity_verification.view', 'fleet.manage', 'merchant.manage', 'support.view', 'support.respond', 'geofence.view', 'surge.view'
-            ],
-            FINANCE_AUDITOR: [
-              'finance.view', 'finance.refund', 'finance.adjust', 'finance.settlement', 'audit.view'
-            ],
-            SUPPORT_AGENT: [
-              'support.view', 'support.respond', 'support.resolve', 'audit.view'
-            ]
-          };
+          const grants = grantsForRole(adm.role);
+          if (!grants) {
+            // Hydrated with no grants and a warning rather than dropped: the account is
+            // real, somebody will look for it in the admin list, and an empty entry that
+            // says nothing is how a mis-typed role stays invisible until it is exploited.
+            console.warn(`[auth] admin_accounts row ${adm.username} carries role '${adm.role}'; no grants derived.`);
+          }
 
           const mappedAdmin = {
             id: adm.id,
@@ -1836,7 +1819,7 @@ class NabinDatabase {
             department: adm.department,
             salt: adm.password_salt,
             passwordHash: adm.password_hash,
-            permissions: defaultPermissionsMap[adm.role] || defaultPermissionsMap.OPERATIONS,
+            permissions: grants || [],
             status: adm.is_active ? 'ACTIVE' : 'INACTIVE',
             createdAt: adm.created_at
           };
@@ -3904,7 +3887,12 @@ class NabinDatabase {
       name: a.name,
       role: a.role,
       email: a.email,
-      phone: a.phone || '+91 98765 00000',
+      // `null`, not a placeholder. Provisioning stopped inventing a number for an
+      // account that has none (see `createAdminAccount`), and this read undid that by
+      // showing every phone-less administrator the same one — which both misleads the
+      // operator looking at the list and describes a pair of accounts that the OTP path
+      // would then refuse as ambiguous.
+      phone: a.phone || null,
       department: a.department || 'Operations',
       status: a.status || 'ACTIVE',
       permissions: a.permissions || [],
@@ -3924,27 +3912,22 @@ class NabinDatabase {
       return { success: false, error: `Account with username [${username}] or email [${email}] already exists.` };
     }
 
-    const defaultPermissionsMap = {
-      SUPER_ADMIN: [
-        'identity_verification.view', 'identity_verification.review', 'identity_verification.approve', 'identity_verification.reject',
-        'fleet.manage', 'merchant.manage', 'finance.view', 'finance.refund', 'finance.adjust', 'support.resolve',
-        'promotion.create', 'geofence.create', 'surge.create', 'audit.view', 'admin_accounts.create', 'admin_accounts.manage',
-        'notification.view', 'notification.broadcast'
-      ],
-      KYC_SPECIALIST: [
-        'identity_verification.view', 'identity_verification.review', 'identity_verification.approve', 'identity_verification.reject',
-        'identity_verification.request_resubmission', 'identity_documents.view', 'audit.view'
-      ],
-      OPERATIONS: [
-        'identity_verification.view', 'fleet.manage', 'merchant.manage', 'support.view', 'support.respond', 'geofence.view', 'surge.view'
-      ],
-      FINANCE_AUDITOR: [
-        'finance.view', 'finance.refund', 'finance.adjust', 'finance.settlement', 'audit.view'
-      ],
-      SUPPORT_AGENT: [
-        'support.view', 'support.respond', 'support.resolve', 'audit.view'
-      ]
-    };
+    // The role is refused here rather than rounded down later. `admin_accounts.role`
+    // has a CHECK allowing five values, and until now this method accepted anything and
+    // handed back OPERATIONS privileges for it (see `adminPermissions.js`) — so a typo at
+    // provisioning time produced an account that signed in successfully and could act as
+    // a role nobody assigned. Creating an account the platform cannot interpret is worse
+    // than refusing the request that asked for one.
+    const { grantsForRole, KNOWN_ADMIN_ROLES } = require('./adminPermissions');
+    const normalisedRole = String(role).toUpperCase();
+    const grants = grantsForRole(normalisedRole);
+    if (!grants) {
+      return {
+        success: false,
+        code: 'ADMIN_ROLE_UNKNOWN',
+        error: `Unknown administrator role '${role}'. Allowed: ${KNOWN_ADMIN_ROLES.join(', ')}.`
+      };
+    }
 
     const salt = crypto.randomBytes(16).toString('hex');
     const passwordHash = crypto.scryptSync(password, salt, 64).toString('hex');
@@ -3955,7 +3938,7 @@ class NabinDatabase {
       salt,
       passwordHash,
       name,
-      role: role.toUpperCase(),
+      role: normalisedRole,
       email,
       // No placeholder. Two accounts created without a number used to be handed
       // the same one, and on the OTP path that is not a cosmetic default — it is
@@ -3963,7 +3946,7 @@ class NabinDatabase {
       phone: phone || null,
       department: department || 'General Operations',
       status: 'ACTIVE',
-      permissions: defaultPermissionsMap[role.toUpperCase()] || defaultPermissionsMap.OPERATIONS,
+      permissions: [...grants],
       createdAt: new Date().toISOString()
     };
 
@@ -5097,6 +5080,17 @@ class NabinDatabase {
       }
       if (!matches.length) return null;
       const row = matches[0];
+      const { grantsForRole } = require('./adminPermissions');
+      const grants = grantsForRole(row.role);
+      if (!grants) {
+        // Same judgement the password path makes in `verifyAdminCredentials`, and for
+        // the same reason: an unreadable role used to fall through to OPERATIONS at the
+        // hydration site, which granted a job the account was never assigned.
+        const refusal = new Error(`This administrator account carries a role this platform does not recognise ('${row.role}'), so it cannot be granted any access. Sign-in is refused until that is corrected.`);
+        refusal.code = 'ADMIN_ROLE_UNKNOWN';
+        refusal.status = 403;
+        throw refusal;
+      }
       const known = this.adminUsers.find(a => a.id === row.id || a.username === row.username);
       return {
         ...(known || {}),
@@ -5108,7 +5102,12 @@ class NabinDatabase {
         role: row.role,
         department: row.department,
         status: row.is_active === false ? 'INACTIVE' : 'ACTIVE',
-        permissions: known ? known.permissions : []
+        // Derived from the role when this process holds no copy of the account. The
+        // previous answer here was an empty list, which did not fail closed so much as
+        // fail silently: an administrator present in `admin_accounts` but missing from
+        // the boot-time copy signed in successfully and could then do nothing, with
+        // nothing in the response to say why.
+        permissions: (known && known.permissions) || [...grants]
       };
     }
 
@@ -5574,7 +5573,34 @@ class NabinDatabase {
     return isLivePostgres && supabaseAdmin ? supabaseAdmin : null;
   }
 
+  /**
+   * A session carries *who* is authenticated, never *what they know*.
+   *
+   * The entity handed to `registerSession` is the same object the credential check
+   * loaded, and for every role in this platform that object carries a password hash and
+   * its salt. `persistSession` used to write it into `backend_sessions.entity` verbatim
+   * and `restoreSession` used to read it back out again, which meant a sign-in copied a
+   * crackable credential pair into a table whose whole purpose is to be looked up on
+   * every request — and any read of that table (a session list, a backup, an analytics
+   * job) held them. 307 such rows existed in the local store when this was found.
+   *
+   * Stripping on the write and on the read means the fix holds without editing stored
+   * rows, including rows an older build wrote. The administrator session map in
+   * `server.js` is fed the same projection, which is what `/api/admin/me` returns.
+   */
+  withoutCredentialFields(entity) {
+    if (!entity || typeof entity !== 'object') return entity;
+    const { passwordHash, password_hash, salt, password_salt, otp, otpCode, ...safe } = entity;
+    return safe;
+  }
+
   registerSession(sessionObj) {
+    // The in-process entry deliberately keeps the caller's own object rather than a
+    // sanitised copy. Routes read through it, and one of them is `/api/auth/me`, which
+    // reports a wallet balance that changes after sign-in — aliasing is what makes that
+    // answer current. A copy here froze the snapshot and the refund assertion caught it.
+    // The credential fields are removed on the way out to the store, and
+    // `restoreSession` removes them from what an older build already stored.
     this.activeSessions.set(this.hashSessionToken(sessionObj.token), sessionObj);
     return this.persistSession(sessionObj);
   }
@@ -5587,7 +5613,7 @@ class NabinDatabase {
       role: sessionObj.role,
       entity_id: String(sessionObj.entityId ?? 'anon'),
       phone: sessionObj.phone || null,
-      entity: sessionObj.entity ?? null,
+      entity: this.withoutCredentialFields(sessionObj.entity) ?? null,
       expires_at: sessionObj.expiresAt
     }, { onConflict: 'token_hash' });
     if (error) {
@@ -5632,7 +5658,7 @@ class NabinDatabase {
       role: row.role,
       entityId: row.entity_id,
       phone: row.phone,
-      entity: row.entity,
+      entity: this.withoutCredentialFields(row.entity),
       createdAt: row.created_at,
       expiresAt: row.expires_at
     });
@@ -6032,6 +6058,17 @@ class NabinDatabase {
     // named for: until here, an INACTIVE account could still sign in by password
     // forever, because nothing on this path looked at `status`.
     if (admin.status === 'INACTIVE') {
+      return { success: false, error: 'Invalid administrator credentials.' };
+    }
+
+    // A role this build cannot interpret is a refusal, not a fallback. The account
+    // may be perfectly valid — the five role names are fixed by a CHECK constraint in
+    // migration 001, so anything else means a hand-edited row or a role retired since
+    // it was written. Guessing OPERATIONS for it, which is what used to happen at the
+    // hydration and provisioning sites, grants a job the account was never given.
+    const { isKnownAdminRole } = require('./adminPermissions');
+    if (!isKnownAdminRole(admin.role)) {
+      console.error(`[auth] Refused sign-in for ${admin.username}: unrecognised role '${admin.role}'. Nothing is granted for a role we cannot read.`);
       return { success: false, error: 'Invalid administrator credentials.' };
     }
 

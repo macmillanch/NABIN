@@ -32,15 +32,26 @@ external service.
 
 ### 1.1 The admin API surface
 
-`backend/src/server.js` registers **70 routes under `/api/admin/*`** (parsed from the
-route table itself, not from a grep of strings):
+`backend/src/server.js` registers **73 admin routes** — 73 (method, path) registrations
+covering 61 distinct URL paths; three registrations list an alias beside their main path,
+such as the `/api/admin/features` + `/api/v1/admin/features` pair. One (method, path) pair
+appears twice; see the note under the table. Parsed
+from the argument list of each registration, so the middleware chain and the handler
+boundary come from the same read. The split below is measured **after Phase A1 landed**, and
+each row's previous state is given in §2:
 
 | Gate | Count | Meaning |
 |---|---|---|
 | No middleware | 3 | `/api/admin/bootstrap`, `/api/admin/login` (intentional entry points), and `POST /api/admin/grocery/products/:id/photo` — see §2.6 |
-| `authenticateAdmin` only | 14 | any valid admin session, including a `SUPPORT_AGENT`: `drivers`, `drivers/:id`(dup), `jobs`, `restaurants`, `metrics`, `accounts`×2, `advertisements` (the **read** only), `master-catalog/:id/stores`, `supabase-status`, `features`×3, `reset-password` |
-| `authenticateAdmin` + `requirePermission(...)` | 51 | named-permission gate |
+| `authenticateAdmin` only | 17 | any valid admin session, including a `SUPPORT_AGENT`: `reset-password` (self-service by design), `me`, `services/status`, `drivers`×2, `jobs`, `restaurants`, `metrics`, `advertisements` (the **read**), `master-catalog` and `master-catalog/:id/stores`, `grocery/price-alerts`, `supabase-status`, `features`×3 |
+| `authenticateAdmin` + `requirePermission(...)` | 51 | named-permission gate, 38 distinct strings |
 | `authenticateAdmin` + `requireSuperAdmin` | 2 | the `platform-settings` pair |
+
+**One path is registered twice, and the second copy is dead**: `GET /api/admin/drivers`
+exists at `server.js:1419` and again at `server.js:4585`. Express answers with the first,
+so the second handler never runs — a shape change made there is invisible at runtime, which
+is the kind of defect area 5's driver list cannot absorb. It is listed in §11 as an open
+decision because picking the survivor means deciding which response shape is correct.
 
 Existing route groups by prefix: `services` (4), `accounts` (2), `audit-logs` (1),
 `advertisements` (4), `campaigns` (7), `drivers` (5), `finance` (7), `features` (3),
@@ -100,7 +111,7 @@ facts measured against that live store:
 
 Two different checks protect an admin session, and only one of them is authoritative.
 
-- **At sign-in** (`server.js:1247` → `database.js:5139`): the password proves the caller
+- **At sign-in** (`server.js:1240` → `database.js:5138`): the password proves the caller
   knows a secret; the store decides whether the account still exists and is still
   `is_active`. An unreachable store **refuses the login** rather than answering from
   memory, and a removed account gets the same message as a wrong password.
@@ -110,14 +121,14 @@ Two different checks protect an admin session, and only one of them is authorita
 
 So a disable made directly in `admin_accounts` does not stop an already-issued token in a
 running backend; it converges when that administrator next attempts to sign in
-(`server.js:1266` writes `INACTIVE` into the copy, which then fails the per-request check).
+(`server.js:1260` writes `INACTIVE` into the copy, which then fails the per-request check).
 That is a *delayed* revocation, not a broken one, but it is not what area 34 asks for.
 Two things Phase A must therefore provide: an admin-facing session list with revoke backed
 by `active_sessions` / `backend_sessions`, and a revocation path that removes
 `activeAdminSessions` entries rather than waiting for a restart.
 
 `admin_accounts` itself carries `failed_attempts` and `locked_until`, and a failed login is
-audited with the caller's IP (`server.js:1228`) — the lockout trail a security centre needs
+audited with the caller's IP (`server.js:1220`) — the lockout trail a security centre needs
 already exists, it is just not visible to any screen.
 
 ---
@@ -147,74 +158,80 @@ commentary:
 2. Making RLS real for admin traffic means issuing per-request tokens scoped to the
    administrator, i.e. a design change to the store connection. That is a §9 approval
    stop, not a phase in §7.
+3. The same absence of a bottom layer is why Phase A1 had to fix a credential leak in two
+   places rather than one. Sign-in used to copy the whole administrator entity —
+   `passwordHash` and `salt` included — into `backend_sessions.entity`, and `/api/admin/me`
+   used to serve that entity back. `withoutCredentialFields()` now strips those keys on both
+   the write and the read, so the fix holds without editing stored rows (`RBAC-15`,
+   `RBAC-16`). It does not retroactively clean the rows an older build already wrote: the
+   local store held **307** of them when this was found, and scrubbing them is §9 item 5.
 
-### 2.2 The permission matrix is not persisted, and cannot be per-administrator
+### 2.2 The permission matrix has one source now, and it is still not persisted
 
-`requirePermission` (`backend/src/server.js:840`) grants when
-`req.admin.role === 'SUPER_ADMIN'` **or** `permissions.includes(requiredPerm)`. The
-`permissions` array comes from a hard-coded `defaultPermissionsMap` inside
-`createAdminAccount` (`backend/src/database.js:3927`), held only in the in-process
-`adminUsers` list — and a **second, different copy of that same map** lives at
-`backend/src/database.js:1803`, applied when the boot sync hydrates `admin_accounts`
-(it overwrites the in-memory entry, `database.js:1845`). They do not agree: the boot map
-gives `SUPER_ADMIN` **40** strings including `services.*`, `audit.export`,
-`promotion.activate`, `finance.settlement`, `support.view`; the provisioning map gives
-**18**, without them. So the same username holds a *wider* grant list after a restart than
-the one it was created with, and the matrix is not auditable from either file alone.
-`resolveAdminByPhone` (`backend/src/database.js:5111`) returns
-`permissions: known ? known.permissions : []` — an administrator who exists in
-`admin_accounts` but has no in-memory twin signs in with **zero** permissions.
+`requirePermission` (`backend/src/server.js:841`) grants when
+`req.admin.role === 'SUPER_ADMIN'` **or** `permissions.includes(requiredPerm)`.
 
-**Consequences**:
+**Phase A1 changed the first half of this sentence's history.** The `permissions` array
+used to be produced by three different hard-coded maps that disagreed: the boot sync handed
+`SUPER_ADMIN` forty strings, `createAdminAccount` handed the same role eighteen, and the
+bootstrap route carried a third list of forty-one; an unrecognised role silently received
+`OPERATIONS` at the two sites in `database.js`. All three are now the single
+`backend/src/adminPermissions.js`, read by the boot sync, by `createAdminAccount`, by the OTP
+resolution path and by the bootstrap route; an unknown role is refused at provisioning with
+`ADMIN_ROLE_UNKNOWN` and refused at sign-in rather than rounded down. The suite asserts
+both (`RBAC-13`).
 
-- Grants cannot be edited without a code change and a restart.
-- A second backend process, or a restart that misses the boot sync, silently changes who
-  can do what.
-- Per-administrator overrides (the natural next ask after area 33) are impossible today.
+What is still true, and what shapes everything downstream:
+
+- Grants are derived from the role at the moment the process reads the account. They are
+  **not stored**, so they cannot be edited per administrator, and there is no row an
+  auditor can point at to say what this account was allowed to do last Tuesday.
+- A second backend process, or a restart, re-derives everything from `adminPermissions.js`.
+  Changing a grant is a code change plus a restart.
+- An administrator who exists in `admin_accounts` but has no in-memory twin now gets its
+  role's grants; it used to get `[]`, which read as "signed in and powerless".
 - The role `CHECK` in `001_central_schema.sql:178` allows exactly five values:
-  `SUPER_ADMIN, KYC_SPECIALIST, OPERATIONS, FINANCE_AUDITOR, SUPPORT_AGENT`. An
-  unrecognised role silently becomes `OPERATIONS`
-  (`backend/src/database.js:3966`: `|| defaultPermissionsMap.OPERATIONS`) — a **fail-open
-  default**, and the one item in this section I would fix before building anything on top.
+  `SUPER_ADMIN, KYC_SPECIALIST, OPERATIONS, FINANCE_AUDITOR, SUPPORT_AGENT`. That
+  constraint is now matched in code, so the fail-open default has nowhere to come from.
 
 Persisting the matrix needs a new table → migration **028** → §9 approval stop.
 
-### 2.3 36 permissions are enforced; two sets don't line up
+### 2.3 The catalogue has one source now; three gaps remain inside it
 
-The enforced set (measured from the guard list, 36 distinct strings):
-`advertisement.{create,edit,delete}`, `audit.view`, `campaign.{view,create,edit,publish,delete}`,
-`catalog.manage`, `finance.{view,refund,adjust,settlement}`, `fleet.manage`,
-`geofence.{view,create,delete}`, `grocery.review`,
-`identity_verification.{view,review}`, `merchant.manage`, `notification.broadcast`,
-`orders.manage`, `pricing.edit`, `promotion.{view,create,edit}`,
-`services.{pause,resume,emergency_killswitch}`, `support.{view,respond,resolve}`,
-`surge.{view,create}`.
+After Phase A1 the role→grants answer exists in exactly one file, `backend/src/adminPermissions.js`.
+It replaced three copies that disagreed — the boot sync's 40 strings, `createAdminAccount`'s 18,
+and the bootstrap route's own 41 — and which of them won depended on whether the process had
+restarted since the account was created. The catalogue is now 51 permission names;
+38 are enforced by `requirePermission` middleware, 5 are checked inside handlers, and 9 are
+names no code path consults yet.
 
-- **Enforced but granted to no non-super role** — reachable today only through
-  `SUPER_ADMIN`'s role wildcard, which is to say unusable by least-privilege staff and
-  invisible to the matrix: `advertisement.*`, `campaign.*`, `catalog.manage`,
-  `geofence.{create,delete}`, `grocery.review`, `notification.broadcast`,
-  `orders.manage`, `pricing.edit`, `promotion.{view,create,edit}`, `services.*`,
-  `surge.create`.
-- **Granted but never enforced** (16 strings): `identity_verification.{approve,reject,
-  request_resubmission}`, `identity_documents.{view,download}`, `support.escalate`,
-  `promotion.activate`, `geofence.edit`, `surge.{edit,activate}`, `audit.export`,
-  `services.view`, `notification.view`, `admin_accounts.{create,manage}`. Three of these
-  are exactly what areas 22, 31 and 32 ask to be real: a coupon activation, an audit
-  export, and admin provisioning. `admin_accounts.*` *is* restricted — but by an inline
-  `req.admin.role !== 'SUPER_ADMIN'` test (`server.js:1804`, `1812`), correct today and
-  invisible to the matrix, so it will drift the moment a non-super role needs it. Note
-  also that `finance.settlement` is enforced and granted to `FINANCE_AUDITOR`, while the
-  *provisioning* map omits it for `SUPER_ADMIN` and the *boot* map includes it — harmless
-  only because of the role wildcard, and a good illustration of why the matrix needs one
-  source.
-- **In-handler role checks instead of middleware**: `POST/PUT /api/admin/features*`
-  (`server.js:5498`, `5532`), `accounts` (`1804`, `1812`), `reset-password` (`1339`). Same
-  answer, four spellings.
+- **Enforced but granted to no non-super role** (11, measured as guarded strings minus the four
+  least-privilege lists): `advertisement.{create,edit,delete}`, `campaign.{view,create,edit,
+  publish,delete}`, `catalog.manage`, `grocery.review`, `orders.manage`. `SUPER_ADMIN` reaches
+  them through the role wildcard at `server.js:847`, so nothing is broken today — but they are
+  unusable by least-privilege staff, which is precisely what area 33 asks for. Assigning them
+  is a product decision, not a code one, and §11 asks it.
+- **In the catalogue, consulted by nothing** (9): `audit.export`, `geofence.edit`,
+  `identity_documents.download`, `notification.view`, `promotion.activate`, `services.view`,
+  `support.escalate`, `surge.{edit,activate}`. Several are exactly what areas 20, 22, 28, 31
+  and 42 ask to be real — a surge edit, a coupon activation, a notification history read, an
+  audit export. They are names the old bootstrap map carried and no route ever checked, so
+  area 33 cannot gate on them until the guard exists.
+- **Enforced, but not by middleware**: `identity_documents.view` is read inside
+  `GET /api/admin/identity-verifications/:id` (`server.js:2763`) to decide whether the
+  applicant's phone and document references come back unmasked — the field-level shape area 6
+  wants, and the pattern new reads should follow. `identity_verification.{approve,reject,
+  request_resubmission}` are checked against `req.admin.permissions` inside the review route
+  (`server.js:2800`, `2803`, `2806`). `POST/PUT /api/admin/features*` compare `req.admin?.role`
+  to `SUPER_ADMIN` directly (`server.js:5501`, `5535`), and `reset-password` allows
+  self-or-`admin_accounts.manage` (`server.js:1342`). Four spellings of the same answer, and
+  only the first form is readable as a list.
+- **Still not persisted**: grants are derived from the role at read time and `admin_accounts`
+  has no permissions column, so per-admin overrides remain a migration-028 question (§2.2, §9).
 
 ### 2.4 A feature flag can write any platform setting
 
-`POST /api/admin/features` (`server.js:5492`) upserts `platform_settings` keyed on the
+`POST /api/admin/features` (`server.js:5495`) upserts `platform_settings` keyed on the
 caller-supplied `key`. Because flags and settings share the one table, a request with
 `key: 'nabin.admin.theme_v1'` writes a theme record through the flag endpoint, and the
 flag endpoint's permission is a role check rather than `settings.edit`. Area 38's
@@ -234,7 +251,7 @@ copies of `pricingConfig`, `geoFences`, `surgeZones`, `ledgerEntries`,
 
 ### 2.6 One anonymous route I did **not** change, on purpose
 
-`POST /api/grocery/products/:id/photo` **and its `/api/admin/` alias** (`server.js:6631`)
+`POST /api/grocery/products/:id/photo` **and its `/api/admin/` alias** (`server.js:6634`)
 accept a base64 image with no credentials, and can create rows in the grocery catalogue.
 `backend/cloudinary_test.js:126` posts to it with no `Authorization` header, so gating it
 turns a green test red. Per the standing rule *"fix the implementation rather than
@@ -362,7 +379,7 @@ configuration question once §2.2 is fixed, not a code change.
 | 5 | Driver management | PARTIAL — `GET /api/admin/drivers`, `GET /:id`, `POST /:id/status` (`fleet.manage`) | No profile edit, no document list, no per-driver timeline | D |
 | 6 | KYC queue with private document storage | EXISTS — `identity-verifications` list/`review`/`lock`/`unlock`, `identity_documents` table, `/docs/:filename` preview | `identity_documents.view` is granted but **unenforced**; document preview must be permission-checked per owner-tenant | D |
 | 7 | Merchant management with tenant isolation | PARTIAL — `POST /api/admin/restaurants/:id/status`, `GET /api/restaurants` for admin | No merchant detail/edit; merchant-scoped endpoints already prove tenant isolation via `requireMerchantTenant` and reuse it here | D |
-| 32 | Admin users, least privilege, no auto SUPER_ADMIN | PARTIAL — `GET/POST /api/admin/accounts` inline-gated to SUPER_ADMIN | No disable/reset-everyone flow, no permission UI (blocked by §2.2), and the fail-open role default must go first | A |
+| 32 | Admin users, least privilege, no auto SUPER_ADMIN | PARTIAL — `GET/POST /api/admin/accounts` gated by `admin_accounts.{manage,create}` since A1 | No disable/force-logout flow, no permission UI (blocked by §2.2), no least-privilege grant for the 11 §2.3 names; an unknown role is now refused rather than rounded down | A |
 
 ### Transactions
 
@@ -402,7 +419,7 @@ configuration question once §2.2 is fixed, not a code change.
 | 29 | Support | EXISTS — `GET /api/admin/support`, `assign`, `resolve` (`support.*`) | UI missing; tickets are boot-synced copies (§2.5) | G |
 | 30 | Disputes | MISSING — no table, no route, no screen | New domain: a migration to create `disputes`, or model as a typed `support_tickets`. §11 decision, and the migration branch is a §9 stop | G |
 | 31 | Audit log protected from normal deletion | EXISTS — `trg_audit_logs_immutable` + `GET /api/admin/audit-logs` | 32 audit writes in `database.js` are un-awaited vs 6 awaited (task #57): the trail can silently lose rows | A |
-| 33 | Permission matrix with named permissions, enforced server-side | PARTIAL — `requirePermission` is a real server-side gate on 51 routes, with 36 named strings | The names live inline, two divergent grant maps decide who holds them (§2.2), 16 granted strings have no gate and 11 gated strings belong to no role (§2.3), and four routes use ad-hoc role tests instead. §3 is the target catalogue; persisting it is the §9 migration | A |
+| 33 | Permission matrix with named permissions, enforced server-side | PARTIAL — `requirePermission` gates 51 routes on 38 named strings, and since A1 the grants come from one file (§2.3) | 9 catalogue names have no gate and 11 gated names belong to no non-super role; 5 checks sit inside handlers; nothing is persisted, so per-admin overrides need the §9 migration. §3 is the target catalogue | A |
 | 34 | Security centre | MISSING as a surface | Sessions (`active_sessions`/`backend_sessions`), failed-login lockouts (`failed_attempts`, `locked_until`), admin session list + revoke. Revocation today is delayed rather than absent — see §1.4 | A |
 | 36 | Integrations, never display secret values | PARTIAL — `platform_settings` holds mixed data | Show presence/configured-state + last check, never a value; `PUT` rejects anything secret-shaped | A |
 | 37 | Settings, secrets not editable from admin UI | PARTIAL — `GET/PUT /api/admin/platform-settings` (`requireSuperAdmin`) | Needs an allow-list of keys, not an open key/value editor over a table that also holds config the server reads at boot | A |
@@ -439,7 +456,7 @@ trusted):** `adjust_wallet_atomic`, `refund_payment_atomic`, `capture_payment_at
 - `broadcastToAdmins` and the `admin:fleet` socket channel — the realtime source for
   areas 2/3/47.
 - `authoritativeWrite` / `authoritativeRead` / `auditAuthoritative`
-  (`database.js:5060`) — the awaited-audit pattern for directive (7)'s "every sensitive
+  (`database.js:5002`–`5043`) — the awaited-audit pattern for directive (7)'s "every sensitive
   operation is audited".
 
 **Frontend components to reuse:** `admin-web/src/components/ResourceTable.tsx`,
@@ -459,18 +476,25 @@ Each phase is a unit of *verification*, not just of writing: nothing is called d
 before its gate passes, and each phase ends in one local commit. **No push, no deploy.**
 
 ### Phase A — Authorisation ground (areas 31, 32, 33, 34, 35, 36, 37, 38, 49, 50)
-1. Fail-closed role: an unknown `admin_accounts.role` refuses to sign in instead of
-   becoming `OPERATIONS` (`database.js:3966`).
-2. One permission catalogue module; every `requirePermission` literal sourced from it;
-   `GET /api/admin/me` returns `{ role, permissions }` so the UI can gate honestly.
-3. Move `accounts`, `features` and `reset-password` inline role checks onto
-   `requirePermission` with the §3 names.
-4. Namespace feature-flag keys so a flag write cannot address another domain's setting
+1. ✅ **Done (A1).** Fail-closed role: an unknown `admin_accounts.role` is refused at
+   provisioning with `ADMIN_ROLE_UNKNOWN` (`database.js:3927`) and refused at sign-in,
+   instead of silently becoming `OPERATIONS`.
+2. ✅ **Done (A1).** One permission catalogue — `backend/src/adminPermissions.js` — read by
+   the boot sync, provisioning, the OTP resolution path and the bootstrap route;
+   `GET /api/admin/me` returns `{ role, permissions }` so the UI can gate honestly (§2.3).
+   `requirePermission`'s literals still live at the routes; centralising *those* is the
+   remaining half of this item and belongs with the §11 naming decision.
+3. ➜ **Part done (A1).** `accounts` is on `requirePermission('admin_accounts.{create,manage}')`
+   and the dead `'admin.manage'` string in `reset-password` is now a real name. `features`
+   (§2.4) and the `identity_verification` decision checks are still in-handler.
+4. ✅ **Found during A1, done.** Sessions no longer persist a password hash and salt, and
+   `/api/admin/me` no longer serves them (§2.1 item 3, `RBAC-14`–`RBAC-16`).
+5. ⬜ Namespace feature-flag keys so a flag write cannot address another domain's setting
    (§2.4).
-5. Awaited audit writes on every admin mutation (closes the `database.js` half of #57).
-6. Security centre read surface: sessions, lockouts, revoke — plus the single dangerous-
+6. ⬜ Awaited audit writes on every admin mutation (closes the `database.js` half of #57).
+7. ⬜ Security centre read surface: sessions, lockouts, revoke — plus the single dangerous-
    action confirmation component (area 49).
-7. Settings/integrations: key allow-list, secret values never rendered, never writable.
+8. ⬜ Settings/integrations: key allow-list, secret values never rendered, never writable.
 
 **Gate:** `test_suite.js` green *plus* a new `admin_authorization_test.js` that, for each
 of the five roles, proves allow/deny on every gated route (the existing `RBAC-01..12`
@@ -568,6 +592,20 @@ I will stop and report before:
 3. **Adding a dependency** — chart library, XLSX/PDF writer, or any model provider for
    area 44. Each is also a new secret and, for the AI case, a data-egress decision.
 4. **Anything touching hosted Supabase, pushing, or deploying.**
+5. **Scrubbing the 307 legacy session rows that still hold a credential pair** (§2.1). The
+   write and read paths are fixed forward, and a restart leaves no in-memory copy either, so
+   what remains is exposure *at rest* in rows no longer used for anything. Locally, the
+   statement is one line and touches no other column:
+
+   ```sql
+   UPDATE public.backend_sessions
+      SET entity = entity - 'passwordHash' - 'salt'
+    WHERE entity ? 'passwordHash' OR entity ? 'salt';
+   ```
+
+   The alternative — deleting those rows outright — loses the sign-in trail they are part
+   of, so it is not the default. Either way: local store first, count verified before and
+   after, and never against a hosted project without a separate explicit request.
 
 ---
 
@@ -596,6 +634,7 @@ I will stop and report before:
 | 6 | Disputes | (a) type of `support_tickets`; (b) its own table (migration) | G |
 | 7 | AI assistant | (a) not built; (b) internal-only rules/no LLM; (c) external provider with a written data-egress position | after G |
 | 8 | RLS | (a) document the Express-only enforcement and keep projecting columns explicitly; (b) design per-request scoped tokens | A |
+| 9 | The duplicate `GET /api/admin/drivers` (§1.1) | (a) delete the dead second registration; (b) merge the two response shapes into the live one; (c) leave it and rename the second path | A |
 
 Answers to 1, 3, 4, 5, 6 and 8 change schema or dependencies, so they are the first
 things worth settling; the rest can be decided at the head of their phase.
