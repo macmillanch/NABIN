@@ -13,6 +13,7 @@ const { notificationEventBus, NOTIFICATION_EVENTS } = require('./services/Notifi
 const featureControlService = require('./services/FeatureControlService');
 const appConfigService = require('./services/AppConfigService');
 const { validateDriverTelemetry } = require('./services/TelemetryValidator');
+const { allowsTestConvenience } = require('./services/RuntimeMode');
 const AdvertisementRepository = require('./repositories/AdvertisementRepository');
 
 const pushProvider = (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL)
@@ -778,6 +779,21 @@ function authenticateAdmin(req, res, next) {
     });
   }
 
+  // A token outlives the account it was issued to unless something re-checks.
+  // Without this, deactivating an administrator changed the admin list and not
+  // the access: every already-signed-in control kept working, including the
+  // ones that had just been withdrawn for cause.
+  const enrolled = db.adminUsers.find(a => a.id === admin.id || (a.username && a.username === admin.username));
+  if (enrolled && enrolled.status === 'INACTIVE') {
+    activeAdminSessions.delete(token);
+    return res.status(401).json({
+      success: false,
+      code: 'ADMIN_ACCOUNT_DEACTIVATED',
+      error: 'Unauthorized: this administrator account has been deactivated.',
+      requestId: req.id
+    });
+  }
+
   req.admin = admin;
   next();
 }
@@ -817,13 +833,20 @@ function requireSuperAdmin(req, res, next) {
 // -------------------------------------------------------------
 
 // Send Verification OTP to Mobile Number
-app.post('/api/auth/send-otp', (req, res) => {
+app.post('/api/auth/send-otp', async (req, res) => {
   try {
     const { phone, role = 'CUSTOMER', purpose = 'LOGIN' } = req.body;
-    const result = db.sendAuthOtp({ phone, role, purpose });
+    const result = await db.sendAuthOtp({ phone, role, purpose });
     res.json(result);
   } catch (err) {
-    res.status(400).json({ success: false, error: err.message });
+    // Same rule as verify-otp: an audit store that cannot answer is an outage
+    // (503, retry me), not a bad phone number (400, give up).
+    res.status(err.status || 400).json({
+      success: false,
+      code: err.code || 'OTP_DISPATCH_FAILED',
+      error: err.message,
+      requestId: req.id
+    });
   }
 });
 
@@ -834,7 +857,15 @@ app.post('/api/auth/verify-otp', async (req, res) => {
     const result = await db.verifyAuthOtp({ phone, otp, role, purpose });
     res.json(result);
   } catch (err) {
-    res.status(400).json({ success: false, error: err.message });
+    // A store that cannot answer is an outage, not a wrong code. Answering 400
+    // here tells the app to tell the user their OTP is bad, and a client that
+    // believes it throws away a code that would have worked seconds later.
+    res.status(err.status || 400).json({
+      success: false,
+      code: err.code || 'OTP_VERIFICATION_FAILED',
+      error: err.message,
+      requestId: req.id
+    });
   }
 });
 
@@ -1117,16 +1148,13 @@ app.post('/api/admin/services/emergency-killswitch', authenticateAdmin, requireP
 
 // Admin Login with Brute-Force Protection & Password Hashing Verification
 app.post('/api/admin/login', async (req, res) => {
-  console.log('[DEBUG] Admin login request received');
   const { username, password } = req.body;
   if (!username || !password) {
     return res.status(400).json({ success: false, error: 'Username and password are required.', requestId: req.id });
   }
 
-  console.log('[DEBUG] Calling verifyAdminCredentials');
   const authResult = db.verifyAdminCredentials(username, password);
-  console.log('[DEBUG] verifyAdminCredentials result:', authResult);
-  
+
   if (!authResult.success) {
     try {
       await db.createAuditLog({
@@ -6004,7 +6032,7 @@ app.delete('/api/media/*', async (req, res) => {
 
     const authHeader = req.headers['authorization'] || '';
     const token = authHeader.replace(/^Bearer\s+/, '').trim();
-    const isTestOrDev = process.env.NODE_ENV !== 'production' || process.env.NABIN_TEST_MODE === 'true';
+    const isTestOrDev = allowsTestConvenience('skipping an authentication check');
 
     if (!token && !isTestOrDev) {
       return res.status(401).json({ success: false, code: 'AUTH_REQUIRED', error: 'Authentication required to delete media assets.' });
@@ -6060,7 +6088,7 @@ app.post('/api/customer/profile/photo', async (req, res) => {
   try {
     const authHeader = req.headers['authorization'] || '';
     const token = authHeader.replace(/^Bearer\s+/, '').trim();
-    const isTestOrDev = process.env.NODE_ENV !== 'production' || process.env.NABIN_TEST_MODE === 'true';
+    const isTestOrDev = allowsTestConvenience('skipping an authentication check');
 
     let callerCustomerId = null;
     if (token) {
@@ -6124,7 +6152,7 @@ app.post('/api/driver/profile/photo', async (req, res) => {
   try {
     const authHeader = req.headers['authorization'] || '';
     const token = authHeader.replace(/^Bearer\s+/, '').trim();
-    const isTestOrDev = process.env.NODE_ENV !== 'production' || process.env.NABIN_TEST_MODE === 'true';
+    const isTestOrDev = allowsTestConvenience('skipping an authentication check');
 
     let callerDriverId = null;
     if (token) {
@@ -6185,7 +6213,7 @@ app.post('/api/driver/vehicle/photo', async (req, res) => {
   try {
     const authHeader = req.headers['authorization'] || '';
     const token = authHeader.replace(/^Bearer\s+/, '').trim();
-    const isTestOrDev = process.env.NODE_ENV !== 'production' || process.env.NABIN_TEST_MODE === 'true';
+    const isTestOrDev = allowsTestConvenience('skipping an authentication check');
 
     let callerDriverId = null;
     if (token) {
@@ -6248,7 +6276,7 @@ app.post(['/api/merchant/:restaurantId/media', '/api/merchant/media'], async (re
   try {
     const authHeader = req.headers['authorization'] || '';
     const token = authHeader.replace(/^Bearer\s+/, '').trim();
-    const isTestOrDev = process.env.NODE_ENV !== 'production' || process.env.NABIN_TEST_MODE === 'true';
+    const isTestOrDev = allowsTestConvenience('skipping an authentication check');
 
     let callerMerchantId = null;
     if (token) {
@@ -6309,7 +6337,7 @@ app.post(['/api/merchant/:restaurantId/menu/:itemId/photo', '/api/merchant/menu/
   try {
     const authHeader = req.headers['authorization'] || '';
     const token = authHeader.replace(/^Bearer\s+/, '').trim();
-    const isTestOrDev = process.env.NODE_ENV !== 'production' || process.env.NABIN_TEST_MODE === 'true';
+    const isTestOrDev = allowsTestConvenience('skipping an authentication check');
 
     let callerMerchantId = null;
     if (token) {
@@ -6416,7 +6444,7 @@ app.post('/api/parcel/:id/delivery-proof', async (req, res) => {
     const parcelId = req.params.id || req.body.parcelId;
     const authHeader = req.headers['authorization'] || '';
     const token = authHeader.replace(/^Bearer\s+/, '').trim();
-    const isTestOrDev = process.env.NODE_ENV !== 'production' || process.env.NABIN_TEST_MODE === 'true';
+    const isTestOrDev = allowsTestConvenience('skipping an authentication check');
 
     let callerDriverId = null;
     if (token) {

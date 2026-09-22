@@ -500,7 +500,7 @@ async function runSuite() {
     delete process.env.NABIN_TEST_MODE;
 
     // Send OTP in production mode
-    const prodOtpRes = db.sendAuthOtp({ phone: '+919999999999', role: 'CUSTOMER' });
+    const prodOtpRes = await db.sendAuthOtp({ phone: '+919999999999', role: 'CUSTOMER' });
     assert('Production sendAuthOtp NEVER returns testOtp in response payload', prodOtpRes.testOtp === undefined);
 
     // Verify static demo OTP in production mode (must throw error / reject)

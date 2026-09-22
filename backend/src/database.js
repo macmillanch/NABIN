@@ -15,6 +15,7 @@ const OrderRepository = require('./repositories/OrderRepository');
 const DispatchRepository = require('./repositories/DispatchRepository');
 const AdvertisementRepository = require('./repositories/AdvertisementRepository');
 const { CampaignRepository } = require('./repositories/CampaignRepository');
+const { allowsTestConvenience } = require('./services/RuntimeMode');
 
 // Shared relational store with durable persistence, crash recovery & double-entry accounting
 class NabinDatabase {
@@ -113,11 +114,15 @@ class NabinDatabase {
       mandatory_update_notice: 'A security and architecture update is required to continue using NABIN.'
     };
 
-    // Pre-seed standard active sessions for client development & testing
-    this.activeSessions.set('usr_session_priya', { token: 'usr_session_priya', role: 'CUSTOMER', entityId: 'usr_2', entity: this.users[1] });
-    this.activeSessions.set('usr_session_rahul', { token: 'usr_session_rahul', role: 'CUSTOMER', entityId: 'usr_1', entity: this.users[0] });
-    this.activeSessions.set('drv_session_rajesh', { token: 'drv_session_rajesh', role: 'DRIVER', entityId: 'DRV-101', entity: null });
-    this.activeSessions.set('mcht_session_dilli', { token: 'mcht_session_dilli', role: 'MERCHANT', entityId: 'rest_1', entity: null });
+    // Pre-seed standard active sessions for client development & testing. Gated:
+    // a token written into the source is a permanent master key wherever it is
+    // accepted, and unlike a issued session it can never be revoked.
+    if (allowsTestConvenience('accepting a hard-coded development session token')) {
+      this.activeSessions.set('usr_session_priya', { token: 'usr_session_priya', role: 'CUSTOMER', entityId: 'usr_2', entity: this.users[1] });
+      this.activeSessions.set('usr_session_rahul', { token: 'usr_session_rahul', role: 'CUSTOMER', entityId: 'usr_1', entity: this.users[0] });
+      this.activeSessions.set('drv_session_rajesh', { token: 'drv_session_rajesh', role: 'DRIVER', entityId: 'DRV-101', entity: null });
+      this.activeSessions.set('mcht_session_dilli', { token: 'mcht_session_dilli', role: 'MERCHANT', entityId: 'rest_1', entity: null });
+    }
 
     // Admin Users with granular permissions (Bootstrapped securely on first run)
     this.adminUsers = [];
@@ -4907,7 +4912,125 @@ class NabinDatabase {
     return `+${digits}`;
   }
 
-  sendAuthOtp({ phone, role = 'CUSTOMER', purpose = 'LOGIN' }) {
+  /**
+   * A read on the authentication path that must actually answer.
+   *
+   * PostgREST reports "the database is unreachable" the same way it reports "no
+   * such row" unless the caller looks at `error`, and every account lookup below
+   * destructured only `data`. So an outage was indistinguishable from a
+   * legitimate miss, and the fallback that followed — somebody else's seeded
+   * account — turned an infrastructure failure into an identity one. Here an
+   * outage becomes a refusal with a 503, which is also the status the client
+   * needs in order to retry instead of logging the user out.
+   */
+  async authoritativeRead(builder, { what = 'the account record' } = {}) {
+    const { data, error } = await this.settleAuthoritative(builder, what);
+    if (error) throw this.authStoreUnavailable(error, what);
+    return data;
+  }
+
+  /** Same rule for a write that authentication depends on. */
+  async authoritativeWrite(builder, { what = 'the account record' } = {}) {
+    const { data, error } = await this.settleAuthoritative(builder, what);
+    if (error) throw this.authStoreUnavailable(error, what);
+    return data;
+  }
+
+  // A client that cannot reach the host at all rejects rather than reporting an
+  // error the way PostgREST does, so both shapes have to end up in the same place.
+  async settleAuthoritative(builder, what) {
+    try {
+      return await builder;
+    } catch (err) {
+      throw this.authStoreUnavailable(err, what);
+    }
+  }
+
+  authStoreUnavailable(cause, what) {
+    const refusal = new Error(`Cannot verify ${what} right now. Please try again in a moment.`);
+    refusal.code = 'AUTH_STORE_UNAVAILABLE';
+    refusal.status = 503;
+    refusal.cause = cause && cause.message ? cause.message : String(cause);
+    return refusal;
+  }
+
+  /**
+   * Write an authentication event's audit record, or refuse the request.
+   *
+   * The audit calls on this path were fire-and-forget, so with PostgreSQL
+   * unreachable the server answered 200 "Authentication successful" while the
+   * `USER_LOGIN_SUCCESS` record vanished into the process-wide unhandled-rejection
+   * handler. A login nobody can later point to is the one thing an audit trail
+   * exists to prevent, so here the write is awaited and its failure is an outage
+   * (503) rather than a silent gap.
+   */
+  async auditAuthoritative(entry) {
+    try {
+      await this.createAuditLog(entry);
+    } catch (err) {
+      const refusal = new Error('The security audit record could not be written, so this request was refused. Please try again in a moment.');
+      refusal.code = 'AUTH_AUDIT_STORE_UNAVAILABLE';
+      refusal.status = 503;
+      refusal.cause = err && err.message ? err.message : String(err);
+      throw refusal;
+    }
+  }
+
+  /**
+   * The administrator account enrolled for a phone number, read from the
+   * authoritative store when there is one.
+   *
+   * Two accounts on one number is a refusal rather than a choice: `phone` is
+   * optional on `admin_accounts` and defaults to the same placeholder for every
+   * account created without one, so "first match" would hand out whichever
+   * privileges happened to sort first. The read is not filtered by phone in SQL
+   * because the column holds whatever an operator typed ('+91 98765 00000' and
+   * '+919876500000' are the same number to us and different ones to PostgREST);
+   * administrator tables are staff-sized, so normalising in one place costs
+   * nothing and cannot miss.
+   */
+  async resolveAdminByPhone(normPhone) {
+    const { supabaseAdmin, isLivePostgres } = require('./supabase');
+    if (isLivePostgres && supabaseAdmin) {
+      const rows = await this.authoritativeRead(
+        supabaseAdmin.from('admin_accounts').select('*'),
+        { what: 'the administrator enrolment list' }
+      );
+      const matches = (rows || []).filter(a => a.phone && this.normalizePhone(a.phone) === normPhone);
+      if (matches.length > 1) {
+        const refusal = new Error('This phone number is enrolled for more than one administrator account. Access is refused until that is corrected.');
+        refusal.code = 'ADMIN_PHONE_ENROLMENT_AMBIGUOUS';
+        throw refusal;
+      }
+      if (!matches.length) return null;
+      const row = matches[0];
+      const known = this.adminUsers.find(a => a.id === row.id || a.username === row.username);
+      return {
+        ...(known || {}),
+        id: row.id,
+        username: row.username,
+        name: row.name,
+        email: row.email,
+        phone: row.phone,
+        role: row.role,
+        department: row.department,
+        status: row.is_active === false ? 'INACTIVE' : 'ACTIVE',
+        permissions: known ? known.permissions : []
+      };
+    }
+
+    const matches = this.adminUsers.filter(a => a.phone && this.normalizePhone(a.phone) === normPhone);
+    if (matches.length > 1) {
+      const refusal = new Error('This phone number is enrolled for more than one administrator account. Access is refused until that is corrected.');
+      refusal.code = 'ADMIN_PHONE_ENROLMENT_AMBIGUOUS';
+      throw refusal;
+    }
+    if (!matches.length) return null;
+    const account = matches[0];
+    return { ...account, status: account.status === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE' };
+  }
+
+  async sendAuthOtp({ phone, role = 'CUSTOMER', purpose = 'LOGIN' }) {
     const normPhone = this.normalizePhone(phone);
     if (!normPhone || normPhone.length < 10) {
       throw new Error('Please enter a valid 10-digit mobile number.');
@@ -4935,8 +5058,11 @@ class NabinDatabase {
       throw new Error(`Account temporarily locked due to excessive failed attempts. Please try again in ${waitMinutes} minute(s).`);
     }
 
-    // Predictable Demo Code (7729) for test accounts or standard development, else random 4-digit code
-    const isTestNumber = normPhone.includes('9876543210') || normPhone.includes('9845011982') || normPhone.includes('9810122910') || normPhone.includes('9871100412');
+    // Predictable Demo Code (7729) for test accounts or standard development, else random 4-digit code.
+    // Gated, because four memorised digits are not a code once the number is public.
+    const isTestNumber = allowsTestConvenience('issuing a fixed OTP to a known test number') && (
+      normPhone.includes('9876543210') || normPhone.includes('9845011982') || normPhone.includes('9810122910') || normPhone.includes('9871100412')
+    );
     const otp = isTestNumber ? '7729' : Math.floor(1000 + Math.random() * 9000).toString();
 
     this.otpStore.set(key, {
@@ -4951,20 +5077,28 @@ class NabinDatabase {
       createdAt: new Date().toISOString()
     });
 
-    this.createAuditLog({
-      adminId: 'SYSTEM_AUTH',
-      adminName: 'NABIN Auth Gateway',
-      role,
-      action: 'AUTH_OTP_DISPATCHED',
-      module: 'AUTH',
-      targetEntityType: 'USER_PHONE',
-      targetEntityId: normPhone,
-      previousState: 'UNAUTHENTICATED',
-      newState: 'OTP_PENDING',
-      reason: `Verification OTP dispatched for ${role} ${purpose} flow. Expires in 5 minutes.`
-    });
+    try {
+      await this.auditAuthoritative({
+        adminId: 'SYSTEM_AUTH',
+        adminName: 'NABIN Auth Gateway',
+        role,
+        action: 'AUTH_OTP_DISPATCHED',
+        module: 'AUTH',
+        targetEntityType: 'USER_PHONE',
+        targetEntityId: normPhone,
+        previousState: 'UNAUTHENTICATED',
+        newState: 'OTP_PENDING',
+        reason: `Verification OTP dispatched for ${role} ${purpose} flow. Expires in 5 minutes.`
+      });
+    } catch (err) {
+      // A challenge the caller was told about is one thing; a challenge that
+      // exists only in this process's memory and has no record anywhere is a
+      // loose end, so the refusal removes it.
+      this.otpStore.delete(key);
+      throw err;
+    }
 
-    const isTestOrDev = process.env.NODE_ENV !== 'production' || process.env.NABIN_TEST_MODE === 'true';
+    const isTestOrDev = allowsTestConvenience('returning the OTP in the send-otp response');
 
     const responsePayload = {
       success: true,
@@ -4990,7 +5124,7 @@ class NabinDatabase {
     const now = Date.now();
 
     // Support standard demo OTP 7729 for seeded accounts ONLY in development / test mode
-    const isTestOrDev = process.env.NODE_ENV !== 'production' || process.env.NABIN_TEST_MODE === 'true';
+    const isTestOrDev = allowsTestConvenience('accepting a fixed OTP with no dispatched challenge');
     if (!record && isTestOrDev && (otp === '7729' || otp === '4892' || otp === '3184')) {
       record = {
         phone: normPhone,
@@ -5025,7 +5159,7 @@ class NabinDatabase {
       
       if (remaining === 0) {
         record.lockedUntil = now + 15 * 60 * 1000; // 15 min lock
-        this.createAuditLog({
+        await this.auditAuthoritative({
           adminId: 'SYSTEM_AUTH',
           adminName: 'NABIN Auth Gateway',
           role,
@@ -5054,7 +5188,10 @@ class NabinDatabase {
       entity = this.users.find(u => this.normalizePhone(u.phone) === normPhone);
       let userUuid = entity?.uuid;
       if (isLivePostgres && supabaseAdmin) {
-        const { data: dbUser } = await supabaseAdmin.from('users').select('*').eq('phone', normPhone).maybeSingle();
+        const dbUser = await this.authoritativeRead(
+          supabaseAdmin.from('users').select('*').eq('phone', normPhone).maybeSingle(),
+          { what: 'the customer account for this number' }
+        );
         if (dbUser) {
           userUuid = dbUser.id;
           if (!entity) {
@@ -5089,7 +5226,7 @@ class NabinDatabase {
           } else {
             entity.uuid = userUuid;
           }
-          await supabaseAdmin.from('users').insert({
+          await this.authoritativeWrite(supabaseAdmin.from('users').insert({
             id: userUuid,
             name: entity.name,
             phone: normPhone,
@@ -5101,7 +5238,7 @@ class NabinDatabase {
             identity_status: 'PENDING',
             account_status: 'ACTIVE',
             created_at: entity.createdAt || new Date().toISOString()
-          });
+          }), { what: 'the new customer account' });
         }
       } else if (!entity) {
         const crypto = require('crypto');
@@ -5136,7 +5273,10 @@ class NabinDatabase {
     } else if (role === 'DRIVER') {
       entity = this.drivers.find(d => this.normalizePhone(d.phone) === normPhone);
       if (isLivePostgres && supabaseAdmin) {
-        const { data: dbDrv } = await supabaseAdmin.from('drivers').select('*').eq('phone', normPhone).maybeSingle();
+        const dbDrv = await this.authoritativeRead(
+          supabaseAdmin.from('drivers').select('*').eq('phone', normPhone).maybeSingle(),
+          { what: 'the driver account for this number' }
+        );
         if (dbDrv) {
           if (!entity) {
             entity = this.driverRepo?.mapRowToDriver ? this.driverRepo.mapRowToDriver(dbDrv) : dbDrv;
@@ -5157,7 +5297,10 @@ class NabinDatabase {
       }
       if (entity) {
         if (isLivePostgres && supabaseAdmin) {
-          const { data: dbUser } = await supabaseAdmin.from('users').select('*').eq('phone', normPhone).maybeSingle();
+          const dbUser = await this.authoritativeRead(
+            supabaseAdmin.from('users').select('*').eq('phone', normPhone).maybeSingle(),
+            { what: 'the linked customer profile' }
+          );
           if (dbUser) {
             entity.userId = dbUser.id;
             entity.user_id = dbUser.id;
@@ -5175,12 +5318,15 @@ class NabinDatabase {
     } else if (role === 'MERCHANT') {
       entity = this.restaurants.find(r => this.normalizePhone(r.phone) === normPhone);
       if (isLivePostgres && supabaseAdmin) {
-        const { data: merchantRows } = await supabaseAdmin
-          .from('merchants')
-          .select('*')
-          .eq('phone', normPhone)
-          .order('created_at', { ascending: true })
-          .limit(1);
+        const merchantRows = await this.authoritativeRead(
+          supabaseAdmin
+            .from('merchants')
+            .select('*')
+            .eq('phone', normPhone)
+            .order('created_at', { ascending: true })
+            .limit(1),
+          { what: 'the merchant store for this number' }
+        );
         if (merchantRows && merchantRows[0]) {
           // The PostgreSQL row is authoritative: the session must carry this store's own
           // uuid, otherwise every tenant guard and order broadcast resolves to the seeded
@@ -5195,7 +5341,24 @@ class NabinDatabase {
         entity = this.restaurants[0];
       }
     } else if (role === 'ADMIN' || role === 'SUPER_ADMIN') {
-      entity = this.adminUsers[0];
+      // An OTP proves someone holds a phone, not that they run the platform. This
+      // used to be `entity = this.adminUsers[0]`, which handed the first
+      // administrator account — SUPER_ADMIN and everything under it — to any number
+      // that could complete an OTP challenge, because the role itself came from the
+      // request body. The number now has to be enrolled, actively and unambiguously,
+      // and the session takes the account's own role rather than the one asked for.
+      entity = await this.resolveAdminByPhone(normPhone);
+      if (!entity) {
+        const refusal = new Error('No administrator account is enrolled for this number. Sign in with your username and password, or ask an administrator to enroll this phone.');
+        refusal.code = 'ADMIN_PHONE_NOT_ENROLLED';
+        throw refusal;
+      }
+      if (entity.status === 'INACTIVE') {
+        const refusal = new Error('This administrator account is disabled.');
+        refusal.code = 'ADMIN_ACCOUNT_DISABLED';
+        throw refusal;
+      }
+      role = entity.role || role;
     }
 
     // Issue Secure Session Token
@@ -5213,20 +5376,26 @@ class NabinDatabase {
     };
     await this.registerSession(sessionObj);
 
-
-
-    this.createAuditLog({
-      adminId: entity?.id || 'SYSTEM_AUTH',
-      adminName: entity?.name || normPhone,
-      role,
-      action: 'USER_LOGIN_SUCCESS',
-      module: 'AUTH',
-      targetEntityType: 'USER_SESSION',
-      targetEntityId: entity?.id || normPhone,
-      previousState: 'UNAUTHENTICATED',
-      newState: 'AUTHENTICATED',
-      reason: `Successful OTP authentication for role ${role}. Session token issued.`
-    });
+    try {
+      await this.auditAuthoritative({
+        adminId: entity?.id || 'SYSTEM_AUTH',
+        adminName: entity?.name || normPhone,
+        role,
+        action: 'USER_LOGIN_SUCCESS',
+        module: 'AUTH',
+        targetEntityType: 'USER_SESSION',
+        targetEntityId: entity?.id || normPhone,
+        previousState: 'UNAUTHENTICATED',
+        newState: 'AUTHENTICATED',
+        reason: `Successful OTP authentication for role ${role}. Session token issued.`
+      });
+    } catch (err) {
+      // registerSession above is in-memory first, so refusing this login has to
+      // take the bearer token back with it — a token that exists but was never
+      // answered to anyone is a credential nobody is watching.
+      this.invalidateSession(token);
+      throw err;
+    }
 
     return {
       success: true,
@@ -5710,6 +5879,15 @@ class NabinDatabase {
 
     // Success - clear lockout counter
     this.failedLoginAttempts.delete(normUser);
+
+    // Checked only now that the password is right, so this never confirms to a
+    // guesser that a username exists. A deactivation has to close the door it is
+    // named for: until here, an INACTIVE account could still sign in by password
+    // forever, because nothing on this path looked at `status`.
+    if (admin.status === 'INACTIVE') {
+      return { success: false, error: 'Invalid administrator credentials.' };
+    }
+
     return { success: true, admin };
   }
 
