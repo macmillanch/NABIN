@@ -1080,7 +1080,8 @@ app.post('/api/admin/services/emergency-killswitch', authenticateAdmin, requireP
         'support.view', 'support.respond', 'support.resolve', 'support.escalate', 'promotion.view',
         'promotion.create', 'promotion.edit', 'promotion.activate', 'geofence.view', 'geofence.create',
         'geofence.edit', 'geofence.delete', 'surge.view', 'surge.create', 'surge.edit', 'surge.activate',
-        'audit.view', 'audit.export', 'services.view', 'services.pause', 'services.resume', 'services.emergency_killswitch'
+        'audit.view', 'audit.export', 'services.view', 'services.pause', 'services.resume', 'services.emergency_killswitch',
+        'campaign.view', 'campaign.create', 'campaign.edit', 'campaign.publish', 'campaign.delete'
       ]
     };
 
@@ -1683,6 +1684,9 @@ app.get('/api/admin/promotions', authenticateAdmin, requirePermission('promotion
 app.post('/api/admin/promotions', authenticateAdmin, requirePermission('promotion.create'), async (req, res) => {
   try {
     const promo = await db.createPromotion(req.body, req.admin.id, req.admin.name);
+    // The offers section of the config feed and any campaign pointing at this coupon
+    // are composed from promotion rows, so a coupon change has to refresh them.
+    appConfigService.invalidate();
     res.json({ success: true, promotion: promo });
   } catch (err) {
     res.status(400).json({ success: false, error: err.message, requestId: req.id });
@@ -1710,6 +1714,10 @@ app.put('/api/admin/promotions/:id', authenticateAdmin, requirePermission('promo
       newState: updated.status,
       reason: `Promotion ${updated.code} updated.`
     });
+
+    // Same reason as on create: a coupon switched off must stop being advertised in
+    // the same moment, not one cache window later.
+    appConfigService.invalidate();
 
     res.json({ success: true, promotion: updated });
   } catch (err) {
@@ -1944,6 +1952,216 @@ app.delete('/api/admin/advertisements/:id', authenticateAdmin, async (req, res) 
 });
 
 // -------------------------------------------------------------
+// 4d. CAMPAIGNS, FESTIVAL THEMES AND CAMPAIGN ASSETS
+// Every route here is permission-gated: an advertisement has always been answerable
+// to any authenticated admin, and a campaign that can repaint the whole app and
+// attach coupons to checkout should not inherit that precedent.
+// -------------------------------------------------------------
+
+// The operator's intent graph. Time is not part of it: a campaign set to ACTIVE with
+// a window that has not opened is SCHEDULED when anyone looks at it, because
+// campaign_effective_status() says so in PostgreSQL.
+const CAMPAIGN_STATUS_TRANSITIONS = {
+  DRAFT: ['SCHEDULED', 'ACTIVE', 'ARCHIVED'],
+  SCHEDULED: ['ACTIVE', 'PAUSED', 'ARCHIVED'],
+  ACTIVE: ['PAUSED', 'SCHEDULED', 'ARCHIVED'],
+  PAUSED: ['ACTIVE', 'SCHEDULED', 'ARCHIVED'],
+  // A closed book: reopening an archived campaign would mean re-dating a window that
+  // has already run, which is a new decision and so gets a new row.
+  ARCHIVED: []
+};
+
+async function auditCampaign(req, { action, campaign, previousState = null, reason }) {
+  try {
+    await db.createAuditLog({
+      adminId: String(req.admin.id || req.admin.username || 'ADMIN'),
+      adminName: String(req.admin.name || req.admin.username || 'Admin'),
+      role: String(req.admin.role || 'ADMIN'),
+      action,
+      module: 'CAMPAIGNS',
+      targetEntityType: 'CAMPAIGN',
+      targetEntityId: String(campaign ? (campaign.code || campaign.id) : 'UNKNOWN'),
+      previousState,
+      newState: campaign ? `${campaign.status}${campaign.effectiveStatus ? `/${campaign.effectiveStatus}` : ''}` : null,
+      reason,
+      details: JSON.stringify({ priority: campaign ? campaign.priority : null, window: campaign ? [campaign.startsAt, campaign.endsAt] : null }),
+      ipAddress: req.ip,
+      requestId: req.id
+    });
+  } catch (logErr) {
+    // The campaign write already succeeded; a failed audit record is reported, not
+    // swallowed, and never turns a saved campaign into a 500.
+    console.error('[CAMPAIGN_AUDIT_WARN]', action, logErr.message);
+  }
+}
+
+app.get('/api/admin/campaigns', authenticateAdmin, requirePermission('campaign.view'), async (req, res) => {
+  try {
+    const campaigns = await db.campaignRepo.listCampaigns({
+      status: req.query.status || null,
+      serviceType: req.query.serviceType || null,
+      includeArchived: req.query.includeArchived !== 'false'
+    });
+    if (campaigns === null) {
+      return res.status(503).json({ success: false, code: 'CAMPAIGNS_UNAVAILABLE', error: 'Campaign storage is unavailable because PostgreSQL is not reachable.' });
+    }
+    res.json({ success: true, campaigns, dataSource: 'postgres' });
+  } catch (err) {
+    console.error('[campaigns] admin list failed:', err);
+    res.status(500).json({ success: false, error: 'Failed to load campaigns.' });
+  }
+});
+
+// What a client would be served right now, resolved by the database clock. This is the
+// preview an operator checks before publishing, so it must be the same answer the apps
+// get rather than a second opinion computed in the browser.
+app.get('/api/admin/campaigns/live', authenticateAdmin, requirePermission('campaign.view'), async (req, res) => {
+  try {
+    const campaigns = await db.campaignRepo.liveCampaigns(req.query.serviceType || null);
+    res.json({
+      success: true,
+      resolvedAt: new Date().toISOString(),
+      campaigns: campaigns || [],
+      dataSource: 'postgres'
+    });
+  } catch (err) {
+    console.error('[campaigns] live resolution failed:', err);
+    res.status(500).json({ success: false, error: 'Failed to resolve live campaigns.' });
+  }
+});
+
+app.get('/api/admin/campaigns/:idOrCode', authenticateAdmin, requirePermission('campaign.view'), async (req, res) => {
+  try {
+    const campaign = await db.campaignRepo.getCampaign(req.params.idOrCode);
+    if (!campaign) {
+      return res.status(404).json({ success: false, code: 'CAMPAIGN_NOT_FOUND', error: 'No campaign matches that id or code.' });
+    }
+    res.json({ success: true, campaign, dataSource: 'postgres' });
+  } catch (err) {
+    console.error('[campaigns] admin read failed:', err);
+    res.status(500).json({ success: false, error: 'Failed to load the campaign.' });
+  }
+});
+
+app.post('/api/admin/campaigns', authenticateAdmin, requirePermission('campaign.create'), async (req, res) => {
+  try {
+    const campaign = await db.campaignRepo.createCampaign(req.body, req.admin);
+    appConfigService.invalidate();
+    await auditCampaign(req, {
+      action: 'CAMPAIGN_CREATED',
+      campaign,
+      reason: `Campaign ${campaign.code} created with ${campaign.assets.length} asset(s), ${campaign.offers.length} offer(s) and ${campaign.messages.length} message(s).`
+    });
+    res.status(201).json({ success: true, campaign, dataSource: 'postgres' });
+  } catch (err) {
+    const status = err.code === 'CAMPAIGN_VALIDATION_FAILED' || err.code === 'CAMPAIGN_CHILD_REJECTED' ? 400
+      : err.code === 'CAMPAIGNS_UNAVAILABLE' ? 503 : 400;
+    res.status(status).json({
+      success: false,
+      ...(err.code ? { code: err.code } : {}),
+      error: err.message,
+      ...(err.details ? { details: err.details } : {})
+    });
+  }
+});
+
+app.put('/api/admin/campaigns/:idOrCode', authenticateAdmin, requirePermission('campaign.edit'), async (req, res) => {
+  try {
+    const before = await db.campaignRepo.getCampaign(req.params.idOrCode);
+    if (!before) {
+      return res.status(404).json({ success: false, code: 'CAMPAIGN_NOT_FOUND', error: 'No campaign matches that id or code.' });
+    }
+    // Status moves through its own route so a partial edit cannot quietly
+    // re-activate an archived campaign as a side effect of changing a colour.
+    const patch = { ...req.body };
+    delete patch.status;
+    const campaign = await db.campaignRepo.updateCampaign(before.id, patch, req.admin);
+    appConfigService.invalidate();
+    await auditCampaign(req, {
+      action: 'CAMPAIGN_UPDATED',
+      campaign,
+      previousState: `${before.status}/${before.effectiveStatus}`,
+      reason: `Campaign ${campaign.code} edited.`
+    });
+    res.json({ success: true, campaign, dataSource: 'postgres' });
+  } catch (err) {
+    res.status(err.code === 'CAMPAIGN_NOT_FOUND' ? 404 : err.code === 'CAMPAIGNS_UNAVAILABLE' ? 503 : 400).json({
+      success: false,
+      ...(err.code ? { code: err.code } : {}),
+      error: err.message,
+      ...(err.details ? { details: err.details } : {})
+    });
+  }
+});
+
+app.post('/api/admin/campaigns/:idOrCode/status', authenticateAdmin, requirePermission('campaign.publish'), async (req, res) => {
+  try {
+    const campaign = await db.campaignRepo.getCampaign(req.params.idOrCode);
+    if (!campaign) {
+      return res.status(404).json({ success: false, code: 'CAMPAIGN_NOT_FOUND', error: 'No campaign matches that id or code.' });
+    }
+    const target = String(req.body.status || '').toUpperCase();
+    const allowed = CAMPAIGN_STATUS_TRANSITIONS[campaign.status] || [];
+    if (!allowed.includes(target)) {
+      return res.status(409).json({
+        success: false,
+        code: 'CAMPAIGN_TRANSITION_REJECTED',
+        error: `A campaign cannot go from ${campaign.status} to ${target || '(nothing supplied)'}.`,
+        allowedTransitions: allowed
+      });
+    }
+    const updated = await db.campaignRepo.updateCampaign(campaign.id, { status: target }, req.admin);
+    appConfigService.invalidate();
+    await auditCampaign(req, {
+      action: `CAMPAIGN_${target}`,
+      campaign: updated,
+      previousState: `${campaign.status}/${campaign.effectiveStatus}`,
+      reason: req.body.reason ? String(req.body.reason).slice(0, 500) : `Campaign ${campaign.code} moved to ${target}.`
+    });
+    res.json({ success: true, campaign: updated, dataSource: 'postgres' });
+  } catch (err) {
+    res.status(err.code === 'CAMPAIGNS_UNAVAILABLE' ? 503 : 400).json({
+      success: false,
+      ...(err.code ? { code: err.code } : {}),
+      error: err.message,
+      ...(err.details ? { details: err.details } : {})
+    });
+  }
+});
+
+// Archiving, not deleting: a campaign that ran is the record of an offer customers
+// saw, and the coupons it attached carry their own redemption history.
+app.delete('/api/admin/campaigns/:idOrCode', authenticateAdmin, requirePermission('campaign.delete'), async (req, res) => {
+  try {
+    const campaign = await db.campaignRepo.getCampaign(req.params.idOrCode);
+    if (!campaign) {
+      return res.status(404).json({ success: false, code: 'CAMPAIGN_NOT_FOUND', error: 'No campaign matches that id or code.' });
+    }
+    if (campaign.status === 'ARCHIVED') {
+      return res.status(409).json({
+        success: false,
+        code: 'CAMPAIGN_ALREADY_ARCHIVED',
+        error: `Campaign ${campaign.code} is already archived.`
+      });
+    }
+    const archived = await db.campaignRepo.updateCampaign(campaign.id, { status: 'ARCHIVED' }, req.admin);
+    appConfigService.invalidate();
+    await auditCampaign(req, {
+      action: 'CAMPAIGN_ARCHIVED',
+      campaign: archived,
+      previousState: `${campaign.status}/${campaign.effectiveStatus}`,
+      reason: `Campaign ${campaign.code} archived from the delete route; rows are retained.`
+    });
+    res.json({ success: true, archived: true, campaign: archived, dataSource: 'postgres' });
+  } catch (err) {
+    res.status(err.code === 'CAMPAIGNS_UNAVAILABLE' ? 503 : 400).json({
+      success: false,
+      ...(err.code ? { code: err.code } : {}),
+      error: err.message
+    });
+  }
+});
+
 // -------------------------------------------------------------
 // 5. GEO-FENCING & DYNAMIC SURGE ZONES
 // -------------------------------------------------------------

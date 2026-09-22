@@ -3,6 +3,9 @@ const database = require('../database');
 const { supabaseAdmin, isLivePostgres } = require('../supabase');
 const featureControlService = require('./FeatureControlService');
 const AdvertisementRepository = require('../repositories/AdvertisementRepository');
+// The palette vocabulary is owned by the campaign repository (a leaf module) so an
+// authoring rule and a publication rule cannot drift into two different lists.
+const { CAMPAIGN_THEME_TOKENS: THEME_TOKENS } = require('../repositories/CampaignRepository');
 
 // Remote configuration is published to clients as plain data only. Operator-owned
 // keys are namespaced so a settings write can never overwrite state another
@@ -15,14 +18,16 @@ const RESERVED_KEYS = ['PLATFORM_SERVICE_STATE', 'service_status', 'surge_multip
 // allow-list keeps an operator typo from silently repainting the wrong surface,
 // and a hex pattern keeps the value data: no expression can survive either gate.
 const THEME_SETTING_KEY = `${SETTINGS_PREFIX}THEME`;
-const THEME_TOKENS = [
-  'brand', 'brandTint', 'onBrand',
-  'canvas', 'surface', 'surfaceMuted', 'surfaceEmphasized',
-  'onSurface', 'onSurfaceMuted', 'divider',
-  'success', 'warning', 'danger',
-  'foodAccent', 'groceryAccent'
-];
 const THEME_HEX = /^#[0-9a-fA-F]{6}$/;
+
+// A theme names its marks by asset id; a client wants a URL. Resolved here rather
+// than stored twice, so deleting an asset cannot leave a campaign pointing at a
+// cached link.
+function urlForAsset(campaign, assetId) {
+  if (!assetId || !Array.isArray(campaign.assets)) return null;
+  const asset = campaign.assets.find(a => a.id === assetId);
+  return asset ? asset.url : null;
+}
 
 const CACHE_SECONDS = Math.max(1, Number(process.env.APP_CONFIG_CACHE_SECONDS) || 30);
 const PUBLISHED_OFFER_LIMIT = 10;
@@ -242,6 +247,86 @@ class AppConfigService {
     };
   }
 
+  // Which campaign is live is a fact about time, so it is answered by PostgreSQL's
+  // clock through resolve_live_campaigns() rather than by this process. The 30-second
+  // cache means a campaign can appear up to one cache window after it starts, which
+  // is still server control: no client clock is consulted anywhere on this path.
+  async buildCampaignSection() {
+    const base = {
+      source: 'postgres:campaigns',
+      resolvedBy: 'postgresql clock (resolve_live_campaigns)',
+      cacheSeconds: CACHE_SECONDS
+    };
+    const repo = database.campaignRepo;
+    if (!repo || !repo.live) {
+      return {
+        ...base,
+        available: false,
+        degraded: true,
+        campaigns: [],
+        reason: 'PostgreSQL is unavailable, so no campaign could be resolved.'
+      };
+    }
+    let live;
+    try {
+      live = await repo.liveCampaigns();
+    } catch (error) {
+      return {
+        ...base,
+        available: false,
+        degraded: true,
+        campaigns: [],
+        reason: `Campaigns could not be resolved: ${error.message}`
+      };
+    }
+    return {
+      ...base,
+      available: (live || []).length > 0,
+      campaigns: (live || []).map(campaign => ({
+        id: campaign.id,
+        code: campaign.code,
+        name: campaign.name,
+        priority: campaign.priority,
+        serviceTypes: campaign.serviceTypes,
+        startsAt: campaign.startsAt,
+        endsAt: campaign.endsAt,
+        theme: campaign.theme ? {
+          palette: campaign.theme.palette || {},
+          logoUrl: urlForAsset(campaign, campaign.theme.logoAssetId),
+          wordmarkUrl: urlForAsset(campaign, campaign.theme.wordmarkAssetId),
+          splashUrl: urlForAsset(campaign, campaign.theme.splashAssetId)
+        } : null,
+        banners: campaign.assets
+          .filter(a => a.kind === 'BANNER' || a.kind === 'PROMOTIONAL_IMAGE')
+          .slice(0, 3)
+          .map(a => ({ kind: a.kind, url: a.url, altText: a.altText, locale: a.locale, priority: a.priority })),
+        // An offer is only worth publishing while checkout will honour it: a coupon
+        // that has since been switched off, or whose row is gone, would otherwise be
+        // advertised as a discount the server then refuses.
+        offers: campaign.offers
+          .filter(offer => offer.coupon && offer.coupon.isActive !== false)
+          .map(offer => ({
+            serviceType: offer.serviceType,
+            copy: offer.copy,
+            couponCode: offer.coupon.code,
+            discountType: offer.coupon.discountType,
+            discountValue: offer.coupon.discountValue
+          })),
+        messages: campaign.messages.map(message => ({
+          kind: message.kind,
+          title: message.title,
+          body: message.body,
+          surface: message.surface,
+          triggerEvent: message.triggerEvent,
+          dismissible: message.dismissible,
+          showOnce: message.showOnce,
+          locale: message.locale,
+          priority: message.priority
+        }))
+      }))
+    };
+  }
+
   async buildSections() {
     const sections = {
       services: this.buildServiceSection(),
@@ -261,13 +346,23 @@ class AppConfigService {
         rejectedTokens: [],
         reason: 'PostgreSQL is unavailable, so no published theme could be read.'
       };
+      sections.campaigns = {
+        source: 'postgres:campaigns',
+        available: false,
+        degraded: true,
+        campaigns: [],
+        reason
+      };
       return sections;
     }
 
-    const [offers, settings] = await Promise.all([this.loadOffers(), this.loadSettings()]);
+    const [offers, settings, campaigns] = await Promise.all([
+      this.loadOffers(), this.loadSettings(), this.buildCampaignSection()
+    ]);
     sections.offers = offers;
     sections.settings = settings;
     sections.theme = this.buildThemeSection(settings);
+    sections.campaigns = campaigns;
     return sections;
   }
 
