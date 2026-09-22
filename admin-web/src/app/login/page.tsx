@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useAuth } from '@/components/AuthProvider';
 
 export default function LoginPage() {
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [reveal, setReveal] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -15,9 +16,9 @@ export default function LoginPage() {
     setBusy(true);
     setError('');
     try {
-      await login(password);
+      await login(username, password);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Invalid password.');
+      setError(err instanceof Error ? err.message : 'Sign-in failed.');
     } finally {
       setBusy(false);
     }
@@ -38,6 +39,24 @@ export default function LoginPage() {
         )}
 
         <div className="nabin-form">
+          <div>
+            <label className="nabin-label" htmlFor="username">
+              Administrator username
+            </label>
+            <input
+              id="username"
+              className="nabin-input"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="superadmin"
+              autoComplete="username"
+              autoCapitalize="none"
+              spellCheck={false}
+              disabled={busy}
+              required
+            />
+          </div>
+
           <div>
             <label className="nabin-label" htmlFor="password">
               Master password

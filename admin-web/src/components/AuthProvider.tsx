@@ -9,7 +9,7 @@ interface AuthContextType {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   user: Record<string, any> | null;
   loading: boolean;
-  login: (password: string) => Promise<void>;
+  login: (username: string, password: string) => Promise<void>;
   logout: () => void;
 }
 
@@ -48,8 +48,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     checkAuth();
   }, [checkAuth]);
 
-  const login = async (password: string) => {
-    const res = await authApi.login(password);
+  const login = async (username: string, password: string) => {
+    const res = await authApi.login(username, password);
     if (res.data.success) {
       localStorage.setItem('nabin_admin_token', res.data.token);
       setUser(res.data.admin);

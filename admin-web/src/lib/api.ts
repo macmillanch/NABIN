@@ -24,7 +24,7 @@ api.interceptors.request.use((config) => {
 
 // Auth API Wrapper
 export const authApi = {
-  login: (password: string) => api.post('/admin/login', { password }),
+  login: (username: string, password: string) => api.post('/admin/login', { username, password }),
   me: () => api.get('/admin/me'),
   logout: () => {
     localStorage.removeItem('nabin_admin_token');
