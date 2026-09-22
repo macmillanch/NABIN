@@ -60,6 +60,7 @@ const SUPER_ADMIN_GRANTS = Object.freeze([
   'orders.manage',
   'pricing.edit',
   'promotion.view', 'promotion.create', 'promotion.edit', 'promotion.activate',
+  'security.view', 'security.session.revoke',
   'services.view', 'services.pause', 'services.resume', 'services.emergency_killswitch',
   'support.view', 'support.respond', 'support.resolve', 'support.escalate',
   'surge.view', 'surge.create', 'surge.edit', 'surge.activate'

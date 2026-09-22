@@ -123,14 +123,39 @@ Two different checks protect an admin session, and only one of them is authorita
 So a disable made directly in `admin_accounts` does not stop an already-issued token in a
 running backend; it converges when that administrator next attempts to sign in
 (`server.js:1260` writes `INACTIVE` into the copy, which then fails the per-request check).
-That is a *delayed* revocation, not a broken one, but it is not what area 34 asks for.
-Two things Phase A must therefore provide: an admin-facing session list with revoke backed
-by `active_sessions` / `backend_sessions`, and a revocation path that removes
-`activeAdminSessions` entries rather than waiting for a restart.
+That is a *delayed* revocation, not a broken one, and it is why area 34 asked for a
+security centre rather than a smaller fix.
 
-`admin_accounts` itself carries `failed_attempts` and `locked_until`, and a failed login is
-audited with the caller's IP (`server.js:1220`) — the lockout trail a security centre needs
-already exists, it is just not visible to any screen.
+**Closed in A4.** Revocation no longer waits for the account's next sign-in.
+`POST /api/admin/security/sessions/revoke` deletes the durable row **first** and this
+process's `activeAdminSessions` afterwards — the reverse order leaves a session live in
+`backend_sessions` after somebody was told it was revoked, and it returns on the next
+reconcile — and `POST /api/admin/accounts/:id/status` runs the same revocation for every
+session of the account, then clears both maps by account id. `admin_authorization_test.js`
+proves it from the using side, not the reporting side: REV-01…REV-09 (a revoked bearer
+answers 401 on the next request against an ungated *and* a gated route; the store row is
+gone so a restart cannot hand it back; a second revoke reports `SESSION_NOT_FOUND` rather
+than a second success; a session written by another instance is honoured inside the
+15-second reconcile and is revocable from here; an administrator's revoke button cannot
+sign a customer out — `SESSION_NOT_ADMIN`, checked before anything is deleted), and
+DIS-01…DIS-07 (disabling cuts sessions at once, the disabled account cannot sign in, and
+re-enabling restores access without a restart).
+
+Two facts this surface has to state rather than imply, because a security screen that
+looks authoritative is worse than an honest one:
+
+- `admin_accounts.failed_attempts` and `locked_until` (migration 001:183–184) exist and
+  are **never read or written**. What actually locks anybody out is the process-local
+  `failedLoginAttempts` map (5 attempts / 15 minutes), so
+  `GET /api/admin/security/login-lockouts` answers beside its counters with
+  `scope: 'THIS_SERVER_PROCESS_ONLY'`, `resetOnRestart: true` and
+  `durableColumnsInSchema: false` (SEC-06/SEC-07). Durable lockouts need a migration → §9.
+- An administrator had **two ids**: `admin_accounts.id` (a uuid) and, for an account
+  provisioned in the running process, an in-memory `adm_<six clock digits>` that boot
+  hydration replaced with the uuid. The id in the create response therefore addressed a
+  row that did not exist — a status write or a session revoke aimed at it was refused as
+  `ADMIN_NOT_ENROLLED`. Provisioning now reads the uuid back from its own insert, so one
+  id exists from the first moment the account does.
 
 ---
 
@@ -202,22 +227,36 @@ Persisting the matrix needs a new table → migration **028** → §9 approval s
 After Phase A1 the role→grants answer exists in exactly one file, `backend/src/adminPermissions.js`.
 It replaced three copies that disagreed — the boot sync's 40 strings, `createAdminAccount`'s 18,
 and the bootstrap route's own 41 — and which of them won depended on whether the process had
-restarted since the account was created. The catalogue is now 51 permission names;
-38 are enforced by `requirePermission` middleware, 5 are checked inside handlers, and 9 are
-names no code path consults yet.
+restarted since the account was created. The catalogue is now **53** names (A4 added
+`security.view` and `security.session.revoke`); **40** of them gate **55** of the 72
+`authenticateAdmin` routes, **13** gate no route at all, and every count in this section is
+re-measured from `src/server.js` on each run by `admin_authorization_test.js` CAT-01…CAT-05
+rather than restated by hand.
 
-- **Enforced but granted to no non-super role** (11, measured as guarded strings minus the four
-  least-privilege lists): `advertisement.{create,edit,delete}`, `campaign.{view,create,edit,
-  publish,delete}`, `catalog.manage`, `grocery.review`, `orders.manage`. `SUPER_ADMIN` reaches
-  them through the role wildcard at `server.js:847`, so nothing is broken today — but they are
-  unusable by least-privilege staff, which is precisely what area 33 asks for. Assigning them
-  is a product decision, not a code one, and §11 asks it.
-- **In the catalogue, consulted by nothing** (9): `audit.export`, `geofence.edit`,
-  `identity_documents.download`, `notification.view`, `promotion.activate`, `services.view`,
-  `support.escalate`, `surge.{edit,activate}`. Several are exactly what areas 20, 22, 28, 31
-  and 42 ask to be real — a surge edit, a coupon activation, a notification history read, an
-  audit export. They are names the old bootstrap map carried and no route ever checked, so
-  area 33 cannot gate on them until the guard exists.
+- **Enforced but granted to no non-super role** (26, up from the 11 measured at A1 because
+  completing the `SUPER_ADMIN` list made the gap visible, not because it grew):
+  `admin_accounts.{create,manage}`, `advertisement.{create,edit,delete}`,
+  `campaign.{view,create,edit,publish,delete}`, `catalog.manage`,
+  `geofence.{create,delete}`, `grocery.review`, `notification.broadcast`,
+  `orders.manage`, `pricing.edit`, `promotion.{view,create,edit}`,
+  `security.{view,session.revoke}`, `services.{pause,resume,emergency_killswitch}`,
+  `surge.create`. `SUPER_ADMIN` reaches them through the role wildcard at `server.js:847`,
+  so nothing is broken today — but the fourteen names a non-super role does hold
+  (`audit.view`, `finance.*`, `fleet.manage`, `geofence.view`, `identity_verification.*`,
+  `merchant.manage`, `support.*`, `surge.view`) are the whole of least privilege today,
+  which is precisely what area 33 asks for. Assigning the other twenty-six is a product
+  decision, not a code one, and §11 asks it.
+- **In the catalogue, gated on no route** (13): `audit.export`, `geofence.edit`,
+  `identity_documents.{view,download}`, `identity_verification.{approve,reject,
+  request_resubmission}`, `notification.view`, `promotion.activate`, `services.view`,
+  `support.escalate`, `surge.{edit,activate}`. Four of the thirteen are decided *inside* a
+  handler (see the third bullet), so the remaining **nine grant nothing anywhere**:
+  `audit.export`, `geofence.edit`, `identity_documents.download`, `notification.view`,
+  `promotion.activate`, `services.view`, `support.escalate`, `surge.edit`,
+  `surge.activate`. Several are exactly what areas 20, 22, 28, 31 and 42 ask to be real — a
+  surge edit, a coupon activation, a notification history read, an audit export. They are
+  names the old bootstrap map carried and no route ever checked, so area 33 cannot gate on
+  them until the guard exists.
 - **Enforced, but not by middleware**: `identity_documents.view` is read inside
   `GET /api/admin/identity-verifications/:id` (`server.js:2788`) to decide whether the
   applicant's phone and document references come back unmasked — the field-level shape area 6
@@ -227,6 +266,14 @@ names no code path consults yet.
   to `SUPER_ADMIN` directly (`server.js:5586`, `5669`), and `reset-password` allows
   self-or-`admin_accounts.manage` (`server.js:1342`). Four spellings of the same answer, and
   only the first form is readable as a list.
+- **Gated by nothing at all** (15 admin routes): `services/status`, `me`, `reset-password`,
+  `advertisements`, `metrics`, the duplicate `drivers` pair (§11 decision 9), `drivers/:id`,
+  `jobs`, `restaurants`, `master-catalog`, `master-catalog/:id/stores`,
+  `grocery/price-alerts`, `supabase-status`, `features/:key`. Three of them decide inside
+  the handler — `me` by design (any signed-in administrator reads their own grants),
+  `reset-password` (self-or-`admin_accounts.manage`) and `features/:key` (role equality with
+  `SUPER_ADMIN`) — so **twelve answer to any valid administrator token**. That is area 33's
+  least-privilege debt in its plainest form, and CAT-04 fails the run if the count grows.
 - **Still not persisted**: grants are derived from the role at read time and `admin_accounts`
   has no permissions column, so per-admin overrides remain a migration-028 question (§2.2, §9).
 
@@ -407,7 +454,7 @@ one module rather than 70 inline literals; the catalogue itself is code, and its
 | disputes | `dispute.view` `NEW`, `dispute.resolve` `NEW` | area 30 |
 | audit | `audit.view` (existing), `audit.export` (granted, enforcement `NEW`) | areas 31, 42 |
 | admins | `admin_accounts.create/manage` (existing grants, enforcement `NEW`), `admin_accounts.impersonate` `NEW` | area 32 |
-| security | `security.view` `NEW`, `security.session.revoke` `NEW` | area 34 |
+| security | `security.view`, `security.session.revoke` (both exist and are enforced since A4) | area 34 |
 | system | `system.health` `NEW`, `services.pause/resume/emergency_killswitch` (existing) | areas 35, 43 |
 | integration | `integrations.view` `NEW`, `integrations.edit` `NEW` (metadata only) | area 36 |
 | settings | `settings.view` `NEW`, `settings.edit` (today only `requireSuperAdmin`) | area 37 |
@@ -487,7 +534,7 @@ configuration question once §2.2 is fixed, not a code change.
 | 5 | Driver management | PARTIAL — `GET /api/admin/drivers`, `GET /:id`, `POST /:id/status` (`fleet.manage`) | No profile edit, no document list, no per-driver timeline | D |
 | 6 | KYC queue with private document storage | EXISTS — `identity-verifications` list/`review`/`lock`/`unlock`, `identity_documents` table, `/docs/:filename` preview | `identity_documents.view` is granted but **unenforced**; the `identity_documents` table holds **0 rows and no code touches it**, so the queue and its reviews are process memory only (§2.5) | D |
 | 7 | Merchant management with tenant isolation | PARTIAL — `POST /api/admin/restaurants/:id/status`, `GET /api/restaurants` for admin | No merchant detail/edit; **the suspend action writes a memory copy that no column can hold** (`merchants` has 39 rows and only `is_open`, §2.5); merchant-scoped endpoints already prove tenant isolation via `requireMerchantTenant` and reuse it here | D |
-| 32 | Admin users, least privilege, no auto SUPER_ADMIN | PARTIAL — `GET/POST /api/admin/accounts` gated by `admin_accounts.{manage,create}` since A1 | No disable/force-logout flow, no permission UI (blocked by §2.2), no least-privilege grant for the 11 §2.3 names; an unknown role is now refused rather than rounded down | A |
+| 32 | Admin users, least privilege, no auto SUPER_ADMIN | PARTIAL — `GET/POST /api/admin/accounts` gated by `admin_accounts.{manage,create}` since A1; since A4 `POST /api/admin/accounts/:id/status` (`admin_accounts.manage`) enables and disables with the last-enabled-`SUPER_ADMIN` guard, and revokes every session of the account as it disables (§1.4) | No permission UI (blocked by §2.2), no least-privilege grant for the 26 §2.3 names; the 15 ungated admin reads in §2.3 are still open to any token; enable/disable is audited, a role or grant change is not possible at all yet | A |
 
 ### Transactions
 
@@ -527,8 +574,8 @@ configuration question once §2.2 is fixed, not a code change.
 | 29 | Support | EXISTS — `GET /api/admin/support`, `assign`, `resolve` (`support.*`) | UI missing; tickets are boot-synced copies (§2.5) | G |
 | 30 | Disputes | MISSING — no table, no route, no screen | New domain: a migration to create `disputes`, or model as a typed `support_tickets`. §11 decision, and the migration branch is a §9 stop | G |
 | 31 | Audit log protected from normal deletion | EXISTS — `trg_audit_logs_immutable` + `GET /api/admin/audit-logs`; since A3 a refused write is announced instead of vanishing, and since A3b the 26 control-plane writes are awaited and a refusal answers 503 (§2.7) | 20 writes stay un-awaited for stated reasons (§2.7's table), so a 200 on those is still not proof the record landed; and three admin mutations have no column to land in at all (§2.5) | A |
-| 33 | Permission matrix with named permissions, enforced server-side | PARTIAL — `requirePermission` gates 51 routes on 38 named strings, and since A1 the grants come from one file (§2.3) | 9 catalogue names have no gate and 11 gated names belong to no non-super role; 5 checks sit inside handlers; nothing is persisted, so per-admin overrides need the §9 migration. §3 is the target catalogue | A |
-| 34 | Security centre | MISSING as a surface | Sessions (`active_sessions`/`backend_sessions`), failed-login lockouts (`failed_attempts`, `locked_until`), admin session list + revoke. Revocation today is delayed rather than absent — see §1.4 | A |
+| 33 | Permission matrix with named permissions, enforced server-side | PARTIAL — 55 of 72 `authenticateAdmin` routes gate on 40 names, and since A1 the grants come from one file (§2.3). Since A4 the whole map is **proven rather than described**: `admin_authorization_test.js` parses the route table out of `src/server.js` and refuses all 193 (route, role) pairs that should be closed, allow-probes 36 names through a handler-validated request, and compares `GET /api/admin/me` against the catalogue per role | 12 ungated admin reads answer to any token, 9 catalogue names grant nothing anywhere, and 26 gated names are unreachable for a least-privilege role (§2.3); 4 decisions sit inside handlers in a fourth spelling; nothing is persisted, so per-admin overrides need the §9 migration. 4 names (`notification.broadcast`, `orders.manage`, `geofence.create`, `surge.create`) have no *safe* allow probe, so a holder reaching them is unproven — recorded in the harness, not hidden. §3 is the target catalogue | A |
+| 34 | Security centre | EXISTS as an API surface since A4 — `GET /api/admin/security/sessions` (`security.view`), `GET /api/admin/security/login-lockouts` (`security.view`), `POST /api/admin/security/sessions/revoke` (`security.session.revoke`, by handle or by account, durable-store-first, audited through `auditAppliedChange`), and the account enable/disable write that cuts sessions with it (§1.4) | No dashboard screen reads any of it yet (phase A shell work, area 40/45); the lockout counters are this-process-only because `failed_attempts`/`locked_until` are dead columns (§1.4) — durable lockouts and a last-seen-IP trail need a migration → §9 | A |
 | 36 | Integrations, never display secret values | PARTIAL — `platform_settings` holds mixed data | Show presence/configured-state + last check, never a value; `PUT` rejects anything secret-shaped | A |
 | 37 | Settings, secrets not editable from admin UI | PARTIAL — `GET/PUT /api/admin/platform-settings` (`requireSuperAdmin`) | Needs an allow-list of keys, not an open key/value editor over a table that also holds config the server reads at boot | A |
 | 38 | Feature flags that cannot bypass controls | PARTIAL — `features` routes, `is_feature_enabled()`, and since A2 a write surface limited to flag keys (§2.4) | Flags must remain unable to disable auth/authz/payment/RLS/audit; the routes are still role-checked rather than name-checked, and neither write is audited | A |
@@ -608,13 +655,30 @@ before its gate passes, and each phase ends in one local commit. **No push, no d
    that stay un-awaited for the reasons tabled in §2.7, and the three admin surfaces in §2.5
    whose state never reaches PostgreSQL at all — the latter needs new columns, so it is a §9
    stop rather than more Phase A work.
-7. ⬜ Security centre read surface: sessions, lockouts, revoke — plus the single dangerous-
-   action confirmation component (area 49).
+7. ➜ **Part done (A4).** The security-centre **API** is live and gated: the session list,
+   the lockout read labelled for what it actually covers, revoke by handle or by account
+   with the durable store written first, the account status write that cuts sessions as it
+   disables, and the fail-closed audit on all three (§1.4, §5 rows 32 and 34).
+   **Open:** the single dangerous-action confirmation component (area 49) and a dashboard
+   screen that reads any of this surface — both are admin-web work, and until they exist
+   the security centre is reachable only over HTTP.
+   **Found while gating it, fixed:** `POST /api/admin/services/emergency-killswitch` read
+   its direction as `if (activate)`, so a body that omitted the field lifted the lockdown —
+   the one admin mutation where doing nothing by accident was the dangerous answer. The
+   direction is now required (`KILLSWITCH_DIRECTION_REQUIRED`, 400), and
+   `authenticateAdmin`'s store-fallback branch accepts any administrator role rather than
+   only `ADMIN`/`SUPER_ADMIN`, which had made an OPERATIONS or KYC token that reached that
+   branch a live session the door refused to read.
 8. ⬜ Settings/integrations: key allow-list, secret values never rendered, never writable.
 
-**Gate:** `test_suite.js` green *plus* a new `admin_authorization_test.js` that, for each
-of the five roles, proves allow/deny on every gated route (the existing `RBAC-01..12`
-module is the model), and proves a revoked admin session stops working.
+**Gate:** ✅ `test_suite.js` green *plus* `admin_authorization_test.js`, which replaced the
+hand-picked `RBAC-01..12` model with the whole measured map: 109 assertions — 193
+(route, permission) refusals across the four non-super roles, one validated allow probe per
+permission, per-role agreement between `GET /api/admin/me` and the catalogue, and
+revocation proven by using the revoked bearer afterwards. The two halves it deliberately
+does **not** prove are named in the file with their reasons (4 permissions with no harmless
+probe body; the last-`SUPER_ADMIN` guard, proven against a stubbed store so the platform's
+own account is never one bad refactor away from being unreachable).
 
 ### Phase B — Read models & dashboard (areas 1, 39, 40, 41, 42)
 KPI aggregate endpoint with explicit ranges and a `dataSource` label per number; the KPI
@@ -686,7 +750,7 @@ the same area-49 confirmation with no shortcut path.
 | `backend/cloudinary_test.js` | media surface | phase F/E media |
 | `backend/audit_drop_visibility_test.js` (**new, A3**) | a refused trail is announced with its module, action and target, and never reaches the process-wide rejection net | any audit-path change |
 | `backend/admin_audit_fail_closed_test.js` (**new, A3b**) | each converted mutation rejects 503 `applied: true` when its record is refused, the state really did change, no route that awaits one can hang or answer 400, and the deliberately unconverted paths stay unconverted | any audit-path change |
-| `admin_authorization_test.js` (**new, phase A**) | allow/deny per role per route; revoked session dead | phases A–G |
+| `backend/admin_authorization_test.js` (**new, A4**) | 109 assertions: the guard map parsed from `src/server.js` (55 gated routes / 40 names), all 193 (route, non-super role) pairs refused with 403 naming the permission, one handler-validated allow probe per permission, `GET /api/admin/me` equal to the catalogue per role, revocation proven by using the revoked bearer, cross-instance sessions honoured and revocable, disable-cuts-sessions, and the four guards that must never be fired over HTTP proven against a stubbed store | phases A–G |
 | Flutter `main_admin.dart` widget tests + `flutter analyze` | the admin mobile app | phases with mobile changes |
 
 Preconditions that make a run trustworthy are recorded in project memory
@@ -694,15 +758,23 @@ Preconditions that make a run trustworthy are recorded in project memory
 env, restart-to-load, the 15-minute broadcast window, the surge row, and never two
 harnesses at once.
 
+`admin_authorization_test.js` adds one of its own: it **writes** — four throwaway `authz_*`
+administrator accounts per run, one `backend_sessions` row for the cross-instance case, and
+their revocations — so it is a local-store harness and nothing else. Its CLN section sweeps
+every `authz_*` account in the directory to `INACTIVE`, including those a crashed earlier run
+left behind, and asserts afterwards that none is enabled (CLN-01).
+
 ---
 
 ## 9. Approval stops — work this document does **not** authorise
 
 I will stop and report before:
 
-1. **Any migration beyond 027** (directive 16). Five items want one: persisting the
+1. **Any migration beyond 027** (directive 16). Six items want one: persisting the
    role/permission matrix (§2.2), durable fleet locations (area 3), per-admin dashboard
-   preferences (area 46), `disputes` as a table (area 30), and the three control-plane
+   preferences (area 46), `disputes` as a table (area 30), durable administrator login
+   lockouts — whose two columns exist and are dead, so the security centre can only report
+   one process's counters today (§1.4) — and the three control-plane
    mutations that currently have nowhere to be written — merchant suspension, the identity
    review queue, and grocery price review (§2.5). Areas 6, 7 and 8 cannot be finished without
    the last one, because their buttons change process memory only. Migrations 001–026 are
@@ -756,6 +828,9 @@ I will stop and report before:
 | 7 | AI assistant | (a) not built; (b) internal-only rules/no LLM; (c) external provider with a written data-egress position | after G |
 | 8 | RLS | (a) document the Express-only enforcement and keep projecting columns explicitly; (b) design per-request scoped tokens | A |
 | 9 | The duplicate `GET /api/admin/drivers` (§1.1) | (a) delete the dead second registration; (b) merge the two response shapes into the live one; (c) leave it and rename the second path | A |
+| 10 | Who besides `SUPER_ADMIN` may hold the 26 gated names no non-super role reaches (§2.3) — the emergency killswitch, service pause/resume, account provisioning, campaign publish, session revoke | (a) leave them super-only and say so on the screen; (b) assign them per role in `adminPermissions.js`, which is one edit with a per-route effect and needs no migration | A (closes rows 32 and 33) |
+| 11 | The 12 admin reads with no gate of any kind (§2.3) | (a) bind each to a catalogue name that already exists (`services.view`, `promotion.view`, `catalog.manage`, `merchant.manage`, `fleet.manage`, `audit.view`) plus `system.health` from §3; (b) declare them "any signed-in administrator" reads, and record that as the decision instead of leaving it as drift | A |
+| 12 | Administrator lockout trail | (a) accept the per-process counter and keep labelling it as §1.4 does; (b) migration: write `failed_attempts`/`locked_until`, or an `admin_login_events` table, so a second instance and a restart see the same answer | when the security screen is built |
 
-Answers to 1, 3, 4, 5, 6 and 8 change schema or dependencies, so they are the first
+Answers to 1, 3, 4, 5, 6, 8 and 12 change schema or dependencies, so they are the first
 things worth settling; the rest can be decided at the head of their phase.

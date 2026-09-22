@@ -4004,7 +4004,7 @@ class NabinDatabase {
     // has to be taken back out again.
     const store = this.liveStore();
     if (store) {
-      await this.authoritativeWrite(
+      const enrolled = await this.authoritativeWrite(
         store.from('admin_accounts').upsert([{
           username: newAdmin.username,
           name: newAdmin.name,
@@ -4015,9 +4015,17 @@ class NabinDatabase {
           password_hash: newAdmin.passwordHash,
           password_salt: newAdmin.salt,
           is_active: true
-        }], { onConflict: 'username' }),
+        }], { onConflict: 'username' }).select('id'),
         { what: 'the administrator enrolment record' }
       );
+      // The store names the row, so from its first moment the account has one id.
+      // Provisioning used to hand out `adm_<six clock digits>` and hydration replaced it
+      // with the row's uuid on the next boot, which made the id in the create response
+      // address nothing this process could write back: a status change or a session
+      // revoke aimed at it was refused as an account that is not enrolled.
+      if (Array.isArray(enrolled) && enrolled.length === 1 && enrolled[0].id) {
+        newAdmin.id = String(enrolled[0].id);
+      }
     }
 
     this.adminUsers.push(newAdmin);
@@ -5762,6 +5770,355 @@ class NabinDatabase {
     for (const row of data || []) {
       if (!this.activeSessions.has(row.token_hash)) this.restoreSession(row);
     }
+  }
+
+  // --- Administrator session surface (area 34) --------------------------------
+  //
+  // Before this, an administrator token was revocable in one of the two places that
+  // honour it, and only by waiting. `activeAdminSessions` in `server.js` answers the
+  // first lookup on every guarded request and `activeSessions` + the `backend_sessions`
+  // row the second, so clearing either left the other signing traffic through. These
+  // three reads and one write are the pair seen from the store side; the route that
+  // calls them clears the process-local map as well.
+
+  /**
+   * Whether a session row's role means "someone with standing on the control plane".
+   *
+   * `ADMIN` is accepted alongside the five names the schema allows because that is what
+   * older rows carry, and `authenticateAdmin` has always honoured it.
+   */
+  isAdminSessionRole(role) {
+    const { isKnownAdminRole } = require('./adminPermissions');
+    return role === 'ADMIN' || isKnownAdminRole(role);
+  }
+
+  adminSessionRoleNames() {
+    const { KNOWN_ADMIN_ROLES } = require('./adminPermissions');
+    return ['ADMIN', ...KNOWN_ADMIN_ROLES];
+  }
+
+  /**
+   * Every administrator session this process can currently honour.
+   *
+   * `sessionId` is the SHA-256 of the bearer token, which is also how the store keys
+   * it. That is deliberate: the hash is not the bearer, so a list can carry it whole
+   * and still hand an operator nothing to sign in with — and revoke has to be named by
+   * something stable enough to survive a restart of the process that issued it.
+   */
+  listAdminSessions() {
+    const now = Date.now();
+    const sessions = [];
+    for (const [key, session] of Array.from(this.activeSessions.entries())) {
+      if (!session || !this.isAdminSessionRole(session.role)) continue;
+      const entity = this.withoutCredentialFields(session.entity || {});
+      sessions.push({
+        sessionId: /^[0-9a-f]{64}$/.test(key) ? key : this.hashSessionToken(key),
+        role: session.role,
+        adminId: session.entityId != null ? String(session.entityId) : (entity.id != null ? String(entity.id) : null),
+        adminName: entity.name || entity.username || null,
+        createdAt: session.createdAt || null,
+        expiresAt: session.expiresAt || null,
+        // An expired row is listed rather than hidden: it is still in the map, and an
+        // operator sweeping a compromised account should see it sitting there.
+        expired: !!(session.expiresAt && Date.parse(session.expiresAt) <= now)
+      });
+    }
+    sessions.sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+    return sessions;
+  }
+
+  /**
+   * The in-process failed-login counters, exactly as they are: per server process.
+   *
+   * `admin_accounts` carries `failed_attempts` and `locked_until` (migration 001:183)
+   * and nothing in this backend has ever read or written either column, so the columns
+   * are not a lockout history and are not reported as one here. What is reported is
+   * what `verifyAdminCredentials` actually enforces, labelled so no screen can present
+   * one process's counter as the platform's.
+   */
+  listAdminLoginLockouts() {
+    const now = Date.now();
+    const counters = [];
+    for (const [username, record] of this.failedLoginAttempts.entries()) {
+      const lockedUntil = record.lockedUntil || null;
+      counters.push({
+        username,
+        failedAttempts: record.count || 0,
+        lockedUntil,
+        locked: !!(lockedUntil && lockedUntil > now),
+        lockedForMinutes: lockedUntil && lockedUntil > now ? Math.ceil((lockedUntil - now) / 60000) : 0
+      });
+    }
+    counters.sort((a, b) => b.failedAttempts - a.failedAttempts);
+    return {
+      scope: 'THIS_SERVER_PROCESS_ONLY',
+      resetOnRestart: true,
+      durableColumnsInSchema: false,
+      counters
+    };
+  }
+
+  /**
+   * Take one administrator session back.
+   *
+   * The store is asked first and the memory only afterwards, because the reverse order
+   * produces the worse failure: a session deleted locally and still live in
+   * `backend_sessions` is one that keeps working after someone was told it was revoked,
+   * and it comes back on the next reconcile.
+   */
+  async revokeAdminSession(sessionId) {
+    const handle = String(sessionId || '');
+    if (!/^[0-9a-f]{64}$/.test(handle)) {
+      const refusal = new Error('A session has to be revoked by the full session id the list reported.');
+      refusal.code = 'SESSION_ID_INVALID';
+      refusal.status = 400;
+      throw refusal;
+    }
+
+    const local = this.activeSessions.get(handle);
+    if (local && !this.isAdminSessionRole(local.role)) {
+      // An administrator control that can sign a customer out by naming a hash is a
+      // different permission than the one this route holds, so the role is checked
+      // before anything is deleted — and checked again in the store below, for rows
+      // this process has never loaded.
+      const refusal = new Error('This endpoint revokes administrator sessions only.');
+      refusal.code = 'SESSION_NOT_ADMIN';
+      refusal.status = 403;
+      throw refusal;
+    }
+
+    const store = this.liveStore();
+    let revokedInStore = 0;
+    let owner = null;
+    if (store) {
+      // Role-scoped in the store rather than only in memory, because the deletion has
+      // to hold against rows this instance never read.
+      const deleted = await this.authoritativeWrite(
+        store.from('backend_sessions')
+          .delete()
+          .eq('token_hash', handle)
+          .in('role', this.adminSessionRoleNames())
+          .select('token_hash, role, entity_id'),
+        { what: 'the administrator session' }
+      );
+      revokedInStore = (deleted || []).length;
+      owner = (deleted || [])[0] || null;
+    }
+
+    const stillHere = this.activeSessions.delete(handle);
+    if (!revokedInStore && !stillHere) {
+      const refusal = new Error('No administrator session carries that id. It may have expired or been revoked already.');
+      refusal.code = 'SESSION_NOT_FOUND';
+      refusal.status = 404;
+      throw refusal;
+    }
+    const holder = owner || local;
+    return {
+      sessionId: handle,
+      adminId: holder && holder.entity_id != null ? String(holder.entity_id)
+        : (holder && holder.entityId != null ? String(holder.entityId) : null),
+      role: holder ? (holder.role || null) : null,
+      revokedInStore,
+      revokedInMemory: stillHere ? 1 : 0,
+      // False only when there is no live store to ask, which is the offline fallback,
+      // not a failure — but the caller must be able to tell them apart.
+      storeChecked: !!store
+    };
+  }
+
+  /**
+   * Take back every session belonging to one administrator account.
+   *
+   * Used when an account is disabled. Without it, `is_active = false` closed the door
+   * to new sign-ins while everyone already signed in kept walking through it until
+   * their token happened to miss the local maps.
+   */
+  async revokeAdminSessionsForAccount(adminId) {
+    const id = String(adminId || '');
+    const store = this.liveStore();
+    let revokedInStore = 0;
+    if (store) {
+      const deleted = await this.authoritativeWrite(
+        store.from('backend_sessions')
+          .delete()
+          .eq('entity_id', id)
+          .in('role', this.adminSessionRoleNames())
+          .select('token_hash'),
+        { what: 'the administrator sessions for this account' }
+      );
+      revokedInStore = (deleted || []).length;
+    }
+    const sessionIds = [];
+    for (const [key, session] of Array.from(this.activeSessions.entries())) {
+      if (!this.isAdminSessionRole(session && session.role)) continue;
+      if (String(session.entityId) !== id) continue;
+      this.activeSessions.delete(key);
+      sessionIds.push(/^[0-9a-f]{64}$/.test(key) ? key : this.hashSessionToken(key));
+    }
+    return {
+      adminId: id,
+      sessionIds,
+      revokedInStore,
+      revokedInMemory: sessionIds.length,
+      storeChecked: !!store
+    };
+  }
+
+  /**
+   * Enable or disable an administrator account, and cut its sessions when disabling.
+   *
+   * This is the only write the status path performs on `admin_accounts`, and it writes
+   * one column. `role` decides what an account may do and comes from
+   * `adminPermissions.js`; anything that edits grants or roles through this route would
+   * be a second, un-audited permission system arriving beside the first.
+   */
+  async setAdminAccountStatus({ identifier, isActive, actor } = {}) {
+    const wanted = String(identifier || '').trim().toLowerCase();
+    if (!wanted || typeof isActive !== 'boolean') {
+      const refusal = new Error('An administrator identifier and an explicit active state are required.');
+      refusal.code = 'ADMIN_STATUS_REQUEST_INCOMPLETE';
+      refusal.status = 400;
+      throw refusal;
+    }
+
+    const store = this.liveStore();
+    let row = null;
+    let activeSuperAdmins = 0;
+    if (store) {
+      // Matched in one pass rather than filtered in PostgREST: `identifier` is free
+      // text typed into a form, and embedding it in a filter string lets a comma or a
+      // parenthesis turn an equality check into something else. Administrator tables
+      // are staff-sized, the same reason `resolveAdminByPhone` gives.
+      const rows = await this.authoritativeRead(
+        store.from('admin_accounts').select('id, username, name, email, role, is_active'),
+        { what: 'the administrator enrolment list' }
+      );
+      const matches = (rows || []).filter(a =>
+        String(a.id).toLowerCase() === wanted ||
+        String(a.username || '').toLowerCase() === wanted ||
+        String(a.email || '').toLowerCase() === wanted
+      );
+      if (matches.length > 1) {
+        const refusal = new Error('More than one administrator account matches that identifier. Disable one by its account id.');
+        refusal.code = 'ADMIN_ACCOUNT_AMBIGUOUS';
+        refusal.status = 409;
+        throw refusal;
+      }
+      row = matches[0] || null;
+      activeSuperAdmins = (rows || []).filter(a => a.role === 'SUPER_ADMIN' && a.is_active !== false).length;
+    }
+
+    if (store && !row) {
+      const refusal = new Error('That administrator account is not enrolled in the authoritative directory, so its status cannot be changed here.');
+      refusal.code = 'ADMIN_NOT_ENROLLED';
+      refusal.status = 409;
+      throw refusal;
+    }
+
+    const known = this.adminUsers.find(a =>
+      String(a.id).toLowerCase() === wanted ||
+      String(a.username || '').toLowerCase() === wanted ||
+      String(a.email || '').toLowerCase() === wanted
+    );
+    if (!store && !known) {
+      const refusal = new Error('Admin account not found.');
+      refusal.code = 'ADMIN_NOT_FOUND';
+      refusal.status = 404;
+      throw refusal;
+    }
+
+    const target = row || known;
+    const wasActive = target.is_active !== undefined ? target.is_active !== false : (known && known.status !== 'INACTIVE');
+
+    // Disabling the only enabled SUPER_ADMIN is a platform with no way to provision or
+    // re-enable anyone: account creation is itself SUPER_ADMIN-only. The bootstrap
+    // route is operator-run over HTTP, so "call the person who owns the server" is the
+    // only recovery — refuse the click that ends with that phone call.
+    if (!isActive && wasActive && target.role === 'SUPER_ADMIN' && store && activeSuperAdmins <= 1) {
+      const refusal = new Error('This is the only enabled SUPER_ADMIN account, and disabling it would leave no way to enable an administrator again. Create a second one first.');
+      refusal.code = 'LAST_SUPER_ADMIN_CANNOT_BE_DISABLED';
+      refusal.status = 409;
+      throw refusal;
+    }
+
+    let accountId = target.id;
+    if (store) {
+      const written = await this.authoritativeWrite(
+        store.from('admin_accounts')
+          .update({ is_active: isActive, updated_at: new Date().toISOString() })
+          .eq('id', target.id)
+          .select('id, username, role, is_active'),
+        { what: 'the administrator account status' }
+      );
+      if (!written || written.length === 0) {
+        const refusal = new Error('The authoritative directory refused the status change and reported no such row.');
+        refusal.code = 'ADMIN_NOT_ENROLLED';
+        refusal.status = 409;
+        throw refusal;
+      }
+      accountId = written[0].id;
+    }
+    if (known) known.status = isActive ? 'ACTIVE' : 'INACTIVE';
+
+    // The state change is real from here on, so everything below it reports rather
+    // than undoes. A disabled account whose sessions are still live is the exact
+    // half-revocation this route exists to end, so it is refused as a 503 that says
+    // what did land instead of a 200 that implies otherwise.
+    let revoked;
+    try {
+      revoked = await this.revokeAdminSessionsForAccount(accountId);
+    } catch (err) {
+      if (err.code === 'AUTH_STORE_UNAVAILABLE' || err.status === 503 || err.statusCode === 503) {
+        const refusal = new Error(`The account is ${isActive ? 'enabled' : 'disabled'}, but its existing sessions could not be revoked: ${err.cause || err.message}. The change is live and must be reconciled — sign-in is closed, already-issued tokens are not.`);
+        refusal.code = 'ADMIN_SESSION_REVOKE_UNAVAILABLE';
+        refusal.status = 503;
+        refusal.statusCode = 503;
+        refusal.applied = true;
+        refusal.cause = err.message;
+        throw refusal;
+      }
+      throw err;
+    }
+
+    await this.auditAppliedChange({
+      adminId: actor ? actor.id : 'SYSTEM',
+      adminName: actor ? (actor.name || actor.username) : 'System',
+      role: actor ? actor.role : 'SYSTEM',
+      action: isActive ? 'ADMIN_ACCOUNT_ENABLED' : 'ADMIN_ACCOUNT_DISABLED',
+      module: 'AUTH',
+      targetEntityType: 'ADMIN_USER',
+      targetEntityId: String(accountId),
+      previousState: wasActive ? 'ACTIVE' : 'INACTIVE',
+      newState: isActive ? 'ACTIVE' : 'INACTIVE',
+      // No credential material, and no permission list: the record says who changed
+      // which account's access state, which is the question a review asks.
+      reason: `${target.username || target.name || accountId} was ${isActive ? 'enabled' : 'disabled'}` +
+        (isActive ? '.' : `, and ${revoked.revokedInStore + revoked.sessionIds.length} of its session(s) were revoked.`),
+      metadata: {
+        sessionsRevokedInStore: revoked.revokedInStore,
+        sessionsRevokedInMemory: revoked.sessionIds.length,
+        storeChecked: revoked.storeChecked
+      }
+    });
+
+    return {
+      success: true,
+      account: {
+        id: String(accountId),
+        username: target.username || (known && known.username) || null,
+        name: target.name || (known && known.name) || null,
+        role: target.role || (known && known.role) || null,
+        status: isActive ? 'ACTIVE' : 'INACTIVE'
+      },
+      sessionsRevoked: {
+        inStore: revoked.revokedInStore,
+        inThisProcess: revoked.sessionIds.length,
+        storeChecked: revoked.storeChecked
+      },
+      // Honest scope: another instance honours its own copy until the next reconcile,
+      // which is bounded by the same interval that keeps sessions in sync.
+      propagatesWithin: 'the session reconcile interval'
+    };
   }
 
   // --- Durable platform service controls ------------------------------------

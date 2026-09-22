@@ -632,6 +632,39 @@ function broadcastAll(payload) {
 // -------------------------------------------------------------
 const activeAdminSessions = new Map();
 
+// `activeAdminSessions` is keyed by the plaintext bearer and `db.activeSessions` by its
+// SHA-256, so the two only line up through this conversion. Revocation has to clear
+// both: the first lookup on every guarded request is this Map, so leaving an entry here
+// while deleting the store row means the session an operator just revoked keeps working
+// until this process restarts.
+function localAdminSessionHandle(token) {
+  return db.hashSessionToken(String(token || '').replace(/^Bearer\s+/, '').trim());
+}
+
+function dropLocalAdminSessionsByHandle(handles) {
+  const wanted = new Set(handles);
+  let dropped = 0;
+  for (const token of Array.from(activeAdminSessions.keys())) {
+    if (wanted.has(localAdminSessionHandle(token))) {
+      activeAdminSessions.delete(token);
+      dropped += 1;
+    }
+  }
+  return dropped;
+}
+
+function dropLocalAdminSessionsForAccount(adminId) {
+  const wanted = String(adminId || '');
+  let dropped = 0;
+  for (const [token, principal] of Array.from(activeAdminSessions.entries())) {
+    if (String(principal && principal.id) === wanted) {
+      activeAdminSessions.delete(token);
+      dropped += 1;
+    }
+  }
+  return dropped;
+}
+
 function authenticateUser(req, res, next) {
   const authHeader = req.headers['authorization'] || '';
   const token = authHeader.replace(/^Bearer\s+/, '').trim();
@@ -806,7 +839,12 @@ function authenticateAdmin(req, res, next) {
   let admin = activeAdminSessions.get(token);
   if (!admin) {
     const session = db.getSessionByToken(token);
-    if (session && (session.role === 'ADMIN' || session.role === 'SUPER_ADMIN')) {
+    // Any of the five roles the schema allows, not just two of them. The session's
+    // `role` is the account's own role — the password path writes `admin.role` and the
+    // OTP path does the same — so an OPERATIONS or KYC_SPECIALIST token that reached
+    // this branch was a real, live session that the door refused to read, and the
+    // holder was signed out at every restart and, on the OTP path, from the start.
+    if (session && db.isAdminSessionRole(session.role)) {
       admin = session.entity;
     }
   }
@@ -1056,6 +1094,19 @@ app.post('/api/admin/services/resume', authenticateAdmin, requirePermission('ser
 app.post('/api/admin/services/emergency-killswitch', authenticateAdmin, requirePermission('services.emergency_killswitch'), async (req, res) => {
   try {
     const { activate, reason } = req.body;
+    // The direction has to be named. `if (activate)` read a missing field as
+    // "deactivate", so a client that dropped the parameter — a form serialized without
+    // it, a retried request with an empty body — pulled the emergency lockdown *up*
+    // instead of pulling it down, and answered 200 either way. A control whose silence
+    // means the opposite of what an operator meant is not a fail-safe.
+    if (typeof activate !== 'boolean') {
+      return res.status(400).json({
+        success: false,
+        code: 'KILLSWITCH_DIRECTION_REQUIRED',
+        error: 'activate must be true or false. This endpoint will not guess which way the emergency switch goes.',
+        requestId: req.id
+      });
+    }
     let result;
     if (activate) {
       result = await db.pauseService({
@@ -1856,6 +1907,164 @@ app.post('/api/admin/accounts', authenticateAdmin, requirePermission('admin_acco
     res.status(err.status || 400).json({
       success: false,
       code: err.code || 'ADMIN_ACCOUNT_CREATION_FAILED',
+      error: err.message,
+      requestId: req.id
+    });
+  }
+});
+
+// -------------------------------------------------------------
+// 3b. SECURITY CENTRE (area 34) — sessions, lockouts, revocation
+// -------------------------------------------------------------
+//
+// Read-only by design except for the two revocation writes. A list that carried the
+// bearer tokens themselves would be a box of live credentials open to anyone with
+// `security.view`, so what is exposed is the SHA-256 handle the store already keys on:
+// enough to name a session to revoke, useless to sign in with.
+
+app.get('/api/admin/security/sessions', authenticateAdmin, requirePermission('security.view'), (req, res) => {
+  try {
+    // The admin map is keyed by the bearer itself, so it has to be hashed to line up
+    // with the handles the durable list reports.
+    const adminMapHandles = new Set(Array.from(activeAdminSessions.keys()).map(localAdminSessionHandle));
+    const sessions = db.listAdminSessions().map(s => ({
+      ...s,
+      // Also honoured by this process's admin map, which is the lookup that runs
+      // first on every guarded request. Two maps, so a sweep has to say which.
+      inAdminMap: adminMapHandles.has(s.sessionId)
+    }));
+    res.json({
+      success: true,
+      sessions,
+      total: sessions.length,
+      scope: 'THIS_SERVER_PROCESS_AND_PERSISTED_SESSIONS',
+      note: 'A session revoked here is removed from the durable store and from this process. Another instance converges on its next session reconcile.'
+    });
+  } catch (err) {
+    res.status(err.status || err.statusCode || 503).json({
+      success: false,
+      code: err.code || 'ADMIN_SESSION_READ_FAILED',
+      error: err.message,
+      requestId: req.id
+    });
+  }
+});
+
+app.get('/api/admin/security/login-lockouts', authenticateAdmin, requirePermission('security.view'), (req, res) => {
+  try {
+    const lockouts = db.listAdminLoginLockouts();
+    res.json({ success: true, ...lockouts, total: lockouts.counters.length });
+  } catch (err) {
+    res.status(err.status || err.statusCode || 503).json({
+      success: false,
+      code: err.code || 'ADMIN_LOCKOUT_READ_FAILED',
+      error: err.message,
+      requestId: req.id
+    });
+  }
+});
+
+// One session by id, or every session of one account, never both: a request that names
+// neither would be a "revoke everything" button wearing a body parameter.
+app.post('/api/admin/security/sessions/revoke', authenticateAdmin, requirePermission('security.session.revoke'), async (req, res) => {
+  try {
+    const { sessionId, adminId } = req.body || {};
+    if (!sessionId && !adminId) {
+      return res.status(400).json({
+        success: false,
+        code: 'SESSION_REVOCATION_TARGET_REQUIRED',
+        error: 'Name a sessionId or an adminId to revoke. Nothing is revoked without one.',
+        requestId: req.id
+      });
+    }
+
+    let result;
+    if (sessionId) {
+      const revoked = await db.revokeAdminSession(sessionId);
+      const inAdminMap = dropLocalAdminSessionsByHandle([revoked.sessionId]);
+      result = { mode: 'SESSION', ...revoked, inAdminMap };
+    } else {
+      // The same durable delete an account disable performs, without the status
+      // change: an account can need its sessions cut while staying enabled — a laptop
+      // left open, an administrator who has just left the network.
+      const revoked = await db.revokeAdminSessionsForAccount(adminId);
+      const inAdminMap = dropLocalAdminSessionsForAccount(adminId);
+      result = { mode: 'ACCOUNT', adminId: String(adminId), ...revoked, inAdminMap };
+    }
+
+    // Both modes are audited, and awaited: who cut whose access, and how many sessions
+    // went, is the question a security review opens this surface to answer. No bearer
+    // and no session handle appears in the record — the account and the counts are what
+    // carry meaning, and a handle in a log is a live revoke button for anyone who can
+    // read it.
+    const affected = result.revokedInStore + result.revokedInMemory + result.inAdminMap;
+    await db.auditAppliedChange({
+      adminId: req.admin.id,
+      adminName: req.admin.name,
+      role: req.admin.role,
+      action: result.mode === 'SESSION' ? 'ADMIN_SESSION_REVOKED' : 'ADMIN_SESSIONS_REVOKED',
+      module: 'AUTH',
+      targetEntityType: 'ADMIN_USER',
+      targetEntityId: result.adminId || 'UNKNOWN',
+      previousState: 'SIGNED_IN',
+      newState: 'SESSIONS_REVOKED',
+      reason: `${req.admin.name || req.admin.id} revoked ${result.mode === 'SESSION' ? 'one session' : `every session`} of administrator ${result.adminId || 'unknown account'} (${affected} take-down(s)).`,
+      metadata: {
+        mode: result.mode,
+        revokedInStore: result.revokedInStore,
+        revokedInMemory: result.revokedInMemory,
+        revokedFromAdminMap: result.inAdminMap,
+        storeChecked: result.storeChecked
+      }
+    });
+
+    res.json({ success: true, revoked: result });
+  } catch (err) {
+    // Fail-closed by shape: an outage says so and keeps its 5xx, a bad target says so
+    // at 4xx, and neither answers 200 as if a session had been taken back.
+    res.status(err.status || err.statusCode || 503).json({
+      success: false,
+      code: err.code || 'ADMIN_SESSION_REVOKE_FAILED',
+      ...(err.applied === true ? { applied: true } : {}),
+      error: err.message,
+      requestId: req.id
+    });
+  }
+});
+
+// Disable or enable an administrator account, and cut its sessions when disabling.
+// `role` is deliberately not accepted here — see `setAdminAccountStatus`.
+app.post('/api/admin/accounts/:id/status', authenticateAdmin, requirePermission('admin_accounts.manage'), async (req, res) => {
+  try {
+    const { isActive } = req.body || {};
+    if (typeof isActive !== 'boolean') {
+      return res.status(400).json({
+        success: false,
+        code: 'ADMIN_STATUS_VALUE_REQUIRED',
+        error: 'isActive must be true or false. An account is never left in a state this request did not name.',
+        requestId: req.id
+      });
+    }
+
+    const result = await db.setAdminAccountStatus({
+      identifier: req.params.id,
+      isActive,
+      actor: { id: req.admin.id, username: req.admin.username, name: req.admin.name, role: req.admin.role }
+    });
+
+    // The actor may have just disabled their own account, in which case the durable
+    // revoke above already took their session out of the store — but the admin map is
+    // this process's own copy, and leaving the entry standing would keep honouring the
+    // token this very response said was revoked.
+    dropLocalAdminSessionsForAccount(result.account.id);
+
+    broadcastToAdmins({ type: 'ADMIN_ACCOUNT_STATUS_CHANGED', accountId: result.account.id, status: result.account.status });
+    res.json(result);
+  } catch (err) {
+    res.status(err.status || err.statusCode || 503).json({
+      success: false,
+      code: err.code || 'ADMIN_ACCOUNT_STATUS_FAILED',
+      ...(err.applied === true ? { applied: true } : {}),
       error: err.message,
       requestId: req.id
     });
