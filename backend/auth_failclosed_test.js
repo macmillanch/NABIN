@@ -43,7 +43,7 @@ async function convenienceModeChecks() {
   process.env.SUPABASE_POSTGRES_LIVE = 'false';
   const db = require('./src/database');
 
-  const created = db.createAdminAccount({
+  const created = await db.createAdminAccount({
     username: 'otp_failclosed_ops',
     name: 'Fail Closed Ops',
     email: 'otp-failclosed-ops@nabin.in',
@@ -101,7 +101,7 @@ async function convenienceModeChecks() {
 
   // 5. Two accounts on one number is refused, not resolved to whichever sorts first.
   opsAccount.status = 'ACTIVE';
-  db.createAdminAccount({
+  await db.createAdminAccount({
     username: 'otp_failclosed_ops_two',
     name: 'Second Ops',
     email: 'otp-failclosed-ops-two@nabin.in',
@@ -165,8 +165,27 @@ function runChild(scenario) {
         adminOutcome = err.code;
       }
       out.adminCode = adminOutcome;
+      let gateOutcome = null;
+      try {
+        await db.authoritativeAdminByUsername('superadmin');
+        gateOutcome = 'answered';
+      } catch (err) {
+        gateOutcome = err.code;
+      }
+      out.gateCode = gateOutcome;
       out.ok = out.code === 'AUTH_STORE_UNAVAILABLE' && out.status === 503 &&
         out.adminCode === 'AUTH_STORE_UNAVAILABLE';
+    } else if (scenario === 'admin_gate') {
+      // Runs against the real local PostgreSQL: password login asks the store
+      // whether the account is still there and still enabled, so these are the
+      // three answers the login route can act on.
+      const known = await db.authoritativeAdminByUsername('superadmin');
+      out.known = { checked: known.checked, role: known.account && known.account.role, active: known.account && known.account.is_active };
+
+      const missing = await db.authoritativeAdminByUsername('no_such_admin_zzz');
+      out.missing = { checked: missing.checked, account: missing.account };
+      out.ok = out.known.checked === true && out.known.role === 'SUPER_ADMIN' && out.known.active === true &&
+        out.missing.checked === true && out.missing.account === null;
     } else if (scenario === 'audit_down') {
       // The audit store alone is down: identity resolves from memory, but every
       // audit write rejects exactly the way AuditLogRepository.create does when
@@ -252,8 +271,9 @@ async function main() {
   // An audit write that rejects is the outage AuditLogRepository.create throws on,
   // so these cases hold that one call up rather than trusting the whole store down
   // to reach it — with the store down, identity resolution fails first and the
-  // audit gap would never be exercised.
-  const auditDown = spawnChild('audit_down', { NODE_ENV: 'production', SUPABASE_POSTGRES_LIVE: 'false' });
+  // audit gap would never be exercised. Not live PostgreSQL either, so the case
+  // cannot leave a provisioned account behind in the dev database.
+  const auditDown = spawnChild('audit_down', { NODE_ENV: 'development', SUPABASE_POSTGRES_LIVE: 'false' });
   check('AUTH-13', auditDown.dispatchCode === 'AUTH_AUDIT_STORE_UNAVAILABLE' &&
     auditDown.dispatchStatus === 503 && auditDown.dispatchLeftAnOtp === false,
     `an OTP that cannot be audited is refused with 503 and leaves no challenge behind ` +
@@ -262,6 +282,19 @@ async function main() {
     auditDown.verifyStatus === 503 && auditDown.granted === undefined && auditDown.sessionsGained === 0,
     `a correct OTP does not buy a session the audit trail cannot show — and no token is left live ` +
     `(code=${auditDown.verifyCode}, status=${auditDown.verifyStatus}, sessions gained=${auditDown.sessionsGained})`);
+
+  // Against the real local store: the answers the password-login gate can act on.
+  const gate = spawnChild('admin_gate', { NODE_ENV: 'development', SUPABASE_POSTGRES_LIVE: 'true' });
+  check('AUTH-15', gate.known && gate.known.checked === true && gate.known.role === 'SUPER_ADMIN' &&
+    gate.known.active === true,
+    `password login re-reads the account from the store before granting it ` +
+    `(known: ${JSON.stringify(gate.known)}${gate.detail ? ' ' + gate.detail : ''})`);
+  check('AUTH-16', gate.missing && gate.missing.checked === true && gate.missing.account === null,
+    `and a username the store has no record of is treated as no access, not as the ` +
+    `copy this process booted with (missing: ${JSON.stringify(gate.missing)})`);
+  check('AUTH-17', down.gateCode === 'AUTH_STORE_UNAVAILABLE',
+    `with the store unreachable the password path refuses too, instead of answering ` +
+    `from a copy taken before the outage (outcome: ${down.gateCode})`);
 
   const failed = results.filter(r => !r.ok);
   console.log('\n========================================================================');

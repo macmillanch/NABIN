@@ -1181,7 +1181,41 @@ app.post('/api/admin/login', async (req, res) => {
     });
   }
 
-  console.log('[DEBUG] Login successful, creating session');
+  // The password proves the caller knows the secret. Only the authoritative store
+  // decides whether that account still exists and is still enabled, so this reads
+  // it rather than trusting the copy this process took when it booted — and when
+  // the store cannot answer, the login is refused instead of granted from memory.
+  let gate;
+  try {
+    gate = await db.authoritativeAdminByUsername(authResult.admin.username || username);
+  } catch (err) {
+    return res.status(err.status || 503).json({
+      success: false,
+      code: err.code || 'AUTH_STORE_UNAVAILABLE',
+      error: err.message,
+      requestId: req.id
+    });
+  }
+  if (gate.checked && !gate.account) {
+    // Deliberately the same message as a wrong password: an account removed from
+    // the store is not something to confirm to whoever just typed its name.
+    return res.status(401).json({
+      success: false,
+      error: 'Invalid administrator credentials.',
+      requestId: req.id
+    });
+  }
+  if (gate.checked && gate.account.is_active === false) {
+    const known = db.adminUsers.find(a => a.username === (authResult.admin.username || username));
+    if (known) known.status = 'INACTIVE';
+    return res.status(401).json({
+      success: false,
+      code: 'ADMIN_ACCOUNT_DEACTIVATED',
+      error: 'Unauthorized: this administrator account has been deactivated.',
+      requestId: req.id
+    });
+  }
+
   const admin = authResult.admin;
   // Bearer credential: must come from a CSPRNG, not Date.now()+Math.random().
   const token = `adm_token_${require('crypto').randomBytes(32).toString('base64url')}`;
@@ -1194,13 +1228,11 @@ app.post('/api/admin/login', async (req, res) => {
     expiresAt: new Date(Date.now() + 24 * 3600 * 1000).toISOString()
   };
 
-  console.log('[DEBUG] Setting session');
   activeAdminSessions.set(token, admin);
   await db.registerSession(session);
 
-  console.log('[DEBUG] Creating audit log');
   try {
-    await db.createAuditLog({
+    await db.auditAuthoritative({
       adminId: admin.id,
       adminName: admin.name,
       role: admin.role,
@@ -1214,10 +1246,18 @@ app.post('/api/admin/login', async (req, res) => {
       ipAddress: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1'
     });
   } catch (auditErr) {
-    console.error('[WARN] Failed to create audit log for successful login:', auditErr.message);
+    // A control-plane session the audit trail cannot show is a session nobody can
+    // later account for, so it is taken back rather than handed out.
+    activeAdminSessions.delete(token);
+    db.invalidateSession(token);
+    return res.status(auditErr.status || 503).json({
+      success: false,
+      code: auditErr.code || 'AUTH_AUDIT_STORE_UNAVAILABLE',
+      error: auditErr.message,
+      requestId: req.id
+    });
   }
 
-  console.log('[DEBUG] Sending response');
   res.json({
     success: true,
     token,
@@ -1688,15 +1728,26 @@ app.get('/api/admin/accounts', authenticateAdmin, (req, res) => {
   res.json({ success: true, accounts, total: accounts.length });
 });
 
-app.post('/api/admin/accounts', authenticateAdmin, (req, res) => {
+app.post('/api/admin/accounts', authenticateAdmin, async (req, res) => {
   if (req.admin.role !== 'SUPER_ADMIN') {
     return res.status(403).json({ success: false, error: 'Access Denied: Super Admin privilege required to provision new administrator accounts.' });
   }
-  const result = db.createAdminAccount(req.body, req.admin.id, req.admin.name);
-  if (!result.success) return res.status(400).json(result);
-  
-  broadcastToAdmins({ type: 'NEW_ADMIN_ACCOUNT_PROVISIONED', account: result.account });
-  res.json(result);
+  try {
+    const result = await db.createAdminAccount(req.body, req.admin.id, req.admin.name);
+    if (!result.success) return res.status(400).json(result);
+
+    broadcastToAdmins({ type: 'NEW_ADMIN_ACCOUNT_PROVISIONED', account: result.account });
+    res.json(result);
+  } catch (err) {
+    // Provisioning writes the authoritative enrolment row before it answers, so a
+    // store that cannot take the write is an outage (503) and not a rejected form.
+    res.status(err.status || 400).json({
+      success: false,
+      code: err.code || 'ADMIN_ACCOUNT_CREATION_FAILED',
+      error: err.message,
+      requestId: req.id
+    });
+  }
 });
 
 // -------------------------------------------------------------

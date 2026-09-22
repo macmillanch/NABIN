@@ -3912,7 +3912,7 @@ class NabinDatabase {
     }));
   }
 
-  createAdminAccount(data, creatorAdminId, creatorAdminName) {
+  async createAdminAccount(data, creatorAdminId, creatorAdminName) {
     const { username, name, email, phone, role, password, department } = data;
 
     if (!username || !name || !email || !password || !role) {
@@ -3957,27 +3957,59 @@ class NabinDatabase {
       name,
       role: role.toUpperCase(),
       email,
-      phone: phone || '+91 98765 00000',
+      // No placeholder. Two accounts created without a number used to be handed
+      // the same one, and on the OTP path that is not a cosmetic default — it is
+      // two administrators claiming one phone, which is refused as ambiguous.
+      phone: phone || null,
       department: department || 'General Operations',
       status: 'ACTIVE',
       permissions: defaultPermissionsMap[role.toUpperCase()] || defaultPermissionsMap.OPERATIONS,
       createdAt: new Date().toISOString()
     };
 
+    // Write the authoritative record first: if it cannot be stored, nothing else
+    // has to be taken back out again.
+    const store = this.liveStore();
+    if (store) {
+      await this.authoritativeWrite(
+        store.from('admin_accounts').upsert([{
+          username: newAdmin.username,
+          name: newAdmin.name,
+          email: newAdmin.email,
+          phone: newAdmin.phone,
+          role: newAdmin.role,
+          department: newAdmin.department,
+          password_hash: newAdmin.passwordHash,
+          password_salt: newAdmin.salt,
+          is_active: true
+        }], { onConflict: 'username' }),
+        { what: 'the administrator enrolment record' }
+      );
+    }
+
     this.adminUsers.push(newAdmin);
 
-    this.createAuditLog({
-      adminId: creatorAdminId || 'adm_super',
-      adminName: creatorAdminName || 'Super Admin',
-      role: 'SUPER_ADMIN',
-      action: 'CREATE_ADMIN_ACCOUNT',
-      module: 'ADMIN_PROVISIONING',
-      targetEntityType: 'ADMIN_USER',
-      targetEntityId: newAdmin.id,
-      previousState: 'NONE',
-      newState: 'ACTIVE',
-      reason: `Provisioned new ${newAdmin.role} account for ${newAdmin.name} (${newAdmin.username}) in ${newAdmin.department}`
-    });
+    // The enrolment exists and the caller is told so even if this write fails:
+    // provisioning is not the dangerous direction, an unaudited *access grant* is
+    // what the audit trail is for, and the row is idempotent on username so a
+    // retry converges rather than duplicating.
+    try {
+      await this.auditAuthoritative({
+        adminId: creatorAdminId || 'adm_super',
+        adminName: creatorAdminName || 'Super Admin',
+        role: 'SUPER_ADMIN',
+        action: 'CREATE_ADMIN_ACCOUNT',
+        module: 'ADMIN_PROVISIONING',
+        targetEntityType: 'ADMIN_USER',
+        targetEntityId: newAdmin.id,
+        previousState: 'NONE',
+        newState: 'ACTIVE',
+        reason: `Provisioned new ${newAdmin.role} account for ${newAdmin.name} (${newAdmin.username}) in ${newAdmin.department}`
+      });
+    } catch (err) {
+      console.error(`⚠️ Admin account ${newAdmin.username} was provisioned without an audit record:`, err.cause || err.message);
+      throw err;
+    }
 
     return {
       success: true,
@@ -4981,9 +5013,9 @@ class NabinDatabase {
    * authoritative store when there is one.
    *
    * Two accounts on one number is a refusal rather than a choice: `phone` is
-   * optional on `admin_accounts` and defaults to the same placeholder for every
-   * account created without one, so "first match" would hand out whichever
-   * privileges happened to sort first. The read is not filtered by phone in SQL
+   * optional on `admin_accounts`, and accounts provisioned before this ran shared
+   * one placeholder number, so "first match" would hand out whichever privileges
+   * happened to sort first. The read is not filtered by phone in SQL
    * because the column holds whatever an operator typed ('+91 98765 00000' and
    * '+919876500000' are the same number to us and different ones to PostgREST);
    * administrator tables are staff-sized, so normalising in one place costs
@@ -5028,6 +5060,39 @@ class NabinDatabase {
     if (!matches.length) return null;
     const account = matches[0];
     return { ...account, status: account.status === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE' };
+  }
+
+  /**
+   * Does the authoritative store still agree that this username may sign in?
+   *
+   * Password verification reads the in-memory list, which is a copy of
+   * `admin_accounts` taken when this process booted. Without this check an
+   * administrator disabled directly in the database keeps signing in until the
+   * backend restarts, and if the store cannot be reached the copy is the only
+   * thing standing between a brute-forced password and a control-plane session —
+   * so an unreachable store refuses rather than answering from memory.
+   *
+   * @returns {{ checked: false }} when there is no live store to ask, else
+   *          `{ checked: true, account: object|null }`
+   */
+  async authoritativeAdminByUsername(username) {
+    const { supabaseAdmin, isLivePostgres } = require('./supabase');
+    if (!isLivePostgres || !supabaseAdmin) return { checked: false };
+    const rows = await this.authoritativeRead(
+      supabaseAdmin.from('admin_accounts')
+        .select('id, username, role, is_active, phone, email, name, department')
+        .eq('username', username)
+        .limit(2),
+      { what: 'the administrator record for this username' }
+    );
+    if (!rows || rows.length === 0) return { checked: true, account: null };
+    if (rows.length > 1) {
+      const refusal = new Error('More than one administrator account carries this username. Access is refused until that is corrected.');
+      refusal.code = 'ADMIN_USERNAME_ENROLMENT_AMBIGUOUS';
+      refusal.status = 403;
+      throw refusal;
+    }
+    return { checked: true, account: rows[0] };
   }
 
   async sendAuthOtp({ phone, role = 'CUSTOMER', purpose = 'LOGIN' }) {

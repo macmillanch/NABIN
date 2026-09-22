@@ -476,20 +476,34 @@ async function outageProbe() {
     merchantId: 'mcht_1', cartItems: CART, deliveryAddress: 'Flat 402, Civil Lines Hub, North Delhi'
   }, { ...headers, 'Idempotency-Key': 'chaos_outage_money' });
 
-  record('CH-10e', 'FINDING',
-    `auth kept working from the in-memory fallback while PostgreSQL was down: send-otp ` +
-    `${probes.sendOtp.status}${probes.sendOtp.status !== 200 ? ` (${probes.sendOtp.data?.error})` : ''}, verify-otp ` +
-    `${verified.status} issued ${liveToken ? 'a session token' : 'no token'}, admin login ` +
-    `${probes.adminLogin.status} issued ${probes.adminLogin.data?.token ? 'a token' : 'no token'}. ` +
-    `None of those responses carries a degraded/persisted flag, yet no session or login record can ` +
-    `reach PostgreSQL, so credentials minted in this window vanish on restart and leave no audit trail.`,
-    'medium');
+  const outcome = `send-otp ${probes.sendOtp.status}` +
+    `${probes.sendOtp.status !== 200 ? ` (${probes.sendOtp.data?.code || probes.sendOtp.data?.error})` : ''}, ` +
+    `verify-otp ${verified.status} issued ${liveToken ? 'a session token' : 'no token'}, admin login ` +
+    `${probes.adminLogin.status} issued ${probes.adminLogin.data?.token ? 'a token' : 'no token'}`;
+  if (liveToken || probes.adminLogin.data?.token || probes.sendOtp.data?.testOtp) {
+    record('CH-10e', 'FINDING',
+      `auth kept working from the in-memory fallback while PostgreSQL was down: ${outcome}. ` +
+      `None of those responses carries a degraded/persisted flag, yet no session or login record can ` +
+      `reach PostgreSQL, so credentials minted in this window vanish on restart and leave no audit trail.`,
+      'medium');
+  } else {
+    record('CH-10e', 'NOTE',
+      `auth failed closed while PostgreSQL was down rather than signing anyone in from the ` +
+      `in-memory copy: ${outcome}`, 'low');
+  }
 
   const moneyClosed = !liveToken || (moneyWrite.status >= 400 && wallet.status >= 400);
-  expectSafe('CH-10f', moneyClosed,
-    `with a valid in-outage session, wallet read answered ${wallet.status} and a grocery checkout ` +
-    `answered ${moneyWrite.status} (${JSON.stringify(moneyWrite.data?.code || moneyWrite.data?.error || '').slice(0, 60)}) - ` +
-    `the money path must not complete without the database`, 'critical');
+  if (liveToken) {
+    expectSafe('CH-10f', moneyClosed,
+      `with a valid in-outage session, wallet read answered ${wallet.status} and a grocery checkout ` +
+      `answered ${moneyWrite.status} (${JSON.stringify(moneyWrite.data?.code || moneyWrite.data?.error || '').slice(0, 60)}) - ` +
+      `the money path must not complete without the database`, 'critical');
+  } else {
+    record('CH-10f', 'NOTE',
+      `not exercised: auth already failed closed above, so no in-outage session existed to carry a ` +
+      `wallet read (${wallet.status}) or a grocery checkout (${moneyWrite.status}) to the money path. ` +
+      `The refusal happened one step earlier, at credential issue.`, 'low');
+  }
 
   // Failing closed is correct; naming the fault is not. A missing merchant and a
   // missing database must not look the same to a client, a dashboard or an alert.
