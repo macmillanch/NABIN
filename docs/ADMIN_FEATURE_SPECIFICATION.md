@@ -48,7 +48,7 @@ each row's previous state is given in §2:
 | `authenticateAdmin` + `requireSuperAdmin` | 2 | the `platform-settings` pair |
 
 **One path is registered twice, and the second copy is dead**: `GET /api/admin/drivers`
-exists at `server.js:1419` and again at `server.js:4585`. Express answers with the first,
+exists at `server.js:1419` and again at `server.js:4663`. Express answers with the first,
 so the second handler never runs — a shape change made there is invisible at runtime, which
 is the kind of defect area 5's driver list cannot absorb. It is listed in §11 as an open
 decision because picking the survivor means deciding which response shape is correct.
@@ -111,7 +111,8 @@ facts measured against that live store:
 
 Two different checks protect an admin session, and only one of them is authoritative.
 
-- **At sign-in** (`server.js:1240` → `database.js:5138`): the password proves the caller
+- **At sign-in** (`server.js:1240` → `database.js:5204`, `authoritativeAdminByUsername`): the
+  password proves the caller
   knows a secret; the store decides whether the account still exists and is still
   `is_active`. An unreachable store **refuses the login** rather than answering from
   memory, and a removed account gets the same message as a wrong password.
@@ -218,12 +219,12 @@ names no code path consults yet.
   audit export. They are names the old bootstrap map carried and no route ever checked, so
   area 33 cannot gate on them until the guard exists.
 - **Enforced, but not by middleware**: `identity_documents.view` is read inside
-  `GET /api/admin/identity-verifications/:id` (`server.js:2763`) to decide whether the
+  `GET /api/admin/identity-verifications/:id` (`server.js:2788`) to decide whether the
   applicant's phone and document references come back unmasked — the field-level shape area 6
   wants, and the pattern new reads should follow. `identity_verification.{approve,reject,
   request_resubmission}` are checked against `req.admin.permissions` inside the review route
-  (`server.js:2800`, `2803`, `2806`). `POST/PUT /api/admin/features*` compare `req.admin?.role`
-  to `SUPER_ADMIN` directly (`server.js:5501`, `5535`), and `reset-password` allows
+  (`server.js:2848`, `2851`, `2854`). `POST/PUT /api/admin/features*` compare `req.admin?.role`
+  to `SUPER_ADMIN` directly (`server.js:5586`, `5669`), and `reset-password` allows
   self-or-`admin_accounts.manage` (`server.js:1342`). Four spellings of the same answer, and
   only the first form is readable as a list.
 - **Still not persisted**: grants are derived from the role at read time and `admin_accounts`
@@ -231,8 +232,8 @@ names no code path consults yet.
 
 ### 2.4 A feature flag could write any platform setting — closed in Phase A2
 
-`POST /api/admin/features` (`server.js:5495`) and `PUT /api/admin/features/:key`
-(`server.js:5539`) upsert `platform_settings` keyed on the caller-supplied `key`. Because
+`POST /api/admin/features` (`server.js:5579`) and `PUT /api/admin/features/:key`
+(`server.js:5664`) upsert `platform_settings` keyed on the caller-supplied `key`. Because
 flags and settings share the one table, a request with `key: 'nabin.admin.theme_v1'` used to
 write a theme record through the flag endpoint, and `PLATFORM_SERVICE_STATE` — the emergency
 switchboard — was equally reachable. Area 38's requirement that flags must not become a way
@@ -259,9 +260,23 @@ fallback list, `activeAdminSessions`, the dispatch offers cache, and the boot-sy
 copies of `pricingConfig`, `geoFences`, `surgeZones`, `ledgerEntries`,
 `supportTickets`.
 
+**Three of them are admin control-plane mutations, measured while doing §2.7.** These are the
+worst form of the same fact, because an operator presses a button, sees a success, and the
+platform never changed:
+
+| Admin action | What it actually writes | What the store holds |
+|---|---|---|
+| `POST /api/admin/restaurants/:id/status` (suspend a merchant, area 7) | `this.restaurants[].operationalStatus` in process memory | `merchants` has **39 rows and no `operational_status` column** — the only state field it has is `is_open`, which this route never touches. The customer-facing merchant reads go to PostgreSQL, so they never see the suspension. |
+| `POST /api/admin/identity-verifications/:id/lock` and `/review` (area 6) | `this.identityApplications[]` in process memory | `identity_documents` exists and has **0 rows**; nothing in `src/` selects or inserts it. The whole review queue is fixture data. |
+| `POST /api/admin/grocery/products/:id/review` (price freeze, area 8) | `this.groceryProducts[].priceStatus` in process memory | No `price_status` column anywhere in the schema, so there is nowhere for it to go. |
+
+Their audit records are now fail-closed (§2.7), which makes the trail honest about an action
+that landed — it does not make the action land. Closing this needs new columns and writes,
+i.e. a migration, so it is a §9 approval stop rather than something to do inside Phase A.
+
 ### 2.6 One anonymous route I did **not** change, on purpose
 
-`POST /api/grocery/products/:id/photo` **and its `/api/admin/` alias** (`server.js:6650`)
+`POST /api/grocery/products/:id/photo` **and its `/api/admin/` alias** (`server.js:6811`)
 accept a base64 image with no credentials, and can create rows in the grocery catalogue.
 `backend/cloudinary_test.js:126` posts to it with no `Authorization` header, so gating it
 turns a green test red. Per the standing rule *"fix the implementation rather than
@@ -271,32 +286,88 @@ belongs to task #51 (campaign asset architecture), where the media surface gets 
 upload contract. This is the only unauthenticated `/api/admin/*` path other than the two
 login entry points.
 
-### 2.7 A mutation can succeed while its audit record is lost
+### 2.7 An audit record can be lost while the mutation reports success
 
-`database.js` holds 42 audit writes: **32 are fired without awaiting**, from synchronous
-methods (`pauseService`, `setDriverStatus`, `processFinancialAdjustment`, the advertisement
-and identity-review helpers) that cannot await because they are not async. The other 10 are
-awaited — 5 direct `await this.createAuditLog` and 5 through `auditAuthoritative`, which is
-itself a thin awaited wrapper (`database.js:5063`).
+`database.js` holds 42 audit writes. Before Phase A3, **32 were fired without awaiting**: 21
+from methods that were not `async` and so could not await, 11 from methods that were already
+`async` and simply did not bother. When the store refused one, the rejection had one
+destination — the process-wide `unhandledRejection` net at `server.js:153`, which prints that
+*a* promise rejected. Nothing there said an operator action had lost its record, or which
+one, and the route had already answered 200.
 
-So when the store refused a trail, the rejection had one destination: the process-wide
-`unhandledRejection` net at `server.js:153`, which prints that *a* promise rejected. Nothing
-in that line said an operator action had just lost its audit record, or which one — and the
-route had already answered 200.
+**A3 (visibility, committed first):** `createAuditLog` attaches a report-only handler before
+returning. A drop now reads `[audit] DROPPED TRAIL for MODULE/ACTION on Type/id: <reason>`
+and never reaches the net; the original promise is still what callers await.
+`backend/audit_drop_visibility_test.js` (AD-01…AD-08) pins both directions.
 
-**Fixed in Phase A3 for the visibility half:** `createAuditLog` now attaches a report-only
-handler before returning, so a drop is logged as `[audit] DROPPED TRAIL for MODULE/ACTION on
-Type/id: <reason>` and never reaches the net, while the original promise is still what
-callers await — an awaiting caller keeps its ability to fail closed. Pinned by
-`backend/audit_drop_visibility_test.js` (AD-01…AD-08), which asserts both directions: a
-refusal is announced with its context, and a resolved write reports nothing.
+**A3b (fail-closed on the admin control plane):** a new sibling,
+`database.js` `auditAppliedChange`, awaits the write and turns a refusal into
+`AUDIT_RECORD_UNAVAILABLE` at 503 carrying **both** `status` and `statusCode` — half the admin
+catches read one, the support and repository paths read the other, and setting only one turns
+an outage into a 400. Its message says the action *was applied* and must be reconciled,
+because by then it was. **26 trail writes now go through it**, measured per file:
+`database.js` 18 (`pauseService` ×2, `resumeService` ×2, `reviewIdentityApplication` ×4,
+`lockIdentityApplication`, `setRestaurantStatus`, `adminReviewPrice`, `setDriverStatus`, the
+advertisement create/update/delete ×6, plus the two support/identity offline fallbacks),
+`server.js` 3 (both feature-flag writes and the driver payout route), `DriverRepository` 3
+(driver status, payout destination verified/rejected — reached in live mode, which is where
+`setDriverStatus` actually goes: it delegates to the repository whenever one exists, so the
+in-file write is the fallback), and `SupportTicketRepository` 2 (assign + resolve) — whose
+`catch { console.error('Audit log write error (non-fatal)') }` declared an audit record
+optional for the one action (a dispute settlement) that most needs one.
 
-**Not fixed, and it is the half area 31 actually asks for:** the 32 un-awaited writes are
-still un-awaited, so a 200 from a synchronous-path mutation is not proof its trail landed.
-Making that true means either awaiting inside those methods (which makes them async and
-touches every caller) or writing the trail before the state change and reverting on failure.
-That is the remaining part of §7 Phase A item 6, and it is where the admin control-plane
-routes should go first.
+Two consequences worth stating:
+
+1. **Awaiting can hang a route if the route is not ready to reject.** Express 4 does not
+   forward a rejected async handler to the error middleware, so `POST /api/admin/drivers/:id/status`
+   — which already called an awaited, throwing repository method — would have hung the request
+   rather than answered. The identity lock/review, restaurant status and price review handlers
+   were synchronous and had no `catch` at all. All five now catch and honour `err.status`.
+   Three handlers that could *already* reject from an awaited audit write had no `catch`
+   either, and are fixed on the same rule: `POST /api/admin/finance/settlements/drivers/:id/payout`
+   (hangs after a real payout if its `SETTLEMENT_EXECUTED` record is refused — it now answers
+   503 with the payout it is missing, `applied: true`), `POST /api/admin/drivers/:id/verify-payout-destination`
+   (hangs after the `drivers` row is written), and `GET /api/admin/identity-verifications/:id`
+   (hangs when `auditLogRepo.list` fails; it must not answer an empty trail as if that were
+   the record). Four catch-less async handlers remain, listed in §2.7's own harness as ST-04.
+2. **The advertisement live branch had to leave its own `try`.** Its store-failure `catch`
+   falls back to memory; an awaited audit refusal inside it would have been read as "the create
+   failed" and produced a **second** campaign in memory with the same content. The trail write
+   now sits after that `catch`.
+
+**Proved two ways.** `backend/admin_audit_fail_closed_test.js` (79 assertions, all passing)
+runs each converted method against an audit store that refuses, and asserts the rejection
+shape, that the state really did change (so "it failed" would be a false claim), that the
+client-facing message carries no store wording while `cause` does, and that an accepting
+store lets the same call resolve with exactly one trail. Its static half then holds the two
+rules that no dynamic case can cover: no un-awaited `auditAppliedChange` anywhere (ST-01), and
+every route that awaits a fail-closed call has its own `catch` honouring `err.status` (ST-03,
+21 call sites across 166 handlers). It also pins the paths deliberately left alone, so a later
+edit cannot quietly fail-close a wallet adjustment (ST-05/ST-06).
+`outage_semantics_audit.js` proves it through the wire with the local database stopped:
+`OS-05` (pause a service) and `OS-06` (publish a campaign) now read
+`healthy=200 outage=503 code=AUDIT_RECORD_UNAVAILABLE`, where before this change both answered
+200 with a lost trail. The audit reports 11 acceptable, 0 wrong, 0 leaking engine wording.
+
+**What still drops, and why each one stayed (20 writes across `src/`):**
+
+| Site | Why not converted |
+|---|---|
+| `validateAuthoritativeJobOtp` ×3 (dispatch OTP) | Trip completion, not admin. A lost record must not strand a driver mid-trip. |
+| `processFinancialAdjustment` | Its `idempotencyKey` ends in `Date.now()` (`database.js:2805`), so **a retry after a 503 would move the money twice**. Fail-closed here is unsafe until the key is request-derived — reported, not changed. |
+| `PaymentRepository` ×6 | Payment/webhook paths, fire-and-forget on purpose: directive 15 puts settlement logic out of scope, and a 503 on a webhook invites a replay. Their drops are announced by A3. |
+| `saveMediaAsset`, `deleteMediaAsset` | 8 + 2 call sites across the upload surface, mixed actors; belongs with #51 where that surface gets one contract. |
+| `getServicesStatus` (auto-resume) | A **read** that writes, called by the anonymous `GET /api/services/status`; making it async would let a lost system record 5xx a public endpoint. |
+| `updateFeatureFlag` | The method is **dead** — nothing calls it. The live flag write is the route, which now audits (see below). |
+| support/identity/grocery **offline fallbacks** (`assignSupportTicket`, `resolveSupportTicket`, `createSupportTicket`, `submitIdentityApplication`, `updateGroceryProductPrice`, `submitPackedWeight`) | Reached only when there is no live PostgreSQL, where `createAuditLog` keeps an in-memory record that cannot fail. Non-admin actors on four of the six. |
+
+**Two flag-write holes found while doing this** (`POST /api/v1/admin/features`,
+`PUT /api/v1/admin/features/:key`): neither wrote any audit record at all, and **neither
+looked at the result of its own write** — the destructured `error` belonged to the preceding
+read, so a refused upsert answered 200 with the new value. On the POST that is also a lost
+update: with `data` null on a read failure the merge silently dropped every field the flag
+already held. Both now check the read, check the write, and await
+`SETTINGS/FEATURE_FLAG_UPDATED` with previous and new state.
 
 ---
 
@@ -414,15 +485,15 @@ configuration question once §2.2 is fixed, not a code change.
 |---|---|---|---|---|
 | 4 | Customer management incl. suspend + force logout | MISSING as an admin API — `users` table and `active_sessions`/`backend_sessions` exist | Needs read (projected, no password columns), suspend via `is_active`, and session revoke; **no hard delete** of records with financial or audit trail | D |
 | 5 | Driver management | PARTIAL — `GET /api/admin/drivers`, `GET /:id`, `POST /:id/status` (`fleet.manage`) | No profile edit, no document list, no per-driver timeline | D |
-| 6 | KYC queue with private document storage | EXISTS — `identity-verifications` list/`review`/`lock`/`unlock`, `identity_documents` table, `/docs/:filename` preview | `identity_documents.view` is granted but **unenforced**; document preview must be permission-checked per owner-tenant | D |
-| 7 | Merchant management with tenant isolation | PARTIAL — `POST /api/admin/restaurants/:id/status`, `GET /api/restaurants` for admin | No merchant detail/edit; merchant-scoped endpoints already prove tenant isolation via `requireMerchantTenant` and reuse it here | D |
+| 6 | KYC queue with private document storage | EXISTS — `identity-verifications` list/`review`/`lock`/`unlock`, `identity_documents` table, `/docs/:filename` preview | `identity_documents.view` is granted but **unenforced**; the `identity_documents` table holds **0 rows and no code touches it**, so the queue and its reviews are process memory only (§2.5) | D |
+| 7 | Merchant management with tenant isolation | PARTIAL — `POST /api/admin/restaurants/:id/status`, `GET /api/restaurants` for admin | No merchant detail/edit; **the suspend action writes a memory copy that no column can hold** (`merchants` has 39 rows and only `is_open`, §2.5); merchant-scoped endpoints already prove tenant isolation via `requireMerchantTenant` and reuse it here | D |
 | 32 | Admin users, least privilege, no auto SUPER_ADMIN | PARTIAL — `GET/POST /api/admin/accounts` gated by `admin_accounts.{manage,create}` since A1 | No disable/force-logout flow, no permission UI (blocked by §2.2), no least-privilege grant for the 11 §2.3 names; an unknown role is now refused rather than rounded down | A |
 
 ### Transactions
 
 | # | Area | Today | Gap | Phase |
 |---|---|---|---|---|
-| 8 | Catalog / products with bulk update | PARTIAL — `master-catalog` CRUD (memory-only, §2.5), `grocery/products/:id/review` | No bulk operation; persistence of master-catalog writes | E |
+| 8 | Catalog / products with bulk update | PARTIAL — `master-catalog` CRUD (memory-only, §2.5), `grocery/products/:id/review` | No bulk operation; persistence of master-catalog writes, and `priceStatus` has **no column** either, so a freeze is process memory only (§2.5) | E |
 | 9 | Ride management | PARTIAL — `GET /api/admin/jobs` dump, `POST /api/rides/:id/cancel` is customer-side | No filtered admin ride list, no admin-initiated cancellation with a reason code and audit | E |
 | 10 | Food order management | PARTIAL — `POST /api/admin/orders/expire-stale` (`orders.manage`) | No admin order list/detail with the state machine's legal moves | E |
 | 11 | Parcel incl. proof of delivery | PARTIAL — parcel jobs exist; delivery-proof uploads exist on the driver path | No admin view of proof images behind `parcel.proof.view` | E |
@@ -455,7 +526,7 @@ configuration question once §2.2 is fixed, not a code change.
 |---|---|---|---|---|
 | 29 | Support | EXISTS — `GET /api/admin/support`, `assign`, `resolve` (`support.*`) | UI missing; tickets are boot-synced copies (§2.5) | G |
 | 30 | Disputes | MISSING — no table, no route, no screen | New domain: a migration to create `disputes`, or model as a typed `support_tickets`. §11 decision, and the migration branch is a §9 stop | G |
-| 31 | Audit log protected from normal deletion | EXISTS — `trg_audit_logs_immutable` + `GET /api/admin/audit-logs`; since A3 a refused write is announced instead of vanishing (§2.7) | 32 of the 42 trail writes are still un-awaited, so a 200 is not yet proof the record landed; and several admin mutations write no trail at all | A |
+| 31 | Audit log protected from normal deletion | EXISTS — `trg_audit_logs_immutable` + `GET /api/admin/audit-logs`; since A3 a refused write is announced instead of vanishing, and since A3b the 26 control-plane writes are awaited and a refusal answers 503 (§2.7) | 20 writes stay un-awaited for stated reasons (§2.7's table), so a 200 on those is still not proof the record landed; and three admin mutations have no column to land in at all (§2.5) | A |
 | 33 | Permission matrix with named permissions, enforced server-side | PARTIAL — `requirePermission` gates 51 routes on 38 named strings, and since A1 the grants come from one file (§2.3) | 9 catalogue names have no gate and 11 gated names belong to no non-super role; 5 checks sit inside handlers; nothing is persisted, so per-admin overrides need the §9 migration. §3 is the target catalogue | A |
 | 34 | Security centre | MISSING as a surface | Sessions (`active_sessions`/`backend_sessions`), failed-login lockouts (`failed_attempts`, `locked_until`), admin session list + revoke. Revocation today is delayed rather than absent — see §1.4 | A |
 | 36 | Integrations, never display secret values | PARTIAL — `platform_settings` holds mixed data | Show presence/configured-state + last check, never a value; `PUT` rejects anything secret-shaped | A |
@@ -493,8 +564,8 @@ trusted):** `adjust_wallet_atomic`, `refund_payment_atomic`, `capture_payment_at
 - `broadcastToAdmins` and the `admin:fleet` socket channel — the realtime source for
   areas 2/3/47.
 - `authoritativeWrite` / `authoritativeRead` / `auditAuthoritative`
-  (`database.js:5002`–`5043`) — the awaited-audit pattern for directive (7)'s "every sensitive
-  operation is audited".
+  (`database.js:5068`–`5119`) — the awaited-audit pattern for directive (7)'s "every sensitive
+  operation is audited". An audit failure there becomes a 503 with a code, not a 4xx.
 
 **Frontend components to reuse:** `admin-web/src/components/ResourceTable.tsx`,
 `CampaignEditor.tsx` (the pattern for a revision-carrying config editor),
@@ -514,7 +585,7 @@ before its gate passes, and each phase ends in one local commit. **No push, no d
 
 ### Phase A — Authorisation ground (areas 31, 32, 33, 34, 35, 36, 37, 38, 49, 50)
 1. ✅ **Done (A1).** Fail-closed role: an unknown `admin_accounts.role` is refused at
-   provisioning with `ADMIN_ROLE_UNKNOWN` (`database.js:3927`) and refused at sign-in,
+   provisioning with `ADMIN_ROLE_UNKNOWN` (`database.js:3977`) and refused at sign-in,
    instead of silently becoming `OPERATIONS`.
 2. ✅ **Done (A1).** One permission catalogue — `backend/src/adminPermissions.js` — read by
    the boot sync, provisioning, the OTP resolution path and the bootstrap route;
@@ -528,10 +599,15 @@ before its gate passes, and each phase ends in one local commit. **No push, no d
    `/api/admin/me` no longer serves them (§2.1 item 3, `RBAC-14`–`RBAC-16`).
 5. ✅ **Done (A2).** Namespace feature-flag keys so a flag write cannot address another
    domain's setting (§2.4).
-6. ➜ **Part done (A3).** A dropped audit write is now announced with its action and target
+6. ✅ **Done (A3 + A3b).** A dropped audit write is announced with its action and target
    rather than falling into the process-wide rejection net (§2.7,
-   `audit_drop_visibility_test.js`). **Open:** the 32 un-awaited writes themselves, and the
-   admin mutations that leave no trail at all.
+   `audit_drop_visibility_test.js`, AD-01…AD-08), and **26 of the control-plane writes now
+   await their record** — a refused one answers 503 with `applied: true` instead of a 200 that
+   claimed the trail existed (§2.7, `admin_audit_fail_closed_test.js` AF-01…AF-11 + ST-01…ST-06,
+   proved through the wire by `outage_semantics_audit.js` OS-05/OS-06). **Open:** the 20 writes
+   that stay un-awaited for the reasons tabled in §2.7, and the three admin surfaces in §2.5
+   whose state never reaches PostgreSQL at all — the latter needs new columns, so it is a §9
+   stop rather than more Phase A work.
 7. ⬜ Security centre read surface: sessions, lockouts, revoke — plus the single dangerous-
    action confirmation component (area 49).
 8. ⬜ Settings/integrations: key allow-list, secret values never rendered, never writable.
@@ -603,11 +679,13 @@ the same area-49 confirmation with no shortcut path.
 
 | Harness | Proves | Run |
 |---|---|---|
-| `backend/test_suite.js` | 408 existing assertions incl. `RBAC-01..12`, `CC-00..17` | every phase |
-| `backend/outage_semantics_audit.js` | 5xx-vs-4xx semantics under a real store outage | phases touching store traffic |
+| `backend/test_suite.js` | 415 existing assertions incl. `RBAC-01..12`, `CC-00..17` | every phase |
+| `backend/outage_semantics_audit.js` | 5xx-vs-4xx semantics under a real store outage, incl. `AUDIT_RECORD_UNAVAILABLE` on the converted control-plane writes | phases touching store traffic |
 | `backend/payment_verifier_config_test.js` | verifiers fail closed when unconfigured | any payment/refund change |
 | `backend/restart_test.js`, `test_phase4_orders.js`, `test_phase5_payments.js` | durability across restart, order/payment invariants | phases C/E/F |
 | `backend/cloudinary_test.js` | media surface | phase F/E media |
+| `backend/audit_drop_visibility_test.js` (**new, A3**) | a refused trail is announced with its module, action and target, and never reaches the process-wide rejection net | any audit-path change |
+| `backend/admin_audit_fail_closed_test.js` (**new, A3b**) | each converted mutation rejects 503 `applied: true` when its record is refused, the state really did change, no route that awaits one can hang or answer 400, and the deliberately unconverted paths stay unconverted | any audit-path change |
 | `admin_authorization_test.js` (**new, phase A**) | allow/deny per role per route; revoked session dead | phases A–G |
 | Flutter `main_admin.dart` widget tests + `flutter analyze` | the admin mobile app | phases with mobile changes |
 
@@ -622,9 +700,12 @@ harnesses at once.
 
 I will stop and report before:
 
-1. **Any migration beyond 027** (directive 16). Four items want one: persisting the
+1. **Any migration beyond 027** (directive 16). Five items want one: persisting the
    role/permission matrix (§2.2), durable fleet locations (area 3), per-admin dashboard
-   preferences (area 46), and `disputes` as a table (area 30). Migrations 001–026 are
+   preferences (area 46), `disputes` as a table (area 30), and the three control-plane
+   mutations that currently have nowhere to be written — merchant suspension, the identity
+   review queue, and grocery price review (§2.5). Areas 6, 7 and 8 cannot be finished without
+   the last one, because their buttons change process memory only. Migrations 001–026 are
    frozen; 027 stays local-only and is not applied to any hosted environment.
 2. **Any financial correction or settlement-logic change** (directives 14/15) — including
    the `driver_payouts` writer question and the FI-08 evidence, which stays as documented

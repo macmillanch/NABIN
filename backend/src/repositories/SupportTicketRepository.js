@@ -651,26 +651,25 @@ class SupportTicketRepository {
         throw new Error(`Failed to assign ticket in PostgreSQL: ${updateErr.message}`);
       }
 
-      // Step 4: Write durable audit record via AuditLogRepository (single unified path)
-      if (this.db.auditLogRepo && typeof this.db.auditLogRepo.create === 'function') {
-        try {
-          await this.db.auditLogRepo.create({
-            adminId: String(adminId),
-            adminName: String(adminName || 'Admin'),
-            role: 'ADMIN',
-            action: 'TICKET_ASSIGNED',
-            module: 'SUPPORT_DISPUTES',
-            targetEntityType: 'TICKET',
-            targetEntityId: String(row.ticket_number || row.id),
-            previousState: prevAdmin || 'UNASSIGNED',
-            newState: String(adminName || adminId),
-            reason: `Ticket assigned to admin ${adminName}`,
-            details: `Ticket ${row.ticket_number} assigned to ${adminName} (${adminId})`
-          });
-        } catch (logErr) {
-          console.error('Audit log write error (non-fatal):', logErr.message);
-        }
-      }
+      // Step 4: Write durable audit record via the fail-closed audit path.
+      //
+      // This used to be `catch (logErr) { console.error('Audit log write error (non-fatal)') }`.
+      // An assignment that lands with no record is exactly the gap an audit trail exists to
+      // close, so the write is awaited and its failure now refuses the response with a 503.
+      // Retrying is safe here: assignment is a plain state set, not a payment.
+      await this.db.auditAppliedChange({
+        adminId: String(adminId),
+        adminName: String(adminName || 'Admin'),
+        role: 'ADMIN',
+        action: 'TICKET_ASSIGNED',
+        module: 'SUPPORT_DISPUTES',
+        targetEntityType: 'TICKET',
+        targetEntityId: String(row.ticket_number || row.id),
+        previousState: prevAdmin || 'UNASSIGNED',
+        newState: String(adminName || adminId),
+        reason: `Ticket assigned to admin ${adminName}`,
+        details: `Ticket ${row.ticket_number} assigned to ${adminName} (${adminId})`
+      });
 
       const mapped = mapRowToTicket(updatedRow);
       return { success: true, ticket: mapped };
@@ -848,31 +847,31 @@ class SupportTicketRepository {
         throw new Error(`Failed to update ticket resolution in PostgreSQL: ${updateErr.message}`);
       }
 
-      // STEP 4: Record Privileged Audit Log via AuditLogRepository (single unified path)
-      if (this.db.auditLogRepo && typeof this.db.auditLogRepo.create === 'function') {
-        try {
-          await this.db.auditLogRepo.create({
-            adminId: String(adminId),
-            adminName: String(adminName || 'Admin'),
-            role: adminRole || 'ADMIN',
-            action: 'TICKET_RESOLVED',
-            module: 'SUPPORT_DISPUTES',
-            targetEntityType: 'TICKET',
-            targetEntityId: String(row.ticket_number || row.id),
-            previousState: row.status,
-            newState: 'RESOLVED',
-            reason: `[${row.category}] Dispute resolved by ${adminName}. Type: ${specializedData.resolutionType || 'RESOLVED'}. Refund: ₹${amt}. Notes: ${notes}`,
-            metadata: {
-              ticketNumber: row.ticket_number,
-              refundAmount: amt,
-              resolutionType: specializedData.resolutionType || `${row.category}_RESOLVED`,
-              specializedData
-            }
-          });
-        } catch (logErr) {
-          console.error('Audit log write error (non-fatal):', logErr.message);
+      // STEP 4: Record the privileged audit log through the fail-closed audit path.
+      //
+      // Refusing the response here is safe only because of the guard above: a ticket that is
+      // already RESOLVED is refused before any refund runs, so an operator who retries after
+      // this 503 cannot move the money twice — they get "already resolved", which agrees with
+      // what this message said. A dispute resolution with no trail is the case an audit log
+      // most exists for, so the record is no longer optional.
+      await this.db.auditAppliedChange({
+        adminId: String(adminId),
+        adminName: String(adminName || 'Admin'),
+        role: adminRole || 'ADMIN',
+        action: 'TICKET_RESOLVED',
+        module: 'SUPPORT_DISPUTES',
+        targetEntityType: 'TICKET',
+        targetEntityId: String(row.ticket_number || row.id),
+        previousState: row.status,
+        newState: 'RESOLVED',
+        reason: `[${row.category}] Dispute resolved by ${adminName}. Type: ${specializedData.resolutionType || 'RESOLVED'}. Refund: ₹${amt}. Notes: ${notes}`,
+        metadata: {
+          ticketNumber: row.ticket_number,
+          refundAmount: amt,
+          resolutionType: specializedData.resolutionType || `${row.category}_RESOLVED`,
+          specializedData
         }
-      }
+      });
 
       const mapped = mapRowToTicket(updatedRow);
       if (this.db.supportTickets) {

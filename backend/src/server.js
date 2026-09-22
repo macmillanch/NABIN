@@ -974,7 +974,7 @@ app.post('/api/admin/services/pause', authenticateAdmin, requirePermission('serv
     if (!serviceId) {
       return res.status(400).json({ success: false, error: 'serviceId is required (e.g. "rides", "grocery", "food", "parcel", "payments", "dispatch", or "ALL").' });
     }
-    const result = db.pauseService({
+    const result = await db.pauseService({
       serviceId,
       reason,
       durationMinutes,
@@ -1020,7 +1020,7 @@ app.post('/api/admin/services/resume', authenticateAdmin, requirePermission('ser
     if (!serviceId) {
       return res.status(400).json({ success: false, error: 'serviceId is required (e.g. "rides", "grocery", "food", "parcel", "payments", "dispatch", or "ALL").' });
     }
-    const result = db.resumeService({
+    const result = await db.resumeService({
       serviceId,
       reason,
       adminUser: req.admin
@@ -1058,13 +1058,13 @@ app.post('/api/admin/services/emergency-killswitch', authenticateAdmin, requireP
     const { activate, reason } = req.body;
     let result;
     if (activate) {
-      result = db.pauseService({
+      result = await db.pauseService({
         serviceId: 'ALL',
         reason: reason || 'Master Emergency Killswitch activated by Super Admin',
         adminUser: req.admin
       });
     } else {
-      result = db.resumeService({
+      result = await db.resumeService({
         serviceId: 'ALL',
         reason: reason || 'Master Emergency Killswitch deactivated by Super Admin',
         adminUser: req.admin
@@ -1432,11 +1432,21 @@ app.get('/api/admin/drivers/:id', authenticateAdmin, (req, res) => {
 });
 
 app.post('/api/admin/drivers/:id/status', authenticateAdmin, requirePermission('fleet.manage'), async (req, res) => {
-  const { status, operationalStatus, kycStatus, reason } = req.body;
-  const opStatus = operationalStatus || status;
-  const result = await db.setDriverStatus(req.params.id, opStatus, reason, req.admin.id, req.admin.name, kycStatus);
-  if (!result.success) return res.status(400).json(result);
-  res.json(result);
+  try {
+    const { status, operationalStatus, kycStatus, reason } = req.body;
+    const opStatus = operationalStatus || status;
+    const result = await db.setDriverStatus(req.params.id, opStatus, reason, req.admin.id, req.admin.name, kycStatus);
+    if (!result.success) return res.status(400).json(result);
+    res.json(result);
+  } catch (err) {
+    // Without this catch an async rejection here was invisible: Express 4 does not forward
+    // one, so the request simply hung. A refused audit record is a 503-shaped outage.
+    res.status(err.status || 400).json({
+      success: false,
+      ...(err.code ? { code: err.code } : {}),
+      error: err.message
+    });
+  }
 });
 
 // -------------------------------------------------------------
@@ -1593,7 +1603,12 @@ app.post('/api/admin/support/:id/assign', authenticateAdmin, requirePermission('
     if (!result.success) return res.status(400).json(result);
     res.json(result);
   } catch (err) {
-    res.status(err.statusCode || 400).json({ success: false, error: err.message, requestId: req.id });
+    res.status(err.statusCode || err.status || 400).json({
+      success: false,
+      ...(err.code ? { code: err.code } : {}),
+      error: err.message,
+      requestId: req.id
+    });
   }
 });
 
@@ -1686,18 +1701,32 @@ app.post('/api/admin/finance/settlements/drivers/:id/payout', authenticateAdmin,
 
   const result = db.recordPayout(driver.id, amount, driver.upiId);
   if (result.success) {
-    await db.createAuditLog({
-      adminId: req.admin.id,
-      adminName: req.admin.name,
-      role: req.admin.role,
-      action: 'SETTLEMENT_EXECUTED',
-      module: 'FINANCE',
-      targetEntityType: 'DRIVER_PAYOUT',
-      targetEntityId: driver.id,
-      previousState: 'PENDING',
-      newState: 'PAID',
-      reason: `Admin payout of ₹${amount} executed to ${driver.upiId}`
-    });
+    // This awaited the audit write with no catch, so a refused record after a real payout
+    // left the client waiting for an answer that never came — Express 4 does not forward an
+    // async rejection. The money has moved by this point whatever the trail says, so the
+    // response says exactly that: 503 for the record, and the payout it is missing.
+    try {
+      await db.auditAppliedChange({
+        adminId: req.admin.id,
+        adminName: req.admin.name,
+        role: req.admin.role,
+        action: 'SETTLEMENT_EXECUTED',
+        module: 'FINANCE',
+        targetEntityType: 'DRIVER_PAYOUT',
+        targetEntityId: driver.id,
+        previousState: 'PENDING',
+        newState: 'PAID',
+        reason: `Admin payout of ₹${amount} executed to ${driver.upiId}`
+      });
+    } catch (auditErr) {
+      return res.status(auditErr.status || 503).json({
+        success: false,
+        code: auditErr.code || 'AUDIT_RECORD_UNAVAILABLE',
+        applied: true,
+        payout: result,
+        error: auditErr.message
+      });
+    }
   }
   res.json(result);
 });
@@ -2765,8 +2794,19 @@ app.get('/api/admin/identity-verifications/:id', authenticateAdmin, requirePermi
 
   let auditLogs = [];
   if (db.auditLogRepo && typeof db.auditLogRepo.list === 'function') {
-    const audRes = await db.auditLogRepo.list({ applicationId: appRecord.id });
-    auditLogs = audRes.logs;
+    try {
+      const audRes = await db.auditLogRepo.list({ applicationId: appRecord.id });
+      auditLogs = audRes.logs;
+    } catch (err) {
+      // The trail is the point of this view, so an unreadable one must not become an empty
+      // list — that reads as "nothing has touched this application". There was no catch here
+      // at all, so the rejection hung the request instead. PostgREST wording is not echoed.
+      return res.status(503).json({
+        success: false,
+        code: 'AUDIT_TRAIL_UNAVAILABLE',
+        error: `The audit trail for ${appRecord.id} could not be read, so it is not being shown.`
+      });
+    }
   } else {
     auditLogs = db.getAuditLogs({ applicationId: appRecord.id });
   }
@@ -2782,10 +2822,18 @@ app.get('/api/admin/identity-verifications/:id', authenticateAdmin, requirePermi
   });
 });
 
-app.post('/api/admin/identity-verifications/:id/lock', authenticateAdmin, requirePermission('identity_verification.review'), (req, res) => {
-  const result = db.lockIdentityApplication(req.params.id, req.admin.id, req.admin.name);
-  if (!result.success) return res.status(409).json(result);
-  res.json(result);
+app.post('/api/admin/identity-verifications/:id/lock', authenticateAdmin, requirePermission('identity_verification.review'), async (req, res) => {
+  try {
+    const result = await db.lockIdentityApplication(req.params.id, req.admin.id, req.admin.name);
+    if (!result.success) return res.status(409).json(result);
+    res.json(result);
+  } catch (err) {
+    res.status(err.status || 400).json({
+      success: false,
+      ...(err.code ? { code: err.code } : {}),
+      error: err.message
+    });
+  }
 });
 
 app.post('/api/admin/identity-verifications/:id/unlock', authenticateAdmin, requirePermission('identity_verification.review'), (req, res) => {
@@ -2794,7 +2842,7 @@ app.post('/api/admin/identity-verifications/:id/unlock', authenticateAdmin, requ
   res.json(result);
 });
 
-app.post('/api/admin/identity-verifications/:id/review', authenticateAdmin, requirePermission('identity_verification.review'), (req, res) => {
+app.post('/api/admin/identity-verifications/:id/review', authenticateAdmin, requirePermission('identity_verification.review'), async (req, res) => {
   const { decision, reason, checklist } = req.body;
 
   if (decision === 'APPROVE' && !req.admin.permissions.includes('identity_verification.approve') && req.admin.role !== 'SUPER_ADMIN') {
@@ -2807,14 +2855,23 @@ app.post('/api/admin/identity-verifications/:id/review', authenticateAdmin, requ
     return res.status(403).json({ success: false, error: 'Permission denied: Cannot request document resubmission.' });
   }
 
-  const result = db.reviewIdentityApplication(
-    req.params.id,
-    decision,
-    reason,
-    checklist,
-    req.admin.id,
-    req.admin.name
-  );
+  let result;
+  try {
+    result = await db.reviewIdentityApplication(
+      req.params.id,
+      decision,
+      reason,
+      checklist,
+      req.admin.id,
+      req.admin.name
+    );
+  } catch (err) {
+    return res.status(err.status || 400).json({
+      success: false,
+      ...(err.code ? { code: err.code } : {}),
+      error: err.message
+    });
+  }
 
   if (!result.success) return res.status(400).json(result);
 
@@ -3620,11 +3677,19 @@ app.post('/api/merchant/:restaurantId/menu/:itemId/toggle', authenticateMerchant
   res.json({ success: true, item });
 });
 
-app.post('/api/admin/restaurants/:id/status', authenticateAdmin, requirePermission('merchant.manage'), (req, res) => {
-  const { status, reason } = req.body;
-  const result = db.setRestaurantStatus(req.params.id, status, reason, req.admin.id, req.admin.name);
-  if (!result.success) return res.status(400).json(result);
-  res.json(result);
+app.post('/api/admin/restaurants/:id/status', authenticateAdmin, requirePermission('merchant.manage'), async (req, res) => {
+  try {
+    const { status, reason } = req.body;
+    const result = await db.setRestaurantStatus(req.params.id, status, reason, req.admin.id, req.admin.name);
+    if (!result.success) return res.status(400).json(result);
+    res.json(result);
+  } catch (err) {
+    res.status(err.status || 400).json({
+      success: false,
+      ...(err.code ? { code: err.code } : {}),
+      error: err.message
+    });
+  }
 });
 
 // DRIVER FLEET GOVERNANCE & TELEMETRY
@@ -3639,14 +3704,27 @@ app.post('/api/admin/drivers/:id/verify-payout-destination', authenticateAdmin, 
   if (!decision || !['APPROVE', 'REJECT'].includes(decision)) {
     return res.status(400).json({ success: false, error: 'decision must be APPROVE or REJECT' });
   }
-  const result = await db.driverRepo.verifyPayoutDestination(req.params.id, {
-    decision,
-    evidenceUrl,
-    bankAccountHolderName,
-    reason,
-    adminId: req.admin.id,
-    adminName: req.admin.name
-  });
+  let result;
+  try {
+    result = await db.driverRepo.verifyPayoutDestination(req.params.id, {
+      decision,
+      evidenceUrl,
+      bankAccountHolderName,
+      reason,
+      adminId: req.admin.id,
+      adminName: req.admin.name
+    });
+  } catch (err) {
+    // `verifyPayoutDestination` only throws once the `drivers` row has been written and its
+    // audit record refused, so the verdict really did change even though this answers 5xx.
+    // Without a catch the request hung: Express 4 does not forward an async rejection.
+    return res.status(err.status || err.statusCode || 503).json({
+      success: false,
+      ...(err.code ? { code: err.code } : {}),
+      applied: err.applied === true,
+      error: err.message
+    });
+  }
   if (!result.success) return res.status(400).json(result);
   res.json(result);
 });
@@ -5421,10 +5499,10 @@ app.get('/api/admin/grocery/price-alerts', authenticateAdmin, (req, res) => {
 });
 
 // Admin Price Freeze / Correction API
-app.post('/api/admin/grocery/products/:id/review', authenticateAdmin, requirePermission('grocery.review'), (req, res) => {
+app.post('/api/admin/grocery/products/:id/review', authenticateAdmin, requirePermission('grocery.review'), async (req, res) => {
   try {
     const { action, newPrice, reason } = req.body;
-    const product = db.adminReviewPrice({
+    const product = await db.adminReviewPrice({
       productId: req.params.id,
       action,
       newPrice,
@@ -5433,7 +5511,13 @@ app.post('/api/admin/grocery/products/:id/review', authenticateAdmin, requirePer
     });
     res.json({ success: true, product });
   } catch (err) {
-    res.status(400).json({ success: false, error: err.message });
+    // A refused audit record is a 503-shaped outage; a bad action or unknown product is a
+    // 400. Collapsing both to 400 tells an operator their input was wrong when the store is down.
+    res.status(err.status || 400).json({
+      success: false,
+      ...(err.code ? { code: err.code } : {}),
+      error: err.message
+    });
   }
 });
 
@@ -5516,12 +5600,23 @@ app.post(['/api/v1/admin/features', '/api/admin/features'], authenticateAdmin, a
       .eq('setting_key', key)
       .maybeSingle();
 
+    // The merge below reads the current value first. On a read failure `data` is null, so the
+    // merged object silently became `{enabled, description}` — dropping every other field the
+    // flag held (a lost update written with confidence).
+    if (error) {
+      const refusal = new Error(`Feature flag "${key}" could not be read, so it was not changed.`);
+      refusal.status = 503;
+      refusal.code = 'FEATURE_FLAG_STORE_UNAVAILABLE';
+      refusal.cause = error.message;
+      throw refusal;
+    }
+
     let newValue = { enabled: req.body.enabled, description: req.body.description };
     if (data && data.setting_value) {
       newValue = { ...data.setting_value, ...newValue };
     }
 
-    await supabaseHelper.supabaseAdmin.from('platform_settings')
+    const { error: writeError } = await supabaseHelper.supabaseAdmin.from('platform_settings')
       .upsert({
         setting_key: key,
         setting_value: newValue,
@@ -5529,10 +5624,40 @@ app.post(['/api/v1/admin/features', '/api/admin/features'], authenticateAdmin, a
         updated_at: new Date().toISOString()
       }, { onConflict: 'setting_key' });
 
+    // The write used to be unobserved: the `error` above belongs to the *read*, so a refused
+    // upsert still answered 200 for a flag that decides whether customers can use a service.
+    if (writeError) {
+      const refusal = new Error(`Feature flag "${key}" was not written, so it is reported as unchanged.`);
+      refusal.status = 503;
+      refusal.code = 'FEATURE_FLAG_WRITE_FAILED';
+      refusal.cause = writeError.message;
+      throw refusal;
+    }
+
     featureControlService.invalidateCache();
+    await db.auditAppliedChange({
+      adminId: req.admin?.id || 'admin',
+      adminName: req.admin?.name || 'Admin',
+      role: req.admin?.role || 'SUPER_ADMIN',
+      action: 'FEATURE_FLAG_UPDATED',
+      module: 'SETTINGS',
+      targetEntityType: 'PLATFORM_SETTING',
+      targetEntityId: key,
+      previousState: data?.setting_value ? JSON.stringify(data.setting_value) : 'ABSENT',
+      newState: JSON.stringify(newValue),
+      reason: req.body.description || 'Feature flag updated through the admin API'
+    });
     res.json({ success: true, featureFlag: { key, ...newValue } });
   } catch (error) {
-    res.status(500).json({ success: false, error: 'Failed to update feature' });
+    // PostgREST error text can name the host, so only our own refusals are echoed.
+    const ours = error.code === 'FEATURE_FLAG_WRITE_FAILED'
+      || error.code === 'FEATURE_FLAG_STORE_UNAVAILABLE'
+      || error.code === 'AUDIT_RECORD_UNAVAILABLE';
+    res.status(error.status || 500).json({
+      success: false,
+      ...(error.code ? { code: error.code } : {}),
+      error: ours ? error.message : 'Failed to update feature'
+    });
   }
 });
 
@@ -5557,8 +5682,17 @@ app.put('/api/admin/features/:key', authenticateAdmin, async (req, res) => {
       .select('setting_value')
       .eq('setting_key', key)
       .maybeSingle();
-      
-    if (error || !data) {
+
+    // A read failure and "no such flag" used to share one answer: 404. That tells the client
+    // its key is wrong while the store is simply down.
+    if (error) {
+      const refusal = new Error(`Feature flag "${key}" could not be read, so it was not changed.`);
+      refusal.status = 503;
+      refusal.code = 'FEATURE_FLAG_STORE_UNAVAILABLE';
+      refusal.cause = error.message;
+      throw refusal;
+    }
+    if (!data) {
       return res.status(404).json({ success: false, error: 'Feature key not found' });
     }
 
@@ -5568,7 +5702,7 @@ app.put('/api/admin/features/:key', authenticateAdmin, async (req, res) => {
       ...(location_overrides ? { location_overrides } : {})
     };
 
-    await supabaseHelper.supabaseAdmin.from('platform_settings')
+    const { error: writeError } = await supabaseHelper.supabaseAdmin.from('platform_settings')
       .update({
         setting_value: newValue,
         updated_by: req.admin?.id || 'admin',
@@ -5576,10 +5710,37 @@ app.put('/api/admin/features/:key', authenticateAdmin, async (req, res) => {
       })
       .eq('setting_key', key);
 
+    if (writeError) {
+      const refusal = new Error(`Feature flag "${key}" was not written, so it is reported as unchanged.`);
+      refusal.status = 503;
+      refusal.code = 'FEATURE_FLAG_WRITE_FAILED';
+      refusal.cause = writeError.message;
+      throw refusal;
+    }
+
     featureControlService.invalidateCache();
+    await db.auditAppliedChange({
+      adminId: req.admin?.id || 'admin',
+      adminName: req.admin?.name || 'Admin',
+      role: req.admin?.role || 'SUPER_ADMIN',
+      action: 'FEATURE_FLAG_UPDATED',
+      module: 'SETTINGS',
+      targetEntityType: 'PLATFORM_SETTING',
+      targetEntityId: key,
+      previousState: JSON.stringify(data.setting_value),
+      newState: JSON.stringify(newValue),
+      reason: `Feature flag updated through the admin API by ${req.admin?.name || req.admin?.id || 'admin'}`
+    });
     res.json({ success: true, feature: { setting_key: key, setting_value: newValue } });
   } catch (error) {
-    res.status(500).json({ success: false, error: 'Failed to update feature' });
+    const ours = error.code === 'FEATURE_FLAG_WRITE_FAILED'
+      || error.code === 'FEATURE_FLAG_STORE_UNAVAILABLE'
+      || error.code === 'AUDIT_RECORD_UNAVAILABLE';
+    res.status(error.status || 500).json({
+      success: false,
+      ...(error.code ? { code: error.code } : {}),
+      error: ours ? error.message : 'Failed to update feature'
+    });
   }
 });
 

@@ -405,7 +405,11 @@ class DriverRepository {
         return { success: false, error: error.message };
       }
 
-      await this.db.createAuditLog({
+      // The drivers row is already updated at this point, so a refused record cannot be
+      // reported as a refused action. `auditAppliedChange` is the fail-closed shape for
+      // that: it throws a 503 carrying `applied: true`, which the route's catch turns
+      // into an honest answer instead of the hang this used to produce.
+      await this.db.auditAppliedChange({
         adminId: adminId || 'admin',
         adminName: adminName || 'Admin',
         role: 'ADMIN',
@@ -556,7 +560,7 @@ class DriverRepository {
 
         if (error) return { success: false, error: error.message };
 
-        await this.db.createAuditLog({
+        await this.db.auditAppliedChange({
           adminId: adminId || 'admin',
           adminName: adminName || 'Admin',
           role: 'ADMIN',
@@ -617,7 +621,9 @@ class DriverRepository {
 
         if (error) return { success: false, error: error.message };
 
-        await this.db.createAuditLog({
+        // Same shape as the approve branch: the `drivers` row is already written when the
+        // record is attempted, so only the trail can be missing here.
+        await this.db.auditAppliedChange({
           adminId: adminId || 'admin',
           adminName: adminName || 'Admin',
           role: 'ADMIN',

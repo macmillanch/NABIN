@@ -2026,7 +2026,7 @@ class NabinDatabase {
     return false;
   }
 
-  pauseService({ serviceId, reason, durationMinutes = null, region = 'ALL_REGIONS', broadcastNotice = '', adminUser = {} }) {
+  async pauseService({ serviceId, reason, durationMinutes = null, region = 'ALL_REGIONS', broadcastNotice = '', adminUser = {} }) {
     const adminId = adminUser.id || 'adm_super';
     const adminName = adminUser.name || 'Devika Singhania';
     const role = adminUser.role || 'SUPER_ADMIN';
@@ -2066,7 +2066,7 @@ class NabinDatabase {
         durationMinutes: durationMinutes ? parseInt(durationMinutes) : null
       });
 
-      this.createAuditLog({
+      await this.auditAppliedChange({
         adminId,
         adminName,
         role,
@@ -2111,7 +2111,7 @@ class NabinDatabase {
       durationMinutes: durationMinutes ? parseInt(durationMinutes) : null
     });
 
-    this.createAuditLog({
+    await this.auditAppliedChange({
       adminId,
       adminName,
       role,
@@ -2127,7 +2127,7 @@ class NabinDatabase {
     return { success: true, message: `${s.name} paused successfully.`, service: s };
   }
 
-  resumeService({ serviceId, reason = '', adminUser = {} }) {
+  async resumeService({ serviceId, reason = '', adminUser = {} }) {
     const adminId = adminUser.id || 'adm_super';
     const adminName = adminUser.name || 'Devika Singhania';
     const role = adminUser.role || 'SUPER_ADMIN';
@@ -2149,7 +2149,7 @@ class NabinDatabase {
         if (!h.resumedAt) h.resumedAt = now.toISOString();
       }
 
-      this.createAuditLog({
+      await this.auditAppliedChange({
         adminId,
         adminName,
         role,
@@ -2185,7 +2185,7 @@ class NabinDatabase {
       activeLog.resumedAt = now.toISOString();
     }
 
-    this.createAuditLog({
+    await this.auditAppliedChange({
       adminId,
       adminName,
       role,
@@ -2409,6 +2409,36 @@ class NabinDatabase {
     };
     this.auditLogs.unshift(log);
     return log;
+  }
+
+  /**
+   * Await the audit record of a mutation that has already been applied.
+   *
+   * `auditAuthoritative` is the authentication-path version, where a failed record means
+   * the request is refused and the client can retry from nothing. On the admin control
+   * plane the state change is already committed by the time the trail is written, so
+   * claiming a refusal would be a lie — the operator has to know the action landed and
+   * its record did not, which is a 503-shaped outage with a message that says so.
+   *
+   * Awaiting is the point: without it a synchronous-path mutation answered 200 whether or
+   * not the trail arrived, so "the trail is complete" was unverifiable.
+   */
+  async auditAppliedChange(entry) {
+    try {
+      await this.createAuditLog(entry);
+    } catch (err) {
+      const who = `${entry?.module || '?'}/${entry?.action || '?'}`;
+      const refusal = new Error(`The action was applied, but its audit record (${who}) could not be written. The change is live and must be reconciled — do not assume it failed.`);
+      refusal.code = 'AUDIT_RECORD_UNAVAILABLE';
+      // Both spellings on purpose: most admin catches read `err.status`, the support and
+      // repository paths read `err.statusCode`. Setting one and not the other silently turns a
+      // 503-shaped outage into a 400-shaped bad request.
+      refusal.status = 503;
+      refusal.statusCode = 503;
+      refusal.applied = true;
+      refusal.cause = err && err.message ? err.message : String(err);
+      throw refusal;
+    }
   }
 
   getAuditLogs(filters = {}) {
@@ -3219,7 +3249,7 @@ class NabinDatabase {
     return this.identityApplications.find(a => a.id === id);
   }
 
-  lockIdentityApplication(id, adminId, adminName) {
+  async lockIdentityApplication(id, adminId, adminName) {
     const app = this.getIdentityApplicationById(id);
     if (!app) return { success: false, error: 'Application not found' };
 
@@ -3248,7 +3278,7 @@ class NabinDatabase {
     }
     app.updatedAt = new Date().toISOString();
 
-    this.createAuditLog({
+    await this.auditAppliedChange({
       adminId,
       adminName,
       role: 'ADMIN',
@@ -3280,7 +3310,7 @@ class NabinDatabase {
     return { success: true, application: app };
   }
 
-  reviewIdentityApplication(id, decision, reason, checklist, adminId, adminName) {
+  async reviewIdentityApplication(id, decision, reason, checklist, adminId, adminName) {
     const app = this.getIdentityApplicationById(id);
     if (!app) return { success: false, error: 'Application not found' };
 
@@ -3308,7 +3338,7 @@ class NabinDatabase {
         user.accountStatus = 'ACTIVE';
       }
 
-      this.createAuditLog({
+      await this.auditAppliedChange({
         adminId,
         adminName,
         role: 'ADMIN',
@@ -3336,7 +3366,7 @@ class NabinDatabase {
         user.accountStatus = 'REJECTED';
       }
 
-      this.createAuditLog({
+      await this.auditAppliedChange({
         adminId,
         adminName,
         role: 'ADMIN',
@@ -3364,7 +3394,7 @@ class NabinDatabase {
         user.accountStatus = 'RESUBMISSION_REQUIRED';
       }
 
-      this.createAuditLog({
+      await this.auditAppliedChange({
         adminId,
         adminName,
         role: 'ADMIN',
@@ -3386,7 +3416,7 @@ class NabinDatabase {
         user.accountStatus = 'UNDER_REVIEW';
       }
 
-      this.createAuditLog({
+      await this.auditAppliedChange({
         adminId,
         adminName,
         role: 'ADMIN',
@@ -3443,7 +3473,7 @@ class NabinDatabase {
     }
     driver.suspensionReason = reason || '';
 
-    this.createAuditLog({
+    await this.auditAppliedChange({
       adminId,
       adminName,
       role: 'ADMIN',
@@ -3460,7 +3490,7 @@ class NabinDatabase {
   }
 
   // --- Restaurant Operational Status Control ---
-  setRestaurantStatus(restaurantId, operationalStatus, reason, adminId, adminName) {
+  async setRestaurantStatus(restaurantId, operationalStatus, reason, adminId, adminName) {
     const rest = this.restaurants.find(r => r.id === restaurantId);
     if (!rest) return { success: false, error: 'Restaurant not found' };
 
@@ -3472,7 +3502,7 @@ class NabinDatabase {
       rest.isOpen = false;
     }
 
-    this.createAuditLog({
+    await this.auditAppliedChange({
       adminId,
       adminName,
       role: 'ADMIN',
@@ -4500,7 +4530,7 @@ class NabinDatabase {
     };
   }
 
-  adminReviewPrice({ productId, action, newPrice = null, reason = '', adminUser = {} }) {
+  async adminReviewPrice({ productId, action, newPrice = null, reason = '', adminUser = {} }) {
     const product = this.getGroceryProductById(productId);
     if (!product) throw new Error('Product not found');
 
@@ -4520,7 +4550,7 @@ class NabinDatabase {
       product.priceStatus = 'ACTIVE';
     }
 
-    this.createAuditLog({
+    await this.auditAppliedChange({
       adminId: adminUser.id || 'adm_super',
       adminName: adminUser.name || 'Super Admin',
       role: adminUser.role || 'SUPER_ADMIN',
@@ -4805,30 +4835,36 @@ class NabinDatabase {
     }
 
     if (this.adRepo.live) {
+      let created = null;
+      let storeFailure = null;
       try {
-        const created = await this.adRepo.createAdvertisement(payload);
-        if (created) {
-          this.createAuditLog({
-            adminId,
-            adminName,
-            role: 'SUPER_ADMIN',
-            action: 'ADVERTISEMENT_CAMPAIGN_CREATED',
-            module: 'PROMOTIONS',
-            targetEntityType: 'ADVERTISEMENT',
-            targetEntityId: created.id,
-            previousState: 'NONE',
-            newState: created.status,
-            reason: `Ad campaign created in placement ${created.placement} (${created.title})`
-          });
-          return { advertisement: created, dataSource: 'postgres', persisted: true };
-        }
+        created = await this.adRepo.createAdvertisement(payload);
       } catch (err) {
         if (err.code === 'ADVERTISEMENT_VALIDATION_FAILED' || String(err.message).includes('violates check constraint')) {
           err.code = err.code || 'ADVERTISEMENT_VALIDATION_FAILED';
           throw err;
         }
-        console.warn(`[advertisements] PostgreSQL create failed, falling back to memory: ${err.message}`);
+        storeFailure = err;
       }
+      if (created) {
+        // Deliberately outside the catch above. A refused audit record is not "the create
+        // failed": answering that way would drop the caller into the memory fallback and
+        // create a second campaign with the same content.
+        await this.auditAppliedChange({
+          adminId,
+          adminName,
+          role: 'SUPER_ADMIN',
+          action: 'ADVERTISEMENT_CAMPAIGN_CREATED',
+          module: 'PROMOTIONS',
+          targetEntityType: 'ADVERTISEMENT',
+          targetEntityId: created.id,
+          previousState: 'NONE',
+          newState: created.status,
+          reason: `Ad campaign created in placement ${created.placement} (${created.title})`
+        });
+        return { advertisement: created, dataSource: 'postgres', persisted: true };
+      }
+      console.warn(`[advertisements] PostgreSQL create failed, falling back to memory: ${storeFailure && storeFailure.message}`);
     }
 
     const newAd = {
@@ -4854,7 +4890,7 @@ class NabinDatabase {
 
     this.advertisements.unshift(newAd);
 
-    this.createAuditLog({
+    await this.auditAppliedChange({
       adminId,
       adminName,
       role: 'SUPER_ADMIN',
@@ -4885,30 +4921,36 @@ class NabinDatabase {
     }
 
     if (this.adRepo.live) {
+      let updated = null;
+      let storeFailure = null;
       try {
-        const updated = await this.adRepo.updateAdvertisement(adId, updates);
-        if (updated) {
-          this.createAuditLog({
-            adminId,
-            adminName,
-            role: 'SUPER_ADMIN',
-            action: 'ADVERTISEMENT_CAMPAIGN_UPDATED',
-            module: 'PROMOTIONS',
-            targetEntityType: 'ADVERTISEMENT',
-            targetEntityId: updated.id,
-            previousState: 'PREVIOUS',
-            newState: updated.status,
-            reason: `Ad campaign ${updated.id} updated in PostgreSQL (${Object.keys(updates).join(', ')})`
-          });
-          return { advertisement: updated, dataSource: 'postgres', persisted: true };
+        updated = await this.adRepo.updateAdvertisement(adId, updates);
+        if (!updated) {
+          const missing = new Error(`Advertisement ${adId} not found.`);
+          missing.code = 'ADVERTISEMENT_NOT_FOUND';
+          throw missing;
         }
-        const missing = new Error(`Advertisement ${adId} not found.`);
-        missing.code = 'ADVERTISEMENT_NOT_FOUND';
-        throw missing;
       } catch (err) {
         if (err.code === 'ADVERTISEMENT_VALIDATION_FAILED' || err.code === 'ADVERTISEMENT_NOT_FOUND') throw err;
-        console.warn(`[advertisements] PostgreSQL update failed, falling back to memory: ${err.message}`);
+        storeFailure = err;
       }
+      if (updated) {
+        // Outside the fallback catch: see createAdvertisement.
+        await this.auditAppliedChange({
+          adminId,
+          adminName,
+          role: 'SUPER_ADMIN',
+          action: 'ADVERTISEMENT_CAMPAIGN_UPDATED',
+          module: 'PROMOTIONS',
+          targetEntityType: 'ADVERTISEMENT',
+          targetEntityId: updated.id,
+          previousState: 'PREVIOUS',
+          newState: updated.status,
+          reason: `Ad campaign ${updated.id} updated in PostgreSQL (${Object.keys(updates).join(', ')})`
+        });
+        return { advertisement: updated, dataSource: 'postgres', persisted: true };
+      }
+      console.warn(`[advertisements] PostgreSQL update failed, falling back to memory: ${storeFailure && storeFailure.message}`);
     }
 
     const ad = this.advertisements.find(a => a.id === adId);
@@ -4931,7 +4973,7 @@ class NabinDatabase {
     if (updates.startDate !== undefined) ad.startDate = updates.startDate;
     if (updates.endDate !== undefined) ad.endDate = updates.endDate;
 
-    this.createAuditLog({
+    await this.auditAppliedChange({
       adminId,
       adminName,
       role: 'SUPER_ADMIN',
@@ -4949,26 +4991,30 @@ class NabinDatabase {
 
   async deleteAdvertisement(adId, adminId = 'adm_super', adminName = 'Super Admin') {
     if (this.adRepo.live) {
+      let deleted = null;
+      let storeFailure = null;
       try {
-        const deleted = await this.adRepo.deleteAdvertisement(adId);
-        if (deleted) {
-          this.createAuditLog({
-            adminId,
-            adminName,
-            role: 'SUPER_ADMIN',
-            action: 'ADVERTISEMENT_CAMPAIGN_DELETED',
-            module: 'PROMOTIONS',
-            targetEntityType: 'ADVERTISEMENT',
-            targetEntityId: deleted.id,
-            previousState: deleted.status,
-            newState: 'DELETED',
-            reason: `Ad campaign ${deleted.id} deleted from PostgreSQL`
-          });
-          return { deleted, dataSource: 'postgres', persisted: true };
-        }
+        deleted = await this.adRepo.deleteAdvertisement(adId);
       } catch (err) {
-        console.warn(`[advertisements] PostgreSQL delete failed, falling back to memory: ${err.message}`);
+        storeFailure = err;
       }
+      if (deleted) {
+        // Outside the fallback catch: see createAdvertisement.
+        await this.auditAppliedChange({
+          adminId,
+          adminName,
+          role: 'SUPER_ADMIN',
+          action: 'ADVERTISEMENT_CAMPAIGN_DELETED',
+          module: 'PROMOTIONS',
+          targetEntityType: 'ADVERTISEMENT',
+          targetEntityId: deleted.id,
+          previousState: deleted.status,
+          newState: 'DELETED',
+          reason: `Ad campaign ${deleted.id} deleted from PostgreSQL`
+        });
+        return { deleted, dataSource: 'postgres', persisted: true };
+      }
+      console.warn(`[advertisements] PostgreSQL delete failed, falling back to memory: ${storeFailure && storeFailure.message}`);
     }
 
     const idx = this.advertisements.findIndex(a => a.id === adId);
@@ -4980,7 +5026,7 @@ class NabinDatabase {
 
     const deleted = this.advertisements.splice(idx, 1)[0];
 
-    this.createAuditLog({
+    await this.auditAppliedChange({
       adminId,
       adminName,
       role: 'SUPER_ADMIN',
