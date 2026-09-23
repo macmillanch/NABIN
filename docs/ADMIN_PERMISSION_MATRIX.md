@@ -411,12 +411,13 @@ instance that served the call, all three hold. Measured here, across a live seco
   handler's own 404 or ownership check. INP-10 fails the run if any is deleted; INP-19…INP-22
   prove both halves over HTTP — an open account is served normally, a closed one answers
   `403 ACCOUNT_SUSPENDED`.
-- **A session another instance wrote is adopted here inside the reconcile tick** (INP-21). That
-  direction of convergence works — against a process that has been running. The same two assertions
-  are red against a just-booted one (`GEOFENCING_SECURITY_AUDIT.md` R8 item 4, from the Phase 18 pass
-  that ran each harness against a process it could name), so the property is instance-lifetime
-  dependent and this bullet's claim holds warm only. The correction is the same §11 decision 16 with
-  §9 item 6 attached that the revocation half above already stops at.
+- **A session another instance wrote is adopted here inside the reconcile tick** (INP-21) — *observed
+  to work, not known to*. Three of four Phase 18 passes saw it green and one saw it red, on the same
+  committed code and the same verified-fresh-process script, so the property is intermittent rather
+  than guaranteed; `GEOFENCING_SECURITY_AUDIT.md` R8 item 4 and R9 carry the evidence, including the
+  measurement that is the leading candidate — `reconcileSessions` issues an unbounded select, this
+  store caps an unbounded read at 1000 rows, and `backend_sessions` held ~1459 unexpired rows, so both
+  this bullet's adoption and the prune below it work from a page that cannot contain the table.
 - **A revocation performed here does not reach another instance at all** (INP-24, INP-25).
   `reconcileSessions` prunes only entries whose key it can identify as locally minted, and its
   loop reads `if (isDevFixture || /^[0-9a-f]{64}$/.test(key)) continue;` — while

@@ -876,9 +876,13 @@ actually finish, and what it must stop short of.
   /^[0-9a-f]{64}$/.test(key)) continue;` — while every real login is stored under
   `hashSessionToken(token)`, which is 64 hex characters. The `continue` therefore skips
   exactly the entries a revocation performed elsewhere needs removed. The other half of the
-  same function does work: a session row another process wrote is adopted inside the tick,
-  so a bearer minted elsewhere is honoured here (INP-21, over HTTP against a live second
-  process). **Adoption converges; revocation does not.** The bearer-time guard is no
+  same function does work, when it works: a session row another process wrote is adopted inside the
+  tick, so a bearer minted elsewhere is honoured here (INP-21, over HTTP against a live second
+  process). It is **not** dependable — that same assertion was red in one of four Phase 18 passes over
+  identical code, and `reconcileSessions`' unbounded select reads a store that caps such a read at
+  1000 rows against ~1459 live ones, so the tick works from a truncated page
+  (`GEOFENCING_SECURITY_AUDIT.md` R9). **Adoption converges intermittently; revocation does not
+  converge at all.** The bearer-time guard is no
   backstop for this case either — an instance that hydrated the account while it was open
   answers from that copy, and the store is consulted only when it cannot resolve the account
   at all (INP-26). So a customer suspended on instance A keeps a working signed-in app on

@@ -274,9 +274,10 @@ area is still blocked, it is reported blocked and named with the decision that b
 **How to re-run this.** `cd backend`, source `backend/.env`, then `node geo_policy_test.js`
 (**55 checks**), `node geo_adversarial_test.js` (**57 checks**) and `node admin_authorization_test.js`
 (**113 checks**) against the local backend on `:4000`. Both geo suites passed 55/55 and 57/57 in every
-pass. The authorisation matrix passed 113/113 twice and **110/113 against a backend that had only just
-booted** — see R9, which is the honest account of which process each number came from and why two of
-the three passes were worth less than they looked. The suites need the local Docker store up, because
+pass. The authorisation matrix passed 113/113 in three of its four passes and **110/113 in the other
+one**, and the fourth pass — same committed code, same verified-fresh-process script — is what showed
+those three reds to be intermittent rather than conditional; R9 is the account of each pass, what it
+proved, and the 1000-row reconcile read that is the leading candidate for the flake. The suites need the local Docker store up, because
 group D and the `SEC-07` probe read it. Group E of the policy suite starts its own child process
 against a closed port — the fail-closed half cannot be proven from a healthy process, and nothing here
 pretends otherwise.
@@ -585,21 +586,26 @@ test that asserted an answer would be that answer chosen by whoever wrote the te
    else refreshes it, because there is no invalidation broadcast on the geo routes. Fixing that touches
    the same authorization blast radius the admin specification stops at (§9 item 6 of that document),
    so it is recorded as a remaining risk rather than redesigned inside a geo-fencing pass.
-4. **A session written by another instance is honoured by a long-lived backend and not by a
-   just-booted one** (`RX-01…03`, `INP-21…22` — green twice against a warm process, red against a
-   verified-fresh one). This is the *general* form of item 3: cross-instance convergence is assumed by
-   these tests and has never been proven against a cold process. It also qualifies a claim already on
-   the record — `docs/ADMIN_PERMISSION_MATRIX.md:414-415` states the adoption as working (INP-21) —
-   so that sentence needs a cold-start case, and the correction belongs to the same decision the
-   permission catalogue parked it at (spec §11 decision 16 with its §9 item 6). It is not geo
-   behaviour and this order's diff does not touch the path, so it is reported with its evidence in R9
-   rather than fixed inside a geo pass.
+4. **A session written by another instance is honoured *sometimes*.** `RX-01…03` and `INP-21…22` were
+   green in passes 1, 2 and 4 of the Phase 18 chain and red in pass 3, where passes 3 and 4 used the
+   same script, the same committed code, and the same verified-fresh-process discipline. The first
+   reading — "works warm, fails cold" — was falsified by pass 4 and is withdrawn here; R9 carries both
+   the withdrawal and the mechanism actually measured instead: `reconcileSessions`' select is unbounded
+   while this store caps an unbounded read at 1000 rows against ~1459 live ones, so both the prune set
+   and the restore set are built from a truncated page whose membership nothing here can predict. That
+   makes cross-instance convergence non-deterministic, which is the general form of item 3 and a worse
+   property than the one item 3 describes. It is not geo behaviour and this order's diff does not touch
+   the path, so it is reported with its evidence in R9 rather than fixed inside a geo pass — and it
+   qualifies the claim at `ADMIN_PERMISSION_MATRIX.md:414` (spec §11 decision 16, §9 item 6).
 
 ## R9. Regression evidence, and what each pass was actually worth
 
 Phase 18 asked for the important suites twice, serially, and for no skip to be undocumented. Three
 passes were run against one working tree — the code is identical in all three columns, so every
-difference below is a difference in the *process*, not in the fix.
+difference below is a difference in the *process*, not in the fix. A **fourth pass** ran afterwards
+against the committed tree (`635b406`), with the same script and the same hand-off proof, and it is
+reported under the table rather than as a fourth column because it exists to test what pass 3
+concluded, not to add another measurement of the same thing.
 
 | Harness | Pass 1 — one shared warm process | Pass 2 — intended fresh | Pass 3 — verified fresh |
 | --- | --- | --- | --- |
@@ -627,6 +633,19 @@ difference below is a difference in the *process*, not in the fix.
 | `smoke_test.js` | 5 / 0 | not run | 5 / 0 |
 | `restart_test.js` | 35 / 0 | 35 / 0 | 35 / 0 |
 | `bootstrap_test.js` | exit 1 | exit 1 | exit 1 |
+
+**Pass 4, and what it cost.** Run against `635b406` after committing, same script, 0 `EADDRINUSE`,
+0 hand-off mismatches: **every row reproduced its pass-3 value except the two that pass 3 used to make
+an argument** — `admin_authorization_test.js` came back **113 / 0** (RX-01…05 all PASS, "after a
+poll") and `admin_customers_test.js` **exit 0** with INP-21 and INP-22 both PASS, while
+`bootstrap_test.js` was red again for the same `support_tickets_assigned_admin_id_fkey` reason. So the
+attribution written two paragraphs below — "green warm, red cold, therefore instance-lifetime
+dependent" — **is wrong**, and it was wrong in three documents, not one. What the four passes actually
+show is a group that is *intermittent*: red in pass 3, green in passes 1, 2 and 4, on configurations
+pass 3 and pass 4 had taken care to make identical. An explanation that fits one pass and is falsified
+by the next is not an explanation, and the honest version is the section below it. Its client halves
+reproduced too, to the assertion: `flutter analyze` 67 issues and 0 errors, `flutter test` 56 passed,
+`npm run lint` 0 errors and the same one warning, `npm run build` 9 routes.
 
 **Pass 2 does not evidence what it was written to evidence, and is reported as void.** Its script meant
 to start a backend per harness and clear `:4000` between them; its port lookup was
@@ -668,8 +687,8 @@ compared), and a harness only runs once the pid holding `:4000` is that number. 
    `support_tickets.assigned_admin_id` first or restoring a clean store — a data decision outside a
    geo-fencing pass, so it is reported, not taken.
 
-**The one red that is a finding, not an environment artifact.** Pass 3 is the first pass that ever
-ran these harnesses against a process it can name, and it turned up two failures that passes 1 and 2
+**The one red that was reported as a finding, and then withdrawn.** Pass 3 is the first pass that ran
+these harnesses against a process it could name, and it turned up two failures that passes 1 and 2
 had hidden by reusing a warm server:
 
 - `admin_authorization_test.js` **RX-01/02/03** — "a session written by another instance is honoured
@@ -677,29 +696,57 @@ had hidden by reusing a warm server:
 - `admin_customers_test.js` **INP-21/22** — the same property from the customer side: "a bearer this
   instance never issued is honoured by it after the reconcile tick" answered `401`.
 
-Both groups test the same mechanism: a row inserted into `backend_sessions` by someone else should be
-honoured by a process that never issued it, once `reconcileSessions()` next runs
-(`server.js:7922`, an unconditional 15-second interval created before `listen`). It passes against a
-long-lived process and fails against a just-booted one, which makes the property
-**instance-lifetime-dependent rather than universally broken** — and it is not geo behaviour: the
-diff for this order touches no line on that path (zero added or removed lines mentioning
-`reconcileSessions`, `hydrateSessions`, `activeAdminSessions` or `backend_sessions`, and its
-`server.js` hunks sit at 15–16, 51–103 and 2864–3350, not near 7915–7926).
+Both groups test one mechanism: a row inserted into `backend_sessions` by someone else should be
+honoured by a process that never issued it, once `reconcileSessions()` next runs (`server.js:7922`, an
+unconditional 15-second interval created before `listen`). Pass 3 first read that as
+lifetime-dependent — green warm, red cold — and this document said so. **Pass 4 disproves that
+reading**, on the identical configuration: the same script, a verified-fresh process per harness, 0
+`EADDRINUSE`, 0 hand-off mismatches, and **RX-01…05 and INP-21/22 all PASS** (`admin_authorization_test.js`
+113/113, `admin_customers_test.js` exit 0). So the property is **intermittent**, which is a different
+and worse thing than conditional: two passes over the same code with the same process lifetime gave
+opposite answers.
 
-Nor is it unknown ground. `docs/ADMIN_PERMISSION_MATRIX.md:414-415` already states the property as
-established — "**A session another instance wrote is adopted here inside the reconcile tick**
-(INP-21). That direction of convergence works" — alongside the predicate that makes the opposite
-direction fail (`if (isDevFixture || /^[0-9a-f]{64}$/.test(key)) continue;`, `database.js:5886`,
-skipping exactly the rows a remote revocation needs dropped). What pass 3 adds is a qualification of
-that sentence rather than a new mechanism: **adoption holds against a long-lived process and fails
-against one that has just booted**, so "works" is true within an instance lifetime and not across
-lifetime boundaries. The correction stays where the permission catalogue left it — spec §11 decision
-16 with §9 item 6 attached, deliberately not taken in a geo pass because it changes the
-authorisation path of every process sharing the store. INP-25/INP-26 hold the present behaviour in
-place so a future change has to be a decision, and this document now records that the claim needs a
-cold-start case too. It also explains a note this project has carried for a while: a single
-admin-harness failure on a heavily-reused server that "has not reproduced in six runs". It
-reproduces on a cold one.
+What pass 4 measured instead, and what the earlier reading was reaching for:
+
+- `backend_sessions` holds **1459 unexpired rows**, and `reconcileSessions`' select is unbounded
+  (`.gt('expires_at', nowIso)`, no `.limit()`, `database.js:5870-5874`) while **this store caps an
+  unbounded read at exactly 1000 rows** — measured twice, `Content-Range: 0-0/1458` against 1000
+  returned objects. Both halves of the tick therefore work from a truncated page: `live` decides
+  which locally-minted sessions to *delete*, and the restore loop decides which foreign rows to adopt.
+- A probe against a just-booted process (24 foreign `SUPER_ADMIN` session rows in two batches of 12,
+  one reconcile tick, then `GET /api/admin/me` per bearer) came back **24 of 24 honoured**, and every
+  probe row was inside the page that read returned. So the cap is proven and *this* probe could not
+  make it bite: recently written rows were visible. The exposure the shape implies is for rows the page
+  has since aged out of — on a long-lived process, a locally-minted session absent from `live` is
+  deleted from `activeSessions` while its store row is still valid, which is a sign-out with no error
+  anywhere. The same partial page is also what a missed foreign adoption would look like, but since the
+  probe could not reproduce one this stays a **candidate mechanism, not a demonstrated cause**.
+- Naming that is not supported by the evidence: **ordering**. Without an `ORDER BY` the page contents
+  are whatever the plan yields, and the probe's query and the reconcile query are not the same query,
+  so this pass does not claim to know which rows the next tick will see — only that with 1459 live
+  rows against a 1000-row page it cannot see all of them.
+
+This is not geo behaviour and it is not this order's regression: the diff touches no line on that path
+(zero added or removed lines mentioning `reconcileSessions`, `hydrateSessions`, `activeAdminSessions`
+or `backend_sessions`; its `server.js` hunks sit at 15–16, 51–103 and 2864–3350, not near
+7915–7926). It stays where the permission catalogue left it — spec §11 decision 16 with §9 item 6
+attached — and INP-25/INP-26 continue to hold the *revocation* half in place deliberately. What passes
+3 and 4 change together is the confidence the surrounding documents are allowed to have in the
+adoption half. `ADMIN_PERMISSION_MATRIX.md` states it as working (INP-21); on this evidence the
+defensible sentence is "**it has been observed to work in three of four controlled passes, and to not
+work in one, and no condition tested here predicts which**" — and a red in the RX/INP reconcile group
+means "adoption did not happen this run", nothing more specific than that. Two things are worth more
+than a hedge, though, and both are measurements rather than inferences: an unbounded read on this
+store silently returns a 1000-row page of a larger table, which no caller here asks for or checks; and
+a property the harnesses describe as a mechanism has now been shown to be non-deterministic, which is
+why the catalogue's adoption bullet cannot be left as a plain statement that the direction works
+either.
+
+The pass-3 reds also put an older note in context: a single admin-harness failure on a heavily-reused
+server that "has not reproduced in six runs". Reuse was never the variable — this group has now been
+seen red in one controlled pass and green in three, on the same committed code, so an unreproduced
+failure in it is expected behaviour rather than a mystery, and it is not evidence of anything about the
+process's history.
 
 **Client halves of Phase 18.**
 
