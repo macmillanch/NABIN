@@ -277,7 +277,8 @@ area is still blocked, it is reported blocked and named with the decision that b
 pass. The authorisation matrix passed 113/113 in three of its four passes and **110/113 in the other
 one**, and the fourth pass — same committed code, same verified-fresh-process script — is what showed
 those three reds to be intermittent rather than conditional; R9 is the account of each pass, what it
-proved, and the 1000-row reconcile read that is the leading candidate for the flake. The suites need the local Docker store up, because
+proved, and the 1000-row reconcile read that was the leading candidate for the flake and is now fixed
+without the causal link being established. The suites need the local Docker store up, because
 group D and the `SEC-07` probe read it. Group E of the policy suite starts its own child process
 against a closed port — the fail-closed half cannot be proven from a healthy process, and nothing here
 pretends otherwise.
@@ -590,12 +591,18 @@ test that asserted an answer would be that answer chosen by whoever wrote the te
    green in passes 1, 2 and 4 of the Phase 18 chain and red in pass 3, where passes 3 and 4 used the
    same script, the same committed code, and the same verified-fresh-process discipline. The first
    reading — "works warm, fails cold" — was falsified by pass 4 and is withdrawn here; R9 carries both
-   the withdrawal and the mechanism actually measured instead: `reconcileSessions`' select is unbounded
+   the withdrawal and the mechanism that was measured instead: `reconcileSessions`' select was unbounded
    while this store caps an unbounded read at 1000 rows against ~1459 live ones, so both the prune set
-   and the restore set are built from a truncated page whose membership nothing here can predict. That
-   makes cross-instance convergence non-deterministic, which is the general form of item 3 and a worse
-   property than the one item 3 describes. It is not geo behaviour and this order's diff does not touch
-   the path, so it is reported with its evidence in R9 rather than fixed inside a geo pass — and it
+   and the restore set were built from a truncated page whose membership nothing here could predict.
+   **That read is now a complete keyset walk past the cap** (`readAllActiveSessions`, and
+   `session_reconcile_pagination_test.js` holds it), which removes a real truncation bug and a real
+   silent-sign-out path. It does **not** close this item: the truncated page was the leading *candidate*
+   for the flake, never a demonstrated cause, so cross-instance adoption stays documented as
+   intermittent and unresolved until a pass shows it red again or a mechanism is proven. What the fix
+   does change is the shape of the remaining problem — non-deterministic convergence is no longer
+   explained by a page that cannot see the table, so whatever is left is somewhere else in the tick.
+   It is not geo behaviour: the geo order's diff touched no line on this path, and the read is fixed by
+   a later, separate one. It stays reported here because R9 is where its evidence lives, and it
    qualifies the claim at `ADMIN_PERMISSION_MATRIX.md:414` (spec §11 decision 16, §9 item 6).
 
 ## R9. Regression evidence, and what each pass was actually worth
@@ -725,6 +732,33 @@ What pass 4 measured instead, and what the earlier reading was reaching for:
   are whatever the plan yields, and the probe's query and the reconcile query are not the same query,
   so this pass does not claim to know which rows the next tick will see — only that with 1459 live
   rows against a 1000-row page it cannot see all of them.
+
+**Pass 5, and the cap pass 4 found.** The truncation is fixed, and it was fixed as a bug in its own
+right rather than as a theory about the flake. `supabase/config.toml` sets PostgREST `max_rows = 1000`,
+so any unbounded select returns 1000 rows and nothing says so; `backend_sessions` measured 1424–1487
+unexpired rows across this pass's runs, and both session reads (`hydrateSessions` at boot and the
+15-second `reconcileSessions` tick) were unbounded. `database.js` now reads the eligible set through
+`readAllActiveSessions`, which pages by `token_hash` — the table's PRIMARY KEY, so unique, not null and
+immutable — with `> cursor` ordered by it, ending on a short page. `max_rows` is left at 1000: it is a
+guard every other read in the platform sits behind, and widening it would trade one silent truncation
+for a louder blast radius. Two properties the old shape could not have:
+`session_reconcile_pagination_test.js` (26 checks, `node session_reconcile_pagination_test.js`) proves
+the walk complete at 999 / 1000 / 1001 / 1459 / 2000 fixture rows and against the live table, with no
+row seen twice and none skipped; and a walk that *cannot* finish now says so, because
+an absent row and an unreached row are the same value in a Set and only the difference between them
+decides whether a working user gets signed out. So the prune half is skipped unless the read is
+complete, while adoption — which only ever adds — still runs. Measured against the live store in this
+pass: 1487 eligible rows read in 3 pages, first reconcile adopted 1487 in 131 ms, second adopted 0,
+which is the idempotence the tick needs.
+
+What that does **not** buy: a proof about RX-01…03 / INP-21…22. Pass 5 reproduced those green again
+(`admin_authorization_test.js` 113/113, `admin_customers_test.js` 83/83 on a verified-fresh process, 0
+`EADDRINUSE`, 0 hand-off mismatches across 25 harnesses), so the tally is now four green passes and one
+red against a mechanism that has been removed. **CONFIRMED:** the 1000-row cap, and that the old code
+reconciled against a truncated set. **NOT PROVEN:** that the cap caused the intermittency — the pass-3
+probe that came back 24 of 24 was already inside the page the cap allowed, so the strongest statement
+the evidence supports is that this fix removes a real defect on the same code path, not that it closes
+the investigation. The group stays open.
 
 This is not geo behaviour and it is not this order's regression: the diff touches no line on that path
 (zero added or removed lines mentioning `reconcileSessions`, `hydrateSessions`, `activeAdminSessions`

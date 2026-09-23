@@ -415,9 +415,11 @@ instance that served the call, all three hold. Measured here, across a live seco
   to work, not known to*. Three of four Phase 18 passes saw it green and one saw it red, on the same
   committed code and the same verified-fresh-process script, so the property is intermittent rather
   than guaranteed; `GEOFENCING_SECURITY_AUDIT.md` R8 item 4 and R9 carry the evidence, including the
-  measurement that is the leading candidate — `reconcileSessions` issues an unbounded select, this
+  measurement that was the leading candidate — `reconcileSessions` issued an unbounded select, this
   store caps an unbounded read at 1000 rows, and `backend_sessions` held ~1459 unexpired rows, so both
-  this bullet's adoption and the prune below it work from a page that cannot contain the table.
+  this bullet's adoption and the prune below it worked from a page that could not contain the table.
+  **That read is now a complete keyset walk past the cap**, so neither half is built from a truncated
+  page any more; the intermittency is left open, because the cap was never shown to cause it.
 - **A revocation performed here does not reach another instance at all** (INP-24, INP-25).
   `reconcileSessions` prunes only entries whose key it can identify as locally minted, and its
   loop reads `if (isDevFixture || /^[0-9a-f]{64}$/.test(key)) continue;` — while

@@ -5829,20 +5829,99 @@ class NabinDatabase {
     if (error) console.error('⚠️ Could not revoke session:', error.message);
   }
 
+  /**
+   * Every unexpired session row, past the store's page limit.
+   *
+   * `supabase/config.toml` sets PostgREST `max_rows = 1000`, so an unbounded select returns
+   * the first 1000 rows and nothing else — no error, no notice, and the caller cannot tell
+   * a complete dataset from a truncated one. Both session reads used to be unbounded while
+   * `backend_sessions` measured 1459 unexpired rows, so boot restored 1000 sessions and the
+   * reconcile tick pruned and adopted from a set missing ~459. The prune is the dangerous
+   * half: a session that is alive in the store but absent from the page reads as "not live",
+   * and the process silently signs a working user out.
+   *
+   * `token_hash` is the table's PRIMARY KEY — unique, not null, and immutable while a walk
+   * is in progress — so `> cursor` ordered by it cannot repeat a row, cannot skip one, and
+   * ends on a short page. An OFFSET would do none of those on a table where rows are written
+   * and deleted continuously, and raising `max_rows` would widen a guard that every other
+   * read in the platform relies on.
+   *
+   * `complete` is the contract's other half: a walk that could not finish says so, and its
+   * caller must not use the partial set to remove anything.
+   */
+  async readAllActiveSessions(store, { pageSize = 500, maxPages = 200 } = {}) {
+    const columns = 'token_hash, role, entity_id, phone, entity, created_at, expires_at';
+    const nowIso = new Date().toISOString();
+    const rows = [];
+    const hashes = new Set();
+    let cursor = null;
+    let pages = 0;
+    let complete = true;
+    let error = null;
+
+    while (true) {
+      pages += 1;
+      if (pages > maxPages) {
+        // A page that never runs short is a bug or a fight with the writer, not a big
+        // table. Stop loudly rather than walking the store forever.
+        complete = false;
+        error = `pagination stopped after ${maxPages} pages without reaching a short page`;
+        break;
+      }
+      let query = store
+        .from('backend_sessions')
+        .select(columns)
+        .gt('expires_at', nowIso)
+        .order('token_hash', { ascending: true })
+        .limit(pageSize);
+      if (cursor !== null) query = query.gt('token_hash', cursor);
+
+      const page = await query;
+      if (page.error) {
+        complete = false;
+        error = page.error.message;
+        break;
+      }
+      const batch = page.data || [];
+      for (const row of batch) {
+        if (hashes.has(row.token_hash)) {
+          // Cannot happen under a primary-key cursor; if it ever does, the ordering or the
+          // filter changed under us and the set is not trustworthy.
+          complete = false;
+          error = `pagination repeated ${row.token_hash}`;
+          break;
+        }
+        hashes.add(row.token_hash);
+        rows.push(row);
+      }
+      if (!complete) break;
+      if (batch.length < pageSize) break;
+
+      const last = batch[batch.length - 1].token_hash;
+      if (cursor !== null && !(last > cursor)) {
+        complete = false;
+        error = `pagination cursor did not advance (${cursor} -> ${last})`;
+        break;
+      }
+      cursor = last;
+    }
+
+    return { rows, hashes, complete, error, pages, nowIso };
+  }
+
   async hydrateSessions() {
     const store = this.liveStore();
     if (!store) return 0;
-    const { data, error } = await store
-      .from('backend_sessions')
-      .select('token_hash, role, entity_id, phone, entity, created_at, expires_at')
-      .gt('expires_at', new Date().toISOString());
-    if (error) {
-      console.error('⚠️ Could not load persisted sessions:', error.message);
-      return 0;
+    const { rows, complete, error } = await this.readAllActiveSessions(store);
+    if (!complete) {
+      // Hydration adds what it can see and removes nothing, so a partial walk is safe to
+      // act on — but it is not the whole answer, and the difference is users who look
+      // signed out for no reason. Say so at boot rather than at the complaint.
+      console.error(`⚠️ Persisted sessions read INCOMPLETE, some users may need to sign in again: ${error}`);
     }
-    for (const row of data || []) this.restoreSession(row);
-    console.log(`🔑 Restored ${(data || []).length} authentication session(s) from PostgreSQL`);
-    return (data || []).length;
+    for (const row of rows) this.restoreSession(row);
+    console.log(`🔑 Restored ${rows.length} authentication session(s) from PostgreSQL${complete ? '' : ' (INCOMPLETE READ)'}`);
+    return rows.length;
   }
 
   restoreSession(row) {
@@ -5859,24 +5938,32 @@ class NabinDatabase {
     });
   }
 
-  async reconcileSessions() {
-    const store = this.liveStore();
-    if (!store) return;
+  async reconcileSessions({ store = this.liveStore(), pageSize } = {}) {
+    if (!store) return { adopted: 0, pruned: 0, complete: false, skipped: 'no store' };
     const nowIso = new Date().toISOString();
 
     const { error: pruneError } = await store.from('backend_sessions').delete().lte('expires_at', nowIso);
     if (pruneError) console.error('⚠️ Session prune failed:', pruneError.message);
 
-    const { data, error } = await store
-      .from('backend_sessions')
-      .select('token_hash, role, entity_id, phone, entity, created_at, expires_at')
-      .gt('expires_at', nowIso);
-    if (error) {
-      console.error('⚠️ Session reconcile skipped:', error.message);
-      return;
+    const { rows, hashes: live, complete, error } = await this.readAllActiveSessions(store, { pageSize });
+    if (!complete) {
+      // Half the tick is safe on a partial set and half is not. Adopting what this process
+      // can see only adds sessions, so that half runs; the prune answers "is this session
+      // still in the store?" from the same set, and a row the walk never reached is
+      // indistinguishable from a deleted one. Pruning on that reading is what signs a
+      // working user out, so the destructive half is skipped until a complete read lands.
+      for (const row of rows) {
+        if (!this.activeSessions.has(row.token_hash)) this.restoreSession(row);
+      }
+      let adopted = 0;
+      for (const row of rows) {
+        if (!this.activeSessions.has(row.token_hash)) { this.restoreSession(row); adopted += 1; }
+      }
+      console.error(`⚠️ Session reconcile incomplete, prune skipped: ${error}`);
+      return { adopted, pruned: 0, complete: false, error };
     }
 
-    const live = new Set((data || []).map((row) => row.token_hash));
+    let pruned = 0;
     for (const [key, session] of Array.from(this.activeSessions.entries())) {
       if (session.expiresAt && Date.parse(session.expiresAt) <= Date.now()) {
         this.activeSessions.delete(key);
@@ -5885,12 +5972,20 @@ class NabinDatabase {
       const isDevFixture = /^(usr|drv|mcht)_session_/.test(key);
       if (isDevFixture || /^[0-9a-f]{64}$/.test(key)) continue;
       // Keyed by plaintext token => issued by this instance after boot.
-      if (!live.has(this.hashSessionToken(key))) this.activeSessions.delete(key);
+      if (!live.has(this.hashSessionToken(key))) {
+        this.activeSessions.delete(key);
+        pruned += 1;
+      }
     }
 
-    for (const row of data || []) {
-      if (!this.activeSessions.has(row.token_hash)) this.restoreSession(row);
+    let adopted = 0;
+    for (const row of rows) {
+      if (!this.activeSessions.has(row.token_hash)) {
+        this.restoreSession(row);
+        adopted += 1;
+      }
     }
+    return { adopted, pruned, complete: true, rows: rows.length };
   }
 
   // --- Administrator session surface (area 34) --------------------------------
