@@ -7,6 +7,7 @@ import { adminApi } from '@/lib/api';
 import AdminLayout from '@/components/AdminLayout';
 import { useConfirmAction } from '@/components/ConfirmAction';
 import { readRefusal } from '@/lib/refusals';
+import { holdsPermission, missingGrantNote } from '@/lib/access';
 import { Activity, Users, Car, Store, Package, Power, TriangleAlert } from 'lucide-react';
 
 interface Metrics {
@@ -35,6 +36,10 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busyService, setBusyService] = useState<string | null>(null);
+  // Both names are super-only (§11 answer 10), so every other role lands on the note
+  // below rather than on a button whose only answer is 403.
+  const canPause = holdsPermission(user, 'services.pause');
+  const canResume = holdsPermission(user, 'services.resume');
 
   const fetchData = useCallback(async () => {
     try {
@@ -137,7 +142,7 @@ export default function Dashboard() {
           <h2 id="services-heading" className="nabin-section-title" style={{ margin: 0 }}>
             <Power size={18} /> Platform services
           </h2>
-          <button onClick={fetchData} className="nabin-btn nabin-btn--ghost" style={{ minHeight: 40 }}>
+          <button onClick={fetchData} className="nabin-btn nabin-btn--ghost" style={{ minHeight: 'var(--target-min)' }}>
             Refresh
           </button>
         </div>
@@ -168,14 +173,18 @@ export default function Dashboard() {
                   {isPaused(svc) ? 'Paused' : 'Live'}
                 </span>
                 {isPaused(svc) ? (
-                  <button
-                    onClick={() => toggleService(svc)}
-                    disabled={busyService === svc.id}
-                    className="nabin-btn nabin-btn--primary"
-                  >
-                    {busyService === svc.id ? 'Working…' : 'Resume'}
-                  </button>
-                ) : (
+                  canResume ? (
+                    <button
+                      onClick={() => toggleService(svc)}
+                      disabled={busyService === svc.id}
+                      className="nabin-btn nabin-btn--primary"
+                    >
+                      {busyService === svc.id ? 'Working…' : 'Resume'}
+                    </button>
+                  ) : (
+                    <span className="nabin-cell-meta">{missingGrantNote(user, 'services.resume')}</span>
+                  )
+                ) : canPause ? (
                   <button
                     onClick={() => pauseService(svc)}
                     disabled={busyService === svc.id}
@@ -183,6 +192,8 @@ export default function Dashboard() {
                   >
                     {busyService === svc.id ? 'Working…' : 'Pause'}
                   </button>
+                ) : (
+                  <span className="nabin-cell-meta">{missingGrantNote(user, 'services.pause')}</span>
                 )}
               </div>
             ))}

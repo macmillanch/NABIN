@@ -657,7 +657,7 @@ configuration question once §2.2 is fixed, not a code change.
 | 39 | Reports with CSV/XLSX/PDF | MISSING | CSV first (no dependency), XLSX and PDF only if a library already exists in the tree — it does not, so both are a §9 dependency decision | B |
 | 42 | Data export with field filtering + audit | MISSING | Built on `report.export`/`audit.export`; field filtering is *subtraction from a fixed projection*, never caller-supplied column names | B |
 | 44 | Admin AI assistant on authorised tools only | MISSING — **no LLM integration exists anywhere in the repo** (verified: no `openai`/`anthropic`/`llm` reference in `backend/src`, `admin-web/src`, `customer-web/src`, `mobile/lib`) | Requires (a) an external model provider = new dependency + new secret + customer data leaving the boundary, and (b) the tool layer must call the same permission-checked services with the *caller's* session. See §11 — this is a decision to make, not a phase to build | — |
-| 45 | Mobile-responsive admin, not shrunk tables | PARTIAL since 2026-09-23 — the **customers** screen is walked at 320/375/390/430 and 768px and holds up: stacked `CUSTOMER` cell (name, phone, email, id) rather than a shrunk row, wrapping status chips, a scrollable labelled table region whose actions stay reachable, and a confirmation dialog that fits and scrolls at phone heights. The other five pages are still desktop-shaped at those widths, and `ResourceTable`'s own column-hiding breakpoints are untested beneath 900px | G for the rest; §8 records the four defects the walk fixed here |
+| 45 | Mobile-responsive admin, not shrunk tables | WALKED, all eight routes, 2026-09-23 — the **customers** screen at 320/375/390/430 and 768px holds up: stacked `CUSTOMER` cell (name, phone, email, id) rather than a shrunk row, wrapping status chips, a scrollable labelled table region whose actions stay reachable, and a confirmation dialog that fits and scrolls at phone heights. The other five (dashboard, `/drivers`, `/merchants`, `/orders`, `/campaigns`) were then walked at the same widths: two of them overflowed the page and both are fixed in the shared primitives rather than per page, along with 158 sub-floor buttons and four sub-floor controls. No table lost a column at any width — they scroll inside their labelled region, which is the "not shrunk tables" half of the requirement | Closed for the walk; §8 records both passes and their limits. `ResourceTable`'s column-hiding breakpoints beneath 900px are still untested, because nothing exercised them |
 | 46 | Per-admin dashboard customisation | MISSING | Needs a persisted per-admin preferences store — same §9 migration family | G |
 | 48 | Accessibility | MISSING as an enforced property | Keyboard nav, focus order, labelled controls, contrast, live-region announcements for the realtime feed | G |
 | 49 | Confirmation that states exactly what will happen | EXISTS — `admin-web/src/components/ConfirmAction.tsx`, one modal fed by a `Confirmation { title, effect, consequences[], confirmLabel, tone }` written from the mutation's **actual** backend behaviour, not from intention. Wired at every privileged mutation the dashboard has today: service pause, merchant suspend, driver suspend, campaign ACTIVE/PAUSED/ARCHIVED, and session revoke / revoke-all-for-account / disable-account on the security screen | Killswitch, payout and refund have no admin-web surface at all yet, so nothing confirms them (§5 rows 15 and 18, §11 decision 10); a suspension carries no reason field from the UI, so the driver is told the server's default `'Compliance review'`; saving an **edit** to an already-live campaign is not confirmed (the editor's own footnote states what a save replaces in full, and publishing stays a confirmed state button — whether a live-content edit needs the dialog too is undecided); and the audit reason for a revoke says `"(N take-down(s))"`, summing durable store rows and this process's in-memory copies of the *same* session — the screen's line keeps them apart, the trail's does not | A |
@@ -865,25 +865,44 @@ actually finish, and what it must stop short of.
      account still gets its normal `200` from both.
   3. **The write ends the sessions it invalidates** (`revokeCustomerSessions`, store first
      then memory, matching both `usr_1` and uuid id spaces because `backend_sessions.entity_id`
-     carries whichever a login happened to resolve). Across instances this is what closes
-     the account: the shared row is gone, so another process's 15-second reconcile prune
-     drops its copy.
+     carries whichever a login happened to resolve).
   What is *not* claimed: no per-request database read happens on the common path, so a
   status written **outside** this API is only seen by a process that cannot resolve the
-  account locally, and a suspension whose revoke failed converges on other instances at
-  the next reconcile rather than instantly. Proven by `admin_customers_test.js`.
-  The bearer-time sweep is also **not** complete, and the remainder is named rather than
-  smoothed over: five more handlers resolve a session with `db.getSessionByToken` in their
-  own body — `POST /api/rides/:id/cancel` and `POST /api/jobs/:id/cancel` (one handler, two
+  account locally. And **a suspension does not reach another instance at all** — which is
+  a correction, not a caveat, because this section used to say the opposite. The sentence
+  was "the shared row is gone, so another process's 15-second reconcile prune drops its
+  copy". `reconcileSessions` prunes only what its loop recognises as locally minted, and the
+  loop reads `const isDevFixture = /^(usr|drv|mcht)_session_/.test(key); if (isDevFixture ||
+  /^[0-9a-f]{64}$/.test(key)) continue;` — while every real login is stored under
+  `hashSessionToken(token)`, which is 64 hex characters. The `continue` therefore skips
+  exactly the entries a revocation performed elsewhere needs removed. The other half of the
+  same function does work: a session row another process wrote is adopted inside the tick,
+  so a bearer minted elsewhere is honoured here (INP-21, over HTTP against a live second
+  process). **Adoption converges; revocation does not.** The bearer-time guard is no
+  backstop for this case either — an instance that hydrated the account while it was open
+  answers from that copy, and the store is consulted only when it cannot resolve the account
+  at all (INP-26). So a customer suspended on instance A keeps a working signed-in app on
+  instance B until B restarts or the session expires: the door a suspension shuts is the
+  instance that shut it. Correcting this is a two-line change to that predicate — honour the
+  prune for hash-keyed entries and let `restoreSession` re-add what is genuinely live — but
+  it changes the authorisation path of every instance at once, so it is carried as a §9 stop
+  and a §11 decision rather than edited in beside a documentation fix.
+  The bearer-time sweep is now complete: `refusedClosedCustomerAccount`, one helper beside
+  `authenticateUser`, is awaited by the five handlers that resolve a session in their own
+  body — `POST /api/rides/:id/cancel` and `POST /api/jobs/:id/cancel` (one handler, two
   paths), `GET /api/payments/session/:orderId`, `DELETE /api/media/*`, and
-  `POST /api/customer/profile/photo` — and none of them asks the account's status. Each
-  requires a live session, so a suspension that revoked correctly keeps them shut: what they
-  do not do is refuse a bearer that *survived* a failed revocation. `GET /api/tracking/:jobId`
-  reads a token only to decide which tenant may see the job and is a shared read, not a
-  customer one. `GET /api/media` sits beside them with no gate of any kind, listing stored
-  assets by `ownerType`/`ownerId` to anyone who asks — an area-33 finding in a
-  customer-facing file rather than an area-4 one, recorded here so it is not lost. Carried
-  as a task, not as a claim.
+  `POST /api/customer/profile/photo` — alongside the two that already had it. Each call sits
+  before that handler's own 404 or ownership check, so the status is what answers rather than
+  whatever the request would have hit next. INP-10 names all seven routes in the source and
+  fails the run if any call, or the helper's delegation, is deleted; INP-19…INP-22 then prove
+  the behaviour over HTTP in both directions — an open account is served normally, and a
+  bearer that outlived its account is refused `403 ACCOUNT_SUSPENDED` on each of the five.
+  `GET /api/tracking/:jobId` reads a token only to decide which tenant may see the job and is
+  a shared read, not a customer one. `GET /api/media` sits beside the five with no gate of any
+  kind, listing stored assets by `ownerType`/`ownerId` to anyone who asks; it is not one of
+  the five and adding an authentication check to it is a client-visible change outside this
+  task's wording, so it remains an area-33 finding recorded here rather than a quiet fix.
+  Carried as a task, not as a claim.
   Two measured facts belong with this, because they constrain the next person to touch
   the field: the in-memory entity overloads `accountStatus` with **identity** states
   (`IDENTITY_VERIFICATION_PENDING`, `UNDER_REVIEW`, `RESUBMISSION_REQUIRED` — `database.js:76`,
@@ -1171,6 +1190,33 @@ labelled, focusable scroll region. One limit on the evidence, stated rather than
 screenshot capture did not composite the fixed overlay inside the narrow sub-frames, so the
 dialog's fit at those widths is proven by geometry and hit tests, not by pixels.
 
+**The other five screens, same five widths — and the fixes went to the primitives.** The
+remaining pages are the dashboard, `/drivers`, `/merchants`, `/orders` and `/campaigns`. Each
+was given a real CSS viewport at 320, 375, 390, 430 and 768 and measured, not read out of a
+stylesheet. Two overflowed the page: `/orders` laid 359px of content into a 305px viewport and
+`/campaigns` laid 389px into the same space, both from rows that could not wrap. Neither is
+fixed on its own page — `.nabin-row` and `.nabin-card__header` now wrap, which is where the
+defect lived and what every screen inherits — and both then report `scrollWidth ===
+clientWidth` at all five widths. Touch targets were the larger finding by count: 158 buttons
+carried an inline `minHeight: 40` literal, now `var(--target-min)` across the eight files that
+held them, and four shared controls measured below the floor — a 32px header menu, a 28px
+drawer close, a 28px alert action, and the 36px `.nabin-chip` that doubles as a read-only
+status badge. The first three take the token now; the chip's floor is scoped to
+`button.nabin-chip`, because raising the badges would change every table's row height for no
+reachability gain. What remains wider than the viewport sits inside the labelled, focusable
+`.nabin-table-wrap` regions — the driver table's 533px of content, the campaign table's
+321px, eight cells on `/merchants` at 320px — which is the behaviour area 45 asks for: the
+region scrolls, the table is not shrunk. The walk drove each screen rather than photographing
+it: the drawer opens on-canvas with 52px items and a 44px close, the suspension dialog reaches
+both ends by scrolling at 320×640 and now opens at the top instead of scrolled to its reason
+field (`preventScroll` on the focus, because the consequences are the copy being confirmed),
+and the campaign editor lays out at 273px with no overflowing descendant and no input under
+40px. `/customers` was re-walked at the same five widths and still holds up — 25 rows, no page
+overflow, nothing under the floor, the region still labelled and focusable — as does
+`/security` with its 559 session rows. These pages also gained their layer-1 gates while the
+widths were being measured, which is §11 answer 10's rule rather than new privilege: a role
+without the name sees why, not a button that answers 403.
+
 **The webhook harness's environment is not deterministic, and the cause is process reuse.**
 `EXPECTED CONFIGURATION: MISMATCH`, `SOURCE OF CONFIGURATION: shell` — six of the ten
 harnesses set `PAYMENT_WEBHOOK_SECRET ||= 'test_*_not_for_deployment'` in their own process
@@ -1183,9 +1229,12 @@ one this run used: no listener on :4000 before each harness, one harness at a ti
 spawns and talks to its own process. No application payment security was touched to make a
 test pass, and no secret value is printed anywhere in this document or its logs.
 
-Still not claimed: the walk does not exercise a second backend instance, so the "another
-instance honours its own copy until its next reconcile" line is carried from §1.4's measured
-behaviour, not observed here.
+Still not claimed: the browser walk does not exercise a second backend instance. The "another
+instance honours its own copy until its next reconcile" line, carried here from §1.4's
+session mechanics and stated as measured in the Phase D area-4 bullet of §7, is now actually
+measured — and it was wrong in the direction that matters. Adoption of another instance's
+session is observed over HTTP (INP-21); revocation reaching another instance is not, because
+it does not happen (INP-25, INP-26).
 
 Preconditions that make a run trustworthy are recorded in project memory
 (`nabin-backend-suite-preconditions.md`): the server and the harness signing webhooks must
@@ -1263,6 +1312,14 @@ I will stop and report before:
    The alternative — deleting those rows outright — loses the sign-in trail they are part
    of, so it is not the default. Either way: local store first, count verified before and
    after, and never against a hosted project without a separate explicit request.
+6. **Changing how sessions converge between instances.** The prune predicate in
+   `reconcileSessions` decides which bearers a second process honours (§7, Phase D area 4;
+   §11 decision 16). Correcting it is two lines and no migration, but it is a change to the
+   authorisation path of every process that shares the store, and its failure mode is
+   customers signed out of a working app — which is the same class of blast radius as item 2,
+   not the same class as a gate on one route. `INP-25` and `INP-26` pin the present behaviour
+   in the suite so it cannot drift undocumented, and stay failing on purpose if the predicate
+   changes: that inversion has to be a decision, made with the two assertions rewritten.
 
 ---
 
@@ -1298,18 +1355,21 @@ I will stop and report before:
 | 13 | Should an unmasked identity read leave a trail? D2 gated the document *file* and masked the raw Aadhaar/Voter ID numbers on both queue routes, but neither route records who saw the unmasked form — so the platform can prove a reviewer opened a PDF only if that reviewer used the file route, and can prove nothing about the numbers on the list | (a) accept it and say so in §5 row 6, which is where this document currently records it; (b) `auditAppliedChange`-style record on the unmasked branch only, which is one awaited write per read and makes the queue's own traffic auditable | B — it is the same question area 31 asks about every other sensitive read, and D2 should not answer it silently |
 | 14 | Does a rejected KYC decision own closing an account? `UserRepository.applyIdentityDecision` writes `users.account_status = 'SUSPENDED'` for a `REJECTED` identity decision — straight into the column, not through `setCustomerAccountStatus`, so the write carries no reason, no audit record of its own and no session revocation, while D1's guard makes that value refuse the customer's bearers at request time and 403 their next sign-in. The local directory measured 39/39 `ACTIVE`, which is why the suite never crossed this path | (a) route it through `setCustomerAccountStatus` so it gets the reason, the trail and the revocations; (b) keep identity rejection out of account status entirely and let it gate the queue only; (c) leave as-is and record the gap | D — **flagged, not changed.** (b) is the choice that matches the column's stated purpose and needs a decision from you about whether a KYC refusal may end a customer's sessions at all |
 | 15 | What does "reinstate a driver" mean? Suspension overwrites `operational_status`, and no column holds what was there, so reinstating always lands on `AVAILABLE` and the driver stays offline — D2 made the response and the trail say exactly that, and `DS-12` proves it. Restoring the prior status needs a column, which is §9 item 1 | (a) keep the one-way rule and fix the button's copy to say "return to the pool (offline until they come online themselves)"; (b) a `previous_operational_status` column via migration, which needs your explicit approval before anything is written | D — (a) is this document's recommendation, because the UI copy is the actual defect and the fleet's own status is what a driver controls from their app |
+| 16 | Must a suspension reach a second instance? `reconcileSessions` skips pruning any key that is 64 hex characters, and every real login is stored under `hashSessionToken(token)` — so an instance that minted a bearer keeps honouring it after another instance deleted the row, and its own hydrated copy of the account still says `ACTIVE`, which is the copy the bearer-time guard reads (`admin_customers_test.js` INP-24/25/26). Adoption across instances works; revocation does not | (a) fix the prune predicate so a hash-keyed entry whose row is gone dies at the next tick — two lines, no migration, but it changes the authorisation path of every process sharing the store and would sign out any bearer whose `persistSession` upsert had silently failed; (b) have the guard consult the store even when it resolves the account locally, which costs a read per customer request against §11 answer 8's "Express is the only layer" posture; (c) accept it and label it — a suspension binds the instance that made it, until the others restart or the session expires | D — **flagged, not changed.** Locally there is one process, so today's practical exposure is nil; what is being decided is whether the durable-session work of task #13 counts as finished. See §9 item 6 for why this is a stop rather than a fix |
 
-Answers to 1, 3, 4, 5, 6, 8, 12, 14 and 15 change schema, dependencies or who gets signed
-out, so they are the first things worth settling; the rest can be decided at the head of
-their phase.
+Answers to 1, 3, 4, 5, 6, 8, 12, 14, 15 and 16 change schema, dependencies, per-request cost
+or who gets signed out, so they are the first things worth settling; the rest can be decided
+at the head of their phase.
 
 **1 and 8 are settled, and settled toward no schema change** (2026-09-22). That removes
 migration 028 and the scoped-token redesign from the critical path, which is what lets
 Phase A close on the code it already has. **10 is settled toward leaving the grants
 alone**, so the remaining Phase A work is labelling, not privilege. **9 is settled toward
 deleting the dead duplicate** (implemented in D2, held in place by `RT-01`). 2, 3, 4, 5, 6,
-11, 12, 13, 14 and 15 are still open and each is asked at the head of the phase that needs
+11, 12, 13, 14, 15 and 16 are still open and each is asked at the head of the phase that needs
 it. Of the three D2 raised: 13 is an audibility gap it deliberately did not paper over, 14
 is a write path it found and left alone rather than widen, and 15's option (b) is a
 migration — so nothing about 15 beyond the copy fix in (a) happens without your explicit
-approval (§9 item 1).
+approval (§9 item 1). Of the two this pass raised: 16 is a mechanism that exists and does
+only half of what its comment claims, and it was left alone because the half that is missing
+is the one that signs people out.

@@ -29,7 +29,8 @@
 //
 // LOCAL ONLY. It provisions two throwaway administrator accounts (disabled afterwards,
 // the same teardown the authorisation matrix uses), enrols one fixture customer through
-// the normal OTP sign-in, and restores every one of those rows: the customer ends ACTIVE
+// the normal OTP sign-in, presents that customer's bearer to the four routes that resolve
+// a session in their own body, and restores every one of those rows: the customer ends ACTIVE
 // and its sessions and row are removed, so the directory is left as it was found. The
 // platform's own SUPER_ADMIN signs in as itself. Nothing here is pushed, deployed, or
 // pointed at a hosted project.
@@ -486,17 +487,33 @@ async function main() {
   // CU-25.1 and CU-25.2 above can only ever see a *dead session*, because this harness's
   // suspension revokes correctly — so a 401 there does not prove the guard is wired into
   // those handlers. This reads the source, the way A3b's ST-01 rule does, so that deleting
-  // one of the two calls fails a check instead of quietly reopening a route.
+  // one of the calls fails a check instead of quietly reopening a route. The list is every
+  // handler that resolves a customer bearer in its own body rather than through
+  // `authenticateUser`; adding a sixth route without wiring it fails here.
   const serverSource = require('fs').readFileSync(path.join(__dirname, 'src/server.js'), 'utf8');
   const handlerOf = (signature) => {
     const start = serverSource.indexOf(signature);
     const end = start < 0 ? -1 : serverSource.indexOf('\n});', start);
     return start < 0 || end < 0 ? '' : serverSource.slice(start, end);
   };
-  const meBlock = handlerOf("app.get('/api/auth/me'");
-  const refreshBlock = handlerOf("app.post('/api/auth/refresh-token'");
-  check('INP-10', meBlock.includes('customerSessionRefusal') && refreshBlock.includes('customerSessionRefusal'),
-    `the two routes that resolve a bearer without authenticateUser both consult the guard — /api/auth/me ${meBlock.includes('customerSessionRefusal') ? 'wired' : 'NOT WIRED'}, refresh-token ${refreshBlock.includes('customerSessionRefusal') ? 'wired' : 'NOT WIRED'}`);
+  const bearerHandlers = [
+    ['/api/auth/me', "app.get('/api/auth/me'"],
+    ['/api/auth/refresh-token', "app.post('/api/auth/refresh-token'"],
+    ['/api/rides/:id/cancel + /api/jobs/:id/cancel', "app.post(['/api/rides/:id/cancel'"],
+    ['/api/payments/session/:orderId', "app.get('/api/payments/session/:orderId'"],
+    ['DELETE /api/media/*', "app.delete('/api/media/*'"],
+    ['/api/customer/profile/photo', "app.post('/api/customer/profile/photo'"]
+  ];
+  // The last four reach the predicate through one helper so they cannot drift apart; the
+  // helper itself must still be the thing that asks, or the list check proves nothing.
+  const helperWired = /async function refusedClosedCustomerAccount[\s\S]{0,900}db\.customerSessionRefusal\(/.test(serverSource);
+  const unwired = bearerHandlers.filter(([, sig]) => {
+    const block = handlerOf(sig);
+    return !block || (!block.includes('customerSessionRefusal') && !block.includes('refusedClosedCustomerAccount'));
+  }).map(([label]) => label);
+  check('INP-10', unwired.length === 0 && helperWired,
+    `all ${bearerHandlers.length} routes that resolve a bearer without authenticateUser consult the account guard — ` +
+    `${unwired.length ? `MISSING: ${unwired.join(', ')}` : 'none missing'}, helper ${helperWired ? 'delegates to db.customerSessionRefusal' : 'DOES NOT delegate'}`);
 
   // --- 8b. The outage branch: the status lands and the sessions cannot be taken --------
   // Over HTTP this branch needs `users` to be writable while `backend_sessions` is not, and
@@ -590,6 +607,128 @@ async function main() {
   await supabaseAdmin.from('backend_sessions').delete().eq('token_hash', outageHandle);
   check('INP-18', outageUndo.status === 'ACTIVE' && outageUndo.persisted === true,
     `with the store back the reinstatement completes normally (${outageUndo.status}, ${outageUndo.dataSource})`);
+
+  // --- 8c. A bearer this instance never minted, presented over HTTP ----------------------
+  // INP-15 asks the guard directly and INP-10 reads the source. Neither proves a handler
+  // *answers* with the refusal, which is the difference between a guard and a call nobody
+  // reaches. So this presents a real bearer to all four routes over HTTP, in the state the
+  // guard exists for: the account is closed, and the session was issued elsewhere.
+  //
+  // Writing `account_status` straight to the row would not produce that state — the guard
+  // consults the store only when this process cannot resolve the account at all, so a
+  // bearer it minted would pass on the copy already in memory. That is measured as the
+  // control below rather than worked around: an open account must not be refused.
+  const controlSignIn = await signInCustomer();
+  const bearerProbes = [
+    ['POST', '/api/rides/nabin_harness_no_such_job/cancel', { reason: 'harness: bearer-time guard' }, true],
+    ['GET', '/api/payments/session/nabin_harness_no_such_order', null, true],
+    // Deliberately absent from the control: with no owner record to fail on, an ungated
+    // request would reach a real Cloudinary delete of an id that does not exist. Probing it
+    // only against the closed account still fails loudly if the guard goes — 200, not 403.
+    ['DELETE', '/api/media/nabin_harness/bearer_time_guard_check.png', null, false],
+    ['POST', '/api/customer/profile/photo', { fileData: 'data:image/png;base64,aGk=', mimeType: 'image/png' }, true]
+  ];
+  const openAnswers = [];
+  for (const [method, route, body, inControl] of bearerProbes) {
+    if (!inControl) continue;
+    const probe = await request(method, route, body, bearer(controlSignIn.token));
+    openAnswers.push(`${method} ${route.split('/').slice(2).join('/')}=${probe.status}${probe.data.code ? `/${probe.data.code}` : ''}`);
+  }
+  check('INP-19', Boolean(controlSignIn.token) && !openAnswers.some(a => a.includes('ACCOUNT_SUSPENDED')),
+    `an open account is served normally by every route probed below — a 403 there comes from the status, not the route (${openAnswers.join(', ')})`);
+
+  // Close the account the way an operator does, then hand it a session this instance did not
+  // issue. Inserted after the sweep so it survives it: a handset signed in on a second
+  // instance, which is the traffic a revocation here cannot reach.
+  const lateSuspend = await request('POST', `/api/admin/customers/${fixtureId}/status`,
+    { status: 'SUSPENDED', reason: 'Phase D harness: bearer-time guard probe on a foreign session.' },
+    bearer(superToken));
+  const lateHandle = crypto.randomBytes(32).toString('hex');
+  const lateInsert = await supabaseAdmin.from('backend_sessions').insert({
+    token_hash: crypto.createHash('sha256').update(lateHandle).digest('hex'),
+    role: 'CUSTOMER', entity_id: String(fixtureId), phone: FIXTURE_PHONE, entity: {},
+    created_at: new Date().toISOString(),
+    expires_at: new Date(Date.now() + 30 * 60 * 1000).toISOString()
+  });
+  check('INP-20', lateSuspend.status === 200 && !lateInsert.error,
+    `the setup stands: the account is closed here (${lateSuspend.data.status}) and a foreign session row exists (${lateInsert.error ? lateInsert.error.message : 'inserted'})`);
+
+  // `getSessionByToken` reads this process's map, and `reconcileSessions` is what pulls a
+  // foreign row into it, so the bearer is not honourable until that tick runs. Wait for it
+  // on /api/auth/me: 401 means the session is still unknown, anything else means it landed.
+  let foreign = null;
+  for (let attempt = 0; attempt < 25; attempt++) {
+    foreign = await request('GET', '/api/auth/me', null, bearer(lateHandle));
+    if (foreign.status !== 401) break;
+    await new Promise(r => setTimeout(r, 1000));
+  }
+  check('INP-21', foreign && foreign.status === 403 && foreign.data.code === 'ACCOUNT_SUSPENDED',
+    `a bearer this instance never issued is honoured by it after the reconcile tick, and refused by the account (${foreign && foreign.status} ${foreign && foreign.data.code})`);
+
+  const closedAnswers = [];
+  for (const [method, route, body] of bearerProbes) {
+    const probe = await request(method, route, body, bearer(lateHandle));
+    closedAnswers.push({ method, route, status: probe.status, code: probe.data && probe.data.code });
+  }
+  const served = closedAnswers.filter(a => a.status !== 403 || a.code !== 'ACCOUNT_SUSPENDED');
+  check('INP-22', served.length === 0,
+    served.length === 0
+      ? `all four routes refuse that bearer by name — cancel, payment session, media delete and profile photo (${closedAnswers.map(a => `${a.status}/${a.code}`).join(', ')})`
+      : `NOT guarded over HTTP: ${served.map(a => `${a.method} ${a.route} → ${a.status}/${a.code}`).join(', ')}`);
+
+  await supabaseAdmin.from('backend_sessions').delete()
+    .eq('token_hash', crypto.createHash('sha256').update(lateHandle).digest('hex'));
+
+  // --- 8d. Cross-instance convergence, measured instead of assumed -----------------------
+  // §1.4 of the specification claims the second half of this: that a suspension reaches
+  // another instance because "the shared row is gone, so another process's 15-second
+  // reconcile prune drops its copy". The first half is true and the second is what this
+  // block asks. `db` in this process is a second instance with its own maps, so the whole
+  // sequence is deterministic — the tick is called directly rather than waited for.
+  await request('POST', `/api/admin/customers/${fixtureId}/status`, { status: 'ACTIVE' }, bearer(superToken));
+
+  // The state a real second instance is in: it hydrated this account while it was open, and
+  // it minted the bearer itself. Boot hydration is a read of the same row into the same
+  // list, so this is what `initPostgres` would have put there, not a convenience fixture.
+  const { data: openRow } = await supabaseAdmin.from('users')
+    .select('id, phone, account_status').eq('id', fixtureId).maybeSingle();
+  const hydratedCopy = { id: openRow.id, uuid: openRow.id, phone: openRow.phone, account_status: 'ACTIVE' };
+  db.users.push(hydratedCopy);
+
+  const foreignToken = crypto.randomBytes(32).toString('hex');
+  await db.registerSession({
+    token: foreignToken, role: 'CUSTOMER', entityId: String(fixtureId), phone: openRow.phone,
+    entity: {}, createdAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + 30 * 60 * 1000).toISOString()
+  });
+  const mintedHere = db.getSessionByToken(foreignToken);
+  check('INP-23', Boolean(mintedHere) && mintedHere.role === 'CUSTOMER',
+    'this instance honours a bearer it minted itself, which is the copy a revocation elsewhere has to reach');
+
+  // Instance A suspends. Its sweep deletes the shared row — the durable half works.
+  const farSuspend = await request('POST', `/api/admin/customers/${fixtureId}/status`,
+    { status: 'SUSPENDED', reason: 'Phase D harness: cross-instance convergence measurement.' },
+    bearer(superToken));
+  const { data: rowAfterSweep } = await supabaseAdmin.from('backend_sessions')
+    .select('token_hash').eq('token_hash', crypto.createHash('sha256').update(foreignToken).digest('hex')).maybeSingle();
+  check('INP-24', farSuspend.status === 200 && !rowAfterSweep,
+    `the revocation removed the shared row, so the durable store agrees the account is shut (${farSuspend.status}, row ${rowAfterSweep ? 'still present' : 'gone'})`);
+
+  await db.reconcileSessions();
+  const afterReconcile = db.getSessionByToken(foreignToken);
+  check('INP-25', Boolean(afterReconcile),
+    'and this instance still honours the bearer after a full reconcile tick. The prune skips every key '
+    + 'that is 64 hex characters, which is the shape every real login is stored under, so the '
+    + 'specification\'s "another process\'s 15-second reconcile prune drops its copy" is false as '
+    + 'written. If that predicate is ever fixed this assertion has to be inverted deliberately, not edited away.');
+
+  const staleCopyRefusal = await db.customerSessionRefusal(afterReconcile);
+  check('INP-26', Boolean(afterReconcile) && staleCopyRefusal === null,
+    `nor does the bearer-time guard catch it here: an instance that hydrated the account while it was open answers from that copy, because the store is consulted only when it cannot resolve the account locally — so this exposure lasts until that instance restarts, not until the next tick (${staleCopyRefusal === null ? 'the guard passed a closed account' : staleCopyRefusal.code})`);
+
+  const idx = db.users.indexOf(hydratedCopy);
+  if (idx >= 0) db.users.splice(idx, 1);
+  db.invalidateSession(foreignToken);
 
   // --- 9. The harness leaves nothing behind ------------------------------
   const cleanup = await teardown(fixtureId);

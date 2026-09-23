@@ -2,10 +2,12 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import AdminLayout from '@/components/AdminLayout';
+import { useAuth } from '@/components/AuthProvider';
 import ResourceTable, { StatusBadge, inr, type Column } from '@/components/ResourceTable';
 import { useConfirmAction } from '@/components/ConfirmAction';
 import { readRefusal } from '@/lib/refusals';
 import { adminApi } from '@/lib/api';
+import { holdsPermission, missingGrantNote } from '@/lib/access';
 
 interface Driver {
   id: string;
@@ -24,7 +26,11 @@ interface Driver {
 }
 
 export default function DriversPage() {
+  const { user } = useAuth();
   const confirm = useConfirmAction();
+  // One name covers both directions: suspend and activate are the same route
+  // (`POST /api/admin/drivers/:id/status`, `fleet.manage`), held by OPERATIONS.
+  const canManage = holdsPermission(user, 'fleet.manage');
   const [rows, setRows] = useState<Driver[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -131,12 +137,14 @@ export default function DriversPage() {
       label: '',
       align: 'end',
       render: (d) =>
-        d.operationalStatus === 'SUSPENDED' ? (
+        !canManage ? (
+          <span className="nabin-cell-meta">{missingGrantNote(user, 'fleet.manage')}</span>
+        ) : d.operationalStatus === 'SUSPENDED' ? (
           <button
             onClick={() => setStatus(d, 'ACTIVE')}
             disabled={busyId === d.id}
             className="nabin-btn nabin-btn--primary"
-            style={{ minHeight: 40 }}
+            style={{ minHeight: 'var(--target-min)' }}
           >
             {busyId === d.id ? 'Working…' : 'Activate'}
           </button>
@@ -145,7 +153,7 @@ export default function DriversPage() {
             onClick={() => suspend(d)}
             disabled={busyId === d.id}
             className="nabin-btn nabin-btn--ghost"
-            style={{ minHeight: 40 }}
+            style={{ minHeight: 'var(--target-min)' }}
           >
             Suspend
           </button>
@@ -160,7 +168,7 @@ export default function DriversPage() {
           <h1>Driver roster</h1>
           <p>{loading ? 'Loading…' : `${rows.length} drivers on the platform`}</p>
         </div>
-        <button onClick={load} className="nabin-btn nabin-btn--ghost" style={{ minHeight: 40 }}>
+        <button onClick={load} className="nabin-btn nabin-btn--ghost" style={{ minHeight: 'var(--target-min)' }}>
           Refresh
         </button>
       </div>

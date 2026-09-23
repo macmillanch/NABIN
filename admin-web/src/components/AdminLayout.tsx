@@ -103,7 +103,7 @@ export default function AdminLayout({ children, title }: { children: React.React
             </button>
             <h2 className="nabin-header__title">{title ?? 'Dashboard'}</h2>
             <div className="nabin-header__actions">
-              <button onClick={logout} className="nabin-btn nabin-btn--ghost" style={{ minHeight: 40 }}>
+              <button onClick={logout} className="nabin-btn nabin-btn--ghost" style={{ minHeight: 'var(--target-min)' }}>
                 <LogOut size={16} />
                 <span>Sign out</span>
               </button>

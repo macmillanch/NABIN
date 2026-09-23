@@ -7,6 +7,7 @@ import { useAuth } from '@/components/AuthProvider';
 import { useConfirmAction, type Confirmation } from '@/components/ConfirmAction';
 import { readRefusal } from '@/lib/refusals';
 import { adminApi } from '@/lib/api';
+import { holdsPermission } from '@/lib/access';
 import { ShieldCheck, Users, KeyRound, TriangleAlert } from 'lucide-react';
 
 interface AdminAccount {
@@ -67,9 +68,12 @@ function when(value?: string | null) {
 export default function SecurityPage() {
   const { user } = useAuth();
   const confirm = useConfirmAction();
-  const permissions = (user?.permissions as string[] | undefined) ?? [];
-  const canRevoke = permissions.includes('security.session.revoke');
-  const canManageAccounts = permissions.includes('admin_accounts.manage');
+  // `lib/access.ts` rather than a local `permissions.includes(...)`: the server admits
+  // SUPER_ADMIN by wildcard before consulting its list, and a screen that reads only the
+  // list can hide a control from the one account that always holds it.
+  const canView = holdsPermission(user, 'security.view');
+  const canRevoke = holdsPermission(user, 'security.session.revoke');
+  const canManageAccounts = holdsPermission(user, 'admin_accounts.manage');
 
   const [accounts, setAccounts] = useState<AdminAccount[]>([]);
   const [accountsError, setAccountsError] = useState<string | null>(null);
@@ -93,8 +97,8 @@ export default function SecurityPage() {
     // needs, not a bug.
     const [accountsRes, sessionsRes, lockoutsRes] = await Promise.allSettled([
       canManageAccounts ? adminApi.getAdminAccounts() : Promise.reject(new Error('SKIPPED')),
-      adminApi.getAdminSessions(),
-      adminApi.getAdminLoginLockouts(),
+      canView ? adminApi.getAdminSessions() : Promise.reject(new Error('SKIPPED')),
+      canView ? adminApi.getAdminLoginLockouts() : Promise.reject(new Error('SKIPPED')),
     ]);
 
     if (accountsRes.status === 'fulfilled') {
@@ -116,7 +120,11 @@ export default function SecurityPage() {
       setSessionsError(null);
     } else {
       setSessions([]);
-      setSessionsError(readRefusal(sessionsRes.reason, 'Could not load administrator sessions.').message);
+      setSessionsError(
+        canView
+          ? readRefusal(sessionsRes.reason, 'Could not load administrator sessions.').message
+          : 'Hidden: this role holds no security.view grant, so the session directory is not listed.'
+      );
     }
 
     if (lockoutsRes.status === 'fulfilled') {
@@ -130,11 +138,15 @@ export default function SecurityPage() {
       setLockoutsError(null);
     } else {
       setLockouts([]);
-      setLockoutsError(readRefusal(lockoutsRes.reason, 'Could not read the failed-login counters.').message);
+      setLockoutsError(
+        canView
+          ? readRefusal(lockoutsRes.reason, 'Could not read the failed-login counters.').message
+          : 'Hidden: this role holds no security.view grant, so the failed-login counters are not listed.'
+      );
     }
 
     setLoading(false);
-  }, [canManageAccounts]);
+  }, [canManageAccounts, canView]);
 
   useEffect(() => {
     // Every state update in this loader lands after an await.
@@ -295,38 +307,46 @@ export default function SecurityPage() {
       key: 'action',
       label: '',
       align: 'end',
-      render: (a) =>
-        canManageAccounts ? (
+      render: (a) => {
+        if (!canRevoke && !canManageAccounts) return null;
+        return (
           <div className="nabin-row" style={{ justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-            <button
-              onClick={() => revokeAccountSessions(a)}
-              disabled={busyId === a.id}
-              className="nabin-btn nabin-btn--ghost"
-              style={{ minHeight: 40 }}
-            >
-              Revoke sessions
-            </button>
-            {a.status === 'ACTIVE' ? (
+            {/* Two different names on one row: the revoke goes to
+                `POST /api/admin/security/sessions/revoke` (`security.session.revoke`),
+                not to the account route, so it cannot ride on the directory grant. */}
+            {canRevoke && (
               <button
-                onClick={() => setAccountStatus(a, false)}
+                onClick={() => revokeAccountSessions(a)}
                 disabled={busyId === a.id}
-                className="nabin-btn nabin-btn--danger"
-                style={{ minHeight: 40 }}
+                className="nabin-btn nabin-btn--ghost"
+                style={{ minHeight: 'var(--target-min)' }}
               >
-                {busyId === a.id ? 'Working…' : 'Disable'}
-              </button>
-            ) : (
-              <button
-                onClick={() => setAccountStatus(a, true)}
-                disabled={busyId === a.id}
-                className="nabin-btn nabin-btn--primary"
-                style={{ minHeight: 40 }}
-              >
-                {busyId === a.id ? 'Working…' : 'Enable'}
+                Revoke sessions
               </button>
             )}
+            {canManageAccounts &&
+              (a.status === 'ACTIVE' ? (
+                <button
+                  onClick={() => setAccountStatus(a, false)}
+                  disabled={busyId === a.id}
+                  className="nabin-btn nabin-btn--danger"
+                  style={{ minHeight: 'var(--target-min)' }}
+                >
+                  {busyId === a.id ? 'Working…' : 'Disable'}
+                </button>
+              ) : (
+                <button
+                  onClick={() => setAccountStatus(a, true)}
+                  disabled={busyId === a.id}
+                  className="nabin-btn nabin-btn--primary"
+                  style={{ minHeight: 'var(--target-min)' }}
+                >
+                  {busyId === a.id ? 'Working…' : 'Enable'}
+                </button>
+              ))}
           </div>
-        ) : null,
+        );
+      },
     },
   ];
 
@@ -379,7 +399,7 @@ export default function SecurityPage() {
             onClick={() => revokeSession(s)}
             disabled={busyId === s.sessionId}
             className="nabin-btn nabin-btn--ghost"
-            style={{ minHeight: 40 }}
+            style={{ minHeight: 'var(--target-min)' }}
           >
             {busyId === s.sessionId ? 'Working…' : 'Revoke'}
           </button>
@@ -430,7 +450,7 @@ export default function SecurityPage() {
               : `${accounts.length} account(s) · ${sessions.length} session(s) · ${lockouts.length} failed-login counter(s)`}
           </p>
         </div>
-        <button onClick={load} className="nabin-btn nabin-btn--ghost" style={{ minHeight: 40 }}>
+        <button onClick={load} className="nabin-btn nabin-btn--ghost" style={{ minHeight: 'var(--target-min)' }}>
           Refresh
         </button>
       </div>

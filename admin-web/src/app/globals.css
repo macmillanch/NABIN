@@ -247,10 +247,13 @@ button {
   gap: var(--space-md);
 }
 
+/* Wraps rather than overflowing: at 320px a filter row's chips are wider than the viewport,
+   and `min-width: 0` alone would only let them clip. */
 .nabin-row {
   display: flex;
   align-items: center;
   gap: var(--space-sm);
+  flex-wrap: wrap;
 }
 
 .nabin-grid {
@@ -288,6 +291,7 @@ button {
   align-items: center;
   justify-content: space-between;
   gap: var(--space-sm);
+  flex-wrap: wrap;
   margin-bottom: var(--space-md);
 }
 
@@ -539,6 +543,12 @@ button {
     color var(--motion-fast) var(--motion-curve);
 }
 
+/* Only the tappable variant gets the floor — the same class renders read-only status badges,
+   and raising those would change every table's row height for no reachability gain. */
+button.nabin-chip {
+  min-height: var(--target-min);
+}
+
 .nabin-chip.is-active {
   background: var(--role-accent);
   border-color: transparent;
@@ -632,7 +642,12 @@ button {
 .nabin-nav__close {
   color: var(--on-brand);
   display: inline-flex;
+  align-items: center;
+  justify-content: center;
   padding: var(--space-xxs);
+  /* Icon-only, so its box is its padding: 28px measured at 320px, under --target-min. */
+  min-height: var(--target-min);
+  min-width: var(--target-min);
 }
 
 .nabin-nav__user {
@@ -687,8 +702,13 @@ button {
 
 .nabin-header__menu {
   display: inline-flex;
+  align-items: center;
+  justify-content: center;
   padding: var(--space-xxs);
   color: var(--ink-muted);
+  /* The only way to open the nav below 1025px; measured at 32px against --target-min. */
+  min-height: var(--target-min);
+  min-width: var(--target-min);
 }
 
 .nabin-header__title {
@@ -1071,6 +1091,11 @@ button {
   font-weight: 800;
   text-decoration: underline;
   color: inherit;
+  /* Inline text under a heading collapses to line-height (28px measured); Retry is the
+     recovery path for a refused action, so it gets the same floor as a button. */
+  min-height: var(--target-min);
+  display: inline-flex;
+  align-items: center;
 }
 
 /* --- Customer app specifics ---------------------------------------------- */

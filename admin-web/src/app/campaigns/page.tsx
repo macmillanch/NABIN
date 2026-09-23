@@ -3,6 +3,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Eye, Megaphone, Plus } from 'lucide-react';
 import AdminLayout from '@/components/AdminLayout';
+import { useAuth } from '@/components/AuthProvider';
+import { holdsPermission, missingGrantNote } from '@/lib/access';
 import CampaignEditor from '@/components/CampaignEditor';
 import ResourceTable, { StatusBadge, type Column } from '@/components/ResourceTable';
 import { useConfirmAction, type Confirmation } from '@/components/ConfirmAction';
@@ -44,7 +46,15 @@ function readError(err: unknown, fallback: string) {
 }
 
 export default function CampaignsPage() {
+  const { user } = useAuth();
   const confirm = useConfirmAction();
+  // Every campaign name is super-only (§11 answer 10), so for the four other roles this
+  // screen is a note rather than a list of buttons that answer 403.
+  const canView = holdsPermission(user, 'campaign.view');
+  const canCreate = holdsPermission(user, 'campaign.create');
+  const canEdit = holdsPermission(user, 'campaign.edit');
+  const canPublish = holdsPermission(user, 'campaign.publish');
+  const canSeeCoupons = holdsPermission(user, 'promotion.view');
   const [rows, setRows] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -77,17 +87,27 @@ export default function CampaignsPage() {
   }, []);
 
   useEffect(() => {
+    if (!canView) {
+      // The list, the live preview and the editor all read through `campaign.view`
+      // routes, so asking would only turn a missing grant into a red banner.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setLoading(false);
+      return;
+    }
     // Every state update in these loaders lands after an await, so this is not the
     // cascading render the rule warns about.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
     // The coupon list is only needed to fill the offer picker, and a role without
     // promotion.view is entitled to manage campaigns without seeing it.
+    if (!canSeeCoupons) {
+      setCouponsUnavailable(true);
+      return;
+    }
     adminApi
       .getPromotions({ limit: '100' })
       .then((res) => setPromotions((res.data.promotions ?? []) as PromotionOption[]))
       .catch(() => setCouponsUnavailable(true));
-  }, [load]);
+  }, [load, canView, canSeeCoupons]);
 
   async function afterWrite(message: string) {
     setFlash(message);
@@ -274,17 +294,22 @@ export default function CampaignsPage() {
       align: 'end',
       render: (c) => (
         <div className="nabin-row" style={{ justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-          <button
-            onClick={() => openEditor(c)}
-            disabled={busyKey === (c.id ?? c.code)}
-            className="nabin-btn nabin-btn--ghost"
-            style={{ minHeight: 40 }}
-          >
-            {busyKey === (c.id ?? c.code) ? 'Opening…' : 'Edit'}
-          </button>
+          {!canEdit && !canPublish && (
+            <span className="nabin-cell-meta">{missingGrantNote(user, 'campaign.edit')}</span>
+          )}
+          {canEdit && (
+            <button
+              onClick={() => openEditor(c)}
+              disabled={busyKey === (c.id ?? c.code)}
+              className="nabin-btn nabin-btn--ghost"
+              style={{ minHeight: 'var(--target-min)' }}
+            >
+              {busyKey === (c.id ?? c.code) ? 'Opening…' : 'Edit'}
+            </button>
+          )}
           {c.status === 'ARCHIVED' ? (
             <span className="nabin-cell-meta">Archived — author a new campaign to run it again.</span>
-          ) : (
+          ) : canPublish ? (
             CAMPAIGN_STATUSES.filter((s) => s !== c.status).map((s) => (
               <button
                 key={s}
@@ -295,7 +320,7 @@ export default function CampaignsPage() {
                 {s.toLowerCase()}
               </button>
             ))
-          )}
+          ) : null}
         </div>
       ),
     },
@@ -312,13 +337,15 @@ export default function CampaignsPage() {
           <p>{loading ? 'Loading…' : `${visible.length} of ${rows.length} campaigns`}</p>
         </div>
         <div className="nabin-row" style={{ flexWrap: 'wrap' }}>
-          <button onClick={load} className="nabin-btn nabin-btn--ghost" style={{ minHeight: 40 }}>
+          <button onClick={load} className="nabin-btn nabin-btn--ghost" style={{ minHeight: 'var(--target-min)' }}>
             Refresh
           </button>
-          <button onClick={startNew} className="nabin-btn nabin-btn--primary" style={{ minHeight: 40 }}>
-            <Plus size={16} />
-            <span>New campaign</span>
-          </button>
+          {canCreate && (
+            <button onClick={startNew} className="nabin-btn nabin-btn--primary" style={{ minHeight: 'var(--target-min)' }}>
+              <Plus size={16} />
+              <span>New campaign</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -333,6 +360,11 @@ export default function CampaignsPage() {
           <button onClick={() => setActionError(null)} className="nabin-alert__action">
             Dismiss
           </button>
+        </div>
+      )}
+      {!canView && (
+        <div className="nabin-alert nabin-alert--danger" role="alert">
+          <span>{missingGrantNote(user, 'campaign.view')}</span>
         </div>
       )}
 
@@ -402,15 +434,17 @@ export default function CampaignsPage() {
                     </option>
                   ))}
                 </select>
-                <button
-                  onClick={() => previewLive(liveService)}
-                  disabled={liveBusy}
-                  className="nabin-btn nabin-btn--ghost"
-                  style={{ minHeight: 40 }}
-                >
-                  <Eye size={16} />
-                  <span>{liveBusy ? 'Checking…' : 'Preview'}</span>
-                </button>
+                {canView && (
+                  <button
+                    onClick={() => previewLive(liveService)}
+                    disabled={liveBusy}
+                    className="nabin-btn nabin-btn--ghost"
+                    style={{ minHeight: 'var(--target-min)' }}
+                  >
+                    <Eye size={16} />
+                    <span>{liveBusy ? 'Checking…' : 'Preview'}</span>
+                  </button>
+                )}
               </div>
             </div>
 

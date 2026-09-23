@@ -723,6 +723,36 @@ async function authenticateUser(req, res, next) {
   next();
 }
 
+/**
+ * The same account check `authenticateUser` runs, for the handlers that resolve a bearer in
+ * their own body because they accept more than one role (`admin_customers_test.js` INP-10
+ * names them). It answers and returns true when the caller must not proceed; a non-customer
+ * session is that role's middleware's business, so `customerSessionRefusal` returns null for
+ * it and this returns false.
+ */
+async function refusedClosedCustomerAccount(req, res, session) {
+  let refusal;
+  try {
+    refusal = await db.customerSessionRefusal(session);
+  } catch (err) {
+    // Express 4 does not catch a rejected async handler, so an unreadable account state is
+    // answered here as the outage it is rather than left to hang the socket.
+    refusal = {
+      status: err.status || err.statusCode || 503,
+      code: err.code || 'CUSTOMER_ACCOUNT_STATE_UNREADABLE',
+      error: err.message
+    };
+  }
+  if (!refusal) return false;
+  res.status(refusal.status).json({
+    success: false,
+    code: refusal.code,
+    error: refusal.error,
+    requestId: req.id
+  });
+  return true;
+}
+
 function authenticateDriver(req, res, next) {
   const authHeader = req.headers['authorization'] || '';
   const token = authHeader.replace(/^Bearer\s+/, '').trim();
@@ -4740,6 +4770,10 @@ app.post(['/api/rides/:id/cancel', '/api/jobs/:id/cancel'], async (req, res) => 
         requesterId = session.entityId || session.userId;
         requesterRole = 'CUSTOMER';
       }
+      // A cancelled ride is a customer-visible, money-affecting act, so the bearer has to
+      // still belong to an open account at the moment of the call — not merely have been
+      // issued before the suspension landed.
+      if (await refusedClosedCustomerAccount(req, res, session)) return;
     }
 
     // Verify job exists
@@ -6608,6 +6642,9 @@ app.get('/api/payments/session/:orderId', async (req, res) => {
         isAdmin = true;
       } else {
         authUser = session.user || session.entity || { id: session.userId || session.id };
+        // A payment session is the step before money moves, so it cannot be readable on a
+        // bearer that outlived a failed revocation.
+        if (await refusedClosedCustomerAccount(req, res, session)) return;
       }
     }
 
@@ -6858,6 +6895,9 @@ app.delete('/api/media/*', async (req, res) => {
     const existing = db.getMediaAsset(rawPublicId);
     if (token) {
       const session = db.getSessionByToken(token);
+      // The owner check below proves the bearer belongs to this owner; it does not prove
+      // the owner's account is still open, which is what a surviving bearer defeats.
+      if (await refusedClosedCustomerAccount(req, res, session)) return;
       const admin = activeAdminSessions.get(token);
       const isAdmin = (admin && admin.role) || (session && (session.role === 'ADMIN' || session.role === 'SUPER_ADMIN'));
 
@@ -6913,6 +6953,7 @@ app.post('/api/customer/profile/photo', async (req, res) => {
       if (!session || (session.role !== 'CUSTOMER' && session.role !== 'ADMIN' && session.role !== 'SUPER_ADMIN')) {
         return res.status(403).json({ success: false, code: 'FORBIDDEN', error: 'Customer or Admin authorization required.' });
       }
+      if (await refusedClosedCustomerAccount(req, res, session)) return;
       callerCustomerId = session.entityId || session.userId;
     } else if (!isTestOrDev) {
       return res.status(401).json({ success: false, code: 'AUTH_REQUIRED', error: 'Authentication required for profile photo upload.' });

@@ -132,7 +132,10 @@ export function ConfirmActionProvider({ children }: { children: React.ReactNode 
     // Cancel takes focus, never the confirm button: an accidental Enter on a freshly
     // opened dialog must not be the dangerous answer. With a reason to type, the field
     // takes it instead, and Enter inside a textarea is a newline rather than a yes.
-    if (spec.reason) reasonRef.current?.focus();
+    // `preventScroll` because the reason field sits below the consequences, and on a
+    // phone-height viewport focusing it scrolled the very copy being confirmed out of
+    // sight. Focus still lands there for typing; the panel stays where it opened.
+    if (spec.reason) reasonRef.current?.focus({ preventScroll: true });
     else cancelRef.current?.focus();
 
     function onKeyDown(event: KeyboardEvent) {

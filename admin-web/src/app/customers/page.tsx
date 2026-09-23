@@ -319,7 +319,7 @@ export default function CustomersPage() {
               onClick={() => signOutEverywhere(c)}
               disabled={busyId === c.id}
               className="nabin-btn nabin-btn--ghost"
-              style={{ minHeight: 40 }}
+              style={{ minHeight: 'var(--target-min)' }}
             >
               Sign out everywhere
             </button>
@@ -329,7 +329,7 @@ export default function CustomersPage() {
                   onClick={() => changeStatus(c, 'SUSPENDED')}
                   disabled={busyId === c.id}
                   className="nabin-btn nabin-btn--danger"
-                  style={{ minHeight: 40 }}
+                  style={{ minHeight: 'var(--target-min)' }}
                 >
                   {busyId === c.id ? 'Working…' : 'Suspend'}
                 </button>
@@ -337,7 +337,7 @@ export default function CustomersPage() {
                   onClick={() => changeStatus(c, 'BLOCKED')}
                   disabled={busyId === c.id}
                   className="nabin-btn nabin-btn--ghost"
-                  style={{ minHeight: 40 }}
+                  style={{ minHeight: 'var(--target-min)' }}
                 >
                   Block
                 </button>
@@ -347,7 +347,7 @@ export default function CustomersPage() {
                 onClick={() => changeStatus(c, 'ACTIVE')}
                 disabled={busyId === c.id}
                 className="nabin-btn nabin-btn--primary"
-                style={{ minHeight: 40 }}
+                style={{ minHeight: 'var(--target-min)' }}
               >
                 {busyId === c.id ? 'Working…' : 'Reinstate'}
               </button>
@@ -375,7 +375,7 @@ export default function CustomersPage() {
               : `${rows.length} shown of ${total} account(s)${cappedAt && total >= cappedAt ? ` — the search hit its ${cappedAt}-row ceiling, so narrow it to be sure you have seen everything` : ''}`}
           </p>
         </div>
-        <button onClick={load} className="nabin-btn nabin-btn--ghost" style={{ minHeight: 40 }}>
+        <button onClick={load} className="nabin-btn nabin-btn--ghost" style={{ minHeight: 'var(--target-min)' }}>
           Refresh
         </button>
       </div>
@@ -435,7 +435,7 @@ export default function CustomersPage() {
               placeholder="e.g. 9176100002"
             />
           </div>
-          <button type="submit" className="nabin-btn nabin-btn--primary" style={{ alignSelf: 'flex-end', minHeight: 40 }}>
+          <button type="submit" className="nabin-btn nabin-btn--primary" style={{ alignSelf: 'flex-end', minHeight: 'var(--target-min)' }}>
             Search
           </button>
         </form>
@@ -474,7 +474,7 @@ export default function CustomersPage() {
               onClick={() => setQuery((q) => ({ ...q, offset: Math.max(0, q.offset - PAGE_SIZE) }))}
               disabled={loading || query.offset === 0}
               className="nabin-btn nabin-btn--ghost"
-              style={{ minHeight: 40 }}
+              style={{ minHeight: 'var(--target-min)' }}
             >
               Previous
             </button>
@@ -482,7 +482,7 @@ export default function CustomersPage() {
               onClick={() => setQuery((q) => ({ ...q, offset: q.offset + PAGE_SIZE }))}
               disabled={loading || lastOnPage >= total}
               className="nabin-btn nabin-btn--ghost"
-              style={{ minHeight: 40 }}
+              style={{ minHeight: 'var(--target-min)' }}
             >
               Next
             </button>

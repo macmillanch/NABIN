@@ -2,10 +2,12 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import AdminLayout from '@/components/AdminLayout';
+import { useAuth } from '@/components/AuthProvider';
 import ResourceTable, { StatusBadge, inr, type Column } from '@/components/ResourceTable';
 import { useConfirmAction } from '@/components/ConfirmAction';
 import { readRefusal } from '@/lib/refusals';
 import { adminApi } from '@/lib/api';
+import { holdsPermission, missingGrantNote } from '@/lib/access';
 
 interface Merchant {
   id: string;
@@ -21,7 +23,12 @@ interface Merchant {
 }
 
 export default function MerchantsPage() {
+  const { user } = useAuth();
   const confirm = useConfirmAction();
+  // `merchant.manage` covers both directions on `POST /api/admin/restaurants/:id/status`,
+  // and OPERATIONS holds it — so this hides the control for FINANCE_AUDITOR,
+  // KYC_SPECIALIST and SUPPORT_AGENT only.
+  const canManage = holdsPermission(user, 'merchant.manage');
   const [rows, setRows] = useState<Merchant[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -128,12 +135,14 @@ export default function MerchantsPage() {
       label: '',
       align: 'end',
       render: (m) =>
-        m.operationalStatus === 'SUSPENDED' ? (
+        !canManage ? (
+          <span className="nabin-cell-meta">{missingGrantNote(user, 'merchant.manage')}</span>
+        ) : m.operationalStatus === 'SUSPENDED' ? (
           <button
             onClick={() => setStatus(m, 'APPROVED')}
             disabled={busyId === m.id}
             className="nabin-btn nabin-btn--primary"
-            style={{ minHeight: 40 }}
+            style={{ minHeight: 'var(--target-min)' }}
           >
             {busyId === m.id ? 'Working…' : 'Approve'}
           </button>
@@ -142,7 +151,7 @@ export default function MerchantsPage() {
             onClick={() => suspend(m)}
             disabled={busyId === m.id}
             className="nabin-btn nabin-btn--ghost"
-            style={{ minHeight: 40 }}
+            style={{ minHeight: 'var(--target-min)' }}
           >
             Suspend
           </button>
@@ -157,7 +166,7 @@ export default function MerchantsPage() {
           <h1>Merchant directory</h1>
           <p>{loading ? 'Loading…' : `${rows.length} merchants registered`}</p>
         </div>
-        <button onClick={load} className="nabin-btn nabin-btn--ghost" style={{ minHeight: 40 }}>
+        <button onClick={load} className="nabin-btn nabin-btn--ghost" style={{ minHeight: 'var(--target-min)' }}>
           Refresh
         </button>
       </div>

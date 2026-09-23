@@ -95,7 +95,7 @@ function RemoveButton({ onClick, label }: { onClick: () => void; label: string }
       onClick={onClick}
       aria-label={label}
       className="nabin-btn nabin-btn--ghost"
-      style={{ minHeight: 40, padding: '0 var(--space-sm)' }}
+      style={{ minHeight: 'var(--target-min)', padding: '0 var(--space-sm)' }}
     >
       <Trash2 size={16} />
     </button>
@@ -406,7 +406,7 @@ export default function CampaignEditor({
                     type="color"
                     value={color}
                     onChange={(e) => setColor(token, e.target.value)}
-                    style={{ minHeight: 40, padding: 4 }}
+                    style={{ minHeight: 'var(--target-min)', padding: 4 }}
                   />
                 </Field>
                 <RemoveButton onClick={() => dropToken(token)} label={`Remove ${token}`} />
