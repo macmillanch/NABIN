@@ -170,7 +170,7 @@ export default function CustomersPage() {
             'Their orders, wallet balance and saved addresses are untouched. Nothing is deleted and no refund is issued.',
             'They are not notified, so the reason you type below is the only record of why this happened — the route refuses an empty one.',
             `Reversible from this row: Reinstate reopens sign-in, but the ended sessions stay ended and the handset must sign in again.`,
-            `${status === 'BLOCKED' ? 'BLOCKED and SUSPENDED' : 'SUSPENDED and BLOCKED'} are identical at the gate — both close sign-in and both end sessions. The only difference is the severity the trail records.`,
+            `SUSPENDED and BLOCKED close the account identically — the same gate, the same ended sessions, the same Reinstate to undo it. What differs is the sentence the account holder sees (a suspension reads as appealable, a block as final) and the action the trail files it under, ${status === 'BLOCKED' ? 'CUSTOMER_BLOCKED rather than CUSTOMER_SUSPENDED' : 'CUSTOMER_SUSPENDED rather than CUSTOMER_BLOCKED'}, which is what a later sweep searches by.`,
             AUDIT_LINE,
           ],
           confirmLabel: status === 'BLOCKED' ? 'Block account' : 'Suspend account',
@@ -211,7 +211,11 @@ export default function CustomersPage() {
             ? `${ended} session(s) ended — ${inStore} row(s) deleted in the durable store, ${inProcess} held by this process. `
             : '') +
           (data.persisted === false
-            ? 'No store was reachable, so this lives in this process’s memory and will not survive a restart.'
+            ? // Not "this will not survive a restart". The offline fallback keeps its own
+              // whole-state snapshot, so a restart of the same checkout does read the
+              // change back; what it is not is a write to the platform's database, which
+              // is the only record another instance, or a deployment, would ever see.
+              'No authoritative store was reachable, so this is not the platform’s record: it sits in this offline process’s own state, which no other instance will see.'
             : '') +
           (devices.storeChecked === false ? ' The durable store was not reachable when the count was taken.' : '')
       );
@@ -271,6 +275,8 @@ export default function CustomersPage() {
           <span className="nabin-cell-meta">
             {c.phone ?? 'no phone'} · {c.email ?? 'no email'}
           </span>
+          {/* `overflow-wrap: anywhere` on the stack above is what keeps this row from
+              setting a minimum width for the whole column: an id has no spaces to break at. */}
           <span className="nabin-cell-meta">{c.id}</span>
         </div>
       ),
@@ -433,7 +439,7 @@ export default function CustomersPage() {
             Search
           </button>
         </form>
-        <div className="nabin-row" role="group" aria-label="Filter by account status" style={{ marginBottom: 'var(--space-sm)' }}>
+        <div className="nabin-row" role="group" aria-label="Filter by account status" style={{ marginBottom: 'var(--space-sm)', flexWrap: 'wrap' }}>
           {STATUSES.map((status) => (
             <button
               key={status}

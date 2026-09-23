@@ -657,7 +657,7 @@ configuration question once §2.2 is fixed, not a code change.
 | 39 | Reports with CSV/XLSX/PDF | MISSING | CSV first (no dependency), XLSX and PDF only if a library already exists in the tree — it does not, so both are a §9 dependency decision | B |
 | 42 | Data export with field filtering + audit | MISSING | Built on `report.export`/`audit.export`; field filtering is *subtraction from a fixed projection*, never caller-supplied column names | B |
 | 44 | Admin AI assistant on authorised tools only | MISSING — **no LLM integration exists anywhere in the repo** (verified: no `openai`/`anthropic`/`llm` reference in `backend/src`, `admin-web/src`, `customer-web/src`, `mobile/lib`) | Requires (a) an external model provider = new dependency + new secret + customer data leaving the boundary, and (b) the tool layer must call the same permission-checked services with the *caller's* session. See §11 — this is a decision to make, not a phase to build | — |
-| 45 | Mobile-responsive admin, not shrunk tables | MISSING | Card/list layouts under 768px; the existing `ResourceTable` is desktop-only | G |
+| 45 | Mobile-responsive admin, not shrunk tables | PARTIAL since 2026-09-23 — the **customers** screen is walked at 320/375/390/430 and 768px and holds up: stacked `CUSTOMER` cell (name, phone, email, id) rather than a shrunk row, wrapping status chips, a scrollable labelled table region whose actions stay reachable, and a confirmation dialog that fits and scrolls at phone heights. The other five pages are still desktop-shaped at those widths, and `ResourceTable`'s own column-hiding breakpoints are untested beneath 900px | G for the rest; §8 records the four defects the walk fixed here |
 | 46 | Per-admin dashboard customisation | MISSING | Needs a persisted per-admin preferences store — same §9 migration family | G |
 | 48 | Accessibility | MISSING as an enforced property | Keyboard nav, focus order, labelled controls, contrast, live-region announcements for the realtime feed | G |
 | 49 | Confirmation that states exactly what will happen | EXISTS — `admin-web/src/components/ConfirmAction.tsx`, one modal fed by a `Confirmation { title, effect, consequences[], confirmLabel, tone }` written from the mutation's **actual** backend behaviour, not from intention. Wired at every privileged mutation the dashboard has today: service pause, merchant suspend, driver suspend, campaign ACTIVE/PAUSED/ARCHIVED, and session revoke / revoke-all-for-account / disable-account on the security screen | Killswitch, payout and refund have no admin-web surface at all yet, so nothing confirms them (§5 rows 15 and 18, §11 decision 10); a suspension carries no reason field from the UI, so the driver is told the server's default `'Compliance review'`; saving an **edit** to an already-live campaign is not confirmed (the editor's own footnote states what a save replaces in full, and publishing stays a confirmed state button — whether a live-content edit needs the dialog too is undecided); and the audit reason for a revoke says `"(N take-down(s))"`, summing durable store rows and this process's in-memory copies of the *same* session — the screen's line keeps them apart, the trail's does not | A |
@@ -1047,7 +1047,7 @@ the same area-49 confirmation with no shortcut path.
 | `backend/admin_audit_fail_closed_test.js` (**new, A3b**) | each converted mutation rejects 503 `applied: true` when its record is refused, the state really did change, no route that awaits one can hang or answer 400, and the deliberately unconverted paths stay unconverted | any audit-path change |
 | `backend/admin_authorization_test.js` (**new, A4**) | 113 assertions: the guard map parsed from `src/server.js` (60 gated routes / 46 names), all 208 (route, non-super role) pairs refused with 403 naming the permission, one handler-validated allow probe per permission — or a recorded reason not to probe, or the named harness that probes a conditional middleware directly — that no method+path in the file is registered twice (CAT-06, 156 registrations), that at most 14 admin routes carry no permission check (CAT-04's ceiling, tightened by D2 to the count after §11 answer 9's duplicate was deleted), `GET /api/admin/me` equal to the catalogue per role, revocation proven by using the revoked bearer, cross-instance sessions honoured and revocable, disable-cuts-sessions, and the four guards that must never be fired over HTTP proven against a stubbed store | phases A–G |
 | `backend/admin_settings_surface_test.js` (**new, A6**) | 31 assertions: the write allow-list refuses a key outside the published namespace and a credential by name or at any depth in the value, a refusal never echoes what it rejected, an ordinary name and a real published theme are *not* refused, a legacy row seeded outside the gate is masked in the admin read **and** in the anonymous config feed, the non-sensitive fields beside it survive, and an update with no description keeps the description it has | any settings, config-feed or redaction change |
-| `backend/admin_customers_test.js` (**new, D1**) | 65 assertions: the two customer permissions refuse exactly the roles §4 says must not hold them, the directory is projected (no wallet, dob, address or credential key reaches the response) with a bounded search and a real count behind the paging, a suspension lands in `users.account_status`, signs the customer's live sessions out, makes the bearers already in hand fail and a fresh sign-in answer 403 `ACCOUNT_SUSPENDED`, and leaves an audit row that states how many sessions it killed; `BLOCKED` refuses at sign-in too, and reinstating reports the status it replaced; a sign-out ends sessions *without* closing the account, proven by its 401 being distinguishable from a closed account's 403; no delete route exists; the in-process guard is proven against the identity-overloaded statuses, a mint-time snapshot, and a status written out of process, and the two routes that resolve a bearer without `authenticateUser` (`/api/auth/me`, `/api/auth/refresh-token`) are checked both ways — normal `200` for an open account over HTTP, and a source check that a deleted guard fails the run; the fixture deletes itself and sweeps orphaned probe accounts | any customer account-status or customer-session change |
+| `backend/admin_customers_test.js` (**new, D1**) | 75 assertions: the two customer permissions refuse exactly the roles §4 says must not hold them, the directory is projected (no wallet, dob, address or credential key reaches the response) with a bounded search and a real count behind the paging, a suspension lands in `users.account_status`, signs the customer's live sessions out, makes the bearers already in hand fail and a fresh sign-in answer 403 `ACCOUNT_SUSPENDED`, and leaves an audit row that states how many sessions it killed; `BLOCKED` refuses at sign-in too, and reinstating reports the status it replaced; a sign-out ends sessions *without* closing the account, proven by its 401 being distinguishable from a closed account's 403; no delete route exists; the in-process guard is proven against the identity-overloaded statuses, a mint-time snapshot, and a status written out of process, and the two routes that resolve a bearer without `authenticateUser` (`/api/auth/me`, `/api/auth/refresh-token`) are checked both ways — normal `200` for an open account over HTTP, and a source check that a deleted guard fails the run; **the half-failed write is proven against an outage rather than argued** (`INP-11..18`) — with the session-store revocation made to fail in-process, so the status write reaches PostgreSQL and the revocation cannot, the route answers 503 `CUSTOMER_SESSION_REVOKE_UNAVAILABLE` with `applied: true`, the trail row exists and states its counts as zero beside `sessionsRevokeFailed: true` instead of borrowing the successful case's numbers, the bearer in hand is still refused, and undoing the suspension returns `ACTIVE` with `persisted: true`; and `CU-33.1`/`CU-33.2` keep Block and Suspend apart *in the trail* — two records, two distinct actions, each naming its own new state — so no screen can read one as the other; the fixture deletes itself and sweeps orphaned probe accounts | any customer account-status or customer-session change |
 | `backend/admin_identity_gates_test.js` (**new, D2**) | 64 assertions: the document preview refuses an anonymous caller and refuses every role §4 did not give `identity_documents.view` to, by name; the two identity reads mask the *same* field pair for the *same* token, with the withheld keys absent rather than blanked and the row count unchanged either way, so the list route can no longer publish what the detail route withholds; the three review decisions each refuse on their own permission in `requirePermission`'s own wording, proven by calling `requireIdentityDecision` directly (`KG-10..12`) plus an assertion of the grants fact that makes direct calling correct rather than a shortcut (`KG-17`); and `updateDriverStatus` refusing a value the column's `CHECK` cannot hold without writing it or a trail row, applying the aliases both admin UIs send while *reporting* `requested`/`applied`/`previous`/`normalised`/`forcedOffline`, agreeing with the live row at every step, and leaving exactly its own five truthful records — one action per kind of change, never `DRIVER_ACTIVATED` for a driver moved to `BUSY`. It creates and deletes its own fixture driver row and disables its own `idg_*` probe accounts, sweeping an aborted run's leftovers before making new ones | any driver status/KYC write, identity queue read or document route change |
 | Flutter `main_admin.dart` widget tests + `flutter analyze` | the admin mobile app | phases with mobile changes |
 | `admin-web`: `npm run lint`, `npm run build`, then a real browser walk of each confirmation (local backend on :4000, local dev server on :3001) | area 49's component, the security screen, the customers screen, and that a dialog's words match what the route does | phases A5, D3 and G — **there is no automated admin-web harness**, so this is the only thing between a copy edit and a false promise to an operator |
@@ -1094,19 +1094,104 @@ answered 403 naming `customers.suspend`. The account was disabled at the end of 
 `isActive: false` revoked its 3 sessions in the same call and its next sign-in was refused —
 so no enabled credential was left behind, and its two audit rows are.
 
-Not walked, and not claimed: the 503 `applied: true` path (the store would have to refuse
-the audit write mid-mutation, which `admin_audit_fail_closed_test.js` does prove and a
-browser cannot), the memory-only branch where `persisted: false`, the "Block" button as
-distinct from "Suspend" (same route, same permission, different word — the dialog says so
-rather than the walk proving it), and the responsive layout below 768px, which is Phase G's
-gate. The walk also does not exercise a second backend instance, so the "another instance
-honours its own copy until its next reconcile" line is carried from §1.4's measured
+Four things that paragraph left open are closed now, each exercised under the condition it
+describes rather than argued from the code. Two of them turned out to be lying, and both lies
+were of the kind this section exists to catch.
+
+**`applied: true` — walked, and it was broken.** The condition is a store that takes the
+status write and refuses the session revocation, which no browser can arrange, so a
+throwaway transparent proxy stood in front of the local PostgREST answering 503 for exactly
+`DELETE /backend_sessions` and passing every other call through byte for byte. Nothing in
+`src/` was stubbed. **The defect that reproduced:** the half-failed write threw its 503
+*before* its audit record was written, so the one suspension that most needs a trail — the
+one that landed halfway and cannot be seen from the customer's side — left no record at all.
+`setCustomerAccountStatus` now writes the trail first, with its counts honestly zero beside
+`sessionsRevokeFailed: true`, and then refuses. On the screen, with a fixture holding exactly
+one live session, the dialog's effect line named that device, confirming answered
+`nabin-alert--danger` with "This landed, but it did not finish: The account is SUSPENDED, but
+its existing sessions could not be revoked… The change is live and must be reconciled — new
+sign-ins are closed, already-issued tokens are not. Do not repeat the action as if nothing
+had changed… (ref req_…)", and the reloaded row read `SUSPENDED` with **Reinstate** in place
+of the two closing buttons. The store agreed with every word: one `CUSTOMER_SUSPENDED` row,
+`ACTIVE → SUSPENDED`, `metadata.sessionsSignedOut: 0` with the revoke-failure flag set, and
+the session row still there — refused by the account-status guard rather than deleted, which
+is what the sentence says rather than what a success copy would have implied. Reinstating it
+from the keyboard answered "is now ACTIVE (was SUSPENDED)" and left its own
+`CUSTOMER_REINSTATED` record: two operations, two rows, no duplicate and no false success.
+The client half of the same fault was a sentence that named the wrong artifact — every
+`applied: true` refusal was described as a lost *audit record*, including this one, which
+lost sessions and kept its trail — so `readRefusal` now reserves that wording for
+`AUDIT_RECORD_UNAVAILABLE` and repeats the server's own words for everything else.
+`INP-11..18` keep the branch pinned.
+
+**The memory-only branch — exercised, deterministic, and its UI sentence was false.** Under
+`NODE_ENV=development` with `SUPABASE_POSTGRES_LIVE=false`, the write returns
+`dataSource: 'memory'` and `persisted: false`, the trail row is written, and the gate still
+bites inside the process: the session leaves `activeSessions`, the bearer in hand is refused,
+and a fresh sign-in answers 403. Repeating the call with the same input gave the same reply.
+What was wrong was the operator-facing line: it promised "this lives in this process's memory
+and **will not survive a restart**". The offline fallback keeps its own whole-state snapshot
+in `backend/data/store.json`, `users` included, so restarting the same checkout reads the
+suspension straight back. The line now states the thing that is actually missing — that this
+is not the platform's record and no other instance will ever see it. Two adjacent claims were
+checked rather than swept along: `database.js`'s service-pause sentence *is* true, because
+`platformServices` is not among the keys that snapshot serialises; and the fallback has no
+administrator at all (`this.adminUsers = []`, no superadmin seed in `src/`), so
+`/api/admin/*` refuses every caller there — fail-closed, which is why this branch is proven
+in-process and why **no browser walk of that sentence is possible**, and none is claimed.
+
+**Block is a distinct action, and the dialog's reason for saying so was wrong.** §4 gives
+suspend and block one permission and one route, so the difference had to be found in what
+lands, not inferred from the button label. Measured on a live fixture: `Block` opens its own
+confirmation, confirming writes `account_status = 'BLOCKED'`, the badge reads `BLOCKED`, the
+row offers Reinstate, the trail files `CUSTOMER_BLOCKED` with `ACTIVE → BLOCKED` and its
+session counts, and a fresh sign-in answers 403 `ACCOUNT_BLOCKED` — a different code and a
+different sentence from `ACCOUNT_SUSPENDED`. Reinstating returns `ACTIVE`. The first draft's
+bullet explained the pair as differing "only in severity", which is not what the platform
+does: it also files a different action, which is what an outage or compliance sweep searches
+by. `CU-33.1`/`CU-33.2` assert the two records apart so a future copy edit that conflates
+them fails the run.
+
+**Below 768px — walked at 320, 375, 390, 430 and 768, and four real defects fell out.** The
+widths were given to the page as real CSS viewports, not read out of a stylesheet, and each
+check measured geometry, hit-tested the control under the pointer, and drove the screen:
+search, the status chips, pagination, the navigation drawer, and a full suspend → reinstate
+at 320px. (1) The page overflowed horizontally at 320 and 375 because the filter chips sat in
+a non-wrapping row; the group wraps now. (2) The table's minimum content width was set by an
+unbreakable uuid; `overflow-wrap: anywhere` on the stacked cell — not `break-word`, which
+does not participate in min-content sizing — lets the column shrink with the viewport. (3)
+The suspension dialog could not be used at phone heights at all: a `position: fixed` scrim
+that centres a panel taller than the viewport puts the title above the fold and the confirm
+button below it, and a fixed element's overflow creates no scroll box, so neither half was
+reachable. The scrim now aligns to the start, scrolls, and `overscroll-behavior: contain`
+stops the wheel from dragging the list behind it. (4) The row actions sat past the right edge
+below ~360px, and focusing an off-screen button does not scroll a horizontal container in
+Chrome, so a keyboard operator was pressing an invisible control; the table wrapper is now a
+labelled, focusable scroll region. One limit on the evidence, stated rather than glossed:
+screenshot capture did not composite the fixed overlay inside the narrow sub-frames, so the
+dialog's fit at those widths is proven by geometry and hit tests, not by pixels.
+
+**The webhook harness's environment is not deterministic, and the cause is process reuse.**
+`EXPECTED CONFIGURATION: MISMATCH`, `SOURCE OF CONFIGURATION: shell` — six of the ten
+harnesses set `PAYMENT_WEBHOOK_SECRET ||= 'test_*_not_for_deployment'` in their own process
+and hand it to the server they spawn, while `backend/.env` deliberately holds neither key, so
+the value is whichever environment the harness was started from. The failure is not the
+default: `ensureServerRunning()` **reuses any healthy server on :4000**, so a hand-started
+process carrying a different pair silently replaces the correctly-configured child, and every
+webhook the harness then signs reads `INVALID_SIGNATURE`. The deterministic procedure is the
+one this run used: no listener on :4000 before each harness, one harness at a time, so each
+spawns and talks to its own process. No application payment security was touched to make a
+test pass, and no secret value is printed anywhere in this document or its logs.
+
+Still not claimed: the walk does not exercise a second backend instance, so the "another
+instance honours its own copy until its next reconcile" line is carried from §1.4's measured
 behaviour, not observed here.
 
 Preconditions that make a run trustworthy are recorded in project memory
-(`nabin-backend-suite-preconditions.md`): both payment secrets exported into the server's
-env, restart-to-load, the 15-minute broadcast window, the surge row, and never two
-harnesses at once.
+(`nabin-backend-suite-preconditions.md`): the server and the harness signing webhooks must
+hold the *same* payment pair — which `ensureServerRunning()` guarantees only when nothing is
+already listening on :4000 — restart-to-load, the 15-minute broadcast window, the surge row
+back at 1.0, and never two harnesses at once.
 
 `admin_authorization_test.js` adds one of its own: it **writes** — four throwaway `authz_*`
 administrator accounts per run, one `backend_sessions` row for the cross-instance case, and
@@ -1121,6 +1206,24 @@ left enabled), and **five audit records that stay** — deliberately, since the 
 `IG-END-2` is that a suspension trail must outlive the row it was about, which is only true
 because the trail stores the target id rather than joining to it. It never writes an identity
 application, never touches the seeded fleet, and never reads a hosted store.
+
+**The chain behind this section, run 2026-09-23 from fresh processes.** It was run twice,
+serially, never two harnesses at once. Pass 1 cleared :4000 once at the start, so the chain's
+first harness spawned the backend every later HTTP harness reused. Pass 2 cleared it before
+*each* harness, so each got a process of its own (`17472`, `34028`, `33196`, `27936`,
+`35340`, `32000` recorded as they came up), which is the run that answers the
+process-reuse hazard above. Both passes: **901 assertions, 0 failures** —
+`admin_identity_gates_test.js` 64/64, `admin_authorization_test.js` 113/0,
+`admin_customers_test.js` 75/75, `admin_audit_fail_closed_test.js` 79/0,
+`admin_settings_surface_test.js` 31/0, `auth_failclosed_test.js` 15/0,
+`audit_drop_visibility_test.js` 8/0, `test_phase4_orders.js` 66/0, `test_suite.js` 415/0,
+`restart_test.js` 35/0 — every harness exiting 0. Environment for both: `NODE_ENV`
+development, `SUPABASE_POSTGRES_LIVE=true` against the local Docker PostgREST on :54321,
+neither payment key present in `backend/.env` or in the launching shell, and
+`global_surge_multiplier` read back at 1.0 before the run started. `admin-web`:
+`npm run lint` 0 errors (one pre-existing `no-location-assign-relative-destination` warning
+in `src/lib/api.ts`, which this work did not touch) and `npm run build` exit 0 with all eight
+routes generated. The browser evidence is the walks above, on the same tree.
 
 ---
 

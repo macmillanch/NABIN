@@ -506,6 +506,12 @@ button {
   flex-direction: column;
   gap: 2px;
   min-width: 0;
+  /* An email and a uuid contain no spaces, so they refuse to break and set a minimum
+     width for the whole column — at phone widths that pushed every row's action buttons
+     behind a sideways scroll. `anywhere` rather than `break-word` because it is the one
+     that participates in the min-content sizing a `table-layout: auto` column measures,
+     and it still only breaks where a word cannot fit on a line by itself. */
+  overflow-wrap: anywhere;
 }
 
 .nabin-cell-title {
@@ -1357,14 +1363,26 @@ button {
 
 .nabin-scrim--modal {
   display: flex;
-  align-items: center;
+  /* A suspension dialog carries four consequences plus a reason field, which makes it
+     taller than a phone viewport. A fixed scrim that centres its child then puts the
+     title above the fold and the confirm button below it, and because a fixed element's
+     overflow creates no scroll box, neither half can be reached — the operator could not
+     complete the action at all. Aligning to the start and letting the panel carry auto
+     margins keeps it centred while there is room and scrollable end to end when there is
+     not. `overscroll-behavior` stops the wheel from leaking to the list behind it. */
+  align-items: flex-start;
   justify-content: center;
+  overflow: auto;
+  overscroll-behavior: contain;
   padding: var(--space-md);
   z-index: 80;
 }
 
 .nabin-modal {
   width: min(520px, 100%);
+  /* Auto margins, not `align-items: center`, because auto margins collapse to zero when
+     the box overflows its container, so the top stays in reach and the bottom scrolls in. */
+  margin: auto;
   background: var(--surface);
   color: var(--ink);
   border: 1px solid var(--divider);

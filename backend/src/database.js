@@ -6215,7 +6215,9 @@ class NabinDatabase {
    *  - A half-finished version of that is reported, not smoothed over. If the store
    *    refuses the revocation, the account is suspended and the bearer still works, so
    *    the answer is a 503 that says exactly that (`applied: true`) rather than a 200
-   *    that implies the door is shut.
+   *    that implies the door is shut — and the half-landed change still gets its trail
+   *    row, with the sessions counted as zero, because a suspension nobody can point to
+   *    is the unsweepable case the rule above exists for.
    */
   async setCustomerAccountStatus({ identifier, status, reason, actor } = {}) {
     const wanted = String(identifier || '').trim();
@@ -6326,6 +6328,33 @@ class NabinDatabase {
         : await this.revokeCustomerSessions(target);
     } catch (err) {
       if (err.code === 'AUTH_STORE_UNAVAILABLE' || err.status === 503 || err.statusCode === 503) {
+        // The trail write below sits *after* the revocation, so without one here this
+        // branch would land a real suspension and report it as an outage without ever
+        // recording who did it, when, or why — which is the exact hole this file's own
+        // rule exists to close. Best-effort on purpose: if the trail cannot be written
+        // either, `createAuditLog` has already reported the drop, and the refusal below
+        // stays the answer because it is the one that says what to reconcile.
+        await this.auditAppliedChange({
+          adminId: actor ? actor.id : 'SYSTEM',
+          adminName: actor ? (actor.name || actor.username) : 'System',
+          role: actor ? actor.role : 'SYSTEM',
+          action: `CUSTOMER_${status}`,
+          module: 'CUSTOMER',
+          targetEntityType: 'CUSTOMER',
+          targetEntityId: String(row.id),
+          previousState: previousStatus,
+          newState: row.account_status,
+          reason: `${note} — the status change is live, but its existing sessions could not be revoked, so bearers already issued still exist in the session store. They are refused by the account-status guard, not signed out. Reconcile with a sign-out-everywhere once the session store answers.`,
+          metadata: {
+            // Zero, stated rather than omitted: the row that claims two devices went dark
+            // is the false success this branch exists to avoid.
+            sessionsSignedOut: 0,
+            sessionsRevokedInStore: 0,
+            sessionsRevokedInMemory: 0,
+            sessionsRevokeFailed: true,
+            dataSource: 'postgres'
+          }
+        }).catch(() => {});
         const refusal = new Error(`The account is ${status}, but its existing sessions could not be revoked: ${err.cause || err.message}. The change is live and must be reconciled — new sign-ins are closed, already-issued tokens are not.`);
         refusal.code = 'CUSTOMER_SESSION_REVOKE_UNAVAILABLE';
         refusal.status = 503;

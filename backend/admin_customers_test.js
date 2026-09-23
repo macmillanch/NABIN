@@ -368,6 +368,19 @@ async function main() {
   check('CU-33', blockedSignIn.verified.status === 403 && blockedSignIn.verified.data.code === 'ACCOUNT_BLOCKED',
     `a blocked account is refused a token under its own code, so an app can tell the two apart on screen (${blockedSignIn.verified.status} ${blockedSignIn.verified.data.code || ''})`);
 
+  const blockedTrail = await request('GET', '/api/admin/audit-logs?module=CUSTOMER&action=CUSTOMER_BLOCKED', null, bearer(superToken));
+  const blockedEntry = (blockedTrail.data.logs || blockedTrail.data.auditLogs || [])
+    .find(l => String(l.targetEntityId || '') === String(fixtureId));
+  const suspendedTrail = await request('GET', '/api/admin/audit-logs?module=CUSTOMER&action=CUSTOMER_SUSPENDED', null, bearer(superToken));
+  const suspendedEntry = (suspendedTrail.data.logs || suspendedTrail.data.auditLogs || [])
+    .find(l => String(l.targetEntityId || '') === String(fixtureId));
+  check('CU-33.1', blockedTrail.status === 200 && !!blockedEntry && blockedEntry.newState === 'BLOCKED' &&
+    String(blockedEntry.reason || '').includes('second state on the same fixture'),
+    `a block is filed as its own action rather than as a suspension, so a sweep for CUSTOMER_BLOCKED finds it (${blockedEntry ? 'found' : 'no record'})`);
+  check('CU-33.2', !!suspendedEntry && suspendedEntry.id !== (blockedEntry && blockedEntry.id) &&
+    String(suspendedEntry.reason || '').includes('fraud-review hold'),
+    'and both records stand side by side for the same account — closing twice for two reasons leaves two answers, not one overwritten');
+
   const reactivated = await request('POST', `/api/admin/customers/${fixtureId}/status`,
     { status: 'ACTIVE' }, bearer(superToken));
   check('CU-34', reactivated.status === 200 && reactivated.data.previousStatus === 'BLOCKED' &&
@@ -484,6 +497,99 @@ async function main() {
   const refreshBlock = handlerOf("app.post('/api/auth/refresh-token'");
   check('INP-10', meBlock.includes('customerSessionRefusal') && refreshBlock.includes('customerSessionRefusal'),
     `the two routes that resolve a bearer without authenticateUser both consult the guard — /api/auth/me ${meBlock.includes('customerSessionRefusal') ? 'wired' : 'NOT WIRED'}, refresh-token ${refreshBlock.includes('customerSessionRefusal') ? 'wired' : 'NOT WIRED'}`);
+
+  // --- 8b. The outage branch: the status lands and the sessions cannot be taken --------
+  // Over HTTP this branch needs `users` to be writable while `backend_sessions` is not, and
+  // no request can arrange that. So the store is wrapped here so that only a delete on the
+  // session table fails — the account read and write still go to the real table, and the
+  // refusal that comes out is the one an operator sees when a replica is behind.
+  const outageHandle = crypto.randomBytes(32).toString('hex');
+  const outageSession = await supabaseAdmin.from('backend_sessions').insert({
+    token_hash: outageHandle,
+    role: 'CUSTOMER',
+    entity_id: String(fixtureId),
+    phone: fixtureRow && fixtureRow.phone,
+    entity: {},
+    created_at: new Date().toISOString(),
+    expires_at: new Date(Date.now() + 30 * 60 * 1000).toISOString()
+  });
+  check('INP-11', !outageSession.error, `a live session row exists for the fixture to be revoked (${outageSession.error ? outageSession.error.message : 'inserted'})`);
+
+  const realLiveStore = db.liveStore.bind(db);
+  const outageError = Object.assign(new Error('simulated backend_sessions outage'), { code: 'PGRST500' });
+  // Chainable then a caller can `await` after `.in().eq().select()`, which is what
+  // `revokeCustomerSessions` does; rejecting on await is how postgrest-js reports a 5xx.
+  const outageBuilder = new Proxy(function () {}, {
+    get(_t, key) {
+      if (key === 'then') return (res, rej) => Promise.reject(outageError).then(res, rej);
+      return outageBuilder;
+    },
+    apply: () => outageBuilder
+  });
+  db.liveStore = () => {
+    const store = realLiveStore();
+    return new Proxy(store, {
+      get(target, prop) {
+        if (prop === 'from') {
+          return (table) => {
+            const builder = target.from(table);
+            if (table !== 'backend_sessions') return builder;
+            return new Proxy(builder, {
+              get(b, key) {
+                if (key === 'delete') return () => outageBuilder;
+                return typeof b[key] === 'function' ? b[key].bind(b) : b[key];
+              }
+            });
+          };
+        }
+        return typeof target[prop] === 'function' ? target[prop].bind(target) : target[prop];
+      }
+    });
+  };
+
+  let outage = null;
+  try {
+    await db.setCustomerAccountStatus({
+      identifier: fixtureId, status: 'SUSPENDED',
+      reason: 'Phase D harness: the outage branch, where only the revocation fails.',
+      actor: { id: 'cust_harness', name: 'Customers harness', role: 'SUPER_ADMIN' }
+    });
+  } catch (err) {
+    outage = err;
+  } finally {
+    db.liveStore = realLiveStore;
+  }
+  check('INP-12', Boolean(outage) && outage.status === 503 && outage.statusCode === 503 &&
+    outage.applied === true && outage.code === 'CUSTOMER_SESSION_REVOKE_UNAVAILABLE',
+    `the half-failed write refuses as an outage that says the change applied (${outage ? `code=${outage.code} status=${outage.status} applied=${outage.applied}` : 'no rejection — the route would have claimed the door was shut'})`);
+  check('INP-13', Boolean(outage) && /could not be revoked/.test(outage.message) &&
+    /must be reconciled/.test(outage.message) && !/nothing changed|was not applied/i.test(outage.message),
+    'its sentence names the sessions as the failed half and asks for reconciliation, never implying nothing happened');
+
+  const { data: outageRow } = await supabaseAdmin.from('users').select('account_status').eq('id', fixtureId).maybeSingle();
+  const { data: outageLeft } = await supabaseAdmin.from('backend_sessions').select('token_hash').eq('token_hash', outageHandle).maybeSingle();
+  check('INP-14', outageRow && outageRow.account_status === 'SUSPENDED' && Boolean(outageLeft),
+    `the status really did land and the session really did survive it (${outageRow && outageRow.account_status}, session ${outageLeft ? 'still present' : 'gone'})`);
+  const survivor = await db.customerSessionRefusal({
+    role: 'CUSTOMER', entityId: String(fixtureId), phone: fixtureRow && fixtureRow.phone, token: outageHandle, entity: null
+  });
+  check('INP-15', Boolean(survivor) && survivor.status === 403 && survivor.code === 'ACCOUNT_SUSPENDED',
+    `and that surviving bearer is refused by the guard rather than served — the mitigation the 503 relies on (${survivor && survivor.code})`);
+
+  const outageTrail = await request('GET', '/api/admin/audit-logs?module=CUSTOMER&action=CUSTOMER_SUSPENDED', null, bearer(superToken));
+  const outageEntry = (outageTrail.data.logs || outageTrail.data.auditLogs || [])
+    .find(l => String(l.targetEntityId || '') === String(fixtureId) && /outage branch/.test(String(l.reason || '')));
+  check('INP-16', Boolean(outageEntry),
+    'the half-landed suspension is in the trail too — a change nobody can point to is the unsweepable case this route forbids');
+  check('INP-17', Boolean(outageEntry) && outageEntry.metadata &&
+    outageEntry.metadata.sessionsSignedOut === 0 && outageEntry.metadata.sessionsRevokedInStore === 0 &&
+    outageEntry.metadata.sessionsRevokeFailed === true,
+    `and it states zero sessions ended rather than borrowing the successful case's count (${JSON.stringify(outageEntry && outageEntry.metadata)})`);
+
+  const outageUndo = await db.setCustomerAccountStatus({ identifier: fixtureId, status: 'ACTIVE', actor: { id: 'cust_harness', name: 'Customers harness', role: 'SUPER_ADMIN' } });
+  await supabaseAdmin.from('backend_sessions').delete().eq('token_hash', outageHandle);
+  check('INP-18', outageUndo.status === 'ACTIVE' && outageUndo.persisted === true,
+    `with the store back the reinstatement completes normally (${outageUndo.status}, ${outageUndo.dataSource})`);
 
   // --- 9. The harness leaves nothing behind ------------------------------
   const cleanup = await teardown(fixtureId);

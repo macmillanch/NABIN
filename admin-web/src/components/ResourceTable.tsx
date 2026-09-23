@@ -72,7 +72,12 @@ export default function ResourceTable<T>({
   }
 
   return (
-    <div className="nabin-table-wrap">
+    /* Focusable, because below ~360px the table is wider than its own box and the last
+       column — which on the customer screen is where Suspend and Block live — sits past
+       the right edge. Focusing a button that is off to the side does not scroll a
+       horizontal container in Chrome, so a keyboard operator would be pressing an
+       invisible control; a focused scroll region answers to the arrow keys first. */
+    <div className="nabin-table-wrap" tabIndex={0} role="region" aria-label="Scrollable results table">
       <table className="nabin-table">
         <thead>
           <tr>

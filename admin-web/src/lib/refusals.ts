@@ -5,9 +5,15 @@
  *
  *   4xx  the request is wrong — fix it and send it again.
  *   5xx  the platform is unreachable — change nothing, retry later.
- *   5xx with `applied: true`  the change **landed** and only its audit record failed. This
+ *   5xx with `applied: true`  the change **landed** and something after it failed. This
  *        is not a rejection and retrying it can double-apply a real mutation, so the copy
  *        says "reconcile this", never "nothing happened".
+ *
+ * Which half failed is not the same answer for every code. `AUDIT_RECORD_UNAVAILABLE` lost
+ * the trail; `CUSTOMER_SESSION_REVOKE_UNAVAILABLE` landed the status change and lost the
+ * session revocation, which is a different thing to go and fix. Guessing either one sends
+ * the operator to reconcile the wrong artifact, so only the audit code is named here and
+ * every other case repeats the server's own sentence.
  *
  * The backend already sends the server's own words in `error`; they go to the operator
  * verbatim rather than being re-derived here, because the route knows which of the three
@@ -39,8 +45,17 @@ export function readRefusal(err: unknown, fallback: string): Refusal {
 
   if (applied) {
     // The dangerous one, so it leads with the fact rather than the failure.
+    if (code === 'AUDIT_RECORD_UNAVAILABLE') {
+      return {
+        message: `This landed, and its audit record could not be written${serverMessage ? `: ${serverMessage}` : ''} Do not repeat the action — reconcile the missing record instead.${requestId ? ` (ref ${requestId})` : ''}`,
+        code,
+        applied,
+        status,
+        requestId
+      };
+    }
     return {
-      message: `This landed, and its audit record could not be written${serverMessage ? `: ${serverMessage}` : ''} Do not repeat the action — reconcile the missing record instead.${requestId ? ` (ref ${requestId})` : ''}`,
+      message: `This landed, but it did not finish${serverMessage ? `: ${serverMessage}` : ''} Do not repeat the action as if nothing had changed — work from what the server states above.${requestId ? ` (ref ${requestId})` : ''}`,
       code,
       applied,
       status,
