@@ -13,6 +13,7 @@ const { notificationEventBus, NOTIFICATION_EVENTS } = require('./services/Notifi
 const featureControlService = require('./services/FeatureControlService');
 const appConfigService = require('./services/AppConfigService');
 const { validateDriverTelemetry } = require('./services/TelemetryValidator');
+const geoPolicy = require('./services/GeoPolicyService');
 const { allowsTestConvenience } = require('./services/RuntimeMode');
 const AdvertisementRepository = require('./repositories/AdvertisementRepository');
 
@@ -47,6 +48,57 @@ function resolveCustomerUserUuid(customerId) {
 function couponServiceOf(pricingServiceType) {
   const t = String(pricingServiceType || '').toUpperCase();
   return t === 'PARCEL' ? 'PARCEL' : 'RIDE';
+}
+
+// A booking's location, or the platform's own central-Delhi default when the
+// caller sent no location at all. Sending one half of a pair is not "no
+// location" and is not a location either, so it reaches the engine as the
+// nonsense it is rather than being completed from a default.
+function bookingPickup(pickup, fallback) {
+  const lat = pickup?.lat;
+  const lng = pickup?.lng;
+  const neither = (lat === undefined || lat === null) && (lng === undefined || lng === null);
+  if (neither) return { pickupLat: fallback.lat, pickupLng: fallback.lng };
+  return { pickupLat: lat === undefined ? null : lat, pickupLng: lng === undefined ? null : lng };
+}
+
+// One translation of the engine's refusal into the shape every other API failure
+// already uses, so a route cannot invent its own idea of what an unvalidated
+// location is worth. Returns false when there is nothing to refuse.
+function replyGeoRefusal(res, req, refusal) {
+  if (!refusal) return false;
+  res.status(refusal.httpStatus).json({
+    success: false,
+    code: refusal.code,
+    error: refusal.message,
+    pricingAvailable: false,
+    requestId: req.id
+  });
+  return true;
+}
+
+// The admin geo routes used to answer every failure with `400 + err.message`,
+// which called a database outage a validation error and quoted the database
+// driver at whoever asked. Only a refusal this code raised, carrying a GEO_
+// reason code, is safe to repeat; anything else is an internal fault.
+function replyGeoAdminError(res, req, err) {
+  const code = typeof err?.code === 'string' && err.code.startsWith('GEO_') ? err.code : null;
+  if (!code) {
+    console.error('⚠️ Unhandled geofencing admin failure:', err);
+    return res.status(500).json({
+      success: false,
+      code: geoPolicy.REASON.STORE_UNAVAILABLE,
+      error: 'The geofencing configuration could not be changed. No change was saved.',
+      requestId: req.id
+    });
+  }
+  const declared = Number(err.status);
+  res.status(Number.isFinite(declared) && declared >= 400 ? declared : 400).json({
+    success: false,
+    code,
+    error: err.message,
+    requestId: req.id
+  });
 }
 
 async function resolveDriverUserUuid(driverId) {
@@ -2862,12 +2914,17 @@ app.delete('/api/admin/campaigns/:idOrCode', authenticateAdmin, requirePermissio
 // -------------------------------------------------------------
 // 5. GEO-FENCING & DYNAMIC SURGE ZONES
 // -------------------------------------------------------------
+// The stored inventory travels with the list because an operator maintaining
+// boundaries has to be able to see that two of them are the same shape, or that
+// a row cannot be read at all. It is a store-wide count of the configuration,
+// not a verdict about a coordinate, so it says nothing a stranger could use to
+// map the service area — which is why it stays behind geofence.view.
 app.get('/api/admin/geofences', authenticateAdmin, requirePermission('geofence.view'), async (req, res) => {
   try {
     const geoFences = await db.pricingRepo.listGeoFences(req.query);
-    res.json({ success: true, geoFences });
+    res.json({ success: true, geoFences, inventory: db.geoStoreStatus() });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    replyGeoAdminError(res, req, err);
   }
 });
 
@@ -2876,26 +2933,26 @@ app.post('/api/admin/geofences', authenticateAdmin, requirePermission('geofence.
     const fence = await db.addGeoFence(req.body, req.admin.id, req.admin.name);
     res.json({ success: true, geoFence: fence });
   } catch (err) {
-    res.status(400).json({ success: false, error: err.message });
+    replyGeoAdminError(res, req, err);
   }
 });
 
 app.delete('/api/admin/geofences/:id', authenticateAdmin, requirePermission('geofence.delete'), async (req, res) => {
   try {
     const deleted = await db.deleteGeoFence(req.params.id, req.admin.id, req.admin.name);
-    if (!deleted) return res.status(404).json({ success: false, error: 'Geo-fence not found' });
+    if (!deleted) return res.status(404).json({ success: false, code: 'GEO_FENCE_NOT_FOUND', error: 'Geo-fence not found' });
     res.json({ success: true, deleted });
   } catch (err) {
-    res.status(400).json({ success: false, error: err.message });
+    replyGeoAdminError(res, req, err);
   }
 });
 
 app.get('/api/admin/surgezones', authenticateAdmin, requirePermission('surge.view'), async (req, res) => {
   try {
     const surgeZones = await db.pricingRepo.listSurgeZones(req.query);
-    res.json({ success: true, surgeZones });
+    res.json({ success: true, surgeZones, inventory: db.geoStoreStatus() });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    replyGeoAdminError(res, req, err);
   }
 });
 
@@ -2904,21 +2961,47 @@ app.post('/api/admin/surgezones', authenticateAdmin, requirePermission('surge.cr
     const surge = await db.addSurgeZone(req.body, req.admin.id, req.admin.name);
     res.json({ success: true, surgeZone: surge });
   } catch (err) {
-    res.status(400).json({ success: false, error: err.message });
+    replyGeoAdminError(res, req, err);
   }
 });
 
 // Centralized Geofence Live Evaluation Endpoint
+//
+// Still unauthenticated, because whether it should be is §14 decision 8 of
+// docs/GEOFENCING_SECURITY_AUDIT.md and this pass does not answer product
+// questions. What changed is what one answer costs: the response is a verdict
+// about the point that was submitted, not a copy of the boundary that produced
+// it — no vertices, no operator notes, no neighbouring zones.
 app.post('/api/geofence/evaluate', (req, res) => {
   const { lat, lng, serviceType } = req.body;
-  if (lat === undefined || lng === undefined) {
-    return res.status(400).json({ success: false, error: 'Latitude (lat) and Longitude (lng) are required.' });
+  const result = geoPolicy.evaluate({
+    latitude: lat,
+    longitude: lng,
+    service: serviceType || 'RIDE',
+    operation: 'PUBLIC_EVALUATE',
+    authenticatedUser: req.user ? { id: req.user.id, role: 'CUSTOMER' } : null
+  });
+
+  if (result.rejectionReason) {
+    const unavailable = result.rejectionReason.code === geoPolicy.REASON.STORE_UNAVAILABLE;
+    return res.status(unavailable ? 503 : 400).json({
+      success: false,
+      code: result.rejectionReason.code,
+      error: result.rejectionReason.message
+    });
   }
-  const result = db.evaluateLocationGeofences(lat, lng, serviceType || 'RIDE');
+
   res.json({
     success: true,
-    coordinates: { lat: parseFloat(lat), lng: parseFloat(lng) },
-    ...result
+    coordinates: result.coordinate,
+    inside: result.insideServiceArea,
+    locationValidated: result.locationValidated,
+    matchedZones: result.matchedFences,
+    primaryZone: result.matchedFences[0] || null,
+    effectiveSurgeMultiplier: result.effectiveSurgeMultiplier,
+    totalSurcharge: result.totalSurcharge,
+    applicableSurgeRules: result.applicableSurgeRules.map(r => ({ id: r.id, zoneName: r.zoneName, surgeMultiplier: r.surgeMultiplier, basis: r.basis, window: r.window })),
+    evaluatedAt: result.evaluatedAt
   });
 });
 
@@ -2929,8 +3012,17 @@ app.post('/api/geofence/reverse-geocode', (req, res) => {
     return res.status(400).json({ success: false, error: 'Latitude and Longitude required.' });
   }
 
-  const numLat = parseFloat(lat);
-  const numLng = parseFloat(lng);
+  // `parseFloat` turned "abc" into NaN and this endpoint answered 200 with
+  // "Live Location (NaN° N, NaN° E)" — a description of nowhere that reads like a
+  // resolved place. The same validator every other geographic surface uses
+  // decides what a coordinate is. Numeric strings stay accepted because
+  // `parseFloat` accepted them, so clients may already send one.
+  const coords = geoPolicy.validateCoordinatePair(lat, lng, { numericStrings: true });
+  if (!coords.ok) {
+    return res.status(400).json({ success: false, code: coords.code, error: coords.message });
+  }
+  const numLat = coords.value.lat;
+  const numLng = coords.value.lng;
 
   let locality = 'Live GPS Location';
   let landmark = 'Delhi NCR Operational Hub';
@@ -2984,16 +3076,26 @@ app.post('/api/geofence/reverse-geocode', (req, res) => {
 // atomic redemption at booking time, because this endpoint is public.
 app.post('/api/pricing/estimate', async (req, res) => {
   try {
-    const { serviceType, distanceKm, durationMins, pickupLat, pickupLng, zoneId, promoCode } = req.body;
+    const { serviceType, distanceKm, durationMins, pickupLat, pickupLng, promoCode } = req.body;
     const pricingInput = {
       serviceType: serviceType || '3W',
       distanceKm: Number(distanceKm) || 4.0,
       durationMins: Number(durationMins) || 12,
-      pickupLat: pickupLat !== undefined ? Number(pickupLat) : null,
-      pickupLng: pickupLng !== undefined ? Number(pickupLng) : null,
-      zoneId
+      // Passed through unparsed on purpose: `Number('')` is 0 and `Number(null)`
+      // is 0, and latitude 0 is the Gulf of Guinea, which is a place. A missing
+      // coordinate must stay missing for the engine to tell it apart from a
+      // nonsense one.
+      pickupLat: pickupLat === undefined ? null : pickupLat,
+      pickupLng: pickupLng === undefined ? null : pickupLng,
+      // Accepted only so the answer can say it was ignored. `zoneId` used to be a
+      // second door into pricing: name a zone, pay its surcharge, stand anywhere.
+      requestedZoneId: req.body.zoneId === undefined ? null : req.body.zoneId
     };
     const base = db.calculateFareEstimate(pricingInput);
+
+    // A quote whose geography could not be validated is not a low quote, it is an
+    // unknown one, so it stops here rather than reaching a customer as a number.
+    if (replyGeoRefusal(res, req, base.geoValidation.refusal)) return;
 
     let discount = 0;
     let appliedPromo = null;
@@ -3335,7 +3437,7 @@ app.post('/api/customer/book-ride', authenticateUser, async (req, res) => {
     return res.status(500).json({ success: false, error: error.message });
   }
 
-  const { customerId, vehicleType, pickup, drop, promoCode, zoneId, bookingType, passengerCategory, passengerInfo } = req.body;
+  const { customerId, vehicleType, pickup, drop, promoCode, bookingType, passengerCategory, passengerInfo } = req.body;
   const idempotencyKey = req.headers['idempotency-key'] || req.headers['x-idempotency-key'] || req.body.idempotencyKey;
   if (idempotencyKey) {
     const existing = db.jobs.find(j => j.idempotencyKey === idempotencyKey);
@@ -3372,17 +3474,17 @@ app.post('/api/customer/book-ride', authenticateUser, async (req, res) => {
   }
 
   // Server-Side Authoritative Pricing Calculation (Zero Trust of client-supplied fare)
-  const pickupLat = pickup?.lat !== undefined ? Number(pickup.lat) : 28.6853;
-  const pickupLng = pickup?.lng !== undefined ? Number(pickup.lng) : 77.2185;
+  const { pickupLat, pickupLng } = bookingPickup(pickup, { lat: 28.6853, lng: 77.2185 });
   const pricingInput = {
     serviceType: vehicleType || '3W',
     distanceKm: 3.8,
     durationMins: 11,
     pickupLat,
     pickupLng,
-    zoneId
+    requestedZoneId: req.body.zoneId === undefined ? null : req.body.zoneId
   };
   const basePricing = db.calculateFareEstimate(pricingInput);
+  if (replyGeoRefusal(res, req, basePricing.geoValidation.refusal)) return;
 
   // A coupon is redeemed through `redeem_promotion_atomic`, which enforces the
   // validity window, global and per-user limits under a row lock. An unusable code

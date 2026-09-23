@@ -222,6 +222,15 @@ async function runTests() {
     res = await request('POST', '/api/customer/book-ride', { vehicleType: 'bike', pickup: { lat: 1, lng: 1 }, drop: { lat: 2, lng: 2 } }, { Authorization: `Bearer ${customerToken}` });
     assert(res.status !== 403 || res.data.code !== 'FEATURE_DISABLED', '13. Enabled sibling sub-feature (BIKE) remains usable.');
 
+    // Put back what test 12 took away. The four parent features were already
+    // re-enabled above, but `FEATURE_RIDE_TAXI` was not, and it is persisted — so
+    // the *next* process to boot read a lockdown this harness had left behind and
+    // every later booking harness (`test_phase6_dispatch.js`,
+    // `test_phase7_security.js`) failed with 403 FEATURE_DISABLED on a ride it had
+    // booked for months. A harness that poisons the environment it shares is not a
+    // test of the platform; it is a test of whoever runs after it.
+    await request('PUT', '/api/admin/features/FEATURE_RIDE_TAXI', { enabled: true }, { Authorization: `Bearer ${superAdminToken}` });
+
     // 14. Direct API bypass is rejected.
     // Handled by tests 8-12.
     assert(true, '14. Direct API bypass is rejected (demonstrated by 403s).');

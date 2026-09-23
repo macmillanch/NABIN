@@ -16,6 +16,8 @@ const DispatchRepository = require('./repositories/DispatchRepository');
 const AdvertisementRepository = require('./repositories/AdvertisementRepository');
 const { CampaignRepository } = require('./repositories/CampaignRepository');
 const { allowsTestConvenience } = require('./services/RuntimeMode');
+const geoPolicy = require('./services/GeoPolicyService');
+const GEO_STORE_STATE = geoPolicy.STORE_STATE;
 
 // -------------------------------------------------------------
 // CUSTOMER ACCOUNT SURFACE (admin area 4)
@@ -1616,6 +1618,28 @@ class NabinDatabase {
     this.dispatchRepo = new DispatchRepository(this);
     this.adRepo = new AdvertisementRepository(this);
     this.campaignRepo = new CampaignRepository(this);
+
+    // -------------------------------------------------------------
+    // GEOGRAPHIC AUTHORITY
+    // -------------------------------------------------------------
+    //
+    // The engine reads through accessors instead of owning a copy, so the next
+    // call sees a re-hydration. What was missing until now is `geoStore`:
+    // nothing recorded whether these arrays had been read from the store or were
+    // simply the ones compiled into this file, which is how a failed database
+    // read ended up pricing real trips from seed fences. A seed array is a demo
+    // fixture, so it only counts as the world when there is no store to read.
+    const { isLivePostgres } = require('./supabase');
+    this.geoStore = isLivePostgres
+      ? { fences: GEO_STORE_STATE.UNREADABLE, rules: GEO_STORE_STATE.UNREADABLE, source: 'postgres', readAt: null }
+      : { fences: GEO_STORE_STATE.VALIDATED, rules: GEO_STORE_STATE.VALIDATED, source: 'memory', readAt: new Date().toISOString() };
+
+    geoPolicy.bind({
+      fences: () => this.geoFences,
+      rules: () => this.surgeZones,
+      globalSurgeMultiplier: () => this.pricingConfig.globalSurgeMultiplier,
+      storeState: () => this.geoStore
+    });
   }
 
   save() {
@@ -1636,6 +1660,7 @@ class NabinDatabase {
       const health = await checkSupabaseConnection();
       if (!health.connected) {
         console.warn('⚠️ Supabase connection health check not connected:', health.error || health.mode);
+        this.markGeoStoreUnreadable('the connection health check did not answer');
         return;
       }
 
@@ -1968,31 +1993,19 @@ class NabinDatabase {
         }
       }
 
-      // 10. Hydrate Geo-Fences from PostgreSQL
-      const { data: dbFences, error: gfErr } = await supabaseAdmin
-        .from('geo_fences')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (!gfErr && dbFences && dbFences.length > 0) {
-        this.geoFences = dbFences.map(r => this.pricingRepo ? this.pricingRepo.mapGeoFenceRowToDTO(r) : r);
-      }
-
-      // 11. Hydrate Surge Zones from PostgreSQL
-      const { data: dbSurge, error: szErr } = await supabaseAdmin
-        .from('surge_zones')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (!szErr && dbSurge && dbSurge.length > 0) {
-        this.surgeZones = dbSurge.map(r => this.pricingRepo ? this.pricingRepo.mapSurgeZoneRowToDTO(r) : r);
-      }
+      // 10 and 11. Hydrate the geographic store from PostgreSQL.
+      await this.hydrateGeoStore('boot');
 
       console.log(`✅ Authoritative PostgreSQL state synchronized (${this.users.length} users, ${this.drivers.length} drivers, ${this.jobs.length} jobs, ${this.ledgerEntries.length} ledger entries, ${this.adminUsers.length} admin accounts, ${this.supportTickets.length} support tickets, ${this.auditLogs.length} audit logs, ${this.promotions.length} promotions, ${Object.keys(this.pricingConfig).length} pricing configs, ${this.geoFences.length} geofences, ${this.surgeZones.length} surge zones).`);
 
       await this.restoreServiceState();
     } catch (err) {
       console.warn('⚠️ initPostgres notice:', err.message);
+      // An abort halfway through leaves whatever was already read in place and
+      // everything after it unknown. Geography is the part where guessing has a
+      // price attached, so the whole of it goes back to unreadable rather than
+      // keeping a copy taken before the failure.
+      this.markGeoStoreUnreadable(`synchronisation threw: ${err.message}`);
     }
   }
 
@@ -2237,124 +2250,154 @@ class NabinDatabase {
     return { success: true, message: `${s.name} resumed to ACTIVE status.`, service: s };
   }
 
-  // --- Spatial & Geofencing Algorithms ---
-  static isPointInCircle(lat, lng, centerLat, centerLng, radiusMeters) {
-    const R = 6371e3; // Earth radius in meters
-    const phi1 = (lat * Math.PI) / 180;
-    const phi2 = (centerLat * Math.PI) / 180;
-    const deltaPhi = ((centerLat - lat) * Math.PI) / 180;
-    const deltaLambda = ((centerLng - lng) * Math.PI) / 180;
-
-    const a =
-      Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2) +
-      Math.cos(phi1) * Math.cos(phi2) * Math.sin(deltaLambda / 2) * Math.sin(deltaLambda / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    const distance = R * c;
-
-    return distance <= radiusMeters;
+  // Hydration can abort in three ways — a health check that says it is not
+  // connected, a query that throws, or a table that refuses. In all three the
+  // honest state of the geographic world is "unknown", and the compiled-in
+  // Delhi fences in this process are a demonstration fixture, not an answer.
+  // Saying so at each abort path is what keeps fail-closed from being an
+  // accident of construction order.
+  markGeoStoreUnreadable(why) {
+    this.geoStore.fences = GEO_STORE_STATE.UNREADABLE;
+    this.geoStore.rules = GEO_STORE_STATE.UNREADABLE;
+    this.geoStore.source = 'postgres';
+    this.geoStore.readAt = null;
+    console.error(`⚠️ geo_fences and surge_zones were not read (${why}); geographic pricing is unavailable until they can be.`);
   }
 
-  static isPointInPolygon(lat, lng, polygonCoords) {
-    if (!polygonCoords || polygonCoords.length < 3) return false;
-    let inside = false;
-    for (let i = 0, j = polygonCoords.length - 1; i < polygonCoords.length; j = i++) {
-      const xi = polygonCoords[i].lat, yi = polygonCoords[i].lng;
-      const xj = polygonCoords[j].lat, yj = polygonCoords[j].lng;
-
-      const intersect = ((yi > lng) !== (yj > lng)) &&
-        (lat < ((xj - xi) * (lng - yi)) / (yj - yi) + xi);
-      if (intersect) inside = !inside;
-    }
-    return inside;
+  // What the geographic authority currently knows, for the admin surface only.
+  // The counts are deliberately absent from public responses: "418 surge rules
+  // reach every ride quote" is a finding, and a finding an anonymous caller can
+  // read is a finding about us that helps them.
+  geoStoreStatus() {
+    return geoPolicy.inventory();
   }
 
-  evaluateLocationGeofences(lat, lng, serviceType = 'RIDE') {
-    if (lat === undefined || lat === null || lng === undefined || lng === null || isNaN(lat) || isNaN(lng)) {
-      return { inside: false, matchedZones: [], effectiveSurgeMultiplier: 1.0, totalSurcharge: 0.0 };
+  // Steps 10 and 11 of the boot synchronisation, reachable on their own.
+  //
+  // A quote is priced from this process's copy of `geo_fences` and `surge_zones`.
+  // An admin write goes to PostgreSQL, so without a re-read a boundary that was
+  // created successfully cannot affect any price until the next restart, and an
+  // operator testing "does the surge work?" sees silence and concludes the
+  // feature is broken. A stale copy is the one cache failure that changes an
+  // answer without producing an error, which is what makes it worth a method.
+  //
+  // It is a performance and freshness measure, not an authorization source: when
+  // the re-read fails the copy goes back to UNREADABLE rather than staying
+  // serviceable, because a cache that keeps pricing while the store cannot be
+  // read has become the thing it was copied from. This never throws — a caller
+  // that has already committed its write must not be told it failed.
+  async hydrateGeoStore(reason = 'read') {
+    const { isLivePostgres, supabaseAdmin } = require('./supabase');
+    if (!isLivePostgres || !supabaseAdmin) {
+      // Memory mode has no copy to refresh: the arrays are the store.
+      this.geoStore.fences = this.geoFences.length ? GEO_STORE_STATE.VALIDATED : GEO_STORE_STATE.VALIDATED_EMPTY;
+      this.geoStore.rules = this.surgeZones.length ? GEO_STORE_STATE.VALIDATED : GEO_STORE_STATE.VALIDATED_EMPTY;
+      this.geoStore.source = 'memory';
+      this.geoStore.readAt = new Date().toISOString();
+      return { refreshed: false, source: 'memory' };
     }
 
-    const numLat = parseFloat(lat);
-    const numLng = parseFloat(lng);
-    const matchedZones = [];
-    let effectiveSurgeMultiplier = this.pricingConfig.globalSurgeMultiplier || 1.0;
-    let totalSurcharge = 0.0;
+    const { data: dbFences, error: gfErr } = await supabaseAdmin
+      .from('geo_fences')
+      .select('*')
+      .order('created_at', { ascending: false });
 
-    for (const fence of this.geoFences) {
-      if (fence.status !== 'ACTIVE') continue;
-
-      let isInside = false;
-      if (fence.type === 'CIRCLE' && fence.center) {
-        isInside = NabinDatabase.isPointInCircle(numLat, numLng, fence.center.lat, fence.center.lng, fence.radiusMeters || 3500);
-      } else if (fence.type === 'POLYGON' && fence.coordinates) {
-        isInside = NabinDatabase.isPointInPolygon(numLat, numLng, fence.coordinates);
-      }
-
-      if (isInside) {
-        matchedZones.push(fence);
-        if (fence.surgeMultiplier && fence.surgeMultiplier > effectiveSurgeMultiplier) {
-          effectiveSurgeMultiplier = fence.surgeMultiplier;
-        }
-        if (fence.surcharge) {
-          totalSurcharge += fence.surcharge;
-        }
-      }
+    // A successful read replaces the seeds unconditionally, including with an
+    // empty result: `VALIDATED_EMPTY` is a fact about the store, while
+    // `UNREADABLE` is the absence of one. The two must not share a code path,
+    // because the previous `if (!err && rows.length)` guard made a read that
+    // returned nothing indistinguishable from a read that never happened — and
+    // in both cases the compiled-in Delhi fences kept answering.
+    if (gfErr) {
+      this.geoStore.fences = GEO_STORE_STATE.UNREADABLE;
+      console.error(`⚠️ geo_fences could not be read (${reason}); geographic pricing is unavailable until it can be.`);
+    } else {
+      this.geoFences = (dbFences || []).map(r => this.pricingRepo.mapGeoFenceRowToDTO(r));
+      this.geoStore.fences = this.geoFences.length ? GEO_STORE_STATE.VALIDATED : GEO_STORE_STATE.VALIDATED_EMPTY;
     }
 
-    // Check dynamic surge rules for matched zones
-    for (const zone of matchedZones) {
-      const surgeRule = this.surgeZones.find(s => s.status === 'ACTIVE' && s.zoneId === zone.id && (s.service === serviceType || s.service === 'ALL'));
-      if (surgeRule) {
-        const ruleMultiplier = Math.min(surgeRule.maxMultiplier || 3.0, surgeRule.surgeMultiplier);
-        if (ruleMultiplier > effectiveSurgeMultiplier) {
-          effectiveSurgeMultiplier = ruleMultiplier;
-        }
-      }
+    const { data: dbSurge, error: szErr } = await supabaseAdmin
+      .from('surge_zones')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (szErr) {
+      this.geoStore.rules = GEO_STORE_STATE.UNREADABLE;
+      console.error(`⚠️ surge_zones could not be read (${reason}); geographic pricing is unavailable until they can be.`);
+    } else {
+      this.surgeZones = (dbSurge || []).map(r => this.pricingRepo.mapSurgeZoneRowToDTO(r));
+      this.geoStore.rules = this.surgeZones.length ? GEO_STORE_STATE.VALIDATED : GEO_STORE_STATE.VALIDATED_EMPTY;
     }
 
+    this.geoStore.source = 'postgres';
+    this.geoStore.readAt = new Date().toISOString();
     return {
-      inside: matchedZones.length > 0,
-      matchedZones,
-      primaryZone: matchedZones[0] || null,
-      effectiveSurgeMultiplier,
-      totalSurcharge
+      refreshed: !gfErr && !szErr,
+      source: 'postgres',
+      fences: this.geoFences.length,
+      rules: this.surgeZones.length
     };
   }
 
+  // Reachable from the repositories, which hold the database object rather than
+  // the module, and must not each invent their own idea of how the copy is
+  // refreshed. A write that has already landed stays landed whatever this does;
+  // the only question is whether the next quote reads fresh or stale geography.
+  async geoStoreChanged(what) {
+    try {
+      return await this.hydrateGeoStore(`admin ${what} write`);
+    } catch (err) {
+      // Not the read failing — that is handled inside — but a bug in the refresh
+      // itself. The copy's state is then unknown, which is UNREADABLE's meaning.
+      this.markGeoStoreUnreadable(`refresh after ${what} threw: ${err.message}`);
+      return { refreshed: false, source: 'postgres' };
+    }
+  }
+
   // --- Pricing Calculation Engine with Live Coordinate Geofencing ---
-  calculateFareEstimate({ serviceType = '3W', distanceKm = 4.0, durationMins = 12, pickupLat = null, pickupLng = null, zoneId = null, couponDiscount = null }) {
+  //
+  // Geography enters a price here and nowhere else. `zoneId` used to be a second
+  // door: a caller could name a zone and be charged its surcharge and multiplier
+  // for standing somewhere else entirely, which is the same as letting the client
+  // send a fare with extra zeroes.
+  calculateFareEstimate({ serviceType = '3W', distanceKm = 4.0, durationMins = 12, pickupLat = null, pickupLng = null, couponDiscount = null, requestedZoneId = null }) {
     const config = this.pricingConfig[serviceType] || this.pricingConfig['3W'];
     let base = config.baseFare;
     let distanceCost = (distanceKm || 1) * config.perKmRate;
     let timeCost = (durationMins || 1) * config.perMinRate;
     let subtotal = Math.max(config.minFare, base + distanceCost + timeCost);
 
-    let surgeMultiplier = this.pricingConfig.globalSurgeMultiplier || 1.0;
-    let activeZoneName = 'Standard Operational Area';
-    let matchedGeofence = null;
-    
-    // Evaluate Real Live Coordinates if provided
-    if (pickupLat !== null && pickupLng !== null && !isNaN(pickupLat) && !isNaN(pickupLng)) {
-      const geoResult = this.evaluateLocationGeofences(parseFloat(pickupLat), parseFloat(pickupLng), serviceType);
-      if (geoResult.inside) {
-        surgeMultiplier = Math.max(surgeMultiplier, geoResult.effectiveSurgeMultiplier);
-        subtotal += geoResult.totalSurcharge;
-        activeZoneName = geoResult.matchedZones.map(z => z.name).join(', ');
-        matchedGeofence = geoResult.primaryZone;
-      }
-    } else if (zoneId) {
-      const activeZone = this.geoFences.find(z => z.id === zoneId && z.status === 'ACTIVE');
-      if (activeZone) {
-        surgeMultiplier = Math.max(surgeMultiplier, activeZone.surgeMultiplier || 1.0);
-        subtotal += (activeZone.surcharge || 0);
-        activeZoneName = activeZone.name;
-        matchedGeofence = activeZone;
-      }
-    }
+    const geo = geoPolicy.evaluate({
+      latitude: pickupLat,
+      longitude: pickupLng,
+      service: serviceType,
+      operation: 'QUOTE',
+      // Report-only. A zone the caller names changes nothing here; recording that
+      // it was named is what lets a test, and an operator, see the difference
+      // between "no zone asked for" and "a zone asked for and ignored".
+      requestedZoneId
+    });
 
-    // Evaluate scheduled dynamic surge rule
-    const activeSurge = this.surgeZones.find(s => s.status === 'ACTIVE' && (s.service === serviceType || s.service === 'ALL'));
-    if (activeSurge) {
-      surgeMultiplier = Math.max(surgeMultiplier, Math.min(activeSurge.maxMultiplier || 3.0, activeSurge.surgeMultiplier));
+    let surgeMultiplier = this.pricingConfig.globalSurgeMultiplier || 1.0;
+    let activeZoneName = null;
+    let matchedGeofence = null;
+
+    if (geo.locationValidated) {
+      if (geo.insideServiceArea) {
+        surgeMultiplier = Math.max(surgeMultiplier, geo.effectiveSurgeMultiplier);
+        subtotal += geo.totalSurcharge;
+        activeZoneName = geo.activeZoneName;
+        matchedGeofence = geo.matchedFences[0] || null;
+      }
+      // The one modifier still reachable without being inside anything: an active
+      // rule whose service matches the quoted rate card. Reproduced exactly as it
+      // was, including the service-vs-vehicle-type comparison it inherits, because
+      // whether such a rule may bind at all is §14 decision 4 of
+      // docs/GEOFENCING_SECURITY_AUDIT.md and a hardening pass is not where that
+      // gets answered. What changes is that it is now labelled in the response.
+      if (geo.platformWideSurgeRule) {
+        surgeMultiplier = Math.max(surgeMultiplier, geo.platformWideSurgeRule.cappedMultiplier);
+      }
     }
 
     let customerFare = Math.round(subtotal * surgeMultiplier + config.bookingFee);
@@ -2374,6 +2417,22 @@ class NabinDatabase {
     const platformFee = Math.round((finalCustomerCharge * (config.commissionPercent || 15)) / 100);
     const driverEarnings = Math.round((finalCustomerCharge - platformFee) * 100) / 100;
 
+    // How much of this number geography actually vouches for. `NOT_PROVIDED` is
+    // the documented no-location quote, not a validated one; the two refusals are
+    // what a route must not turn into a job row.
+    const geoStatus = geo.locationValidated
+      ? (geo.insideServiceArea ? 'VALIDATED_INSIDE' : 'VALIDATED_OUTSIDE')
+      : (!geo.coordinatesSupplied ? 'NOT_PROVIDED' : (geo.validCoordinates ? 'STORE_UNAVAILABLE' : 'INVALID_COORDINATES'));
+    const geoRefusal = geoStatus === 'STORE_UNAVAILABLE'
+      ? {
+        httpStatus: 503,
+        code: geoPolicy.REASON.STORE_UNAVAILABLE,
+        message: 'Geographic pricing cannot be validated right now, so no fare is quoted from unverified boundaries.'
+      }
+      : (geoStatus === 'INVALID_COORDINATES'
+        ? { httpStatus: 400, code: geo.rejectionReason.code, message: geo.rejectionReason.message }
+        : null);
+
     return {
       serviceType,
       serviceName: config.name,
@@ -2382,6 +2441,11 @@ class NabinDatabase {
       surgeMultiplier,
       activeZoneName,
       matchedGeofence,
+      geoValidation: {
+        status: geoStatus,
+        refusal: geoRefusal,
+        requestedZoneIdIgnored: geo.requestedZoneIdIgnored
+      },
       bookingFee: config.bookingFee,
       baseCharge: customerFare,
       discount,

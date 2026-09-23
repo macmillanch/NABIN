@@ -5327,15 +5327,29 @@
             }
           } else {
             if (statusText) {
-              statusText.innerHTML = `
-                <span class="text-slate-300">● Standard Operational Coverage</span>
-                <span class="text-[11px] text-slate-400">(Outside special high-demand surge boundaries)</span>
+              statusText.innerHTML = data.locationValidated === false ? `
+                <span class="text-amber-400 font-black">● GEOGRAPHY UNAVAILABLE:</span>
+                <span class="text-[11px] text-slate-400">(the boundary store did not answer, so nothing is claimed about this point)</span>
+              ` : `
+                <span class="text-slate-300">● OUTSIDE EVERY BOUNDARY</span>
+                <span class="text-[11px] text-slate-400">(no boundary contains this point, so no geographic modifier applies)</span>
               `;
             }
             if (surgeMultiplierEl) {
-              surgeMultiplierEl.innerText = '1.0x (Standard Base)';
+              surgeMultiplierEl.innerText = data.locationValidated === false ? '— (not evaluated)' : '1.0x (no boundary matched)';
               surgeMultiplierEl.className = 'font-mono font-bold text-slate-300 text-sm';
             }
+          }
+        } else if (statusText) {
+          // A refusal is not "outside". Rendering the outside branch here is how a
+          // store outage used to look like a fact about the rider's location.
+          statusText.innerHTML = `
+            <span class="text-rose-400 font-black">● NOT EVALUATED:</span>
+            <span class="text-[11px] text-slate-400">(${data.code || 'the server refused to answer for this point'})</span>
+          `;
+          if (surgeMultiplierEl) {
+            surgeMultiplierEl.innerText = '— (not evaluated)';
+            surgeMultiplierEl.className = 'font-mono font-bold text-slate-300 text-sm';
           }
         }
       } catch (e) {
@@ -5358,12 +5372,19 @@
         const data = await res.json();
 
         if (data.success && resultEl) {
-          if (data.inside && data.matchedZones.length > 0) {
+          if (data.inside && (data.matchedZones || []).length > 0) {
             const zone = data.matchedZones[0];
             resultEl.innerHTML = `🎯 <b>Coordinate (${lat.toFixed(4)}°, ${lng.toFixed(4)}°):</b> <span class="text-emerald-600 font-bold">INSIDE ${zone.name}</span> • Dynamic Surge: <b class="text-orange-600">${data.effectiveSurgeMultiplier.toFixed(2)}x</b> • Toll: ₹${data.totalSurcharge.toFixed(2)}`;
           } else {
-            resultEl.innerHTML = `🎯 <b>Coordinate (${lat.toFixed(4)}°, ${lng.toFixed(4)}°):</b> <span class="text-slate-600 font-bold">Standard Operational Coverage Area</span> (No active surge multiplier)`;
+            // The old text here named a zone — "Standard Operational Coverage
+            // Area" — for a point that matched nothing, which is the same
+            // invention the server just stopped making. Say what was measured.
+            resultEl.innerHTML = data.locationValidated === false
+              ? `🎯 <b>Coordinate (${lat.toFixed(4)}°, ${lng.toFixed(4)}°):</b> <span class="text-amber-600 font-bold">GEOGRAPHY UNAVAILABLE</span> (the boundary store did not answer)`
+              : `🎯 <b>Coordinate (${lat.toFixed(4)}°, ${lng.toFixed(4)}°):</b> <span class="text-slate-600 font-bold">OUTSIDE EVERY BOUNDARY</span> (No geographic modifier applies)`;
           }
+        } else if (resultEl) {
+          resultEl.innerHTML = `🎯 <b>Coordinate (${lat.toFixed(4)}°, ${lng.toFixed(4)}°):</b> <span class="text-rose-600 font-bold">NOT EVALUATED</span> (${data.code || 'the server refused to answer'})`;
         }
       } catch (e) {}
     }

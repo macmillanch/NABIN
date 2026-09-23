@@ -127,28 +127,72 @@ function fixtureSuffix() {
 // means a new guarded route is in the matrix on the next run, with no edit to this file.
 // -------------------------------------------------------------
 
-function readGuardedRoutes() {
-  const lines = fs.readFileSync(path.join(__dirname, 'src/server.js'), 'utf8').split('\n');
-  const routes = [];
-  lines.forEach((line, index) => {
-    const m = line.match(/^app\.(get|post|put|patch|delete)\('([^']+)'/);
-    if (!m) return;
-    if (!line.includes('authenticateAdmin')) return;
-    const perms = [...line.matchAll(/requirePermission\('([^']+)'\)/g)].map(x => x[1]);
-    const condPerms = Object.keys(CONDITIONAL_GATES)
-      .filter(fn => line.includes(fn)).flatMap(fn => CONDITIONAL_GATES[fn].names);
-    routes.push({
-      method: m[1].toUpperCase(),
-      pattern: m[2],
-      // Every `:param` filled with a token no record can match, so a request that
-      // reaches its handler is refused there rather than acting on real data.
-      probePath: m[2].replace(/:[A-Za-z0-9_]+/g, ABSENT),
-      perms,
-      condPerms,
-      superOnly: line.includes('requireSuperAdmin'),
-      line: index + 1
+// The statement, not the line, is what carries a route's guards: `app.post(` can
+// open with an array of paths, and its middleware chain can run onto the next
+// line. A line-based, single-quote-only parse silently ignored 35 of the 191
+// registrations in server.js — including every `/api/v1/...` alias and
+// `POST /api/driver/location`, which is exactly the shape a new geo route
+// arrives in. So the scan reads from the opener to the handler, and looks for
+// guards only in the chain before it.
+//
+// The chain, not the whole argument list: a handler's body mentions other
+// routes' permissions and other registrations wholesale, so counting guards over
+// it attributes `finance.adjust` to its predecessor's route and turns a correct
+// 403 into a reported mismatch.
+function readRegistrationStatements(src) {
+  const out = [];
+  const opener = /app\.(get|post|put|patch|delete)\(/g;
+  let m;
+  while ((m = opener.exec(src))) {
+    // Only a top-level registration, not one nested inside a handler's body.
+    if (!/^\s*$/.test(src.slice(src.lastIndexOf('\n', m.index) + 1, m.index))) continue;
+    const rest = src.slice(m.index + m[0].length);
+    const handlerAt = rest.search(/(?:async\s+)?\(\s*req\s*,\s*res\s*\)\s*=>/);
+    const nextRegistration = rest.search(/\n\s*app\./);
+    let chainLen = Math.min(handlerAt >= 0 ? handlerAt : Infinity,
+      nextRegistration >= 0 ? nextRegistration : Infinity);
+    if (!Number.isFinite(chainLen)) {
+      const nl = rest.indexOf('\n');
+      chainLen = nl >= 0 ? nl : rest.length;
+    }
+    out.push({
+      verb: m[1].toUpperCase(),
+      args: rest.slice(0, chainLen),
+      line: src.slice(0, m.index).split('\n').length
     });
-  });
+  }
+  return out;
+}
+
+// One registration can name several paths, and each is its own route in the
+// matrix, because each is a separate thing a caller can reach.
+function pathsOf(args) {
+  const head = args.split(',')[0].trim();
+  return [...head.matchAll(/['"`]([^'"`]+)['"`]/g)].map(x => x[1]);
+}
+
+function readGuardedRoutes() {
+  const src = fs.readFileSync(path.join(__dirname, 'src/server.js'), 'utf8');
+  const routes = [];
+  for (const reg of readRegistrationStatements(src)) {
+    if (!reg.args.includes('authenticateAdmin')) continue;
+    const perms = [...reg.args.matchAll(/requirePermission\('([^']+)'\)/g)].map(x => x[1]);
+    const condPerms = Object.keys(CONDITIONAL_GATES)
+      .filter(fn => reg.args.includes(fn)).flatMap(fn => CONDITIONAL_GATES[fn].names);
+    for (const pattern of pathsOf(reg.args)) {
+      routes.push({
+        method: reg.verb,
+        pattern,
+        // Every `:param` filled with a token no record can match, so a request that
+        // reaches its handler is refused there rather than acting on real data.
+        probePath: pattern.replace(/:[A-Za-z0-9_]+/g, ABSENT),
+        perms,
+        condPerms,
+        superOnly: reg.args.includes('requireSuperAdmin'),
+        line: reg.line
+      });
+    }
+  }
   return routes;
 }
 
@@ -325,19 +369,29 @@ async function main() {
   // when it is undone, and the ceiling below was the shape *before* that deletion — so the
   // count is now held at what the tree actually measures, and CAT-06 names the fault rather
   // than letting it hide inside a route tally.
-  check('CAT-04', ungated.length <= 14,
-    `admin routes with no permission check: ${ungated.length} (ceiling 14, the count after §11 answer 9's duplicate was deleted) — least-privilege debt, named in CAT-05`);
+  // The same bookkeeping as CAT-04, for the routes that carry no permission
+  // name at all. The ceiling was 14 while the parser could only see single-line,
+  // single-quoted registrations; the corrected parse found three more that had
+  // always been there and had always been ungated — `GET /api/admin/features`,
+  // its `POST /api/v1/admin/features` twin, and
+  // `GET /api/v1/fleet/locations`. Those are recorded here as debt the matrix
+  // now sees, not closed here: gating the features pair is the admin spec's
+  // feature-flag family decision, and gating the fleet alias is §14 decision 9
+  // ("who may read live driver positions?"), which no test may answer by
+  // assertion.
+  check('CAT-04', ungated.length <= 17,
+    `admin routes with no permission check: ${ungated.length} (ceiling 17, the count after the statement-level parse stopped missing array-form aliases) — least-privilege debt, named in CAT-05`);
   console.log(`   · CAT-04 detail  ${ungated.map(r => `${r.method} ${r.pattern}@${r.line}`).join('\n     ')}\n`);
 
-  const linesOfServer = fs.readFileSync(path.join(__dirname, 'src/server.js'), 'utf8').split('\n');
   const allRegistrations = new Map();
-  linesOfServer.forEach((line, index) => {
-    const m = line.match(/^app\.(get|post|put|patch|delete)\('([^']+)'/);
-    if (!m) return;
-    const key = `${m[1].toUpperCase()} ${m[2]}`;
-    if (!allRegistrations.has(key)) allRegistrations.set(key, []);
-    allRegistrations.get(key).push(index + 1);
-  });
+  const srcForCatalogue = fs.readFileSync(path.join(__dirname, 'src/server.js'), 'utf8');
+  for (const reg of readRegistrationStatements(srcForCatalogue)) {
+    for (const pattern of pathsOf(reg.args)) {
+      const key = `${reg.verb} ${pattern}`;
+      if (!allRegistrations.has(key)) allRegistrations.set(key, []);
+      allRegistrations.get(key).push(reg.line);
+    }
+  }
   const doubleRegistered = [...allRegistrations].filter(([, lns]) => lns.length > 1);
   check('CAT-06', doubleRegistered.length === 0,
     `every method+path in src/server.js is registered exactly once (${allRegistrations.size} registrations${doubleRegistered.length ? `, duplicates: ${doubleRegistered.map(([k, lns]) => `${k}@${lns.join(',')}`).join(' | ')}` : ''}) — a second one is not a second route, it is dead code Express never reaches, and the first one's projection is what leaks or holds`);

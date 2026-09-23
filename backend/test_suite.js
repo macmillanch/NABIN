@@ -308,15 +308,66 @@ async function runAllTests() {
 
     // --- 7. MODULE 5: Geo-Fencing & Dynamic Surge Zones ---
     console.log('\n--- 7. MODULE 5: Geo-Fencing & Dynamic Surge Zones ---');
+    // This create used to send no geometry at all: the route answered 200 and
+    // stored a hard-coded Delhi triangle behind the name. Now the ring is
+    // supplied, and the two-point case that follows proves a boundary is
+    // refused rather than invented.
+    const sectorRing = [
+      { lat: 28.6250, lng: 77.3600 },
+      { lat: 28.6350, lng: 77.3750 },
+      { lat: 28.6150, lng: 77.3750 }
+    ];
     const createFence = await request('POST', '/api/admin/geofences', {
       name: 'Noida IT Sector 62 Boundary',
       type: 'POLYGON',
       category: 'TECH_PARK',
+      coordinates: sectorRing,
       surcharge: 30.0,
       surgeMultiplier: 1.3,
       operatingHours: '08:00 AM - 08:00 PM'
     }, { 'Authorization': `Bearer ${superToken}` });
     assert('Admin creates geo-fence zone', createFence.status === 200 && createFence.data.geoFence.name === 'Noida IT Sector 62 Boundary');
+    assert('M5-01: Stored polygon is the ring the admin sent, vertex for vertex',
+      JSON.stringify(createFence.data.geoFence.coordinates) === JSON.stringify(sectorRing)
+    );
+
+    // M5-02: two points enclose nothing, so the write is refused with a reason
+    // code instead of quietly becoming somebody else's boundary.
+    const twoPointFence = await request('POST', '/api/admin/geofences', {
+      name: 'Two Point Non-Boundary',
+      type: 'POLYGON',
+      coordinates: [{ lat: 28.6250, lng: 77.3600 }, { lat: 28.6350, lng: 77.3750 }],
+      surcharge: 30.0,
+      surgeMultiplier: 1.3
+    }, { 'Authorization': `Bearer ${superToken}` });
+    assert('M5-02: Two-point polygon refused, nothing substituted',
+      twoPointFence.status === 400 && twoPointFence.data.code === 'GEO_GEOMETRY_INVALID'
+    );
+
+    // M5-03: a circle with no centre is refused rather than defaulted to Delhi.
+    const centrelessCircle = await request('POST', '/api/admin/geofences', {
+      name: 'Centreless Circle',
+      type: 'CIRCLE',
+      radiusMeters: 1500,
+      surcharge: 40.0,
+      surgeMultiplier: 1.4
+    }, { 'Authorization': `Bearer ${superToken}` });
+    assert('M5-03: Circle without a centre refused instead of defaulted',
+      centrelessCircle.status === 400 && centrelessCircle.data.code === 'GEO_GEOMETRY_INVALID'
+    );
+
+    // M5-04: a surge rule that names a zone the store has never heard of used to
+    // be bound to whichever fence the database returned first, so the multiplier
+    // landed on a boundary nobody chose.
+    const bogusSurge = await request('POST', '/api/admin/surgezones', {
+      zoneId: 'ZONE_THERE_IS_NO_SUCH_PLACE',
+      service: 'RIDE',
+      surgeMultiplier: 1.9,
+      maxMultiplier: 3.0
+    }, { 'Authorization': `Bearer ${superToken}` });
+    assert('M5-04: Surge rule for an unknown zone refused rather than bound at random',
+      bogusSurge.status === 400 && bogusSurge.data.code === 'GEO_ZONE_UNRESOLVED'
+    );
 
     const createSurge = await request('POST', '/api/admin/surgezones', {
       zoneName: 'Noida IT Sector 62 Boundary',
@@ -2053,10 +2104,17 @@ async function runAllTests() {
       pickupLng: 77.1500
     });
 
+    // GEO-10 (SPATIAL): Point outside all operational zones uses standard pricing.
+    // This used to assert activeZoneName === 'Standard Operational Area' — a name
+    // no boundary answers to, printed whenever matching found nothing. An outside
+    // point now says it matched nothing, and says it was actually validated.
     assert('GEO-10: Point outside operational zones uses standard pricing without geofence surcharge',
       normalEstimate.status === 200 &&
       normalEstimate.data.success &&
-      normalEstimate.data.estimate.activeZoneName === 'Standard Operational Area'
+      normalEstimate.data.estimate.activeZoneName === null &&
+      normalEstimate.data.estimate.geoValidation?.status === 'VALIDATED_OUTSIDE' &&
+      normalEstimate.data.estimate.matchedGeofence === null &&
+      normalEstimate.data.estimate.surgeMultiplier === 1.0
     );
 
     // GEO-11 (FARE): Server-side fare calculation combines base, distance, duration, surge, and fees

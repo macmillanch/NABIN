@@ -1,4 +1,34 @@
+const crypto = require('crypto');
 const { supabaseAdmin, isLivePostgres } = require('../supabase');
+const geoPolicy = require('../services/GeoPolicyService');
+
+// Two different failures used to leave this file the same way: a bare `Error`
+// whose text was the driver's own message, which the admin route then answered
+// with 400 to whoever sent it. A refusal of bad geometry and an unreachable
+// database are not the same event, so they carry their own code and status, and
+// the database's words stay in the server log where an operator can read them.
+function geoFailure(code, message, status = 400, cause = null) {
+  const err = new Error(message);
+  err.code = code;
+  err.status = status;
+  if (cause) err.cause = cause;
+  return err;
+}
+
+function geoStoreFailure(operation, cause) {
+  // A rejected unique constraint is not an outage. The distinction matters twice
+  // over: 503 tells the operator to go look at the database, and it tells the
+  // caller to retry the same request, which will fail the same way. Postgres
+  // names the condition, so it can be answered as itself.
+  if (cause?.code === '23505' || /duplicate key value violates unique constraint/i.test(String(cause?.message || ''))) {
+    console.error(`⚠️ geo_fences ${operation} refused as a duplicate: ${cause?.message || cause}`);
+    return geoFailure(geoPolicy.REASON.ZONE_CODE_TAKEN,
+      'A boundary with that zone code already exists. Nothing was changed.', 409, cause);
+  }
+  console.error(`⚠️ geo_fences ${operation} failed: ${cause?.message || cause}`);
+  return geoFailure('GEO_STORE_UNAVAILABLE',
+    `The geofencing configuration could not be ${operation}. Nothing was changed.`, 503, cause);
+}
 
 /**
  * PricingRepository
@@ -44,7 +74,10 @@ class PricingRepository {
 
     const centerLat = row.center_lat !== null && row.center_lat !== undefined ? parseFloat(row.center_lat) : (coords?.center?.lat ? parseFloat(coords.center.lat) : null);
     const centerLng = row.center_lng !== null && row.center_lng !== undefined ? parseFloat(row.center_lng) : (coords?.center?.lng ? parseFloat(coords.center.lng) : null);
-    const radiusMeters = row.radius_meters || coords?.radiusMeters || 3500;
+    // `|| 3500` used to give every boundary-less row a 3.5 km radius, which made
+    // a malformed circle behave like a real zone. A row that carries no radius
+    // has none, and the evaluation engine says so instead of guessing.
+    const radiusMeters = row.radius_meters ?? coords?.radiusMeters ?? null;
 
     return {
       id: row.id,
@@ -213,7 +246,7 @@ class PricingRepository {
       }
       const { data, error } = await q;
       if (error) {
-        throw new Error(`Failed to list geofences from PostgreSQL: ${error.message}`);
+        throw geoStoreFailure('read', error);
       }
       return (data || []).map(r => this.mapGeoFenceRowToDTO(r));
     }
@@ -231,7 +264,7 @@ class PricingRepository {
         .maybeSingle();
 
       if (error) {
-        throw new Error(`Failed to get geofence by id ${id}: ${error.message}`);
+        throw geoStoreFailure('read', error);
       }
       return this.mapGeoFenceRowToDTO(data);
     }
@@ -241,37 +274,56 @@ class PricingRepository {
 
   async createGeoFence(payload, admin = {}) {
     const adminName = admin.name || admin.username || 'SUPER_ADMIN';
-    const type = (payload.type || payload.geometryType || 'POLYGON').toUpperCase();
     const name = payload.name || payload.zoneName || 'New Operational Zone';
 
-    // Generate unique zone code if not provided
-    const baseCode = (payload.code || payload.zoneCode || ('ZONE_' + name.toUpperCase().replace(/[^A-Z0-9]/g, '_'))).slice(0, 32);
-    const zoneCode = `${baseCode}_${Date.now().toString().slice(-4)}`;
+    // This used to substitute: a polygon with fewer than three points stored a
+    // hard-coded Delhi triangle, and a circle with no centre stored a 3.5 km
+    // ring over Delhi at 1.0 surge. Two-point inputs came back HTTP 200, so the
+    // admin UI believed it had drawn a boundary that nobody asked for and that
+    // would reprice strangers. Geometry is validated, never repaired.
+    const geometry = geoPolicy.validateFenceGeometry(payload);
+    if (!geometry.ok) throw geoFailure(geometry.code, geometry.message);
 
+    const { type } = geometry.value;
     let centerLat = null;
     let centerLng = null;
     let radiusMeters = null;
-    let coordinates = payload.coordinates || [];
+    let coordinates = geometry.value.coordinates;
 
     if (type === 'CIRCLE') {
-      centerLat = payload.center?.lat !== undefined ? parseFloat(payload.center.lat) : (payload.centerLat !== undefined ? parseFloat(payload.centerLat) : 28.5562);
-      centerLng = payload.center?.lng !== undefined ? parseFloat(payload.center.lng) : (payload.centerLng !== undefined ? parseFloat(payload.centerLng) : 77.1000);
-      radiusMeters = payload.radiusMeters ? parseInt(payload.radiusMeters, 10) : 3500;
-      if (!payload.coordinates || !Array.isArray(payload.coordinates)) {
-        coordinates = { center: { lat: centerLat, lng: centerLng }, radiusMeters };
-      }
-    } else if (type === 'POLYGON') {
-      if (!Array.isArray(coordinates) || coordinates.length < 3) {
-        coordinates = [
-          { lat: 28.6250, lng: 77.3600 },
-          { lat: 28.6350, lng: 77.3750 },
-          { lat: 28.6150, lng: 77.3750 }
-        ];
-      }
+      centerLat = geometry.value.center.lat;
+      centerLng = geometry.value.center.lng;
+      radiusMeters = geometry.value.radiusMeters;
+      coordinates = { center: { lat: centerLat, lng: centerLng }, radiusMeters };
     }
 
-    const surchargeAmount = Number(payload.surcharge !== undefined ? payload.surcharge : (payload.surchargeAmount || 0));
-    const surgeMultiplier = Number(payload.surgeMultiplier || 1.0);
+    // A zone code the operator names is the zone code they get, or they are told
+    // why not. It used to be a *prefix*: whatever was submitted was truncated and
+    // had a suffix appended, so a fence created as `AIRPORT_3` was stored under
+    // something else and reported as a success — the same substitution Phase 8
+    // removed for geometry, in the identifier column.
+    //
+    // When no code is given, uniqueness has to come from somewhere, and a clock
+    // will not do: the derived code truncates the name, so two boundaries whose
+    // names differ near the end collapse to one base, and four digits of
+    // millisecond then let two inserts in the same tick collide on
+    // `geo_fences_zone_code_key`. Measured, and reported as a 503 store failure,
+    // which is a duplicate being described as an outage.
+    //
+    // `varchar(40)` is the budget. 30 characters of name, `_`, 8 hex is 39.
+    const explicitCode = payload.code || payload.zoneCode;
+    if (explicitCode !== undefined && explicitCode !== null && String(explicitCode).trim() === '') {
+      throw geoFailure(geoPolicy.REASON.ZONE_CODE_INVALID, 'A zone code cannot be blank.', 400);
+    }
+    if (explicitCode !== undefined && explicitCode !== null && String(explicitCode).length > 40) {
+      throw geoFailure(geoPolicy.REASON.ZONE_CODE_INVALID, 'A zone code must be at most 40 characters.', 400);
+    }
+    const zoneCode = explicitCode !== undefined && explicitCode !== null
+      ? String(explicitCode)
+      : `${('ZONE_' + name.toUpperCase().replace(/[^A-Z0-9]/g, '_')).slice(0, 30)}_${crypto.randomUUID().split('-')[0]}`;
+
+    const surchargeAmount = Number(geometry.value.surcharge ?? 0);
+    const surgeMultiplier = Number(geometry.value.surgeMultiplier ?? 1.0);
     const category = payload.category || 'HIGH_DEMAND';
     const allowedServices = payload.allowedServices || ['RIDE', 'PARCEL', 'FOOD'];
     const allowedVehicles = payload.allowedVehicles || ['2W', '3W', '4W'];
@@ -309,7 +361,7 @@ class PricingRepository {
         .single();
 
       if (error) {
-        throw new Error(`Failed to create geofence in PostgreSQL: ${error.message}`);
+        throw geoStoreFailure('created', error);
       }
 
       createdRecord = this.mapGeoFenceRowToDTO(data);
@@ -332,8 +384,11 @@ class PricingRepository {
         surcharge: surchargeAmount,
         surchargeAmount,
         surgeMultiplier,
-        status: 'ACTIVE',
-        isActive: true,
+        // The PostgreSQL branch above derives this from the payload; hard-coding
+        // 'ACTIVE' here meant a zone an operator asked to create inactive priced
+        // in memory mode, which is the one mode where this object is the store.
+        status: payload.status === 'INACTIVE' || payload.isActive === false ? 'INACTIVE' : 'ACTIVE',
+        isActive: !(payload.status === 'INACTIVE' || payload.isActive === false),
         allowedServices,
         allowedVehicles,
         operatingHours,
@@ -354,6 +409,13 @@ class PricingRepository {
       }
     }
 
+    // Read the copy back rather than trusting the hand-built one. The splice and
+    // unshift above keep this process roughly in step, but "roughly" is what lets
+    // a DTO shape drift from the hydrated one, and the quote answered by this
+    // array is a priced ride. Cheap here, and this is the admin write path, not
+    // the booking path.
+    if (this.db?.geoStoreChanged) await this.db.geoStoreChanged('geofence.create');
+
     return createdRecord;
   }
 
@@ -369,7 +431,7 @@ class PricingRepository {
         .maybeSingle();
 
       if (getErr) {
-        throw new Error(`Failed to find geofence ${id}: ${getErr.message}`);
+        throw geoStoreFailure('read', getErr);
       }
 
       if (!existing) {
@@ -382,7 +444,7 @@ class PricingRepository {
         .eq('id', existing.id);
 
       if (delErr) {
-        throw new Error(`Failed to delete geofence from PostgreSQL: ${delErr.message}`);
+        throw geoStoreFailure('deleted', delErr);
       }
 
       deleted = this.mapGeoFenceRowToDTO(existing);
@@ -401,6 +463,10 @@ class PricingRepository {
       }
     }
 
+    // A fence the store still believes in after it has been deleted would keep
+    // surcharging riders for a boundary nobody drew any more.
+    if (deleted && this.db?.geoStoreChanged) await this.db.geoStoreChanged('geofence.delete');
+
     return deleted;
   }
 
@@ -416,7 +482,7 @@ class PricingRepository {
       }
       const { data, error } = await q;
       if (error) {
-        throw new Error(`Failed to list surge zones from PostgreSQL: ${error.message}`);
+        throw geoStoreFailure('read', error);
       }
       return (data || []).map(r => this.mapSurgeZoneRowToDTO(r));
     }
@@ -430,10 +496,10 @@ class PricingRepository {
     const maxMultiplier = Number(payload.maxMultiplier || Math.max(3.0, surgeMultiplier));
 
     if (surgeMultiplier < 1.0) {
-      throw new Error('surgeMultiplier must be >= 1.00');
+      throw geoFailure(geoPolicy.REASON.MULTIPLIER_INVALID, 'Surge multiplier must be at least 1.00.');
     }
     if (surgeMultiplier > maxMultiplier) {
-      throw new Error('surgeMultiplier cannot exceed maxMultiplier');
+      throw geoFailure(geoPolicy.REASON.MULTIPLIER_INVALID, 'Surge multiplier cannot exceed its own maximum.');
     }
 
     let resolvedZoneUuid = null;
@@ -448,29 +514,24 @@ class PricingRepository {
           resolvedZoneUuid = payload.zoneId;
         } else {
           // Look up in geo_fences table
-          const { data: matchedFence } = await supabaseAdmin
+          const { data: matchedFence, error: matchErr } = await supabaseAdmin
             .from('geo_fences')
             .select('id, zone_name')
             .or(`zone_code.eq.${payload.zoneId},zone_name.ilike.%${payload.zoneId}%`)
             .maybeSingle();
 
+          if (matchErr) throw geoStoreFailure('read', matchErr);
           if (matchedFence) {
             resolvedZoneUuid = matchedFence.id;
             zoneName = matchedFence.zone_name;
+          } else {
+            // An unresolvable zone used to fall through to "bind this rule to
+            // whichever fence the database returns first", which put a surge
+            // multiplier on a boundary nobody chose. A rule that names a zone
+            // must mean that zone or it means nothing.
+            throw geoFailure(geoPolicy.REASON.ZONE_UNRESOLVED,
+              `No geofence matches zone ${payload.zoneId}, so no surge rule was bound.`);
           }
-        }
-      }
-
-      // If still no zone UUID, fallback to first available geofence
-      if (!resolvedZoneUuid) {
-        const { data: anyFence } = await supabaseAdmin
-          .from('geo_fences')
-          .select('id, zone_name')
-          .limit(1)
-          .maybeSingle();
-        if (anyFence) {
-          resolvedZoneUuid = anyFence.id;
-          if (!payload.zoneName) zoneName = anyFence.zone_name;
         }
       }
 
@@ -498,7 +559,14 @@ class PricingRepository {
         .single();
 
       if (error) {
-        throw new Error(`Failed to create surge zone in PostgreSQL: ${error.message}`);
+        // 23503 is the zone_id foreign key refusing the row: the rule named a
+        // boundary that does not exist. That is the operator's typo, not an
+        // outage, and it must not read as one.
+        if (error.code === '23503') {
+          throw geoFailure(geoPolicy.REASON.ZONE_UNRESOLVED,
+            `No geofence matches zone ${payload.zoneId}, so no surge rule was bound.`);
+        }
+        throw geoStoreFailure('created', error);
       }
 
       const createdDTO = this.mapSurgeZoneRowToDTO(data);
@@ -508,12 +576,17 @@ class PricingRepository {
         this.db.surgeZones.unshift(createdDTO);
       }
 
+      // A rule that is in the table but not in this process is a surge nobody
+      // can see coming; one in this process but not the table is a surge that
+      // disappears on restart. Reading back settles both.
+      if (this.db?.geoStoreChanged) await this.db.geoStoreChanged('surge.create');
+
       return createdDTO;
     } else {
       // Non-live in-memory fallback
       const surge = {
         id: `surge_${Date.now()}`,
-        zoneId: payload.zoneId || 'zone_connaught',
+        zoneId: payload.zoneId || null,
         zoneName,
         service: payload.service || 'RIDE',
         vehicleType: payload.vehicleType || 'ALL',
@@ -522,7 +595,9 @@ class PricingRepository {
         startTime: payload.startTime || '17:00',
         endTime: payload.endTime || '21:00',
         priority: payload.priority || 'HIGH',
-        status: 'ACTIVE',
+        // Same reason as the geofence branch: this object is the store in memory
+        // mode, so a status the caller did not ask for is a status that applies.
+        status: payload.status || 'ACTIVE',
         reason: payload.reason || 'Peak hour surge deployment',
         createdBy: adminName,
         createdAt: new Date().toISOString(),

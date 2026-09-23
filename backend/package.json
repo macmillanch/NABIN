@@ -7,7 +7,7 @@
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "db:migrate": "node scripts/migrate.js",
-    "test": "node test_suite.js && node restart_test.js",
+    "test": "node test_suite.js && node geo_policy_test.js && node geo_adversarial_test.js && node restart_test.js",
     "smoke": "node smoke_test.js"
   },
   "dependencies": {
