@@ -115,6 +115,14 @@ async function runAllTests() {
   // Sign-in happens before the containment assertions run, so "written by this run"
   // needs a timestamp from before the first request rather than from where it is read.
   const runStartedAt = Date.now();
+  // Measured, not assumed: one run of this suite left 2 boundaries and 2 surge
+  // rules behind in PostgreSQL, because GEO-13 below tears down one of the four
+  // boundaries it creates and no route deletes a surge rule at all. Every
+  // geographic fixture records its own id here so the teardown can be by
+  // recorded id rather than by name — a seeded row shares the name
+  // 'Noida IT Sector 62 Boundary' with this run's row, and a by-name delete
+  // would take an operator's boundary down with it.
+  const geoRun = { fences: [], rules: [], baseline: null, adminToken: null };
   console.log('========================================================================');
   console.log('🚀 RUNNING NABIN FULL-PLATFORM QA TEST SUITE — 5 REQUIRED ADMIN MODULES');
   console.log('========================================================================\n');
@@ -308,6 +316,19 @@ async function runAllTests() {
 
     // --- 7. MODULE 5: Geo-Fencing & Dynamic Surge Zones ---
     console.log('\n--- 7. MODULE 5: Geo-Fencing & Dynamic Surge Zones ---');
+    // The census is taken immediately before this run's first geographic write,
+    // so the teardown can prove the store is back where it started rather than
+    // merely that something was deleted. `head: true` asks for a count only, and
+    // PostgREST computes it before applying the row cap, so 447 rows count the
+    // same as 4,470 would.
+    if (isLivePostgres && supabaseAdmin) {
+      const { count: fencesBefore } = await supabaseAdmin
+        .from('geo_fences').select('id', { count: 'exact', head: true });
+      const { count: rulesBefore } = await supabaseAdmin
+        .from('surge_zones').select('id', { count: 'exact', head: true });
+      geoRun.baseline = { fences: fencesBefore, rules: rulesBefore };
+    }
+    geoRun.adminToken = superToken;
     // This create used to send no geometry at all: the route answered 200 and
     // stored a hard-coded Delhi triangle behind the name. Now the ring is
     // supplied, and the two-point case that follows proves a boundary is
@@ -330,6 +351,7 @@ async function runAllTests() {
     assert('M5-01: Stored polygon is the ring the admin sent, vertex for vertex',
       JSON.stringify(createFence.data.geoFence.coordinates) === JSON.stringify(sectorRing)
     );
+    geoRun.fences.push(createFence.data?.geoFence?.id);
 
     // M5-02: two points enclose nothing, so the write is refused with a reason
     // code instead of quietly becoming somebody else's boundary.
@@ -377,6 +399,7 @@ async function runAllTests() {
       reason: 'Monsoon rain heavy demand'
     }, { 'Authorization': `Bearer ${superToken}` });
     assert('Admin deploys dynamic surge multiplier rule (1.5x)', createSurge.status === 200 && createSurge.data.surgeZone.surgeMultiplier === 1.5);
+    geoRun.rules.push(createSurge.data?.surgeZone?.id);
 
     // Pricing calculation incorporates dynamic surge
     const pricingRes = await request('POST', '/api/pricing/estimate', {
@@ -2006,6 +2029,7 @@ async function runAllTests() {
       createCircleRes.data.geoFence.type === 'CIRCLE'
     );
     const circleFenceId = createCircleRes.data.geoFence.id;
+    geoRun.fences.push(circleFenceId);
 
     // GEO-06 (PERSIST): Polygon geofence creation persists to PostgreSQL
     const polyFenceCode = `ZONE_POLY_${fixtureSuffix()}`;
@@ -2030,6 +2054,10 @@ async function runAllTests() {
       createPolyRes.data.geoFence.type === 'POLYGON'
     );
     const polyFenceId = createPolyRes.data.geoFence.id;
+    // GEO-13 below deletes this one, which is exactly why it is registered: if
+    // that delete ever stops working the fixture still gets reaped, and the
+    // teardown reports a 404 rather than leaving the row in the store.
+    geoRun.fences.push(polyFenceId);
 
     // GEO-07 (PERSIST): Pricing configuration update persists to PostgreSQL
     const updatePricingRes = await request('POST', '/api/admin/pricing', {
@@ -2076,6 +2104,7 @@ async function runAllTests() {
       createSurgeRes.data.surgeZone.id &&
       createSurgeRes.data.surgeZone.surgeMultiplier === 1.45
     );
+    geoRun.rules.push(createSurgeRes.data?.surgeZone?.id);
 
     // GEO-09 (SPATIAL): Point inside applicable circle triggers expected surcharge & multiplier
     // Coordinates inside IGI Airport Terminal 3: lat 28.5562, lng 77.1000 (surcharge ₹150)
@@ -4864,6 +4893,36 @@ async function runAllTests() {
   } catch (err) {
     console.error('Fatal Test Suite Exception:', err);
     failed++;
+  }
+
+  // Teardown, in the one place that runs whether the suite finished or threw: a
+  // fixture this suite created must not survive it, because these tables are the
+  // ones the pricing engine reads. Rules go direct to the store — no admin route
+  // deletes a surge rule, a gap recorded in docs/GEOFENCING_SECURITY_AUDIT.md —
+  // and boundaries go through the real route so each removal is audited and the
+  // pricing cache rehydrates the way an operator's delete makes it.
+  if (isLivePostgres && supabaseAdmin && geoRun.baseline) {
+    const ruleIds = geoRun.rules.filter(Boolean);
+    if (ruleIds.length) {
+      await supabaseAdmin.from('surge_zones').delete().in('id', ruleIds);
+    }
+    const deleteStatuses = [];
+    for (const fenceId of geoRun.fences.filter(Boolean)) {
+      const res = await request('DELETE', `/api/admin/geofences/${fenceId}`, null, {
+        'Authorization': `Bearer ${geoRun.adminToken}`
+      });
+      deleteStatuses.push(res.status);
+    }
+    const { count: fencesAfter } = await supabaseAdmin
+      .from('geo_fences').select('id', { count: 'exact', head: true });
+    const { count: rulesAfter } = await supabaseAdmin
+      .from('surge_zones').select('id', { count: 'exact', head: true });
+    assert('GEO-TEARDOWN: the boundaries and rules this run created are gone, store back to baseline',
+      deleteStatuses.every(s => s === 200 || s === 404) &&
+      fencesAfter === geoRun.baseline.fences && rulesAfter === geoRun.baseline.rules,
+      `fences ${geoRun.baseline.fences} → ${fencesAfter}, rules ${geoRun.baseline.rules} → ${rulesAfter}, ` +
+      `reaped ${geoRun.fences.filter(Boolean).length} boundary id(s) (${deleteStatuses.join('/') || 'none'}) ` +
+      `and ${ruleIds.length} rule id(s)`);
   }
 
   console.log('\n========================================================================');

@@ -490,9 +490,48 @@ async function groupC(adminHeaders) {
   child.kill('SIGKILL');
   hang.close();
   check('FI-09', becameReady === false,
-    'DB timeout (accepts, never answers) → the process does not open its port within 6s, so no ' +
-    'quote is served from a geography it has not read. Recorded risk: there is no timeout on the ' +
-    'boot read, so an unresponsive store delays start rather than failing fast');
+    'whole store (accepts, never answers) → the process does not open its port within 6s. What this ' +
+    'proves and what it does not: `initPostgres` reads the identity mirrors first, so a store that ' +
+    'answers nothing blocks there, before geography is read at all, and that is deliberate — a boot ' +
+    'that served without the administrator and customer tables would authenticate nobody. What it does ' +
+    'NOT prove is the geography read itself: `hydrateGeoStore` now bounds that read at ' +
+    'GEO_READ_TIMEOUT_MS and marks the store UNREADABLE when the bound expires, so a store that ' +
+    'answers everything except geography starts and refuses to price. That path is measured in ' +
+    'boot_mirror_read_test.js BM-13…BM-17 (delayed inside budget, never answers, abandoned read, ' +
+    'refusal, truncation), not here.');
+
+  // The two ways a fence can be named, and the answer when it is named badly.
+  const codeForProbe = `GEOADV_${Date.now().toString(36).toUpperCase()}`;
+  const namedByCode = await request('POST', BASE, '/api/admin/geofences', {
+    name: `GeoAdv Code-Named ${unique()}`, code: codeForProbe, type: 'POLYGON',
+    coordinates: [{ lat: 28.6, lng: 77.2 }, { lat: 28.7, lng: 77.3 }, { lat: 28.6, lng: 77.4 }],
+    surcharge: 7, surgeMultiplier: 1.1
+  }, adminHeaders);
+  const codeName = namedByCode.data?.geoFence?.code || null;
+  const uuidName = fenceIdOf(namedByCode);
+  const deleteByCode = await request('DELETE', BASE, `/api/admin/geofences/${codeName}`, null, adminHeaders);
+  check('FI-11', namedByCode.status === 200 && Boolean(codeName) && deleteByCode.status === 200 &&
+    deleteByCode.data?.deleted?.id === uuidName,
+    `a fence addressed by the zone code the console shows answers ${deleteByCode.status} ` +
+    `${deleteByCode.data?.code || 'deleted'} (was 503: the uuid/code alternative filter asked Postgres to ` +
+    `cast "${String(codeName).slice(0, 20)}" as a uuid, so the code branch of its own filter was unreachable)`);
+
+  const bogus = [];
+  for (const raw of ['not-a-uuid', '12345', 'x%27%20or%20%271%27=%271']) {
+    bogus.push(await request('DELETE', BASE, `/api/admin/geofences/${raw}`, null, adminHeaders));
+  }
+  const afterBogus = (await request('GET', BASE, '/api/admin/geofences', null, adminHeaders)).data.inventory;
+  check('FI-12', bogus.every(r => r.status === 404 && r.data?.code === 'GEO_FENCE_NOT_FOUND') &&
+    bogus.every(r => r.status !== 503),
+    `three shapes that name no fence → ${bogus.map(r => r.status).join('/')} GEO_FENCE_NOT_FOUND, none of them ` +
+    `GEO_STORE_UNAVAILABLE: an id nobody typed correctly is a bad request, not an outage the operator ` +
+    `should be paged about and not a reason to retry (the store still holds ${afterBogus.fenceCount} fences)`);
+
+  const priced = await quote('RIDE', { pickupLat: OUTSIDE.lat, pickupLng: OUTSIDE.lng });
+  check('FI-13', priced.status === 200 && engineVerdict(priced).matched === false,
+    `and the bystander is untouched: after ${bogus.length} refused deletes this process still prices ` +
+    `₹${engineVerdict(priced).charge} from a geography it read (${priced.data?.estimate?.geoValidation?.status}), ` +
+    'because a malformed id never reached the cache and cannot poison it');
 }
 
 // ---------------------------------------------------------------------------

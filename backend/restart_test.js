@@ -93,6 +93,12 @@ async function ensureServerRunning() {
 }
 
 async function runRestartTest() {
+  // The boundary and the rule below are created to survive a cold start, and
+  // until now nothing ever removed them: one run left 1 `geo_fences` row and 1
+  // `surge_zones` row behind, permanently. They are recorded by the id the store
+  // answered with, and reaped after the report runs, so a restart that
+  // successfully persisted a boundary also successfully cleans it up.
+  const geoRun = { fences: [], rules: [], baseline: null, token: null };
   console.log('========================================================================');
   console.log('🔄 RUNNING NABIN MANDATORY BACKEND PERSISTENCE & RESTART TEST');
   console.log('========================================================================\n');
@@ -239,6 +245,20 @@ async function runRestartTest() {
     }, { 'Authorization': `Bearer ${adminToken}` });
     assert('Custom 2W pricing configured before restart (baseFare = 28.0)', preRestartPricing.status === 200 && preRestartPricing.data.pricingConfig['2W'].baseFare === 28.0);
 
+    // Counted immediately before this run's first geographic write so the
+    // teardown can prove it returned the store to that mark. PostgREST computes
+    // `count` before the row cap, so a head-only count is a true total.
+    if (isLivePostgres && supabaseAdmin) {
+      const { count: fencesBefore } = await supabaseAdmin
+        .from('geo_fences').select('id', { count: 'exact', head: true });
+      const { count: rulesBefore } = await supabaseAdmin
+        .from('surge_zones').select('id', { count: 'exact', head: true });
+      geoRun.baseline = { fences: fencesBefore, rules: rulesBefore };
+    }
+    // Either token addresses the delete: sessions are durable, which is the very
+    // property this file exists to prove.
+    geoRun.token = adminToken;
+
     const restartFenceCode = `ZONE_RST_${Date.now().toString().slice(-4)}`;
     const preRestartFence = await request('POST', '/api/admin/geofences', {
       name: 'Restart Test Aero City Zone',
@@ -252,6 +272,7 @@ async function runRestartTest() {
     }, { 'Authorization': `Bearer ${adminToken}` });
     assert('Geofence created before restart', preRestartFence.status === 200 && preRestartFence.data.geoFence.id);
     const restartFenceId = preRestartFence.data.geoFence.id;
+    geoRun.fences.push(restartFenceId);
 
     const preRestartSurge = await request('POST', '/api/admin/surgezones', {
       zoneId: restartFenceId,
@@ -261,6 +282,7 @@ async function runRestartTest() {
       maxMultiplier: 2.5
     }, { 'Authorization': `Bearer ${adminToken}` });
     assert('Surge zone created before restart', preRestartSurge.status === 200 && preRestartSurge.data.surgeZone.id);
+    geoRun.rules.push(preRestartSurge.data?.surgeZone?.id);
 
     console.log('\n--- 🛑 SIMULATING BACKEND TERMINATION & RESTART ---');
     // 6d. Publish an advertisement campaign before the restart so persistence is
@@ -323,6 +345,7 @@ async function runRestartTest() {
     // 8. Re-authenticate
     const postAdminLogin = await request('POST', '/api/admin/login', { username: 'superadmin', password: 'AdminPassword123!' });
     const postAdminToken = postAdminLogin.data.token;
+    geoRun.token = postAdminToken;
 
     // 9. Verify completed job STILL EXISTS after restart
     const postJobsRes = await request('GET', '/api/admin/jobs', null, { 'Authorization': `Bearer ${postAdminToken}` });
@@ -450,6 +473,33 @@ async function runRestartTest() {
   } catch (err) {
     console.error('Fatal Restart Test Exception:', err);
     failed++;
+  }
+
+  // Teardown, after the report so it runs even when a check threw: the boundary
+  // proved it survives a cold start, so it can be removed the same way an
+  // operator removes one. The rule goes direct to the store because no admin
+  // route deletes a surge rule — a gap recorded in the geofencing audit doc.
+  if (isLivePostgres && supabaseAdmin && geoRun.baseline) {
+    const ruleIds = geoRun.rules.filter(Boolean);
+    if (ruleIds.length) {
+      await supabaseAdmin.from('surge_zones').delete().in('id', ruleIds);
+    }
+    const deleteStatuses = [];
+    for (const fenceId of geoRun.fences.filter(Boolean)) {
+      const res = await request('DELETE', `/api/admin/geofences/${fenceId}`, null, {
+        'Authorization': `Bearer ${geoRun.token}`
+      });
+      deleteStatuses.push(res.status);
+    }
+    const { count: fencesAfter } = await supabaseAdmin
+      .from('geo_fences').select('id', { count: 'exact', head: true });
+    const { count: rulesAfter } = await supabaseAdmin
+      .from('surge_zones').select('id', { count: 'exact', head: true });
+    assert('GEO-TEARDOWN: the restart fixtures are gone and the store is back to its baseline',
+      deleteStatuses.every(s => s === 200) &&
+      fencesAfter === geoRun.baseline.fences && rulesAfter === geoRun.baseline.rules,
+      `fences ${geoRun.baseline.fences} → ${fencesAfter}, rules ${geoRun.baseline.rules} → ${rulesAfter}, ` +
+      `deletes ${deleteStatuses.join('/') || 'none'}`);
   }
 
   console.log('\n========================================================================');

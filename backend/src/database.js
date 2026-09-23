@@ -19,6 +19,10 @@ const { allowsTestConvenience } = require('./services/RuntimeMode');
 const geoPolicy = require('./services/GeoPolicyService');
 const GEO_STORE_STATE = geoPolicy.STORE_STATE;
 
+// How long boot may spend on geography before it serves without it. See
+// `hydrateGeoStore`, where the trade this number makes is written out.
+const GEO_READ_TIMEOUT_MS = 10000;
+
 // -------------------------------------------------------------
 // CUSTOMER ACCOUNT SURFACE (admin area 4)
 // -------------------------------------------------------------
@@ -1667,7 +1671,9 @@ class NabinDatabase {
       console.log('⚡ Synchronizing authoritative PostgreSQL state...');
 
       // 1. Hydrate Users
-      const { data: dbUsers, error: uErr } = await supabaseAdmin.from('users').select('*');
+      const userRead = await this.readAllRows(supabaseAdmin, { table: 'users' });
+      const dbUsers = userRead.rows;
+      const uErr = userRead.complete ? null : new Error(userRead.error);
       if (!uErr && dbUsers && dbUsers.length > 0) {
         for (const row of dbUsers) {
           let legacyId = null;
@@ -1700,7 +1706,9 @@ class NabinDatabase {
       }
 
       // 2. Hydrate Drivers
-      const { data: dbDrivers, error: dErr } = await supabaseAdmin.from('drivers').select('*');
+      const driverRead = await this.readAllRows(supabaseAdmin, { table: 'drivers' });
+      const dbDrivers = driverRead.rows;
+      const dErr = driverRead.complete ? null : new Error(driverRead.error);
       if (!dErr && dbDrivers && dbDrivers.length > 0) {
         for (const row of dbDrivers) {
           let legacyId = null;
@@ -1855,9 +1863,9 @@ class NabinDatabase {
       }
 
       // 5. Hydrate Admin Accounts from PostgreSQL
-      const { data: dbAdmins, error: admErr } = await supabaseAdmin
-        .from('admin_accounts')
-        .select('*');
+      const adminRead = await this.readAllRows(supabaseAdmin, { table: 'admin_accounts' });
+      const dbAdmins = adminRead.rows;
+      const admErr = adminRead.complete ? null : new Error(adminRead.error);
 
       if (!admErr && dbAdmins && dbAdmins.length > 0) {
         const { grantsForRole } = require('./adminPermissions');
@@ -1951,10 +1959,9 @@ class NabinDatabase {
       }
 
       // 8. Hydrate Promotions from PostgreSQL
-      const { data: dbPromos, error: pErr } = await supabaseAdmin
-        .from('promotions')
-        .select('*')
-        .order('created_at', { ascending: false });
+      const promoRead = await this.readAllRows(supabaseAdmin, { table: 'promotions', orderDesc: 'created_at' });
+      const dbPromos = promoRead.rows;
+      const pErr = promoRead.complete ? null : new Error(promoRead.error);
 
       if (!pErr && dbPromos && dbPromos.length > 0) {
         for (const row of dbPromos) {
@@ -1996,7 +2003,17 @@ class NabinDatabase {
       // 10 and 11. Hydrate the geographic store from PostgreSQL.
       await this.hydrateGeoStore('boot');
 
-      console.log(`✅ Authoritative PostgreSQL state synchronized (${this.users.length} users, ${this.drivers.length} drivers, ${this.jobs.length} jobs, ${this.ledgerEntries.length} ledger entries, ${this.adminUsers.length} admin accounts, ${this.supportTickets.length} support tickets, ${this.auditLogs.length} audit logs, ${this.promotions.length} promotions, ${Object.keys(this.pricingConfig).length} pricing configs, ${this.geoFences.length} geofences, ${this.surgeZones.length} surge zones).`);
+      // A mirror that could not be read completely is not a smaller mirror, it is a
+      // wrong one, and the counts below would otherwise be presented as the size of
+      // the store. Name the tables that failed instead.
+      const partialMirrors = [['users', userRead], ['drivers', driverRead], ['admin_accounts', adminRead], ['promotions', promoRead]]
+        .filter(([, read]) => read && !read.complete)
+        .map(([name, read]) => `${name}: ${read.error}`);
+      const geoStateNote = this.geoStore.fences === GEO_STORE_STATE.UNREADABLE || this.geoStore.rules === GEO_STORE_STATE.UNREADABLE
+        ? ' geography=UNREADABLE'
+        : '';
+
+      console.log(`✅ Authoritative PostgreSQL state synchronized (${this.users.length} users, ${this.drivers.length} drivers, ${this.jobs.length} jobs, ${this.ledgerEntries.length} ledger entries, ${this.adminUsers.length} admin accounts, ${this.supportTickets.length} support tickets, ${this.auditLogs.length} audit logs, ${this.promotions.length} promotions, ${Object.keys(this.pricingConfig).length} pricing configs, ${this.geoFences.length} geofences, ${this.surgeZones.length} surge zones)${geoStateNote}.${partialMirrors.length ? ` ⚠️ INCOMPLETE MIRROR(S), the counts above are a page not the store: ${partialMirrors.join(' | ')}` : ''}`);
 
       await this.restoreServiceState();
     } catch (err) {
@@ -2286,7 +2303,17 @@ class NabinDatabase {
   // serviceable, because a cache that keeps pricing while the store cannot be
   // read has become the thing it was copied from. This never throws — a caller
   // that has already committed its write must not be told it failed.
-  async hydrateGeoStore(reason = 'read') {
+  // Two bounds, because the store can fail this read in two different ways.
+  //
+  // `timeoutMs` bounds how long the platform is willing to wait: the read is on the
+  // boot path before `listen()`, so an unbounded wait is an unbootable server.
+  //
+  // `readAllRows` bounds what the platform is willing to believe: `max_rows = 1000`
+  // truncates silently, and a truncated geography published as `VALIDATED` is worse
+  // than none — the ray-cast then answers "no fence here" about a fence it never
+  // read, so a surcharged zone quotes at 1.0x. An incomplete walk therefore lands on
+  // UNREADABLE, which is the state that refuses to price.
+  async hydrateGeoStore(reason = 'read', { timeoutMs = GEO_READ_TIMEOUT_MS } = {}) {
     const { isLivePostgres, supabaseAdmin } = require('./supabase');
     if (!isLivePostgres || !supabaseAdmin) {
       // Memory mode has no copy to refresh: the arrays are the store.
@@ -2297,10 +2324,23 @@ class NabinDatabase {
       return { refreshed: false, source: 'memory' };
     }
 
-    const { data: dbFences, error: gfErr } = await supabaseAdmin
-      .from('geo_fences')
-      .select('*')
-      .order('created_at', { ascending: false });
+    let fenceRead = null;
+    let surgeRead = null;
+    try {
+      const pair = await NabinDatabase.withDeadline((async () => ({
+        fenceRead: await this.readAllRows(supabaseAdmin, { table: 'geo_fences', orderDesc: 'created_at' }),
+        surgeRead: await this.readAllRows(supabaseAdmin, { table: 'surge_zones', orderDesc: 'created_at' }),
+      }))(), timeoutMs, 'the geographic policy read');
+      fenceRead = pair.fenceRead;
+      surgeRead = pair.surgeRead;
+    } catch (err) {
+      this.geoStore.fences = GEO_STORE_STATE.UNREADABLE;
+      this.geoStore.rules = GEO_STORE_STATE.UNREADABLE;
+      this.geoStore.source = 'postgres';
+      this.geoStore.readAt = new Date().toISOString();
+      console.error(`⚠️ Geography was not read within ${timeoutMs}ms (${reason}): ${err.message}; geographic pricing is unavailable until it can be.`);
+      return { refreshed: false, timedOut: true, source: 'postgres' };
+    }
 
     // A successful read replaces the seeds unconditionally, including with an
     // empty result: `VALIDATED_EMPTY` is a fact about the store, while
@@ -2308,34 +2348,31 @@ class NabinDatabase {
     // because the previous `if (!err && rows.length)` guard made a read that
     // returned nothing indistinguishable from a read that never happened — and
     // in both cases the compiled-in Delhi fences kept answering.
-    if (gfErr) {
-      this.geoStore.fences = GEO_STORE_STATE.UNREADABLE;
-      console.error(`⚠️ geo_fences could not be read (${reason}); geographic pricing is unavailable until it can be.`);
-    } else {
-      this.geoFences = (dbFences || []).map(r => this.pricingRepo.mapGeoFenceRowToDTO(r));
+    if (fenceRead.complete) {
+      this.geoFences = fenceRead.rows.map(r => this.pricingRepo.mapGeoFenceRowToDTO(r));
       this.geoStore.fences = this.geoFences.length ? GEO_STORE_STATE.VALIDATED : GEO_STORE_STATE.VALIDATED_EMPTY;
+    } else {
+      this.geoStore.fences = GEO_STORE_STATE.UNREADABLE;
+      console.error(`⚠️ geo_fences could not be read completely (${reason}); geographic pricing is unavailable until it can be.`);
     }
 
-    const { data: dbSurge, error: szErr } = await supabaseAdmin
-      .from('surge_zones')
-      .select('*')
-      .order('created_at', { ascending: false });
-
-    if (szErr) {
-      this.geoStore.rules = GEO_STORE_STATE.UNREADABLE;
-      console.error(`⚠️ surge_zones could not be read (${reason}); geographic pricing is unavailable until they can be.`);
-    } else {
-      this.surgeZones = (dbSurge || []).map(r => this.pricingRepo.mapSurgeZoneRowToDTO(r));
+    if (surgeRead.complete) {
+      this.surgeZones = surgeRead.rows.map(r => this.pricingRepo.mapSurgeZoneRowToDTO(r));
       this.geoStore.rules = this.surgeZones.length ? GEO_STORE_STATE.VALIDATED : GEO_STORE_STATE.VALIDATED_EMPTY;
+    } else {
+      this.geoStore.rules = GEO_STORE_STATE.UNREADABLE;
+      console.error(`⚠️ surge_zones could not be read completely (${reason}); geographic pricing is unavailable until it can be.`);
     }
 
     this.geoStore.source = 'postgres';
     this.geoStore.readAt = new Date().toISOString();
     return {
-      refreshed: !gfErr && !szErr,
+      refreshed: fenceRead.complete && surgeRead.complete,
       source: 'postgres',
       fences: this.geoFences.length,
-      rules: this.surgeZones.length
+      rules: this.surgeZones.length,
+      fencePages: fenceRead.pages,
+      rulePages: surgeRead.pages
     };
   }
 
@@ -5827,6 +5864,129 @@ class NabinDatabase {
       .delete()
       .eq('token_hash', this.hashSessionToken(token));
     if (error) console.error('⚠️ Could not revoke session:', error.message);
+  }
+
+  // Read a whole table, past the row cap.
+  //
+  // `supabase/config.toml` sets `[api] max_rows = 1000`, and PostgREST enforces it by
+  // answering with the first 1000 rows and nothing else — no error, no notice, no
+  // header. So a plain `.select('*')` of a table that has outgrown the cap returns a
+  // set that looks complete, and any caller that publishes it as authoritative is
+  // publishing a page. `hydrateSessions` was fixed one table at a time for exactly
+  // this reason; this is the same walk for the boot mirrors, which have the same
+  // complete-set requirement and the same silent failure mode.
+  //
+  // The cursor is `id`, which is the primary key on every table read here: unique,
+  // not null, and never rewritten, so a page boundary cannot skip or repeat a row
+  // while writers are active. `orderDesc` is re-applied in memory over the assembled
+  // set, because the walk's own `id` order is what makes the cursor valid and must
+  // not become the order a consumer sees.
+  //
+  // A page that came back short is the walk's normal ending, and it is still an
+  // assumption: it only means "finished" while `pageSize` sits under `max_rows`. So
+  // the first page also asks for `count: 'exact'`, which PostgREST computes before
+  // the cap is applied, and the assembled set is compared against it. That turns
+  // "the walk ended because there was nothing left" from an inference into a checked
+  // fact, and makes a cap configured below `pageSize` — which would otherwise
+  // truncate every walk invisibly — one the reader refuses to publish.
+  async readAllRows(store, { table, select = '*', pageSize = 500, maxPages = 40, orderDesc = null } = {}) {
+    const rows = [];
+    const seen = new Set();
+    let cursor = null;
+    let pages = 0;
+    let total = null;
+    let complete = true;
+    let error = null;
+
+    while (true) {
+      pages += 1;
+      if (pages > maxPages) {
+        complete = false;
+        error = `pagination stopped after ${maxPages} pages without reaching a short page`;
+        break;
+      }
+      let query = store
+        .from(table)
+        .select(select, pages === 1 ? { count: 'exact' } : undefined)
+        .order('id', { ascending: true })
+        .limit(pageSize);
+      if (cursor !== null) query = query.gt('id', cursor);
+
+      const page = await query;
+      if (page.error) {
+        complete = false;
+        error = page.error.message;
+        break;
+      }
+      if (pages === 1 && Number.isFinite(page.count)) total = page.count;
+      const batch = page.data || [];
+      for (const row of batch) {
+        const key = String(row.id);
+        if (seen.has(key)) {
+          // Cannot happen under a primary-key cursor. If it ever does, the ordering
+          // moved under the walk and the assembled set is not trustworthy.
+          complete = false;
+          error = `pagination repeated ${key}`;
+          break;
+        }
+        seen.add(key);
+        rows.push(row);
+      }
+      if (!complete) break;
+      if (batch.length < pageSize) break;
+
+      const last = String(batch[batch.length - 1].id);
+      if (cursor !== null && !(last > cursor)) {
+        complete = false;
+        error = `pagination cursor did not advance (${cursor} -> ${last})`;
+        break;
+      }
+      cursor = last;
+    }
+
+    if (!complete) {
+      // Loud on purpose: the alternative is a boot that reports a healthy store
+      // holding a fraction of itself.
+      console.error(`⚠️ ${table} read INCOMPLETE after ${pages} page(s): ${error}`);
+      return { rows: [], complete, error, pages };
+    }
+
+    if (total !== null && rows.length !== total) {
+      complete = false;
+      error = `assembled ${rows.length} rows but the store counts ${total}`;
+      console.error(`⚠️ ${table} read INCOMPLETE after ${pages} page(s): ${error}`);
+      return { rows: [], complete, error, pages };
+    }
+
+    if (orderDesc) {
+      rows.sort((a, b) => (Date.parse(b?.[orderDesc]) || 0) - (Date.parse(a?.[orderDesc]) || 0));
+    }
+    return { rows, complete, error, pages };
+  }
+
+  // A store that accepts the connection and never answers is worse than one that
+  // refuses it. `initPostgres` is awaited before `server.listen()`, so a geo read
+  // that hangs forever means no port, no health check and no platform — which is
+  // the finding this bounds. Racing a deadline converts the hang into the failure
+  // the code already handles: UNREADABLE, priced bookings answered 503, and a
+  // process that serves everything else. The abandoned read may still land later;
+  // its rows are discarded, because which page it stopped on is unknown.
+  static withDeadline(promise, ms, label) {
+    let timer = null;
+    const clear = () => { if (timer) clearTimeout(timer); };
+    return Promise.race([
+      Promise.resolve(promise).then(
+        (value) => { clear(); return value; },
+        (err) => { clear(); throw err; }
+      ),
+      // Deliberately not `unref`'d. A caller is awaiting this deadline, so the timer
+      // is what makes that await finite; an unref'd one lets a process with nothing
+      // else pending exit through the race with code 0 and no answer at all, which is
+      // the silent version of the fault this bounds.
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`${label} exceeded ${ms}ms`)), ms);
+      }),
+    ]);
   }
 
   /**

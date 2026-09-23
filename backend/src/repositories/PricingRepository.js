@@ -30,6 +30,25 @@ function geoStoreFailure(operation, cause) {
     `The geofencing configuration could not be ${operation}. Nothing was changed.`, 503, cause);
 }
 
+// Every repository in this directory declares its own copy of this test, because
+// the same value is legitimately either a uuid or an operator-typed code.
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// A fence is addressable by `id` or by `zone_code`, and both lookup sites used to
+// ask for both in one filter: `.or('id.eq.<raw>,zone_code.eq.<raw>')`. That second
+// branch is unreachable, because Postgres casts the expression and refuses
+// `id.eq.GEOIDC_MUEIR0GD` with `invalid input syntax for type uuid`. So a correctly
+// typed zone code answered 503 GEO_STORE_UNAVAILABLE — an outage claim about a
+// healthy store — and the only way to delete a boundary the console named by code
+// was to know a uuid it had never shown. Choosing the column is the judgement
+// `SupportTicketRepository.getTicketById` and `PromotionRepository.getById` already
+// make. Nothing here invents a status: an id that names no row falls through to
+// the 404 the routes already answer.
+function fenceIdFilter(query, id) {
+  const raw = String(id ?? '');
+  return UUID_REGEX.test(raw) ? query.eq('id', raw) : query.eq('zone_code', raw);
+}
+
 /**
  * PricingRepository
  * PostgreSQL-authoritative repository for:
@@ -257,11 +276,10 @@ class PricingRepository {
 
   async getGeoFenceById(id) {
     if (isLivePostgres && supabaseAdmin) {
-      const { data, error } = await supabaseAdmin
-        .from('geo_fences')
-        .select('*')
-        .or(`id.eq.${id},zone_code.eq.${id}`)
-        .maybeSingle();
+      const { data, error } = await fenceIdFilter(
+        supabaseAdmin.from('geo_fences').select('*'),
+        id
+      ).maybeSingle();
 
       if (error) {
         throw geoStoreFailure('read', error);
@@ -424,11 +442,10 @@ class PricingRepository {
 
     if (isLivePostgres && supabaseAdmin) {
       // Fetch before delete for return object and audit log
-      const { data: existing, error: getErr } = await supabaseAdmin
-        .from('geo_fences')
-        .select('*')
-        .or(`id.eq.${id},zone_code.eq.${id}`)
-        .maybeSingle();
+      const { data: existing, error: getErr } = await fenceIdFilter(
+        supabaseAdmin.from('geo_fences').select('*'),
+        id
+      ).maybeSingle();
 
       if (getErr) {
         throw geoStoreFailure('read', getErr);

@@ -419,7 +419,10 @@ it is an open decision), **OPEN** (unchanged, with the reason).
 - **CHANGE:** hydration tracks validated and populated separately, so `VALIDATED_EMPTY` (a store that answered "nothing") and `UNREADABLE` (a store that did not answer) are different states with different consequences; the seed arrays are unreachable as business state; a booking-critical call under an unreadable store gets the 503 refusal shape with a `GEO_STORE_UNAVAILABLE` code and no internal text.
 - **AFTER:** proven in a process that genuinely cannot reach the store — an inside-looking point and an outside-looking point both answer `503 GEO_STORE_UNAVAILABLE` with no fare, a client zone id cannot rescue a quote the store cannot vouch for, the public evaluate route reports unavailability instead of the remembered answer, nonsense coordinates are still a `400` *about the coordinates*, the operator log says geography specifically failed, and no ride and no driver position is stored during the outage. A stale in-memory fence cannot authorize; freshness across a write is proven separately (`CACHE-01…05`).
 - **TEST:** GEO-E01…E09, FI-06, FI-07, FI-08, FI-09.
-- **VERDICT:** CLOSED. The one residual is that the boot geo read has no timeout, so an unresponsive store delays start rather than failing fast — recorded in `FI-09`, not silently redesigned.
+- **VERDICT:** CLOSED, and its one residual closed after it: the boot geo read was bounded at
+  `GEO_READ_TIMEOUT_MS = 10_000` by the pass after this table was written, so a store that answers
+  everything except geography now starts and refuses to price (`FI-09`'s own text states what it does
+  and does not prove; `boot_mirror_read_test.js` BM-13…BM-17 measures the bounded read).
 
 ### 16. PERFORMANCE — was PASS at 420 fences, with a linear cliff
 
@@ -514,7 +517,10 @@ REQUEST / EXPECTED / ACTUAL / SAFE or UNSAFE / ROOT CAUSE, as the order asks. Al
 | FI-06 | 6 quotes interleaved with 1 delete | every answer a definite verdict | 200 × 6, each with a geo answer, no torn read | SAFE | hydration swaps whole arrays, never in place |
 | FI-07 | quote a point whose boundary was just deleted | no surcharge from a dead boundary | back to ₹105, no matched fence | SAFE | `geoStoreChanged` after every write; previously the process priced from its boot copy forever |
 | FI-08 | sweep the probe rows this run created | store back where it started | 427 → 427 fences, 425 rules, 0 left behind (HYGIENE-01) | SAFE | a run that crashes mid-group left a twin fence behind, which contaminated the *next* run's inside counts — the sweep now runs before and after |
-| FI-09 | store accepts connections but never answers | start must not serve a quote from unread geography | the process never opens `:4000` within 6 s, so no quote is served at all | SAFE, with a recorded risk | **the boot geo read has no timeout.** An unresponsive store therefore delays start rather than failing fast — reported, not redesigned, because the fix is a policy about availability |
+| FI-09 | store accepts connections but never answers | start must not serve a quote from unread geography | the process never opens `:4000` within 6 s, so no quote is served at all | SAFE, and now bounded | what this row used to report as a risk is fixed: `hydrateGeoStore` reads under `GEO_READ_TIMEOUT_MS = 10_000` and marks the store `UNREADABLE` when the bound expires, so a store slow only about geography starts and refuses to price (measured by BM-13…BM-17). What this row still does **not** prove is the geo read itself: `initPostgres` hydrates the identity mirrors first, so a store that answers nothing blocks there, before geography is read at all — deliberately, because a boot that served without `users`/`admin_accounts` would authenticate nobody |
+| FI-11 | delete a boundary by the zone code the console shows | `200`, and the row that goes is the row that was named | `200`, `deleted.id` = the id the create returned | SAFE, **fixed in this pass** | the lookup asked for `id` OR `zone_code` in one filter and Postgres refused to cast the code as a uuid, so the code half of its own filter was unreachable and a healthy store answered `503 GEO_STORE_UNAVAILABLE`. The repository now chooses the column the way `SupportTicketRepository` and `PromotionRepository` do |
+| FI-12 | delete by `not-a-uuid`, `12345`, and an injection string | a refusal that names the input as the problem | `404 GEO_FENCE_NOT_FOUND` × 3, no `503`, fence count unmoved | SAFE, **fixed in this pass** | the same cast failure, seen from the other side: an id nobody typed correctly was reported as an outage the operator would retry forever. R6's unreproducible `400` lives in this code path — 44 malformed ids produced 44 × `503` and never a `400`, so the `400` stays NOT REPRODUCED and the mislabel is what was real |
+| FI-13 | quote while those refusals are flying | a bystander unaffected | `200`, ₹105, `VALIDATED_OUTSIDE`, from geography this process read | SAFE | a refused read never reaches the cache, so it cannot poison a price. This is the row that separates the cosmetic from the security answer: the mislabel was an operational-trust defect, not a pricing one |
 | GEO-E01 | quote any point while the store is unreadable | `503`, no fare, no internal text | `503 GEO_STORE_UNAVAILABLE` for both an inside-looking and an outside-looking point | SAFE | `if (!gfErr && dbFences.length > 0)` used to leave the seed arrays authoritative |
 | GEO-E02 | the same, with a client `zoneId` attached | must not rescue the quote | refused | SAFE | the `zoneId` branch no longer exists |
 | GEO-E03 | public evaluate route during the outage | report unavailability, not the remembered answer | `503` | SAFE | cache is never an authorization source; `locationValidated` derives from this request's ability to answer |
@@ -571,22 +577,43 @@ test that asserted an answer would be that answer chosen by whoever wrote the te
 | 5 | Global surge multiplier: table or process memory? (2.2 vs 1.00 vs 1.4 measured) | Unanswered. The engine takes the multiplier from the bound source and reports it, so the two answers no longer silently disagree inside one request — but which source is authoritative is still the platform's choice |
 | 6 | Are `allowed_services` / `allowed_vehicles` / `operating_hours` meant to bind? | Unanswered. Still written, mapped and consulted by no decision; `GEO-B09` refuses an unknown `allowedServices` value on *write*, which is not the same as honouring one |
 | 7 | Geo lifecycle: build edit/activate/deactivate/archive? | Unanswered. `edit`/`activate`/`deactivate` need no migration; `archive` needs a column, and no migration was written. The catalogue names `geofence.edit`, `surge.edit`, `surge.activate` remain unenforced |
-| 8 | Is the fence catalogue supposed to be public? | Unanswered. The anon key still reads active boundaries with geometry (`SEC-07-KNOWN-GAP`, asserted as an open finding so a change is noticed); the tokenless evaluate route now leaks less, but whether it should require a session at all is this decision |
+| 8 | Is the fence catalogue supposed to be public? | Unanswered, and now sized. The anon key reads **447 active boundaries with their geometry, surcharge and multiplier**, plus 445 surge rules, 6 rate cards, 21 platform settings, 642 promotions and 39 merchants including `phone`, `fssai_license` and `wallet_balance` — while nothing outside `backend/` opens a Supabase client, so the access is surface with no user. The DDL that would narrow the geography half is written and **deliberately not applied**: `docs/proposed/028_geo_and_commerce_reads_service_role_only.sql`. The tokenless evaluate route leaks less, but whether it should require a session at all is still this decision |
 | 9 | Who may read live driver positions? | Unanswered. `GET /api/fleet/locations` and its `/api/v1` alias still carry `authenticateAdmin` with no permission name — the alias is now *counted* by CAT-04 where it used to be invisible to the parser |
 
-**Four further items this pass found and did not silently resolve.**
+**Five further items this pass found and did not silently resolve.**
 
 1. **The anon-key read of active geometry** (a consequence of §14-8, not separate from it). Narrowing
-   `p_read_active_geofences` is DDL: a policy change, not a code change. It was left alone, and the
-   test that documents it is written to fail loudly when somebody changes it without saying so.
-2. **No timeout on the boot geo read** (`FI-09`). An unresponsive store delays start instead of failing
-   fast. A timeout is an availability policy — what should happen when the store is slow *at boot* is
-   the same family of question as §14-1's "refuse or serve", so it is reported rather than chosen here.
-3. **Cross-instance propagation of a geo write.** One process re-reads its own copy after its own
-   write (`CACHE-01…05` prove it); a second instance still serves from its own copy until something
-   else refreshes it, because there is no invalidation broadcast on the geo routes. Fixing that touches
-   the same authorization blast radius the admin specification stops at (§9 item 6 of that document),
-   so it is recorded as a remaining risk rather than redesigned inside a geo-fencing pass.
+   `p_read_active_geofences` is DDL: a policy change, not a code change. Pass 6 measured how wide the
+   door actually is — 31 of 40 probed tables answer an anonymous `SELECT` at all, and eleven of them
+   return rows, geography and the operator's rate card among them — and confirmed that **nothing in the
+   repository uses that access**: `createClient` / `@supabase/supabase-js` / `supabase_flutter` appear
+   only under `backend/`, so every client reaches these tables through Express. The DDL is written, and
+   **not applied**: `docs/proposed/028_geo_and_commerce_reads_service_role_only.sql`, deliberately
+   outside the directory `backend/scripts/migrate.js` reads. The test that documents the open state —
+   `SEC-07-KNOWN-GAP` — is written to fail loudly when somebody narrows it without saying so, and its
+   own text says to rewrite it as an assertion of the refusal at that point.
+2. **The boot geo read is now bounded** (`FI-09`, `GEO_READ_TIMEOUT_MS = 10_000`), which retires the
+   second half of what this item used to say: a store that answers everything *except* geography now
+   starts, marks its copy `UNREADABLE`, and refuses to price rather than pricing from a remembered
+   answer (`boot_mirror_read_test.js` BM-13…BM-17). The half that remains is honest and deliberate:
+   `initPostgres` hydrates the identity mirrors before geography, so a store that answers *nothing*
+   still blocks start, and `FI-09` proves only that no quote is served from unread geography. The
+   timeout is not applied to the identity reads, because failing open on `users`, `drivers`,
+   `admin_accounts` and `promotions` means booting a server that authenticates nobody — a worse
+   availability trade, and not this order's to make.
+3. **Cross-instance propagation of a geo write — now measured in rupees.** One process re-reads its own
+   copy after its own write (`CACHE-01…05` prove it). Pass 6 started two independent backends on one
+   database and watched them disagree: after instance A created a boundary, A quoted a point **₹984**
+   and B quoted the same point **₹330** — 2.7× apart, indefinitely (35 seconds of polling moved B
+   nowhere), and the divergence ran both ways, because a boundary B deleted was still priced by A until
+   A restarted. **Restart is the only invalidation that exists.** That makes it a security finding under
+   this order's own rule, not a cache-correctness nicety: a stale copy can change what a customer is
+   charged, in both directions — stale-missing undercharges inside a live surcharge, stale-present
+   overcharges for a boundary the operator has already removed. The fix is a broadcast on the geo write
+   routes, which touches the same authorization blast radius the admin specification stops at (§9 item 6
+   of that document), so it is recorded as a remaining risk rather than redesigned inside a geo-fencing
+   pass. No distributed-cache product is proposed and none is needed: one `EventEmitter` notification
+   per write, in-process, is the shape of the thing, and this pass deliberately did not build it.
 4. **A session written by another instance is honoured *sometimes*.** `RX-01…03` and `INP-21…22` were
    green in passes 1, 2 and 4 of the Phase 18 chain and red in pass 3, where passes 3 and 4 used the
    same script, the same committed code, and the same verified-fresh-process discipline. The first
@@ -604,6 +631,27 @@ test that asserted an answer would be that answer chosen by whoever wrote the te
    It is not geo behaviour: the geo order's diff touched no line on this path, and the read is fixed by
    a later, separate one. It stays reported here because R9 is where its evidence lives, and it
    qualifies the claim at `ADMIN_PERMISSION_MATRIX.md:414` (spec §11 decision 16, §9 item 6).
+5. **A boundary the console names by code could not be deleted, and the failure lied about why**
+   (pass 6's finding, and the resolution of R6's "non-reproducible DELETE 400"). `getGeoFenceById` and
+   `deleteGeoFence` both asked for `id` **or** `zone_code` in one filter —
+   `.or('id.eq.<raw>,zone_code.eq.<raw>')` — and Postgres refuses that expression, because it casts the
+   whole alternative and answers `invalid input syntax for type uuid: "GEOIDC_MUEIR0GD"`. The repository
+   read that as a store failure, so `geoStoreFailure` returned **503 `GEO_STORE_UNAVAILABLE`** for a
+   perfectly healthy store. Consequences, each verified: a correctly typed zone code was
+   undeleteable unless the caller already knew a uuid the console had never shown; the operator's error
+   message claimed an outage, which is the kind of message pages someone; and a caller that retries on
+   5xx retried forever. Pass 5 recorded a 400 at this route that pass 6 could not reproduce, and
+   reproducing the route's whole id-handling is what found the real defect: **44 malformed ids produced
+   44 × 503, never a 400**, so the 400 stays **NOT REPRODUCED** and the 503 is now **REPRODUCED, ROOT
+   CAUSE CONFIRMED, FIXED** — the lookup chooses its column the way `SupportTicketRepository` and
+   `PromotionRepository` already do. It invents no status: an id that names no row answers
+   `404 GEO_FENCE_NOT_FOUND`, which `FI-12` now pins. Severity: low — the route is
+   `authenticateAdmin` + `geofence.delete`, the pricing cache was never touched by a refused read
+   (`FI-13`: a bystander quoted ₹105 normally through all 44 refusals), the store kept serving, and the
+   injection string in that batch was rejected by the uuid cast rather than by anything clever here.
+   What it did cost is a log line per refusal echoing the raw input (`⚠️ geo_fences read failed:
+   invalid input syntax for type uuid: "not-a-uuid"`), which is the one place this pass left an
+   operator-typed string in a log. `FI-11`/`FI-12`/`FI-13` hold the fixed behaviour.
 
 ## R9. Regression evidence, and what each pass was actually worth
 
@@ -823,27 +871,203 @@ returns **0**, so it has no assertions to contribute, though it does exit 1 if t
 read.
 
 **One environmental drift worth naming, because the next reader of §16 will otherwise count fences and
-find a different number.** The audit census was 420 fences / 418 surge rules. The store now holds
-**439 / 437**, all of them active, and the increase is not corruption — it is a fixture leak this
-order measured but did not cause and did not fix:
+find a different number.** The audit census was 420 fences / 418 surge rules. Pass 5 recorded
+**439 / 437**; the store now holds **447 / 445**, all active, and `SEC-08` reads them as 447 rows in 6
+distinct shapes — **441 of them duplicates of a shape already in the table.** The increase is not
+corruption. It is a fixture leak, and pass 6 measured it, named its cause, and stopped it.
 
 | Family | Rows | Created by |
 | --- | --- | --- |
-| `Noida IT Sector 62 Boundary` | **185**, identical | `test_suite.js` MODULE 5, which creates it and never deletes it — one per run, since that suite was written |
+| `Noida IT Sector 62 Boundary` | **188** fences / 189 rules | `test_suite.js` MODULE 5, which created one per run and deleted none |
+| `South Delhi Hospital Corridor` | **185** / 185 | `test_suite.js` GEO-05, same |
+| `Restart Test Aero City Zone` | **71** / 71 | `restart_test.js`, same |
 | `AUDIT_PROBE*` / `PERM_*` / `RLSDIFFY` | 0 | §16's own audit probes, cleaned up as recorded there |
 | `GeoPolicy *` (the `GEO-D*` fixtures, including `GEO-D10`'s named fence) | 0 | `geo_policy_test.js`, which deletes each one in the same run |
-| `Two Point Non-Boundary`, `Centreless Circle` | 0 | refused at the door by `GEO_GEOMETRY_INVALID`, which is the point of asserting them — a rejected write leaves no row |
+| `GeoAdv *` / `GEOADV_*` / `GEOID*` (this pass's probes) | 0 | `geo_adversarial_test.js` `HYGIENE-01-before`/`-after`, which sweep their own prefix and assert the store is unchanged on both sides |
 
-So the geo suites this order added are self-cleaning, and the pre-existing `test_suite.js` fixture is
-not. It matters for more than tidiness: `evaluateLocationGeofences` ray-casts **every** active fence,
-so 185 copies of one Noida triangle are 185 redundant boundary tests on the hot path, and §11's
-concurrency numbers were taken against a store already carrying them. Deleting them is a one-line
-teardown in `test_suite.js` beside the `DELETE /api/admin/geofences/:id` call it already makes for
-another fixture at line 2166 — deliberately left undone here, because this order's rule was to stop
-changing booking and pricing behaviour, not to widen into a suite's fixture hygiene while claiming to
-be auditing geography.
+**Measured, not inferred.** Before → run → after, one suite at a time against the live local store:
+one `test_suite.js` run added +2 fences, +2 rules, +4 tickets, +7 promotions; one `restart_test.js` run
+added +1 fence and +1 rule of its own. Cause, in the order's own vocabulary: **incomplete cleanup, and
+one structural blocker.** `GEO-13` already deletes the polygon fixture, which proves a targeted reap
+belongs in that file and was written for exactly one of its four boundaries. The blocker is that **no
+route deletes a surge rule** — `POST /api/admin/surgezones` exists and its `DELETE` twin does not, so a
+rule cannot be reaped through the API by anything, including the console.
 
-**No push, no deploy, no hosted contact, no migration written or applied, no secret printed.** Every
-key in every command above was piped through an environment variable and only its presence was
-observed; the one place a token appears in this document is a truncated SHA-256 handle, which is not
-one.
+**Fixed, for the future.** Both suites now register the ids their own creates returned, and reap them
+after the report block — so the teardown runs whether the suite finished or threw. Reaping is **by
+recorded id, never by name**: a seeded fence shares `Noida IT Sector 62 Boundary` with the fixture of
+that name, and a by-name delete would remove an operator's boundary. Rules go direct to the store
+because of the missing route above; boundaries go through `DELETE /api/admin/geofences/:id` so each
+removal is audited and the pricing cache rehydrates the way an operator's delete makes it. The result
+is an assertion, not a comment — `GEO-TEARDOWN` — and it is measured: pass 6's runs give
+**447 → 447 fences and 445 → 445 rules across both suites** (`test_suite.js` 420/0, `restart_test.js`
+36/0). A future create that forgets to register now fails the suite instead of widening the table.
+
+**Not done, on purpose: the 441 rows already in the table.** They are not this pass's rows, and
+deleting another run's residue is a data decision, so it is proposed rather than executed. What the
+purge would have to survive: `surge_zones.zone_id` points at some of those fences (RESTRICT or CASCADE
+depends on the constraint as applied, and pass 6 did not read it), the audit trail references fence ids
+by value, and `evaluateLocationGeofences` ray-casts every active fence — which is the *reason* to do it,
+since 188 copies of one Noida triangle are 188 redundant boundary tests on the hot path, and §11's
+concurrency numbers were taken against a store already carrying them. The shape, on a scratch copy
+first and with a dump before it:
+
+```sql
+-- KEEP the oldest row of each leaked name (the one the seed inserted), drop the
+-- later duplicates, and drop the rules bound to nothing but those duplicates.
+-- NOT APPLIED. Review the surviving ids before running it anywhere.
+BEGIN;
+CREATE TEMP TABLE geo_keep AS
+  SELECT min(created_at) AS kept_at, zone_name FROM public.geo_fences
+  WHERE zone_name IN ('Noida IT Sector 62 Boundary',
+                      'South Delhi Hospital Corridor',
+                      'Restart Test Aero City Zone')
+  GROUP BY zone_name;
+SELECT count(*) FROM public.geo_fences g JOIN geo_keep k USING (zone_name)
+  WHERE g.created_at > k.kept_at;   -- expect ~440; if it is not, stop
+ROLLBACK;
+```
+
+The count check is the whole proposal: `test_suite.js` and `restart_test.js` no longer add rows, so the
+number can only go down from here, and whoever runs the purge should be able to say which ids survived
+and why those.
+
+## R10. Pass 6: what ran, from which process, and what each result is worth
+
+Pass 6 exists to test five things at once: the fixes the five open findings in §R8 produced, the
+fixture teardown that stopped the boundary table growing, and the RX/INP group re-run against a session
+table the reconciler can now see all of. Same chain script as pass 5, plus `boot_mirror_read_test.js`
+and a geographic census wrapped around the two harnesses that write geography.
+
+### The chain, end to end
+
+Every row is a harness run against a backend this script started and could name — port released and
+confirmed free, the spawned pid required to equal the pid owning `:4000`. **0 `EADDRINUSE` lines, 0
+hand-off mismatches across 26 harnesses.** The last column is the session count that process printed in
+its own boot line; it climbs down the table because sessions accumulate in the store and, after the
+row-cap fix, the mirror now holds all of them rather than the first 1000.
+
+| Harness | Pass 6 result | wall | sessions hydrated |
+| --- | --- | --- | --- |
+| `geo_policy_test.js` | 55 / 0 | 15s | 1466 |
+| `geo_adversarial_test.js` | **60 / 0** (FI-11/12/13 added this pass) | 53s | 1467 |
+| `admin_audit_fail_closed_test.js` | 79 / 0 | 1s | 1471 |
+| `admin_identity_gates_test.js` | exit 0 — see the note below | 2s | 1471 |
+| `admin_settings_surface_test.js` | 31 / 0 | 0s | 1472 |
+| `audit_drop_visibility_test.js` | 8 / 0 | 0s | 1473 |
+| `auth_failclosed_test.js` | 15 / 0 | 22s | 1473 |
+| `test_phase4_orders.js` | 66 / 0 | 11s | 1473 |
+| `test_phase5_payments.js` | 62 / 0 | 7s | 1477 |
+| `test_phase6_dispatch.js` | 62 / 0 | 24s | 1482 |
+| `test_phase7_security.js` | 45 / 0 | 6s | 1489 |
+| `test_phase8_security.js` | **28 / 0** (read out of the log) | 0s | 1494 |
+| `test_phase9_financial_security.js` | **38 / 0** (read out of the log) | 0s | 1494 |
+| `test_phase10_security.js` | exit 0 — see the note below | 0s | 1494 |
+| `test_phase11_feature_control.js` | exit 0 | 8s | 1496 |
+| `payment_sandbox_test.js` | 9 / 0 | 1s | 1500 |
+| `payment_verifier_config_test.js` | 13 / 0 | 5s | 1502 |
+| `payment_production_readiness_test.js` | 11 / 0 | 0s | 1504 |
+| `smoke_test.js` | 5 / 0 | 0s | 1506 |
+| `test_suite.js` | **420 / 0**, including `GEO-TEARDOWN` | 31s | 1506 |
+| `session_reconcile_pagination_test.js` | 26 / 0 | 0s | 1518 |
+| `boot_mirror_read_test.js` | **20 / 0** (new this pass) | 1s | 1518 |
+| `restart_test.js` | **36 / 0**, including `GEO-TEARDOWN` | 18s | 1518 |
+| `admin_authorization_test.js` | 113 / 0 | 30s | 1526 |
+| `admin_customers_test.js` | exit 0 | 16s | 1528 |
+| `bootstrap_test.js` | **exit 1, Total failures: 1** — documented below, not fixed | — | — |
+
+**A blank summary column is not a pass.** The chain's roll-up grep matches `📊`, `Total failures` and
+`PASSED`; `admin_identity_gates_test.js`, `test_phase8_security.js`, `test_phase9_financial_security.js`
+and `test_phase10_security.js` print their totals as `Results: N passed, M failed` in lower case, so the
+summary column came back empty for them even though they ran. Pass 6 therefore read the log itself and
+recovered phase 8's **28/0** and phase 9's **38/0**; the other two are reported by exit status only, and
+that is the weaker claim. The `0s` rows are integer-second rounding against a local store, not a skip —
+the harnesses' own group headers are in the log.
+
+### The census, which is why the chain was worth running at all
+
+`geo_census.js` straight against PostgREST, before and after each geography-writing harness:
+
+| Point in the chain | `geo_fences` | `surge_zones` | leaked families |
+| --- | --- | --- | --- |
+| before `test_suite.js` | 447 | 445 | 188 Noida / 185 Hospital / 71 Restart |
+| after `test_suite.js` | **447** | **445** | 188 / 185 / 71 |
+| before `restart_test.js` | 447 | 445 | 188 / 185 / 71 |
+| after `restart_test.js` | **447** | **445** | 188 / 185 / 71 |
+
+The counts and the per-family tallies are identical on both sides of both suites. Before this pass one
+`test_suite.js` run was +2 fences / +2 rules and one `restart_test.js` run +1 / +1; those deltas are now
+zero, and `GEO-TEARDOWN` asserts it rather than noting it. The 441 historical duplicates stay exactly
+where §R8 left them: proposed, not purged.
+
+### The known `bootstrap_test.js` failure, documented separately as the order requires
+
+Red for the reason recorded in §R9 item 3 and unchanged by this pass: it resets by deleting every
+`admin_accounts` row, `support_tickets_assigned_admin_id_fkey` pins one administrator holding hundreds
+of tickets, PostgREST refuses the statement, the harness never inspects the builder's returned `error`,
+and the route then answers a correct 403 because pre-existing admins are still there. Nothing in this
+pass touches admin bootstrapping, and the order forbids fixing a harness by editing the assertion it
+exists to make, so it is reported red and left red.
+
+### RX/INP after the row-cap fix: three controlled repeats
+
+`rxinp_pass6.sh`, one verified-fresh process per repeat, nothing else on the machine running against
+that port while a repeat was in flight, and each check reported individually rather than as a suite
+total:
+
+| Repeat | spawned pid = listener pid | live `backend_sessions` | boot line | `admin_authorization_test.js` | `admin_customers_test.js` |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 34692 = 34692 | 1530 | `Restored 1530 authentication session` | 113/0; **RX-01/02/03 PASS** | exit 0; **INP-21/22 PASS** |
+| 2 | 9340 = 9340 | 1533 | `Restored 1533 authentication session` | 113/0; **RX-01/02/03 PASS** | exit 0; **INP-21/22 PASS** |
+| 3 | 7568 = 7568 | 1536 | `Restored 1536 authentication session` | 113/0; **RX-01/02/03 PASS** | exit 0; **INP-21/22 PASS** |
+
+**Verdict: the group stays INTERMITTENT / UNRESOLVED, and this experiment does not move it.** Read the
+table carefully, because the temptation is exactly the wrong inference. Three fresh processes, each
+hydrating a table that is now above the old 1000-row page and being seen in full — which the pre-fix
+code structurally could not do — and the adoption property held every time. That is consistent with the
+cap having been the cause. It does not establish it, for one reason that is arithmetic rather than
+rhetorical: **the group was already green pre-fix in three of its four controlled passes.** A group
+whose observed rate is "green in 3 of 4, then green in 3 of 3 more" has not been discriminated by the
+change at all; a fix that predicts only outcomes the unfixed code also produced has not been tested.
+Pass 6's contribution is therefore negative and real: the last mechanism this document was reaching
+for has been removed from the code path, the failures did not recur across three repeats above the cap,
+and the group still has no deterministic reproduction, no proven causal story, and no dedicated
+regression test that asserts the *adoption* property across processes. So §R9's sentence is not
+retired, the catalogue's adoption bullet cannot be upgraded to a statement that the direction works, and
+a future red in RX-01…03 or INP-21…22 still means "adoption did not happen this run" and nothing more
+specific. What the row-cap fix *is* credited with stays what pass 5 credited it with: **CONFIRMED** that
+both session reads were reconciling a truncated set, **FIXED** with a paginated walk and a 26-check
+harness. **NOT PROVEN** that this caused the intermittency.
+
+### Client halves
+
+| Check | Pass 6 | Passes 4/5 |
+| --- | --- | --- |
+| `flutter analyze` (mobile) | **67 issues, 0 errors, 0 warnings**, exit 1 (97s) | identical |
+| `flutter test` (mobile) | **56 passed, 0 failed**, "All tests passed!", exit 0 (12s) | identical |
+| `npm run lint` (admin-web) | **0 errors, 1 warning** — the same `window.location.href` navigation in `src/lib/api.ts:31`, exit 0 (68s) | identical |
+| `npm run build` (admin-web) | **Compiled successfully in 13.4s**, TypeScript clean in 3.5s, **9 routes** generated statically, exit 0 (35s) | identical |
+
+`mobile/` and `admin-web/` carry zero lines from this order, so the only question the client halves
+answer is whether the backend's response-shape changes broke a consumer, and they did not.
+
+### A note on the `file:line` citations in §§1-13, because they are now partly stale
+
+The audit body cites positions like `database.js:2337`, and every remediation pass since has inserted
+lines near the top of those files — this pass alone adds ~18 lines below `PricingRepository.js:31` and
+a constant plus several methods in `database.js`. The temptation was to renumber them mechanically. Pass
+6 checked whether that would even be correct, and it is not: reading `git show HEAD:backend/src/database.js`
+at the lines the document cites returns `fences: this.geoFences.length,` for one citation and `}` for
+another, so **those citations were already off at HEAD** — they were written against the working tree as
+it stood during the audit, which carried uncommitted changes. Mechanical remapping would have produced
+hundreds of confidently wrong line numbers, which is worse than a known-stale one. The rule adopted
+instead: §§1-13 `file:line` positions are **baseline addresses, not current ones** — find the cited
+construct by its identifier, not by its line; §§R0-R10 citations were taken against the tree each pass
+ran on and `FI-09`, `GEO-TEARDOWN`, `readAllActiveSessions` and `fenceIdFilter` are named so a reader
+can grep them. Where a §1-13 citation mattered to a fix this pass made, the fix section re-cites the
+construct by name.
+
+**No push, no deploy, no hosted contact, no migration applied, no secret printed.** Pass 6 wrote one DDL
+file and did **not** apply it — `docs/proposed/028_geo_and_commerce_reads_service_role_only.sql`,
+deliberately outside `supabase/migrations/` so the runner cannot reach it by default, with its Section B
+marked DO NOT APPLY.
