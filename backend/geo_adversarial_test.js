@@ -33,6 +33,13 @@ const http = require('http');
 const { spawn } = require('child_process');
 const path = require('path');
 
+// SEC-07 asks the wire what the anon key alone gets, which needs the real key. Every
+// other group here talks to Express or to a store the backend already knows, so this
+// file never needed the environment before; the keys are read from .env and never
+// printed. The spawned hang-probe below overrides SUPABASE_URL and both keys after
+// this line, so the load cannot reach it.
+require('dotenv').config({ path: path.resolve(__dirname, '.env') });
+
 const geoPolicy = require('./src/services/GeoPolicyService');
 const { REASON } = geoPolicy;
 
@@ -590,27 +597,36 @@ async function groupD(token, rahulToken, adminHeaders) {
     `an unverified account is gated by KYC before geography: ${crossToken.status} ` +
     `(${crossToken.data?.error ? 'identity gate' : 'booked'})`);
 
-  // RLS is enabled on these tables, so what the anon key may read is a policy, not
-  // an accident: `p_read_active_geofences` grants SELECT on active rows to
-  // `public`, and the row carries its vertices and its surcharge. No client in
-  // this repository reads the table directly, so the policy serves no feature.
-  // Narrowing it is DDL, and Phase 20 of the order says a schema change is stopped
-  // and reported, not applied — so this check pins the current state down so that
-  // whoever drops the policy sees a passing suite change colour, and so that nobody
-  // later writes "RLS protects fence geometry" as if it were true.
+  // RLS is enabled on these tables, so what the anon key may read is a policy, not an
+  // accident. `p_read_active_geofences` used to grant SELECT on active rows to
+  // `public`, and each row carried its vertices and its surcharge; no client in this
+  // repository read the table directly, so the policy served no feature. Decision 1
+  // (choice A, 2026-09-24) revoked it, and migration 029 dropped the policy and the
+  // grant. This check used to pin the OPEN finding — "the anon key reads N of the
+  // active boundaries with geometry" — and its own text said it should be rewritten to
+  // assert the refusal once the policy went. The policy has gone, so this is that
+  // rewrite: the same probe, the opposite assertion. geo_anon_access_test.js is the
+  // full six-table proof; this one keeps the finding inside the security matrix that
+  // produced it.
   const anonKey = process.env.SUPABASE_ANON_KEY;
   if (!anonKey) {
-    check('SEC-07-KNOWN-GAP', true, 'anon-key probe skipped: SUPABASE_ANON_KEY is not in the environment');
+    // A skip that reports itself as a pass is the weakness this file was written to
+    // avoid, in the other direction: the guarantee below is not measurable without the
+    // key, so the run says so and fails.
+    check('SEC-07', false,
+      'SUPABASE_ANON_KEY is not in the environment, so the anonymous refusal cannot be ' +
+      'proven. This is a FAIL, not a skip: geo_fences must refuse an anon read, and an ' +
+      'untested refusal is not the same thing as a tested one.');
   } else {
     const anon = await restSelect('/rest/v1/geo_fences?select=*&limit=5', { apikey: anonKey });
     const rows = Array.isArray(anon.data) ? anon.data.length : 0;
-    const withGeometry = rows > 0 && Boolean(anon.data[0]?.coordinates || anon.data[0]?.geometry);
-    check('SEC-07-KNOWN-GAP', anon.status === 200 && rows > 0 && withGeometry,
-      `OPEN FINDING, deliberately not fixed here: the anon key reads ${rows} of the active boundaries ` +
-      `with geometry ${withGeometry ? 'and surcharge included' : 'but no geometry column'} (HTTP ${anon.status}). ` +
-      'If a policy change removes that access this check fails, and it should then be rewritten to assert the refusal. ' +
-      'Note the other half of the picture: the backend itself connects as service_role, whose policy is `true`, ' +
-      'so RLS has never been what protects a rider from a price — Express is');
+    const geometryInBody = Boolean(anon.data?.[0]?.coordinates || anon.data?.[0]?.geometry);
+    check('SEC-07', rows === 0 && anon.status === 401 && anon.data?.code === '42501' && !geometryInBody,
+      `CLOSED by Decision 1 / migration 029: the anon key is refused at the privilege check ` +
+      `(HTTP ${anon.status} ${anon.data?.code || '?'} — "${String(anon.data?.message || '').slice(0, 40)}"), ` +
+      `${rows} rows and no geometry, where it used to read all of the active boundaries with their vertices. ` +
+      `Note the half that was never RLS's job: the backend connects as service_role, whose policy is \`true\`, ` +
+      `so Express and GeoPolicyService remain what protects a rider from a price`);
   }
 
   // A duplicate of an existing boundary is a pricing event, not a cosmetic one.
