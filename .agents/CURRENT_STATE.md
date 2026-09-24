@@ -35,7 +35,7 @@
 > line, which is why the boot line is part of the check. `SEC-07-KNOWN-GAP` was
 > rewritten as `SEC-07` asserting the refusal, and now **fails rather than skips**
 > when the anon key is missing from the environment. New
-> `backend/geo_anon_access_test.js` (41 checks: six tables, four geometry columns,
+> `backend/geo_anon_access_test.js` (44 checks: six tables, four geometry columns,
 > no-credential, signed-in customer token, `service_role` read, and the neighbours
 > `merchants`/`advertisements` that must keep answering) joined the `npm test`
 > chain. What 029 deliberately does NOT close: `is_feature_enabled` is still
@@ -44,7 +44,8 @@
 > proposed file) remain anonymous-readable — not a decided change. Chain run
 > 2026-09-24 on the live local stack, no stubs: `geo_policy_test.js` **55/0**,
 > `geo_adversarial_test.js` **60/0** (with HYGIENE-01 sweeping its own probe
-> fences), `geo_anon_access_test.js` **41/0**. Still open in the geo record: the
+> fences), `geo_anon_access_test.js` **44/0** (the same harness printed 41 in an
+> earlier pass; the committed tree counts 44 stably). Still open in the geo record: the
 > driver-containment gate (§14 decision 1, NOT DECIDED), `zoneId`-body pricing was
 > deleted but the tokenless `/api/geofence/evaluate` session question stays a
 > decision, and no spatial index exists yet.

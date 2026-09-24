@@ -10,13 +10,13 @@ authority, zoneId-body pricing deleted, bounded boot geo read, suite self-hygien
 ten owner security decisions recorded in `docs/OWNER_SECURITY_DECISIONS.md` and
 Decision 1 choice A implemented as migration **029** — the six Section-A tables now
 refuse anon/authenticated reads at the privilege check on the **local Docker store
-only**, `SEC-07` asserts the refusal, and `geo_anon_access_test.js` (41 checks)
+only**, `SEC-07` asserts the refusal, and `geo_anon_access_test.js` (44 checks)
 joined the `npm test` chain. `origin/main` = `0bd03ce`; `main` is **33 commits
 ahead locally and NOT pushed**. Nothing was deployed and no hosted database was
 touched; migrations `027` and `029` are applied to the **local Docker PostgreSQL
 only**. The last full recorded chain: `test_suite.js` **408 PASSED / 0 FAILED**;
 the geo groups re-run 2026-09-24: policy **55/0**, adversarial **60/0**, anon-access
-**41/0**. The other nine owner decisions await their own implementation orders.
+**44/0**. The other nine owner decisions await their own implementation orders.
 Earlier history: the 2026-09-20/21 work reached the remote by fast-forward
 `9b2804c..b13cdb3`, `55a1836` re-baselined `.agents/CURRENT_STATE.md`, and the same day's
 follow-ups (`1b128e7` un-stock + merchant notification backend, `239c134` mobile
@@ -58,10 +58,11 @@ mobile notifications feed, `c974fc9` docs) landed on top of it.
       `service_role` and the backend boot are unaffected. `SEC-07-KNOWN-GAP`
       rewritten as `SEC-07` asserting the refusal and **failing, not skipping**,
       without the key in the environment; new `backend/geo_anon_access_test.js`
-      (41 checks incl. the `merchants`/`advertisements` neighbours that must keep
+      (44 checks incl. the `merchants`/`advertisements` neighbours that must keep
       answering) added to `npm test`. Verification run 2026-09-24 on the live local
       stack: `geo_policy_test.js` **55/0**, `geo_adversarial_test.js` **60/0**,
-      `geo_anon_access_test.js` **41/0**.
+      `geo_anon_access_test.js` **44/0** (the same harness printed 41 in an earlier
+      pass; the final committed tree counts 44 stably).
 - [ ] **Not closed by 029, by design:** `is_feature_enabled` remains `SECURITY
       DEFINER` with PUBLIC execute (one boolean, proven to carry no setting value);
       Section B of the proposed file (storefront tables, `merchants.lat/lng`) was
