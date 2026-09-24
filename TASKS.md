@@ -1,19 +1,72 @@
 # NABIN — Task Tracker
 
-**Updated**: 2026-09-22
-**State**: Phase 2 (client render pass + the CRITICAL trip settlement race fix),
-Phase 3 (dynamic campaigns, festival themes and assets) and part of Phase 4
-(production readiness: telemetry, fail-closed auth, admin permissions, credential
-reset, campaign concurrency) are complete locally and **NOT pushed**: `origin/main` =
-`c974fc9`, with 26 verified commits plus this docs commit on top of it. Nothing was
-deployed and no hosted database was touched; migration `027` exists in Git and has been
-applied to the **local Docker PostgreSQL only**. `test_suite.js` is **408 PASSED / 0
-FAILED** — green end to end for the first time in this phase.
+**Updated**: 2026-09-24
+**State**: Phases 2–3 and most of Phase 4 (see below) are complete locally, and on
+2026-09-23/24 two more passes landed: the **admin surface pass** (suspension
+enforcement, KYC gates, customer-accounts screen, permission catalogue —
+`19c2ecf`…`30489e4`) and the **geofencing security pass** (one `GeoPolicyService`
+authority, zoneId-body pricing deleted, bounded boot geo read, suite self-hygiene —
+`635b406`…`a02971e`), followed by the **2026-09-24 closure batch** (this commit):
+ten owner security decisions recorded in `docs/OWNER_SECURITY_DECISIONS.md` and
+Decision 1 choice A implemented as migration **029** — the six Section-A tables now
+refuse anon/authenticated reads at the privilege check on the **local Docker store
+only**, `SEC-07` asserts the refusal, and `geo_anon_access_test.js` (41 checks)
+joined the `npm test` chain. `origin/main` = `0bd03ce`; `main` is **33 commits
+ahead locally and NOT pushed**. Nothing was deployed and no hosted database was
+touched; migrations `027` and `029` are applied to the **local Docker PostgreSQL
+only**. The last full recorded chain: `test_suite.js` **408 PASSED / 0 FAILED**;
+the geo groups re-run 2026-09-24: policy **55/0**, adversarial **60/0**, anon-access
+**41/0**. The other nine owner decisions await their own implementation orders.
 Earlier history: the 2026-09-20/21 work reached the remote by fast-forward
 `9b2804c..b13cdb3`, `55a1836` re-baselined `.agents/CURRENT_STATE.md`, and the same day's
 follow-ups (`1b128e7` un-stock + merchant notification backend, `239c134` mobile
 catalogue/un-stock, `9f0b4e9` + `d1381dc` docs, `dc11941` browse `is_active` fix, `c4eded7`
 mobile notifications feed, `c974fc9` docs) landed on top of it.
+
+## DONE (2026-09-23/24 sessions — admin surface + geofencing security)
+
+- [x] **Admin surface pass (2026-09-22/23, committed):** `19c2ecf` a customer
+      suspension now reaches the door (and is proven to); `c6fba68` the KYC gates
+      actually gate the routes that claim them, and a fleet status change is
+      described honestly; `0d577fc` customer accounts got a console screen which
+      hides actions its caller cannot take; `9eca93d` a half-landed suspension now
+      carries its audit trail; `30489e4` the permission catalogue was written and
+      the two unfinished sweeps it found were closed.
+- [x] **Geofencing authority pass (2026-09-23, committed):** `635b406` every
+      geographic decision (quote, price, dispatch, telemetry) now runs through one
+      `GeoPolicyService`, and a silently unreachable store became a loud one;
+      `c335709` an attribution the next pass disproved was withdrawn from the
+      record and replaced with what was actually measured; `0bd03ce` the session
+      reconciliation row cap was removed; `a02971e` the boot geo read is bounded
+      (`GEO_READ_TIMEOUT_MS`, `FI-09` — a store that answers everything except
+      geography now boots marked `UNREADABLE` and refuses to price rather than
+      pricing from a remembered copy), a fence is named by a column that can hold
+      it, and the adversarial suites reap their own probe rows (HYGIENE-01).
+- [x] **Owner decisions + Decision 1 implementation (2026-09-24, this batch):**
+      `docs/GEO_SECURITY_DECISION_GATE.md` (the evidence record, no recommendations
+      by design), `docs/OWNER_SECURITY_DECISIONS.md` (**all ten decisions recorded
+      2026-09-24; a recorded choice decides what to build, it does not build it —
+      each implementation still needs its own order**), the clarification and
+      implementation-plan docs, and Decision 1 choice A implemented:
+      `supabase/migrations/029_geo_and_commerce_reads_service_role_only.sql`
+      applied to the **local Docker store only** — public read policies dropped and
+      `REVOKE ALL FROM anon, authenticated GRANT SELECT TO service_role` over
+      `geo_fences`, `surge_zones`, `pricing_configurations`, `platform_settings`,
+      `promotions`, `notification_templates`. Measured after: anon and customer
+      tokens get HTTP 401 / code 42501 / zero rows / no `content-range` where anon
+      used to read 447 fences and 445 surge rules with geometry and surcharge;
+      `service_role` and the backend boot are unaffected. `SEC-07-KNOWN-GAP`
+      rewritten as `SEC-07` asserting the refusal and **failing, not skipping**,
+      without the key in the environment; new `backend/geo_anon_access_test.js`
+      (41 checks incl. the `merchants`/`advertisements` neighbours that must keep
+      answering) added to `npm test`. Verification run 2026-09-24 on the live local
+      stack: `geo_policy_test.js` **55/0**, `geo_adversarial_test.js` **60/0**,
+      `geo_anon_access_test.js` **41/0**.
+- [ ] **Not closed by 029, by design:** `is_feature_enabled` remains `SECURITY
+      DEFINER` with PUBLIC execute (one boolean, proven to carry no setting value);
+      Section B of the proposed file (storefront tables, `merchants.lat/lng`) was
+      never an owner decision; the driver-containment gate (§14 decision 1) is NOT
+      DECIDED; the remaining nine owner decisions have no implementation order yet.
 
 ## DONE (2026-09-20/21 sessions — grocery/food customer path + merchant apps)
 

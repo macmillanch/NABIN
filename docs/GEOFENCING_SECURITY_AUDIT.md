@@ -309,12 +309,13 @@ it is an open decision), **OPEN** (unchanged, with the reason).
 - **TEST:** FI-01, FI-02, FI-04, FI-08, GEO-B01…B10, GEO-D08.
 - **VERDICT:** CLOSED for the storage-and-validation half. Still no spatial index (area 16).
 
-### 2. RLS — was PASS (as designed) / PARTIALLY IMPLEMENTED
+### 2. RLS — was PASS (as designed) / CLOSED for anonymous reads by migration 029
 
-- **BEFORE:** `p_read_active_geofences` and `p_read_active_surge_zones` publish the active catalogue to any holder of the anon key; the backend connects as `service_role`, so RLS authorises nothing server-side.
-- **CHANGE:** none. Narrowing it is DDL, and this order stops at a migration.
-- **AFTER:** unchanged, and now pinned by a test that fails if it changes quietly: `SEC-07-KNOWN-GAP` asserts the anon key *can* read active boundaries with geometry and surcharge, and its own text records that the backend's posture is that Express, not RLS, is the authorization layer.
-- **TEST:** SEC-07-KNOWN-GAP (open finding), SEC-02 (admin surfaces behind a permission).
+- **BEFORE:** `p_read_active_geofences` and `p_read_active_surge_zones` publish the active catalogue to any holder of the anon key; the backend connects as `service_role`, so RLS authorises nothing server-side. Measured on the local Docker store before the change: the anon key read 447 fence rows and 445 surge rules with their `coordinates`, `center_lat`, `center_lng`, `radius_meters` and `surcharge_multiplier` intact, and a request with no credential at all read the same.
+- **CHANGE:** Owner Decision 1 choice **A**, implemented as `supabase/migrations/029_geo_and_commerce_reads_service_role_only.sql` — the six public read policies dropped, `REVOKE ALL … FROM anon, authenticated`, `GRANT SELECT … TO service_role`, applied to the **local Docker database only** on 2026-09-24. No hosted project and no production database was touched.
+- **AFTER:** the same probe answers `HTTP 401` with PostgreSQL code `42501` (`permission denied for table geo_fences`), zero rows, and no `content-range` header, so the row count is gone with the geometry. `service_role` still reads all six tables (447 / 445 / 6 / 21 / 846 / 17) and the backend still boots with "447 geofences, 445 surge zones", which is the half that matters: the revocation that blinds the process would look identical from the anon side and different from the boot line.
+- **TEST:** SEC-07 (now asserts the refusal, and fails rather than skips when the anon key is absent), plus `backend/geo_anon_access_test.js` — 44 checks over the six tables, the four geometry columns, a no-credential request, a signed-in customer token, the `service_role` read, an anonymous `PATCH` on three of them (the statement is `REVOKE ALL`, so writes are refused before any policy is consulted, and the probe's filter matches no row so the check itself cannot mutate), and the neighbours (`merchants`, `advertisements`) that must keep answering.
+- **VERDICT:** CLOSED for anonymous and authenticated reads. What this migration does **not** close: `is_feature_enabled` is still `SECURITY DEFINER` with `PUBLIC` execute (one boolean, proven to carry no setting value by `RPC-BOOLEAN-ONLY` / `RPC-NO-SETTING-VALUE`), and `merchants.lat`/`lng` remain anonymous-readable — that is Section B of the proposed file, which is not a decided change.
 - **VERDICT:** OPEN by design, §14 decision 8. Reported in R-Remaining below rather than resolved.
 
 ### 3. SERVICE AREA ENFORCEMENT — was FAIL / NOT IMPLEMENTED
@@ -409,7 +410,7 @@ it is an open decision), **OPEN** (unchanged, with the reason).
 
 - **BEFORE:** `zoneId` in the body moved a real job's fare; `POST /api/geofence/evaluate` was tokenless; the anon key read 420 fences / 269 KB.
 - **CHANGE:** the `zoneId` door is deleted; the evaluate route answers a verdict about one point and no longer returns the vertices, the `description`, `operating_hours` or `created_by` of the boundary that produced it; the reverse-geocode route refuses nonsense instead of naming it.
-- **AFTER:** forged and real zone ids both price as the unnamed same point (`MTX-R07`, `GEO-D03`, `INV-04`); `GEO-D07` asserts no ring of coordinates appears in the evaluate response; `SEC-04` shows the resolver answering `400 GEO_INVALID_COORDINATES` where it used to answer `200 "Live Location (NaN° N …)"`; the anon read is unchanged and asserted as an open finding (`SEC-07-KNOWN-GAP`).
+- **AFTER:** forged and real zone ids both price as the unnamed same point (`MTX-R07`, `GEO-D03`, `INV-04`); `GEO-D07` asserts no ring of coordinates appears in the evaluate response; `SEC-04` shows the resolver answering `400 GEO_INVALID_COORDINATES` where it used to answer `200 "Live Location (NaN° N …)"`; the anon read is unchanged and asserted as an open finding (`SEC-07-KNOWN-GAP`). That was the state at this pass; the anon read closed on 2026-09-24 under Owner Decision 1 — see §2 for the measured before-and-after.
 - **TEST:** MTX-R07, INV-04, GEO-D03, GEO-D07, GEO-D09, SEC-01…SEC-08.
 - **VERDICT:** CLOSED for client-supplied zone authority and for response shape on the tokenless route. OPEN: whether that route needs a session at all (§14-8), and the RLS narrowing, which is DDL.
 
@@ -592,6 +593,12 @@ test that asserted an answer would be that answer chosen by whoever wrote the te
    outside the directory `backend/scripts/migrate.js` reads. The test that documents the open state —
    `SEC-07-KNOWN-GAP` — is written to fail loudly when somebody narrows it without saying so, and its
    own text says to rewrite it as an assertion of the refusal at that point.
+   **Closed on 2026-09-24**, which is what this item asked for and not a contradiction of it: Owner
+   Decision 1 chose **A**, Section A of that file became
+   `supabase/migrations/029_geo_and_commerce_reads_service_role_only.sql`, it was applied to the **local
+   Docker store only**, `SEC-07-KNOWN-GAP` became `SEC-07` and asserts the refusal, and the measured
+   numbers are in §2 above. Hosted test and production remain untouched and each needs its own approval.
+   The 31-of-40 census for the tables outside Section A still stands as written.
 2. **The boot geo read is now bounded** (`FI-09`, `GEO_READ_TIMEOUT_MS = 10_000`), which retires the
    second half of what this item used to say: a store that answers everything *except* geography now
    starts, marks its copy `UNREADABLE`, and refuses to price rather than pricing from a remembered

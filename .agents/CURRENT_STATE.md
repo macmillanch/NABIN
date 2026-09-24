@@ -1,9 +1,53 @@
 # NABIN — Current Repository State
 
-**Last Updated**: 2026-09-22
+**Last Updated**: 2026-09-24
 **Mode**: IMPLEMENTATION — verified work is committed LOCALLY only; `main` is ahead of
-`origin/main` (`c974fc9`) and nothing newer has been pushed
+`origin/main` (`0bd03ce`) and nothing newer has been pushed
 **Status**: AUTHORITATIVE SNAPSHOT
+
+> **Re-baseline note (2026-09-24):** the 2026-09-22 snapshot below-left stale.
+> Verified live: HEAD = `a02971e`, origin/main = `0bd03ce`, `main` is **33 commits
+> ahead of `origin/main` locally and NOT pushed** (`c974fc9..HEAD` = 33 commits).
+> Between 2026-09-22 and 2026-09-24 the project ran two full passes that are
+> committed but were never recorded here: the **admin surface pass** (`19c2ecf`
+> customer suspension enforcement, `c6fba68` KYC gates on the routes that claimed
+> them, `0d577fc` customer-accounts screen, `9eca93d` suspension trail fix,
+> `30489e4` permission catalogue) and the **geofencing security pass** (`635b406`
+> one authority — `GeoPolicyService` — behind every geographic decision,
+> `c335709` docs correction, `0bd03ce` session-reconciliation row-cap removal,
+> `a02971e` bounded boot geo read + fence naming + suite self-hygiene).
+>
+> **Geofencing closure (2026-09-24, local only, NOT pushed):** ten owner security
+> decisions were recorded 2026-09-24 in `docs/OWNER_SECURITY_DECISIONS.md` (a
+> decision decides *what* to build; each implementation, migration application,
+> row deletion and push still needs its own separate order). Decision 1 choice A —
+> "Revoke anonymous access; service-role-only backend architecture" — is
+> implemented by `supabase/migrations/029_geo_and_commerce_reads_service_role_only.sql`
+> (Section A only: `geo_fences`, `surge_zones`, `pricing_configurations`,
+> `platform_settings`, `promotions`, `notification_templates` — public read
+> policies dropped, `REVOKE ALL FROM anon, authenticated`, `GRANT SELECT TO
+> service_role`). **Applied to the local Docker PostgreSQL only**; hosted test and
+> production untouched. Measured before: anon read 447 fences / 445 surge rules
+> with geometry and surcharge; after: HTTP 401, code 42501, zero rows, no
+> `content-range`, while `service_role` still reads all six tables and the backend
+> still boots "447 geofences, 445 surge zones" — the revocation that blinds the
+> process would look identical from the anon side and different from the boot
+> line, which is why the boot line is part of the check. `SEC-07-KNOWN-GAP` was
+> rewritten as `SEC-07` asserting the refusal, and now **fails rather than skips**
+> when the anon key is missing from the environment. New
+> `backend/geo_anon_access_test.js` (41 checks: six tables, four geometry columns,
+> no-credential, signed-in customer token, `service_role` read, and the neighbours
+> `merchants`/`advertisements` that must keep answering) joined the `npm test`
+> chain. What 029 deliberately does NOT close: `is_feature_enabled` is still
+> `SECURITY DEFINER` with PUBLIC execute (one boolean, proven to carry no setting
+> value), and `merchants.lat/lng` + the storefront tables (Section B of the
+> proposed file) remain anonymous-readable — not a decided change. Chain run
+> 2026-09-24 on the live local stack, no stubs: `geo_policy_test.js` **55/0**,
+> `geo_adversarial_test.js` **60/0** (with HYGIENE-01 sweeping its own probe
+> fences), `geo_anon_access_test.js` **41/0**. Still open in the geo record: the
+> driver-containment gate (§14 decision 1, NOT DECIDED), `zoneId`-body pricing was
+> deleted but the tokenless `/api/geofence/evaluate` session question stays a
+> decision, and no spatial index exists yet.
 
 > **Re-baseline note (2026-09-21):** the 2026-09-20 snapshot below-left stale.
 > Verified live: HEAD = origin/main = `b13cdb3`, reached by a fast-forward
@@ -246,16 +290,21 @@
 
 | Field | Value |
 |-------|-------|
-| **Current HEAD** | this docs commit, on top of the Phase 4 chain `ea4c146` (a campaign edit carries the revision it was based on), `a551dd6` (a permission check in front of every admin write, durable credential reset), `31d0d62` (password login and provisioning stop trusting memory), `cdb63aa` (restart run asks the cold backend), `e994e44` (auth fails closed instead of falling back to fixtures), `c1f3d1d` (one telemetry validator for both transports) — which sit on the Phase 3 chain `97fb57f` (docs), `2b0c55b` (Flutter renders the live campaign), `7a882e1` (campaign console), `eb492c5` (admin login requires a username), `77dd9d6` (restart-run surge restore), `daf82cf` (MODULE 33), `2697038` (campaign API + config section), `a85ca6d` (027 + `CampaignRepository`) and on the Phase 2 chain `9da93cd`, `b4803e5`, `8e8a30e`, `80940c2`, `a0bd024` and on `d628d0c`, `5824f36`, `f759dd3`, `46ab58a`, `904acd2` |
-| **origin/main** | `c974fc9` |
-| **HEAD == origin/main** | NO — `main` is **27 commits ahead locally and NOT pushed** |
+| **Current HEAD** | the 2026-09-24 geofencing-closure commits, on top of `a02971e` (bounded boot geo read, fence naming, suite self-hygiene), `0bd03ce` (session reconciliation row cap), `c335709` (geo docs correction), `635b406` (one geo authority — `GeoPolicyService`), `30489e4` (permission catalogue), `9eca93d` (suspension trail), `0d577fc` (customer accounts screen), `c6fba68` (KYC gates), `19c2ecf` (suspension reaches the door) — which sit on the Phase 4 chain `ea4c146`, `a551dd6`, `31d0d62`, `cdb63aa`, `e994e44`, `c1f3d1d`, on the Phase 3 chain `97fb57f`…`a85ca6d`, on the Phase 2 chain `9da93cd`, `b4803e5`, `8e8a30e`, `80940c2`, `a0bd024` and on `d628d0c`, `5824f36`, `f759dd3`, `46ab58a`, `904acd2` |
+| **origin/main** | `0bd03ce` |
+| **HEAD == origin/main** | NO — `main` is **33 commits ahead locally and NOT pushed** (`c974fc9..HEAD`) |
 | **Branch** | main |
 
-### Untracked files of record (re-verified 2026-09-22, `git status --porcelain`)
+### Untracked files of record (re-verified 2026-09-24, `git status --porcelain`)
 
 - `.kilo/agents/` — never commit (standing rule). `.kilo/` also holds two
   **registered git worktrees** (`bejewled-august`, `shiny-oboe`), so the folder
   cannot simply be deleted — that needs `git worktree remove` first.
+- The 2026-09-24 geofencing-closure batch (migration 029, `geo_anon_access_test.js`,
+  the `SEC-07` rewrite in `geo_adversarial_test.js`, the `npm test` chain update,
+  the owner decision documents and the updated `GEOFENCING_SECURITY_AUDIT.md`) is
+  being committed with this re-baseline; after it, only `.kilo/agents/` remains
+  untracked.
 - Everything else that used to litter the root is gone as of 2026-09-22: the 11
   mangled/pasted files and `mcp_out.txt`/`readme.txt` were **moved** to
   `C:/Users/macmi/Documents/nabin-quarantine-2026-09-21/` (with `MANIFEST.json`),
@@ -271,6 +320,16 @@
 
 ### Recent Git History
 ```
+<new geofencing-closure commits, 2026-09-24>
+a02971e fix(geo): bound what boot may believe, name a fence by a column that can hold it, and make the suites reap their boundaries
+0bd03ce fix(auth): remove session reconciliation row cap
+c335709 docs(geo): withdraw an attribution the next pass disproved, and record what was measured instead
+635b406 feat(geo): put every geographic decision behind one authority, and make a silent store a loud one
+30489e4 docs(admin): write the permission catalogue, and finish the two sweeps it found unfinished
+9eca93d fix(admin): give a half-landed suspension its trail, and check what three lines claim
+0d577fc feat(admin-web): give customer accounts a screen, and hide the actions its caller cannot take
+c6fba68 feat(backend): put the KYC gates on the routes that claim them, and describe a fleet status change honestly
+19c2ecf feat(backend): make a customer suspension reach the door, and prove it
 ea4c146 fix(backend): make a campaign edit carry the revision it is based on
 69202df docs: record the permission-check pass and the master-catalogue gap it found
 a551dd6 fix(backend): put a permission check in front of every admin write
@@ -355,6 +414,7 @@ d7ef7f5 feat(phase-16): implement postgres kyc, verified vpa, partial refund and
 | 017 | ABSENT / REVERTED | Deleted by revert commits 66c0718 and 1d404a6; does not exist in working tree or Git index; NOT approved for future implementation |
 | 018–026 | APPROVED / FROZEN | `018` order state lines + checkout link, `019` atomic order creation, `020` dispatch security, `021` cross-domain hardening, `022` notifications/support/dispute security, `023` ledger security, `024` application-surface security, `025` feature control system, `026` backend session persistence. Do not modify. |
 | 027 | OWNER-APPROVED ("Option A") / LOCAL ONLY | `supabase/migrations/027_dynamic_campaigns_and_themes.sql` — campaigns, assets, themes, offers, messages, `campaign_effective_status()`, `resolve_live_campaigns()`, RLS-on-with-no-policies plus `REVOKE ALL` from client roles. Applied to the **local Docker PostgreSQL only**; never pushed to a hosted project |
+| 029 | OWNER DECIDED (Decision 1 choice A, 2026-09-24) / LOCAL ONLY | `supabase/migrations/029_geo_and_commerce_reads_service_role_only.sql` — Section A six tables (`geo_fences`, `surge_zones`, `pricing_configurations`, `platform_settings`, `promotions`, `notification_templates`): public read policies dropped, `REVOKE ALL FROM anon, authenticated`, `GRANT SELECT TO service_role`. Applied to the **local Docker PostgreSQL only** on 2026-09-24; hosted test/production each need their own approval. Section B (storefront: merchants, products, merchant_grocery_inventory, master_grocery_catalog, advertisements) deliberately NOT included |
 
 ### Authoritative PostgreSQL Persistence
 - Migrations 001–015 establish: `users`, `drivers`, `jobs`, `payments`, `ledger_accounts`, `journal_transactions`, `journal_lines`, `geo_fences`, `surge_zones`, `promotions`, `support_tickets`, `audit_logs`, `notifications`, `checkouts`, `dispatch_offers`, `merchants`, `products`, `grocery_catalog`, etc.
@@ -442,7 +502,7 @@ d7ef7f5 feat(phase-16): implement postgres kyc, verified vpa, partial refund and
 | Server-driven Phase 1 | COMPLETE (local, unpushed) | Advertisements on PostgreSQL, server-authoritative checkout coupons, `GET /api/app/config`, local chaos audit |
 | Server-driven Phase 2 | COMPLETE (local, unpushed) | Client render pass (remote-config layer + cache + server-time authority, theme/offers/features sections, banner and feature gating in Flutter) and the CRITICAL trip settlement race fixed at database level with a 50-way ledger-asserting regression (MODULE 32) |
 | Server-driven Phase 3 | COMPLETE (local, unpushed) | Dynamic campaigns / festival themes / assets on migration 027: PostgreSQL clock resolves what is live, admin campaign editor, `campaigns` section on the config feed, Customer App renders theme + logo + banner + popup with no rebuild. **Limits:** `CUSTOMER_HOME` is the only wired surface, assets are pasted URLs (no in-admin upload), 027 is not applied to any hosted project |
-| Server-driven Phase 4 | IN PROGRESS (local, unpushed) | Done: telemetry validated once for both transports (`c1f3d1d`), authentication fails closed on an unreachable store (`e994e44`, `31d0d62`), a permission check in front of every admin write with a durable credential reset (`a551dd6`), and campaign concurrency — touched-columns writes, mandatory revision guard (428/412/409/400), UNIQUE code answered as 409, outage as 503, `CAMPAIGN_PARTIALLY_APPLIED` naming what landed, and the CORS headers the conditional write needs (`ea4c146`). FI-08 documented, not corrected (`97578c4`). Open: the "Still open in this phase" list in `TASKS.md` — the codebase-wide 5xx/4xx sweep, driver/merchant campaign surfaces, the campaign asset decision, mobile offline matrix, env isolation + secret scan, financial re-verification, the public-website decision, and the Phase 4 verification chain A–O |
+| Server-driven Phase 4 | IN PROGRESS (local, unpushed) | Done: telemetry validated once for both transports (`c1f3d1d`), authentication fails closed on an unreachable store (`e994e44`, `31d0d62`), a permission check in front of every admin write with a durable credential reset (`a551dd6`), campaign concurrency — touched-columns writes, mandatory revision guard (428/412/409/400), UNIQUE code answered as 409, outage as 503, `CAMPAIGN_PARTIALLY_APPLIED` naming what landed, and the CORS headers the conditional write needs (`ea4c146`) — **the admin surface pass** (`19c2ecf`…`30489e4`: suspension enforcement, KYC gates, customer-accounts screen, permission catalogue) and **the geofencing security pass** (`635b406`…`a02971e` + the 2026-09-24 closure commits: one `GeoPolicyService` authority, zoneId-body pricing deleted, bounded boot geo read, suite self-hygiene, Owner Decision 1 implemented as migration 029 — anon/authenticated reads of the six Section-A tables revoked on the local store). FI-08 documented, not corrected (`97578c4`). Open: the "Still open in this phase" list in `TASKS.md` — the codebase-wide 5xx/4xx sweep, driver/merchant campaign surfaces, the campaign asset decision, mobile offline matrix, env isolation + secret scan, financial re-verification, the public-website decision, the Phase 4 verification chain A–O, and the nine remaining owner decisions from `docs/OWNER_SECURITY_DECISIONS.md` (each awaits its own implementation order) |
 
 ---
 
@@ -470,8 +530,15 @@ d7ef7f5 feat(phase-16): implement postgres kyc, verified vpa, partial refund and
 9. **Campaign reach** — only `CUSTOMER_HOME` renders a campaign on mobile; driver/merchant
    apps and other `surface` values store and publish but render nothing, and a campaign
    asset is a pasted URL (no in-admin Cloudinary picker).
-10. **Nothing newer than `c974fc9` is pushed** and `027` is applied to the local Docker
-    database only; running it against a hosted project needs explicit approval.
+10. **Nothing newer than `0bd03ce` is pushed** (`main` is 33 ahead locally) and
+    `027`/`029` are applied to the local Docker database only; running either against
+    a hosted project needs explicit approval. The anon/authenticated read of the six
+    Section-A tables is **closed** by migration 029 (Owner Decision 1A, 2026-09-24);
+    what that revocation deliberately left open: `is_feature_enabled` is still
+    `SECURITY DEFINER` with PUBLIC execute (one boolean, no setting value — proven by
+    `RPC-BOOLEAN-ONLY`/`RPC-NO-SETTING-VALUE`), and the Section-B storefront tables
+    (`merchants.lat/lng` included) remain anonymous-readable because that half was
+    never an owner decision.
 11. **`POST /api/admin/promotions` upserts on `code`** — re-issuing a code resets
     `usage_count` and inherits the old row's redemption history, so a spent limited-use
     voucher comes back to life. Fixing it to refuse conflicts with `test_suite.js:270`,
