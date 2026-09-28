@@ -7,8 +7,14 @@
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "db:migrate": "node scripts/migrate.js",
-    "test": "node test_suite.js && node session_reconcile_pagination_test.js && node boot_mirror_read_test.js && node geo_policy_test.js && node geo_adversarial_test.js && node geo_anon_access_test.js && node restart_test.js",
+    "test": "node scripts/test_chain.js",
+    "test:driver-earnings": "node driver_earnings_test.js",
+    "test:merchant": "node merchant_operations_test.js",
+    "test:driver-ops": "node driver_operations_test.js",
+    "test:security": "node test_phase7_security.js",
+    "test:admin": "node admin_identity_gates_test.js && node admin_authorization_test.js && node admin_customers_test.js && node admin_settings_surface_test.js && node admin_audit_fail_closed_test.js",
     "test:geo-anon": "node geo_anon_access_test.js",
+    "test:outage": "node checkout_store_semantics_test.js && node hydration_fallback_test.js && node campaign_outage_test.js",
     "smoke": "node smoke_test.js"
   },
   "dependencies": {

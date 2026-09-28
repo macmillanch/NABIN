@@ -137,8 +137,28 @@ async function runTests() {
   driverToken = drvOtp.data.token;
 
   // Merchant
-  const merchOtp = await request('POST', '/api/auth/verify-otp', { phone: '+917777777777', otp: '7729', role: 'MERCHANT' });
+  // TASK 2: this used '+917777777777', which matches no merchants row, so in a non-production
+  // run the session identity came from the `entity = this.restaurants[0]` convenience fallback
+  // rather than from a registered store. The capability under test here is only "an
+  // authenticated MERCHANT principal must not be able to change platform feature flags", so
+  // any legitimately registered merchant expresses the same semantics. 9811223344 is the real
+  // HYBRID_BOTH store (00000000-...-0201, "Dilli Darbar Authentic Mughlai"), authenticated
+  // through the same deterministic OTP the app already provides - no forged token, no injected
+  // session, no reliance on array position or an unregistered number.
+  const merchOtp = await request('POST', '/api/auth/verify-otp', { phone: '9811223344', otp: '7729', role: 'MERCHANT' });
   merchantToken = merchOtp.data.token;
+  {
+    // Guard: prove this token really is the registered merchant and not the fallback identity.
+    const me = await request('GET', '/api/auth/me', null, { Authorization: `Bearer ${merchantToken}` });
+    const uid = String((me.data && me.data.user && (me.data.user.uuid || me.data.user.id)) || '');
+    if (me.status !== 200 || !/00000000-0000-0000-0000-000000000201/.test(uid)
+      || String(me.data && me.data.role || '').toUpperCase() !== 'MERCHANT') {
+      console.error('[FAIL] TASK2 guard: the merchant token is not the registered HYBRID_BOTH store');
+      console.error(JSON.stringify({ status: me.status, role: me.data && me.data.role, uid }));
+      process.exit(1);
+    }
+    console.log('[PASS] TASK2 guard: merchant session is the registered HYBRID_BOTH merchant ' + uid);
+  }
 
   let passed = 0;
   let failed = 0;

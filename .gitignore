@@ -46,3 +46,10 @@ desktop.ini
 .vercel
 supabase/.branches/
 supabase/.temp/
+
+# Local test-harness state. These hold live session tokens / scratch probes and must never
+# become committable credentials, even though they live beside tracked suites.
+backend/.nabin_test_sessions.json
+
+# Per-link output written by backend/scripts/test_chain.js during a regression run.
+backend/.chain-logs/

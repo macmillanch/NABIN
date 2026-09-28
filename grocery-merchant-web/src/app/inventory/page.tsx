@@ -92,10 +92,13 @@ export default function InventoryPage() {
     setError('');
     setNotice('');
     try {
+      // `Number('')` is 0, so sending both fields unconditionally re-priced a product to
+      // ₹0.00 whenever a merchant edited only the stock cell and left the price box alone.
+      // A blank field is now omitted, which the API treats as "not changing this".
       await merchantApi.saveInventory({
         masterProductId,
-        currentPrice: Number(payload.currentPrice),
-        stockQty: Number(payload.stockQty),
+        ...(payload.currentPrice.trim() !== '' ? { currentPrice: Number(payload.currentPrice) } : {}),
+        ...(payload.stockQty.trim() !== '' ? { stockQty: Number(payload.stockQty) } : {}),
       });
       setNotice(`${label} updated in PostgreSQL. The customer app sees the new price on its next load.`);
       await load();

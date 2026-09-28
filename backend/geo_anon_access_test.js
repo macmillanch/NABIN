@@ -39,6 +39,17 @@ const PGRST = process.env.SUPABASE_URL || 'http://127.0.0.1:54321';
 const BASE = process.env.GEO_TEST_BASE || 'http://127.0.0.1:4000';
 const ANON = process.env.SUPABASE_ANON_KEY;
 const SERVICE = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const { createLogin } = require('./testSessionCache');
+
+// Adapter so the shared session helper can speak this file's fetch idiom. It is the only
+// sign-in path in the suite, and it exists to reuse an already-valid local session rather than
+// re-dispatch an OTP the chain has already spent.
+const jsonRequest = (method, urlPath, body, headers) => fetch(`${BASE}${urlPath}`, {
+  method,
+  headers: { 'Content-Type': 'application/json', ...(headers || {}) },
+  body: body === undefined || body === null ? undefined : JSON.stringify(body),
+}).then(async (res) => ({ status: res.status, data: await res.json().catch(() => ({})) }));
+const anonLogin = createLogin({ baseUrl: BASE, request: jsonRequest });
 
 const results = [];
 function check(id, cond, detail) {
@@ -192,16 +203,12 @@ async function main() {
   console.log('\n--- 6. THE CUSTOMER ROLE, PROVEN WITH A REAL SESSION WHEN THE BACKEND IS UP ---');
   let authedProven = false;
   try {
-    const otp = await fetch(`${BASE}/api/auth/send-otp`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone: '9845011982', role: 'CUSTOMER', purpose: 'LOGIN' })
-    }).then(r => r.json());
-    const verified = await fetch(`${BASE}/api/auth/verify-otp`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone: '9845011982', otp: otp.testOtp || '7729', role: 'CUSTOMER' })
-    }).then(r => r.json());
-    const token = verified.token;
-    if (!token) throw new Error(`no session issued (${JSON.stringify(verified).slice(0, 80)})`);
+    // Signing in is a means to a token here, not the thing under test, so a still-valid local
+    // harness session is reused instead of spending another OTP dispatch. The reuse is not a
+    // bypass: the cached token is presented to `GET /api/auth/me` and only accepted when the
+    // server says it is live and belongs to a CUSTOMER. The refusal checks below are unchanged.
+    const token = (await anonLogin('9845011982', 'CUSTOMER')).token;
+    if (!token) throw new Error('no session available (cached session invalid and sign-in refused)');
     for (const { table } of PROTECTED) {
       const r = await rest(`${table}?select=*&limit=3`, ANON, { Authorization: `Bearer ${token}` });
       check(`AUTHED-DENY-${table}`, refused(r),

@@ -47,6 +47,37 @@ class OrderRepository {
     return null;
   }
 
+  // An unreachable store and a genuinely-absent row are different answers, and only
+  // one of them belongs to the caller. This mirrors `settleAuthoritative`/
+  // `authStoreUnavailable` in the store: a connection rejection or a PostgREST error
+  // both become a retryable 503, while a clean query that simply finds nothing still
+  // resolves to `null` for the caller to turn into its business answer. Before this,
+  // every resolver here swallowed the error and returned "not found", so a database
+  // blip surfaced to checkout as MERCHANT_NOT_FOUND / ITEM_NOT_FOUND — a 4xx that
+  // blames the customer for the platform's own outage and tells the client to stop
+  // retrying. `storeReply` in supabase.js is the single classifier; the routes hand it
+  // this error, whose `.status` of 503 is exactly what `isStoreUnreachable` reads.
+  storeUnavailableError(what, cause) {
+    const err = new Error(`Cannot complete ${what} right now because the database is not reachable. Please try again in a moment.`);
+    err.code = 'STORE_UNAVAILABLE';
+    err.status = 503;
+    err.cause = cause && cause.message ? cause.message : String(cause);
+    return err;
+  }
+
+  async settleStore(builder, what) {
+    let result;
+    try {
+      result = await builder;
+    } catch (err) {
+      throw this.storeUnavailableError(what, err);
+    }
+    if (result && result.error) {
+      throw this.storeUnavailableError(what, result.error);
+    }
+    return result ? result.data : null;
+  }
+
   /**
    * Resolve merchant UUID and verify existence in PostgreSQL
    */
@@ -62,13 +93,11 @@ class OrderRepository {
     }
 
     if (supabaseAdmin) {
-      const { data, error } = await supabaseAdmin
-        .from('merchants')
-        .select('*')
-        .eq('id', targetId)
-        .maybeSingle();
-
-      if (!error && data) {
+      const data = await this.settleStore(
+        supabaseAdmin.from('merchants').select('*').eq('id', targetId).maybeSingle(),
+        'the merchant lookup'
+      );
+      if (data) {
         return data;
       }
     }
@@ -86,17 +115,15 @@ class OrderRepository {
       throw err;
     }
 
-    // Fetch all products for this merchant from PostgreSQL
+    // Fetch all products for this merchant from PostgreSQL. A store that cannot
+    // answer is an outage (503), not an empty menu — resolving the difference here
+    // is what stops every line below falling through to PRODUCT_NOT_FOUND.
     let merchantProducts = [];
     if (supabaseAdmin) {
-      const { data, error } = await supabaseAdmin
-        .from('products')
-        .select('*')
-        .eq('merchant_id', merchantId);
-
-      if (!error && data) {
-        merchantProducts = data;
-      }
+      merchantProducts = (await this.settleStore(
+        supabaseAdmin.from('products').select('*').eq('merchant_id', merchantId),
+        'the restaurant menu'
+      )) || [];
     }
 
     const resolvedLines = [];
@@ -131,11 +158,10 @@ class OrderRepository {
           matchedProduct = merchantProducts.find(p => p.id === prodId);
           if (!matchedProduct && supabaseAdmin) {
             // Check if product exists for ANOTHER merchant (cross-tenant check)
-            const { data: otherProd } = await supabaseAdmin
-              .from('products')
-              .select('id, merchant_id, name')
-              .eq('id', prodId)
-              .maybeSingle();
+            const otherProd = await this.settleStore(
+              supabaseAdmin.from('products').select('id, merchant_id, name').eq('id', prodId).maybeSingle(),
+              'the restaurant menu'
+            );
 
             if (otherProd && otherProd.merchant_id !== merchantId) {
               const err = new Error(`Product [${prodId}] belongs to another merchant.`);
@@ -198,14 +224,10 @@ class OrderRepository {
 
     let merchantInventory = [];
     if (supabaseAdmin) {
-      const { data, error } = await supabaseAdmin
-        .from('merchant_grocery_inventory')
-        .select('*, master_grocery_catalog(*)')
-        .eq('merchant_id', merchantId);
-
-      if (!error && data) {
-        merchantInventory = data;
-      }
+      merchantInventory = (await this.settleStore(
+        supabaseAdmin.from('merchant_grocery_inventory').select('*, master_grocery_catalog(*)').eq('merchant_id', merchantId),
+        'the store inventory'
+      )) || [];
     }
 
     const resolvedLines = [];
@@ -225,11 +247,10 @@ class OrderRepository {
         matchedInv = merchantInventory.find(inv => inv.id === targetInvId || inv.product_id === targetInvId);
         if (!matchedInv && supabaseAdmin) {
           // Check if inventory belongs to another merchant
-          const { data: otherInv } = await supabaseAdmin
-            .from('merchant_grocery_inventory')
-            .select('id, merchant_id')
-            .or(`id.eq.${targetInvId},product_id.eq.${targetInvId}`)
-            .maybeSingle();
+          const otherInv = await this.settleStore(
+            supabaseAdmin.from('merchant_grocery_inventory').select('id, merchant_id').or(`id.eq.${targetInvId},product_id.eq.${targetInvId}`).maybeSingle(),
+            'the store inventory'
+          );
 
           if (otherInv && otherInv.merchant_id !== merchantId) {
             const err = new Error(`Grocery inventory [${targetInvId}] belongs to another merchant.`);

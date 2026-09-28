@@ -8,6 +8,9 @@ const { WebSocketServer } = require('ws');
 const db = require('./database');
 const supabaseHelper = require('./supabase');
 const cloudinaryService = require('./services/cloudinaryService');
+// Canonical `Idempotency-Key` / `X-Idempotency-Key` / body spelling, shared with every other
+// mutating route here so a client learns one convention rather than one per endpoint.
+const { readIdempotencyHeader } = require('./services/moneyIdentity');
 const { MockSandboxPushProvider, FcmV1PushProvider, PushNotificationService } = require('./services/PushNotificationService');
 const { notificationEventBus, NOTIFICATION_EVENTS } = require('./services/NotificationEventBus');
 const featureControlService = require('./services/FeatureControlService');
@@ -251,7 +254,15 @@ app.use(cors({
   // clients the contract was written for — the admin console and a web app on another
   // origin — while Node and Flutter clients sail past it, which is why the test suite
   // cannot see this.
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id', 'X-Idempotency-Key', 'X-App-Version', 'X-Device-Id', 'If-Match', 'If-None-Match'],
+  //
+  // Idempotency-Key joins X-Idempotency-Key for the same reason and with the same blind
+  // spot: six routes read the canonical spelling FIRST (`req.headers['idempotency-key']
+  // || req.headers['x-idempotency-key']`) — ride and parcel booking, grocery checkout,
+  // offer acceptance, food ordering, coupon redemption — and the ledger and dispatch
+  // procedures deduplicate on the value it carries. A browser that honoured that contract
+  // preflighted a header this list did not allow, so the request never left the browser,
+  // and a retry after a dropped response could book the trip or redeem the coupon twice.
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id', 'Idempotency-Key', 'X-Idempotency-Key', 'X-App-Version', 'X-Device-Id', 'If-Match', 'If-None-Match'],
   // Without this, `response.headers.get('ETag')` reads as null in a browser even though
   // the server sent it, so a cross-origin client could never obtain the revision a
   // conditional write or a conditional GET has to echo back.
@@ -928,6 +939,107 @@ function requireMerchantTenant(req, res, next) {
 
   req.merchantTenantId = tenantId;
   next();
+}
+
+// -----------------------------------------------------------------------------
+// Merchant service entitlements (PHASE 10)
+//
+// `merchants.merchant_type` has been a real, CHECK-constrained column since
+// migration 001 — `('RESTAURANT','GROCERY','HYBRID_BOTH')`, i.e. exactly
+// restaurant-only / instamart-only / both. Until now it was consulted on the two
+// CUSTOMER-facing booking paths and nowhere else: all 11 `/api/merchant/*` routes
+// and the grocery merchant writes carried `authenticateMerchant` +
+// `requireMerchantTenant` only. Tenant isolation was therefore intact (a merchant
+// could never touch another merchant's rows) while *service* authorisation was
+// absent, so a restaurant-only store could POST to `/api/merchant/inventory` or
+// `/api/grocery/products/:id/price`, and a grocery-only store could flip a
+// restaurant menu item.
+//
+// Hiding the module in Flutter would not fix that: the server has to decide. This
+// is the "AUTHORIZED SERVICE ENTITLEMENTS" rung between merchant identity and
+// resource ownership.
+//
+// Note it reads PostgreSQL rather than `req.merchant`. `database.js` carries no
+// `merchant_type` at all, so the in-memory merchant object cannot answer the
+// question, and `authenticateMerchant` may also have handed the request a session
+// `entity` snapshot or the synthetic `{ name: 'Partner Merchant' }` fallback. An
+// entitlement that cannot be established is refused: a merchant whose record the
+// platform cannot read is not a merchant who is entitled to everything.
+// -----------------------------------------------------------------------------
+const MERCHANT_SERVICE_ALIASES = {
+  RESTAURANT: ['RESTAURANT', 'HYBRID_BOTH'],
+  GROCERY: ['GROCERY', 'HYBRID_BOTH'],
+  // The apps and this file say INSTAMART in a few places; it is the same entitlement.
+  INSTAMART: ['GROCERY', 'HYBRID_BOTH']
+};
+
+function requireMerchantService(service) {
+  const wanted = String(service || '').toUpperCase();
+  const allowed = MERCHANT_SERVICE_ALIASES[wanted];
+  if (!allowed) {
+    // A typo in a route table must not become an open door.
+    throw new Error(`requireMerchantService: unknown service '${service}'`);
+  }
+
+  return async function requireMerchantServiceMiddleware(req, res, next) {
+    try {
+      if (!req.merchant) {
+        return res.status(401).json({
+          success: false,
+          code: 'MERCHANT_AUTH_REQUIRED',
+          error: 'Unauthorized: Merchant authentication required.',
+          requestId: req.id
+        });
+      }
+
+      const merchantId = req.merchant.id || req.merchant.merchantId;
+      let row = null;
+      try {
+        row = await db.orderRepo.resolveMerchant(merchantId);
+      } catch (readErr) {
+        if (supabaseHelper.isStoreUnreachable(readErr)) {
+          return replyStoreError(res, req, readErr, 'merchant service entitlement');
+        }
+        throw readErr;
+      }
+
+      const actual = row && (row.merchant_type || row.merchantType);
+      if (!actual) {
+        return res.status(403).json({
+          success: false,
+          code: 'MERCHANT_IDENTITY_UNRESOLVED',
+          error: 'Forbidden: this merchant account could not be resolved to a service entitlement.',
+          requestId: req.id
+        });
+      }
+
+      if (!allowed.includes(String(actual).toUpperCase())) {
+        return res.status(403).json({
+          success: false,
+          code: 'MERCHANT_TYPE_MISMATCH',
+          error: `Forbidden: this merchant is authorized for ${actual}, not for ${wanted} service.`,
+          merchantType: actual,
+          requestedService: wanted,
+          requestId: req.id
+        });
+      }
+
+      // Published for the handler and for the entitlement read, so no client has to
+      // declare its own service for the server to honour it.
+      req.merchantService = wanted;
+      req.merchantType = actual;
+      return next();
+    } catch (err) {
+      if (supabaseHelper.isStoreUnreachable(err)) return replyStoreError(res, req, err, 'merchant service entitlement');
+      console.error('[merchant service entitlement] failed:', err);
+      return res.status(err.status || 500).json({
+        success: false,
+        code: err.code || 'SERVICE_ENTITLEMENT_CHECK_FAILED',
+        error: err.message,
+        requestId: req.id
+      });
+    }
+  };
 }
 
 function authenticateAdmin(req, res, next) {
@@ -1851,8 +1963,20 @@ app.post('/api/admin/support/:id/resolve', authenticateAdmin, requirePermission(
 // -------------------------------------------------------------
 // 3. FINANCE & SETTLEMENTS
 // -------------------------------------------------------------
-app.get('/api/admin/finance/metrics', authenticateAdmin, requirePermission('finance.view'), (req, res) => {
-  res.json({ success: true, metrics: db.getFinancialMetrics() });
+app.get('/api/admin/finance/metrics', authenticateAdmin, requirePermission('finance.view'), async (req, res) => {
+  // F1: the metrics are now computed from the authoritative ledger, so a store that cannot
+  // answer is an outage (503) rather than a silent return of this process's in-memory seed.
+  try {
+    res.json({ success: true, metrics: await db.getFinancialMetrics() });
+  } catch (err) {
+    const status = err.status || err.statusCode || 500;
+    res.status(status).json({
+      success: false,
+      code: err.code || 'FINANCE_METRICS_FAILED',
+      error: err.message,
+      requestId: req.id
+    });
+  }
 });
 
 app.get('/api/admin/finance/ledger', authenticateAdmin, requirePermission('finance.view'), (req, res) => {
@@ -1866,27 +1990,54 @@ app.get('/api/admin/finance/ledger', authenticateAdmin, requirePermission('finan
   res.json({ success: true, transactions: list, total: list.length });
 });
 
-app.get('/api/admin/finance/settlements/drivers', authenticateAdmin, requirePermission('finance.settlement'), (req, res) => {
-  const driverSettlements = db.drivers.map(d => ({
-    driverId: d.id,
-    driverName: d.name,
-    upiId: d.upiId,
-    bankAccount: d.bankAccount,
-    walletBalance: d.walletBalance,
-    todayEarnings: d.todayEarnings,
-    status: d.walletBalance > 0 ? 'PENDING' : 'SETTLED'
-  }));
-  res.json({ success: true, driverSettlements });
+app.get('/api/admin/finance/settlements/drivers', authenticateAdmin, requirePermission('finance.settlement'), async (req, res) => {
+  // F3: durable driver set and durable wallet balances. Previously this mapped
+  // `db.drivers`, so a driver created after boot never appeared and a balance could be
+  // stale by anything another process moved. Response shape, path and authorization are
+  // unchanged. A store that cannot answer is a 503, never a shorter list.
+  try {
+    const driverSettlements = await db.getDriverSettlements();
+    res.json({ success: true, driverSettlements });
+  } catch (err) {
+    const status = err.status || err.statusCode || 500;
+    console.error('[API] driver settlements failed:', err.message);
+    res.status(status).json({ success: false, code: err.code || 'SETTLEMENTS_READ_FAILED', error: err.message, requestId: req.id });
+  }
 });
 
 app.post('/api/admin/finance/settlements/drivers/:id/payout', authenticateAdmin, requirePermission('finance.settlement'), async (req, res) => {
-  const driver = db.getDriver(req.params.id);
+  // F4: two defects on a money-moving route, both proven by finance_driver_payout_authority_test.js.
+  //
+  // 1. Addressing. `db.getDriver()` ends in `match || this.drivers[0]`, so it never returns null:
+  //    an unknown, mistyped or foreign :id was answered with a DIFFERENT real driver's record, and
+  //    that substitute then supplied the wallet default, faced the KYC / cooling / verified-destination
+  //    gates and became the payout target itself. The 404 branch below was unreachable dead code.
+  //    Existence is now decided exactly - cache, then durable, then a case-insensitive id match - so
+  //    every legitimate id form (uuid, DRV-101, drv_1 via the legacy map) still resolves and only the
+  //    fabricated stand-in is gone.
+  // 2. Amount. The full-balance default was read from this process's mirror, so a wallet changed
+  //    elsewhere was paid at a stale number. It now comes from the durable `drivers.wallet_balance`.
+  //    The service re-reads that same column and refuses INSUFFICIENT_BALANCE against it, so this is
+  //    one authority read twice, not a second wallet authority.
+  const requested = String(req.params.id);
+  let driver = db.driverRepo ? db.driverRepo.findById(requested) : null;
+  if (!driver && db.driverRepo) driver = await db.driverRepo.findByIdAsync(requested);
+  if (!driver) {
+    driver = (db.drivers || []).find(d => String(d.id).toLowerCase() === requested.toLowerCase()
+      || (d.uuid && String(d.uuid) === requested)) || null;
+  }
   if (!driver) return res.status(404).json({ success: false, error: 'Driver not found' });
 
   // Phase 9: Explicit amount validation. A malformed amount must never
   // silently settle the driver's full wallet balance; the full-balance
   // default applies only when no amount is provided at all.
-  let amount = driver.walletBalance;
+  //
+  // F4: that default is no longer computed here from `driver.walletBalance`, because this
+  // process's mirror can be behind the database by whatever another process moved. An
+  // omitted amount is passed down as null and resolved inside recordPayout from the
+  // durable `drivers` row it refreshes for every other payout gate - one durable read,
+  // one implementation, and the INSUFFICIENT_BALANCE check below it stays as it was.
+  let amount = null;
   if (req.body.amount !== undefined && req.body.amount !== null) {
     const parsed = Number(req.body.amount);
     if (isNaN(parsed) || parsed <= 0) {
@@ -1895,8 +2046,53 @@ app.post('/api/admin/finance/settlements/drivers/:id/payout', authenticateAdmin,
     amount = parsed;
   }
 
-  const result = db.recordPayout(driver.id, amount, driver.upiId);
-  if (result.success) {
+  // The third argument has always been ignored: the destination paid out is the *verified*
+  // one on the driver record, never one supplied in the request. Left that way on purpose.
+  //
+  // This call is awaited. It previously was not, which meant `result` was a Promise:
+  // `result.success` was undefined, the branch below never ran, the SETTLEMENT_EXECUTED
+  // audit was never written, and `res.json(result)` serialised a live Promise to `{}` -
+  // so the admin saw an empty body for an operation whose money had already moved.
+  // The route has no outer try/catch, so awaiting it without a guard would let a
+  // rejected store call hang the request - Express 4 does not forward async
+  // rejections. A failure is answered as a failure, and says whether money moved.
+  let result;
+  try {
+    result = await db.recordPayout(driver.id, amount, driver.upiId,
+      { idempotencyKey: readIdempotencyHeader(req) });
+  } catch (err) {
+    // An idempotency conflict is a DETERMINISTIC refusal, not an unknown outcome: the key is
+    // already booked for different financial semantics, nothing moved, and repeating the same
+    // body can never succeed. E2 established the classification, the ledger produces it, and
+    // POST /api/admin/finance/refund already answers it as 409 - so answering "outcome
+    // unknown, retry with the same key" here was misleading. Every other store failure keeps
+    // the existing 503.
+    if (err && err.code === 'IDEMPOTENCY_CONFLICT') {
+      return res.status(409).json({
+        success: false,
+        code: 'IDEMPOTENCY_CONFLICT',
+        error: err.message,
+        note: 'No payout was made. This Idempotency-Key already belongs to a different payout; '
+          + 'resend the original amount, or use a new key for a new operation.'
+      });
+    }
+    return res.status(503).json({
+      success: false,
+      code: 'PAYOUT_OUTCOME_UNKNOWN',
+      error: err.message,
+      note: 'The payout could not be completed or confirmed. Retry with the same Idempotency-Key: '
+        + 'if the money did move, the replay returns the original result instead of paying twice.'
+    });
+  }
+  if (!result || result.success !== true) {
+    return res.status(400).json(result || { success: false, error: 'Payout produced no result' });
+  }
+  if (result.duplicate === true) {
+    // Phase 13's identity did its job: this is a replay of an operation that already
+    // moved money. Report it as the original outcome without writing a second audit.
+    return res.json(result);
+  }
+  {
     // This awaited the audit write with no catch, so a refused record after a real payout
     // left the client waiting for an answer that never came — Express 4 does not forward an
     // async rejection. The money has moved by this point whatever the trail says, so the
@@ -1912,7 +2108,7 @@ app.post('/api/admin/finance/settlements/drivers/:id/payout', authenticateAdmin,
         targetEntityId: driver.id,
         previousState: 'PENDING',
         newState: 'PAID',
-        reason: `Admin payout of ₹${amount} executed to ${driver.upiId}`
+        reason: `Admin payout of ₹${typeof result.amount === 'number' ? result.amount : amount} executed to ${driver.upiId}`
       });
     } catch (auditErr) {
       return res.status(auditErr.status || 503).json({
@@ -1930,7 +2126,12 @@ app.post('/api/admin/finance/settlements/drivers/:id/payout', authenticateAdmin,
 app.post('/api/admin/finance/adjustments', authenticateAdmin, requirePermission('finance.adjust'), async (req, res) => {
   const { targetType, targetId, direction, amount, reason } = req.body;
   try {
-    const result = await db.processFinancialAdjustment(targetType, targetId, direction, amount, reason, req.admin.id, req.admin.name);
+    // Same rule as the payout: the caller's key identifies the operation, so an admin who
+    // resubmits after a lost response corrects one adjustment instead of creating two. Without
+    // a key each request is one operation — the amount is deliberately not part of the identity,
+    // because two legitimate equal-value adjustments are two real intentions.
+    const result = await db.processFinancialAdjustment(targetType, targetId, direction, amount, reason,
+      req.admin.id, req.admin.name, { idempotencyKey: readIdempotencyHeader(req) });
     if (!result.success) return res.status(400).json(result);
     res.json(result);
   } catch (err) {
@@ -2327,8 +2528,12 @@ app.post('/api/admin/customers/:id/sign-out', authenticateAdmin, requirePermissi
 // -------------------------------------------------------------
 app.get('/api/admin/promotions', authenticateAdmin, requirePermission('promotion.view'), async (req, res) => {
   try {
-    const promotions = await db.promotionRepo.list(req.query);
-    res.json({ success: true, promotions });
+    // The page and its total come back together (`promotions`, `total`, `limit`,
+    // `offset`, `hasMore`) so the console can show "539 coupons, showing 1-50" and a
+    // search can reach a coupon the first page used to hide. The array still lives under
+    // `promotions`, so a client that only reads that key is unaffected.
+    const page = await db.promotionRepo.list(req.query);
+    res.json({ success: true, ...page });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message, requestId: req.id });
   }
@@ -3817,7 +4022,16 @@ app.post('/api/customer/book-food', authenticateUser, async (req, res) => {
     });
   }
 
-  const merchant = await db.orderRepo.resolveMerchant(mchtInput);
+  // ResolveMerchant now refuses with a 503 when the store cannot be reached, rather
+  // than reporting "not found" for a merchant the outage simply could not read; a
+  // genuine miss still 404s. This call is not inside the route's create-order try, so
+  // the store fault is caught right here and classified by the shared classifier.
+  let merchant;
+  try {
+    merchant = await db.orderRepo.resolveMerchant(mchtInput);
+  } catch (err) {
+    return replyStoreError(res, req, err, 'restaurant lookup');
+  }
   if (!merchant) {
     return res.status(404).json({
       success: false,
@@ -3848,6 +4062,7 @@ app.post('/api/customer/book-food', authenticateUser, async (req, res) => {
   try {
     resolvedProducts = await db.orderRepo.resolveFoodProducts(merchant.id, items);
   } catch (err) {
+    if (supabaseHelper.isStoreUnreachable(err)) return replyStoreError(res, req, err, 'restaurant menu');
     return res.status(err.statusCode || 400).json({
       success: false,
       code: err.code || 'INVALID_ITEMS',
@@ -3974,6 +4189,7 @@ app.post('/api/customer/book-food', authenticateUser, async (req, res) => {
       job: orderPayload
     });
   } catch (err) {
+    if (supabaseHelper.isStoreUnreachable(err)) return replyStoreError(res, req, err, 'food order');
     return res.status(500).json({ success: false, error: err.message, requestId: req.id });
   }
 });
@@ -3988,6 +4204,53 @@ app.get('/api/customer/orders', authenticateUser, async (req, res) => {
     const orders = await db.orderRepo.getOrdersByCustomer(customerUuid);
     res.json({ success: true, count: orders.length, orders });
   } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// One history feed for every service the customer has used, so the app does not need
+// four endpoints and four guesses. Rides and parcels come from `jobs`, food and
+// Instamart from `orders`; the two sets are disjoint by construction because
+// getJobsByCustomer deliberately excludes the FOOD/GROCERY delivery legs that sit beside
+// an order. Identity comes only from the bearer token, never from a query parameter, so
+// there is no customer id to tamper with, and an unreadable store is a 503 rather than
+// an empty history.
+app.get('/api/customer/activity', authenticateUser, async (req, res) => {
+  try {
+    const customerUuid = db.orderRepo.resolveUserUuid(req.user.uuid || req.user.id);
+    if (!customerUuid) {
+      return res.status(401).json({ success: false, error: 'Unauthorized: Invalid customer identity.' });
+    }
+    const [jobs, orders] = await Promise.all([
+      db.jobRepo.getJobsByCustomer(customerUuid),
+      db.orderRepo.getOrdersByCustomer(customerUuid),
+    ]);
+    const items = [
+      ...jobs.map(j => ({
+        id: j.id,
+        service: j.type === 'PARCEL' ? 'PARCEL' : 'RIDE',
+        title: j.type === 'PARCEL' ? 'Parcel delivery' : 'Ride',
+        status: j.status,
+        amount: j.fare,
+        currency: 'INR',
+        placedAt: j.createdAt,
+        active: !['COMPLETED', 'CANCELLED'].includes(j.status),
+      })),
+      ...orders.map(o => ({
+        id: o.order_number,
+        service: o.service_type === 'GROCERY' ? 'INSTAMART' : 'FOOD',
+        title: o.service_type === 'GROCERY' ? 'Instamart order' : 'Food order',
+        status: o.order_state,
+        amount: Number(o.total_amount),
+        currency: o.currency || 'INR',
+        placedAt: o.created_at,
+        itemCount: (o.lines || []).length,
+        active: !['DELIVERED', 'REJECTED', 'CANCELLED'].includes(o.order_state),
+      })),
+    ].sort((a, b) => new Date(b.placedAt).getTime() - new Date(a.placedAt).getTime());
+    res.json({ success: true, count: items.length, items });
+  } catch (err) {
+    if (supabaseHelper.isStoreUnreachable(err)) return replyStoreError(res, req, err, 'customer activity');
     res.status(500).json({ success: false, error: err.message });
   }
 });
@@ -4010,6 +4273,74 @@ app.get(['/api/customer/orders/:id', '/api/orders/:id'], authenticateUser, async
 });
 
 // RESTAURANT / MERCHANT API ENDPOINTS
+// The merchant's own entitlements, derived from the bearer token and from PostgreSQL.
+//
+// This is the read that lets ONE Merchant app decide which modules to draw instead of two
+// APKs being pre-cut at build time, and it is deliberately not the client's own claim: the
+// caller sends no service, no merchant id and no restaurant id. Nothing here authorises
+// anything by itself — every gated route re-resolves the entitlement server-side, because a
+// list the client fetched is a navigation hint, not a permission.
+//
+// `services` is spelled the way the apps read it (RESTAURANT / INSTAMART) while
+// `merchantType` keeps the stored vocabulary (RESTAURANT / GROCERY / HYBRID_BOTH), so the
+// column stays the single source of truth and the client is not asked to learn it.
+app.get('/api/merchant/services', authenticateMerchant, async (req, res) => {
+  try {
+    const merchantId = req.merchant && (req.merchant.id || req.merchant.merchantId);
+    const row = merchantId ? await db.orderRepo.resolveMerchant(merchantId) : null;
+    const merchantType = row && (row.merchant_type || row.merchantType);
+
+    if (!merchantType) {
+      // Refuse rather than guess. An empty service list rendered as "available services"
+      // would look like a store with no modules, which is a different (and calmer) lie than
+      // telling a partner they can sell a service the platform has not granted them.
+      return res.status(403).json({
+        success: false,
+        code: 'MERCHANT_IDENTITY_UNRESOLVED',
+        error: 'Forbidden: this merchant account could not be resolved to a service entitlement.',
+        requestId: req.id
+      });
+    }
+
+    const services = [];
+    if (['RESTAURANT', 'HYBRID_BOTH'].includes(String(merchantType).toUpperCase())) services.push('RESTAURANT');
+    if (['GROCERY', 'HYBRID_BOTH'].includes(String(merchantType).toUpperCase())) services.push('INSTAMART');
+
+    res.json({
+      success: true,
+      merchantId: row.id,
+      name: row.name || null,
+      merchantType,
+      services,
+      // Single service means the app can go straight in; two means it shows a selector.
+      needsServiceSelector: services.length > 1,
+      isOpen: row.is_open !== undefined ? Boolean(row.is_open) : null,
+      // The merchant's own identity, straight from its record. Deliberately limited to the
+      // columns that exist: `merchants` carries `fssai_license` but NO verification or
+      // GSTIN column, so there is nothing here to render a "Verified Partner" badge from
+      // and none is invented. A restaurant console that cannot say who it is belongs on
+      // an empty state, not on a plausible-looking constant.
+      profile: {
+        name: row.name || null,
+        phone: row.phone || null,
+        address: row.address || null,
+        fssaiLicense: row.fssai_license || null,
+        city: row.city || null,
+        rating: row.rating !== undefined && row.rating !== null ? Number(row.rating) : null
+      }
+    });
+  } catch (err) {
+    if (supabaseHelper.isStoreUnreachable(err)) return replyStoreError(res, req, err, 'merchant service entitlements');
+    console.error('[merchant/services] failed:', err);
+    return res.status(err.status || 500).json({
+      success: false,
+      code: err.code || 'MERCHANT_SERVICES_READ_FAILED',
+      error: err.message,
+      requestId: req.id
+    });
+  }
+});
+
 app.get('/api/merchant/:restaurantId/dashboard', authenticateMerchant, requireMerchantTenant, async (req, res) => {
   try {
     const merchant = await db.orderRepo.resolveMerchant(req.merchant.id || req.params.restaurantId);
@@ -4042,6 +4373,7 @@ app.get('/api/merchant/:restaurantId/dashboard', authenticateMerchant, requireMe
       orders: merchantOrders
     });
   } catch (err) {
+    if (supabaseHelper.isStoreUnreachable(err)) return replyStoreError(res, req, err, 'merchant dashboard');
     res.status(500).json({ success: false, error: err.message, requestId: req.id });
   }
 });
@@ -4067,13 +4399,21 @@ app.get(['/api/merchant/:restaurantId/orders', '/api/merchant/orders'], authenti
     const orders = await db.orderRepo.getOrdersByMerchant(merchant.id, { status: req.query.status });
     res.json({ success: true, count: orders.length, orders });
   } catch (err) {
+    if (supabaseHelper.isStoreUnreachable(err)) return replyStoreError(res, req, err, 'merchant orders');
     res.status(500).json({ success: false, error: err.message, requestId: req.id });
   }
 });
 
 app.post(['/api/merchant/:restaurantId/orders/:orderId/status', '/api/merchant/orders/:orderId/status'], authenticateMerchant, requireMerchantTenant, async (req, res) => {
   try {
-    const { status, reason, idempotencyKey } = req.body;
+    const { status, reason } = req.body;
+    // `Idempotency-Key` is the canonical spelling every other mutating route here accepts (and
+    // the one the CORS allow-list grants). This route read only `req.body.idempotencyKey`, so a
+    // client that sent the documented header got silently non-idempotent behaviour: the
+    // PostgreSQL transition function deduplicates on the key *before* it validates the state,
+    // but it was never handed the key, and a retry came back as INVALID_TRANSITION instead of
+    // the duplicate it was.
+    const idempotencyKey = req.headers['idempotency-key'] || req.body?.idempotencyKey;
     const orderId = req.params.orderId;
 
     const merchant = await db.orderRepo.resolveMerchant(req.merchant.id || req.params.restaurantId);
@@ -4170,28 +4510,183 @@ app.post(['/api/merchant/:restaurantId/orders/:orderId/status', '/api/merchant/o
       }
     });
   } catch (err) {
+    if (supabaseHelper.isStoreUnreachable(err)) return replyStoreError(res, req, err, 'order status change');
     return res.status(err.statusCode || 500).json({ success: false, error: err.message, requestId: req.id });
   }
 });
 
-app.post('/api/merchant/:restaurantId/menu/:itemId/toggle', authenticateMerchant, requireMerchantTenant, (req, res) => {
-  // Phase 8: Fail-closed (DEC-005) — no fallback to first restaurant
-  const rest = db.restaurants.find(r => r.id === req.params.restaurantId);
-  if (!rest) return res.status(404).json({ success: false, error: 'Restaurant not found.', requestId: req.id });
+app.post('/api/merchant/:restaurantId/menu/:itemId/toggle', authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+  try {
+    // Phase 8: Fail-closed (DEC-005) — no fallback to first restaurant
+    const rest = db.restaurants.find(r => r.id === req.params.restaurantId);
+    if (!rest) return res.status(404).json({ success: false, error: 'Restaurant not found.', requestId: req.id });
 
-  // Verify merchant owns this restaurant
-  if (rest.merchantId && rest.merchantId !== req.merchant.id) {
-    return res.status(403).json({
-      success: false,
-      error: 'Forbidden: Cannot modify another merchant\'s menu.',
-      requestId: req.id
-    });
+    // Verify merchant owns this restaurant.
+    //
+    // The guard used to read `if (rest.merchantId && rest.merchantId !== req.merchant.id)`, so
+    // a store with no owner recorded on it — which is exactly `rest_1`, the seeded legacy
+    // restaurant — was left with no check at all: any authenticated merchant could put its menu
+    // in and out of stock. Ownership is now resolved the same way the order reads resolve it, so
+    // it must be positively established rather than merely absent.
+    const [callerMerchant, requestedMerchant] = await Promise.all([
+      db.orderRepo.resolveMerchant(req.merchant.id),
+      db.orderRepo.resolveMerchant(req.params.restaurantId),
+    ]);
+    if (!callerMerchant || !requestedMerchant || String(requestedMerchant.id) !== String(callerMerchant.id)) {
+      return res.status(403).json({
+        success: false,
+        code: 'MERCHANT_MISMATCH',
+        error: 'Forbidden: Cannot modify another merchant\'s menu.',
+        requestId: req.id
+      });
+    }
+    const item = rest.menu.find(m => m.id === req.params.itemId);
+    if (!item) return res.status(404).json({ success: false, error: 'Menu item not found' });
+
+    item.inStock = req.body.inStock ?? !item.inStock;
+    res.json({ success: true, item });
+  } catch (err) {
+    // Awaiting in an async handler needs a catch: without one a rejected store read becomes an
+    // unhandled promise instead of an answer to the merchant, and the audit trail says nothing
+    // (`admin_audit_fail_closed_test.js` ST-04 is the guard that keeps that list from growing).
+    if (supabaseHelper.isStoreUnreachable(err)) return replyStoreError(res, req, err, 'menu item availability');
+    console.error('[merchant/menu/toggle] failed:', err);
+    return res.status(err.status || 500).json({ success: false, code: err.code || 'MENU_TOGGLE_FAILED', error: err.message, requestId: req.id });
   }
-  const item = rest.menu.find(m => m.id === req.params.itemId);
-  if (!item) return res.status(404).json({ success: false, error: 'Menu item not found' });
+});
 
-  item.inStock = req.body.inStock ?? !item.inStock;
-  res.json({ success: true, item });
+// ---------------------------------------------------------------------------
+// DS-2 DARK STORE ADMINISTRATION
+//
+// Each path is registered exactly once. A duplicate registration here would not be
+// a cosmetic bug: Express dispatches the FIRST match, so a second copy carrying the
+// permission guard would never run (this file already documents that hazard for the
+// driver-status route). Authentication and permission are the route's job; ownership
+// and business rules belong to darkStoreService, which is the only thing these
+// handlers call. No handler touches a repository directly and none reads
+// req.body.merchant_id / operated_by_merchant_id as authority.
+// `merchant.manage` is the existing operational-store permission (it already governs
+// POST /api/admin/restaurants/:id/status); no second permission system was invented.
+// ---------------------------------------------------------------------------
+function darkStoreAdminActor(req) {
+  return { type: 'ADMIN', adminId: req.admin.id, adminName: req.admin.name, role: req.admin.role };
+}
+// One error shape for the whole group, matching the existing admin convention.
+function darkStoreError(res, req, err) {
+  const status = err.status || err.statusCode || 400;
+  return res.status(status).json({
+    success: false,
+    ...(err.code ? { code: err.code } : {}),
+    error: err.message,
+    requestId: req.id
+  });
+}
+
+app.get('/api/admin/dark-stores', authenticateAdmin, requirePermission('merchant.manage'), async (req, res) => {
+  try {
+    const stores = await db.darkStoreService.list(darkStoreAdminActor(req), {
+      status: req.query.status || null,
+    });
+    res.json({ success: true, darkStores: stores, total: stores.length });
+  } catch (err) { res.status(err.status || 500).json({ success: false, code: err.code, error: err.message, requestId: req.id }); }
+});
+
+app.post('/api/admin/dark-stores', authenticateAdmin, requirePermission('merchant.manage'), async (req, res) => {
+  try {
+    const b = req.body || {};
+    const store = await db.darkStoreService.create(darkStoreAdminActor(req), {
+      code: b.code, name: b.name, address: b.address,
+      latitude: b.latitude, longitude: b.longitude,
+      serviceRadiusM: b.service_radius_m !== undefined ? b.service_radius_m : b.serviceRadiusM,
+      timezone: b.timezone, opensAt: b.opens_at, closesAt: b.closes_at,
+      // Deliberately NOT read from the body: a store is created platform-operated and the
+      // operator is attached by an explicit assignment, so a caller cannot pre-claim one.
+    });
+    res.json({ success: true, darkStore: store });
+  } catch (err) { res.status(err.status || 400).json({ success: false, code: err.code, error: err.message, requestId: req.id }); }
+});
+
+app.get('/api/admin/dark-stores/:id', authenticateAdmin, requirePermission('merchant.manage'), async (req, res) => {
+  try {
+    res.json({ success: true, darkStore: await db.darkStoreService.get(darkStoreAdminActor(req), req.params.id) });
+  } catch (err) { return darkStoreError(res, req, err); }
+});
+
+app.patch('/api/admin/dark-stores/:id', authenticateAdmin, requirePermission('merchant.manage'), async (req, res) => {
+  try {
+    res.json({ success: true, darkStore: await db.darkStoreService.update(darkStoreAdminActor(req), req.params.id, req.body || {}) });
+  } catch (err) { return darkStoreError(res, req, err); }
+});
+
+app.post('/api/admin/dark-stores/:id/status', authenticateAdmin, requirePermission('merchant.manage'), async (req, res) => {
+  try {
+    const store = await db.darkStoreService.setStatus(darkStoreAdminActor(req), req.params.id, (req.body || {}).status);
+    // The audit trail is fail-closed here, not optional: swallowing its failure (an earlier
+    // draft used `.catch(() => {})`) would leave a completed status change with no record and
+    // no signal, which is the exact hazard admin_audit_fail_closed_test ST-03 exists to catch.
+    // The change HAS happened, so the answer reports 503 with the applied state, matching the
+    // payout route's convention.
+    try {
+      await db.auditAppliedChange({
+        adminId: req.admin.id, adminName: req.admin.name, role: req.admin.role,
+        action: 'DARK_STORE_STATUS_CHANGED', module: 'OPERATIONS',
+        targetEntityType: 'DARK_STORE', targetEntityId: store.id,
+        previousState: (req.body || {}).expectedFrom || null, newState: store.status,
+        reason: `Dark store ${store.code} status set to ${store.status}`
+      });
+    } catch (auditErr) {
+      return res.status(auditErr.status || 503).json({
+        success: false,
+        code: auditErr.code || 'AUDIT_RECORD_UNAVAILABLE',
+        applied: true,
+        darkStore: store,
+        error: auditErr.message,
+        requestId: req.id
+      });
+    }
+    res.json({ success: true, darkStore: store });
+  } catch (err) { return darkStoreError(res, req, err); }
+});
+
+app.get('/api/admin/dark-stores/:id/inventory', authenticateAdmin, requirePermission('merchant.manage'), async (req, res) => {
+  try {
+    const items = await db.darkStoreService.listInventory(darkStoreAdminActor(req), req.params.id, {
+      includeUnavailable: req.query.availableOnly !== 'true',
+    });
+    res.json({ success: true, inventory: items, total: items.length });
+  } catch (err) { return darkStoreError(res, req, err); }
+});
+
+app.post('/api/admin/dark-stores/:id/inventory', authenticateAdmin, requirePermission('merchant.manage'), async (req, res) => {
+  try {
+    const b = req.body || {};
+    const item = await db.darkStoreService.createInventory(darkStoreAdminActor(req), req.params.id, {
+      productId: b.product_id !== undefined ? b.product_id : b.productId,
+      sellingPrice: b.selling_price !== undefined ? b.selling_price : b.sellingPrice,
+      stockQuantity: b.stock_quantity !== undefined ? b.stock_quantity : b.stockQuantity,
+      lowStockThreshold: b.low_stock_threshold !== undefined ? b.low_stock_threshold : b.lowStockThreshold,
+      isAvailable: b.is_available !== undefined ? b.is_available : b.isAvailable,
+      status: b.status,
+    });
+    res.json({ success: true, inventory: item });
+  } catch (err) { return darkStoreError(res, req, err); }
+});
+
+app.patch('/api/admin/dark-stores/:id/inventory/:inventoryId', authenticateAdmin, requirePermission('merchant.manage'), async (req, res) => {
+  try {
+    const b = req.body || {};
+    // The inventory id in the path is a TARGET. The service re-checks that it belongs to the
+    // store named in the path, and the repository qualifies the UPDATE by dark_store_id, so a
+    // foreign row matches zero records instead of being written through another store's URL.
+    const item = await db.darkStoreService.updateInventory(darkStoreAdminActor(req), req.params.id, req.params.inventoryId, {
+      sellingPrice: b.selling_price !== undefined ? b.selling_price : b.sellingPrice,
+      stockQuantity: b.stock_quantity !== undefined ? b.stock_quantity : b.stockQuantity,
+      lowStockThreshold: b.low_stock_threshold !== undefined ? b.low_stock_threshold : b.lowStockThreshold,
+      isAvailable: b.is_available !== undefined ? b.is_available : b.isAvailable,
+      status: b.status,
+    });
+    res.json({ success: true, inventory: item });
+  } catch (err) { return darkStoreError(res, req, err); }
 });
 
 app.post('/api/admin/restaurants/:id/status', authenticateAdmin, requirePermission('merchant.manage'), async (req, res) => {
@@ -4246,7 +4741,62 @@ app.post('/api/admin/drivers/:id/verify-payout-destination', authenticateAdmin, 
   res.json(result);
 });
 
-app.post('/api/driver/:driverId/toggle-online', authenticateDriver, (req, res) => {
+// Shared implementation behind both spellings of the online switch.
+//
+// `drivers.is_online` is a real column and boot hydration reads it back, so going online
+// has to be written to PostgreSQL. It used to mutate the in-memory object only, which meant
+// a partner who pressed Online was visible to dispatch until the next restart and invisible
+// afterwards — while their own app still showed a green ONLINE. The reverse was worse: the
+// platform's answer to "who is available?" and the partner's answer disagreed, and neither
+// survived a deploy.
+//
+// A store that cannot answer is reported as a 503 rather than a confident success, because
+// telling a driver they are online when nothing was persisted sends them waiting for a job
+// the dispatcher cannot see them for.
+async function applyDriverAvailability(driver, isOnline) {
+  const wanted = Boolean(isOnline);
+
+  if (driver.operationalStatus === 'SUSPENDED') {
+    const err = new Error(`Your driver account is SUSPENDED by NABIN Admin. Reason: ${driver.suspensionReason || 'Compliance review'}`);
+    err.code = 'DRIVER_SUSPENDED';
+    err.status = 403;
+    throw err;
+  }
+
+  let updated;
+  try {
+    updated = await db.driverRepo.setOnlineStatus(driver.id, wanted);
+  } catch (err) {
+    throw db.orderRepo.storeUnavailableError('your online status', err);
+  }
+  if (!updated) {
+    const err = new Error('No driver account is attached to this session.');
+    err.code = 'DRIVER_NOT_FOUND';
+    err.status = 403;
+    throw err;
+  }
+
+  // The suspension may have landed while the partner was already on shift. The durable
+  // write succeeded, so report what the account is now allowed to do.
+  if (updated.operationalStatus === 'SUSPENDED') {
+    updated.isOnline = false;
+    updated.driverState = 'OFFLINE';
+  }
+
+  return {
+    success: true,
+    isOnline: Boolean(updated.isOnline),
+    operationalStatus: updated.operationalStatus || null,
+  };
+}
+
+function driverAvailabilityFailure(res, req, err, fallbackLabel) {
+  if (supabaseHelper.isStoreUnreachable(err)) return replyStoreError(res, req, err, fallbackLabel);
+  console.error('[driver/availability] failed:', err);
+  return res.status(err.status || 500).json({ success: false, code: err.code || 'AVAILABILITY_UPDATE_FAILED', error: err.message });
+}
+
+app.post('/api/driver/:driverId/toggle-online', authenticateDriver, async (req, res) => {
   const requestedId = req.params.driverId;
   const callerUuid = db.driverRepo?.resolveUuid(req.driver.id) || req.driver.uuid || req.driver.id;
   const targetUuid = db.driverRepo?.resolveUuid(requestedId) || requestedId;
@@ -4258,16 +4808,31 @@ app.post('/api/driver/:driverId/toggle-online', authenticateDriver, (req, res) =
     });
   }
 
-  const driver = db.getDriver(req.driver.id);
-  if (driver.operationalStatus === 'SUSPENDED') {
-    return res.status(403).json({
+  const driver = db.getDriver(req.driver.id) || req.driver;
+  try {
+    res.json(await applyDriverAvailability(driver, req.body.isOnline ?? !driver.isOnline));
+  } catch (err) {
+    return driverAvailabilityFailure(res, req, err, 'driver availability');
+  }
+});
+
+// The same switch without a partner id in the path or the body. Identity is the bearer
+// token's, so the driver app has nothing to send that it could get wrong.
+app.post('/api/driver/status', authenticateDriver, async (req, res) => {
+  const { isOnline } = req.body || {};
+  if (typeof isOnline !== 'boolean') {
+    return res.status(400).json({
       success: false,
-      error: `Your driver account is SUSPENDED by NABIN Admin. Reason: ${driver.suspensionReason || 'Compliance review'}`
+      code: 'INVALID_AVAILABILITY',
+      error: 'A true or false `isOnline` value is required.'
     });
   }
-
-  driver.isOnline = req.body.isOnline ?? !driver.isOnline;
-  res.json({ success: true, isOnline: driver.isOnline, operationalStatus: driver.operationalStatus });
+  const driver = db.getDriver(req.driver.id) || req.driver;
+  try {
+    res.json(await applyDriverAvailability(driver, isOnline));
+  } catch (err) {
+    return driverAvailabilityFailure(res, req, err, 'driver availability');
+  }
 });
 
 app.get('/api/driver/:driverId/dashboard', authenticateDriver, (req, res) => {
@@ -4286,6 +4851,102 @@ app.get('/api/driver/:driverId/dashboard', authenticateDriver, (req, res) => {
   res.json({ success: true, driver });
 });
 
+// A dispatch offer row carries ids, distance and rank — not a decision. Both spellings of
+// the offers read hydrate each one from the job behind it so a partner can see the fare they
+// would earn and the two ends of the trip, and so `GET /api/driver/offers` and the console
+// cannot grow into two different answers to the same question.
+//
+// The raw offer fields are spread in rather than replaced, so `id` keeps meaning what it
+// meant to any reader that already exists, and `offerId` is added as the name the app uses.
+// Where the job cannot be read, the offer comes back with `detailsAvailable: false` instead
+// of a made-up fare: an incomplete list is a shorter truth, not a licence to guess.
+async function buildDriverOfferViews(driverId) {
+  const offers = await db.dispatchRepo.getOffersForDriver(driverId);
+
+  const summaries = await db.jobRepo.getJobSummariesByUuids(
+    (offers || []).map(o => o.jobUuid || o.jobId).filter(Boolean)
+  );
+
+  return (offers || []).map((o) => {
+    const job = summaries instanceof Map ? summaries.get(String(o.jobUuid || o.jobId)) : null;
+    const expiry = o.expiresAt ? Date.parse(o.expiresAt) : null;
+    return {
+      ...o,
+      offerId: o.id,
+      status: o.status,
+      secondsLeft: Number.isFinite(expiry) ? Math.max(0, Math.round((expiry - Date.now()) / 1000)) : null,
+      distanceToPickupKm: o.distanceToPickup !== undefined ? o.distanceToPickup : null,
+      serviceType: job?.serviceType || o.metadata?.serviceType || null,
+      pickupAddress: job?.pickupAddress || null,
+      dropAddress: job?.dropAddress || null,
+      fare: job ? job.fare : null,
+      driverEarnings: job ? job.driverEarnings : null,
+      platformCommission: job ? job.platformCommission : null,
+      detailsAvailable: Boolean(job),
+    };
+  });
+}
+
+// The driver console's one read: who this partner is, whether they are available, the job
+// they are standing on, and the offers actually in front of them.
+//
+// Everything here is derived from PostgreSQL through the same token-scoped identity the
+// earnings read uses. The previous screen had none of it — availability was a Dart boolean,
+// "8 Trips Done" and ₹1,420.00 were literals, and the offers came from three buttons that
+// invented a ride, a parcel and a food order on tap, complete with a customer name and a
+// number the platform had never priced.
+async function buildDriverHomePayload(driver) {
+  const driverUuid = db.driverRepo?.resolveUuid(driver.id) || driver.uuid || driver.id;
+  if (!driverUuid) {
+    const err = new Error('The driver identity for this session could not be resolved to a dispatch account.');
+    err.code = 'DRIVER_IDENTITY_UNRESOLVED';
+    err.status = 403;
+    throw err;
+  }
+
+  const [offerViews, activeJob] = await Promise.all([
+    buildDriverOfferViews(driver.id),
+    db.dispatchRepo.getActiveAssignmentForDriver(driver.id),
+  ]);
+
+  const isOnline = Boolean(driver.isOnline);
+  return {
+    success: true,
+    serverTime: new Date().toISOString(),
+    driver: {
+      id: driver.id,
+      uuid: driverUuid,
+      name: driver.name || null,
+      phone: driver.phone || null,
+      rating: driver.rating !== undefined ? Number(driver.rating) : null,
+      vehicleType: driver.vehicleType || driver.type || null,
+      vehicleNumber: driver.vehicleNumber || driver.vehiclePlate || null,
+      kycStatus: driver.kycStatus || driver.status || null,
+      operationalStatus: driver.operationalStatus || null,
+      isOnline,
+      driverState: isOnline ? 'ONLINE' : 'OFFLINE',
+      walletBalance: Math.round((Number(driver.walletBalance) || 0) * 100) / 100,
+      activeJobId: driver.activeJobId || null,
+    },
+    // The durable availability, echoed once so the client renders the server's answer
+    // instead of the state it last asked for.
+    availability: { isOnline, operationalStatus: driver.operationalStatus || null },
+    activeJob: activeJob || null,
+    offers: offerViews,
+    offerCount: offerViews.length,
+  };
+}
+
+app.get('/api/driver/home', authenticateDriver, async (req, res) => {
+  try {
+    res.json(await buildDriverHomePayload(db.getDriver(req.driver.id) || req.driver));
+  } catch (err) {
+    if (supabaseHelper.isStoreUnreachable(err)) return replyStoreError(res, req, err, 'driver console state');
+    console.error('[driver/home] failed:', err);
+    return res.status(err.status || 500).json({ success: false, code: err.code || 'DRIVER_HOME_READ_FAILED', error: err.message });
+  }
+});
+
 // Authoritative Driver Dispatch Offers Endpoint
 app.get(['/api/driver/offers', '/api/driver/:driverId/offers'], authenticateDriver, async (req, res) => {
   try {
@@ -4302,12 +4963,28 @@ app.get(['/api/driver/offers', '/api/driver/:driverId/offers'], authenticateDriv
       }
     }
 
-    const offers = await db.dispatchRepo.getOffersForDriver(req.driver.id);
+    const offers = await buildDriverOfferViews(req.driver.id);
     res.json({ success: true, count: offers.length, offers });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    if (supabaseHelper.isStoreUnreachable(err)) return replyStoreError(res, req, err, 'dispatch offers');
+    console.error('[driver/offers] failed:', err);
+    res.status(err.status || 500).json({ success: false, code: err.code || 'OFFERS_READ_FAILED', error: err.message });
   }
 });
+
+// One status vocabulary for every offer response.
+//
+// An offer that is no longer `OFFERED` — lost to another partner, expired, already accepted,
+// already declined — is a conflict on the state of the row, not a malformed request. The
+// route used to answer 400 to all of them, which left a partner's app unable to tell "this
+// trip just went to somebody else" apart from "the request made no sense", and both of those
+// ask for a different sentence on screen and a different next action.
+function offerResponseStatus(code) {
+  if (code === 'OFFER_NOT_FOUND' || code === 'JOB_NOT_FOUND') return 404;
+  if (['DRIVER_MISMATCH', 'DRIVER_SUSPENDED', 'IDENTITY_SPOOFING_REJECTED', 'DRIVER_IDENTITY_UNRESOLVED', 'UNLINKED_DRIVER_ACCOUNT'].includes(code)) return 403;
+  if (['JOB_ALREADY_ASSIGNED', 'OFFER_NOT_AVAILABLE', 'OFFER_EXPIRED', 'OFFER_ALREADY_ACCEPTED', 'OFFER_ALREADY_REJECTED', 'OFFER_CLOSED'].includes(code)) return 409;
+  return 400;
+}
 
 // Authoritative Offer Acceptance by Offer ID
 app.post('/api/driver/offers/:offerId/accept', authenticateDriver, async (req, res) => {
@@ -4336,10 +5013,7 @@ app.post('/api/driver/offers/:offerId/accept', authenticateDriver, async (req, r
     });
 
     if (!result.success) {
-      const statusCode = result.code === 'OFFER_NOT_FOUND' ? 404 :
-        (result.code === 'DRIVER_MISMATCH' || result.code === 'DRIVER_SUSPENDED' ? 403 :
-        (result.code === 'JOB_ALREADY_ASSIGNED' ? 409 : 400));
-      return res.status(statusCode).json(result);
+      return res.status(offerResponseStatus(result.code)).json(result);
     }
 
     const targetJobId = result.job_id || result.job_uuid;
@@ -4363,6 +5037,52 @@ app.post('/api/driver/offers/:offerId/accept', authenticateDriver, async (req, r
     res.json({ success: true, duplicate: !!result.duplicate, job, driver, offer: result });
   } catch (err) {
     res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// Authoritative Offer Decline by Offer ID.
+//
+// The REJECTED state, the `rejection_reason` column and an RLS policy commented "drivers can
+// ONLY update their own offers (e.g. reject/respond)" have existed since migration 014/020,
+// but no route ever implemented them — so the driver app's Decline button had nothing to
+// call and simply hid the fabricated card. This is that missing endpoint, and it is written
+// against the same offer row the accept path uses, so the two cannot both win.
+app.post('/api/driver/offers/:offerId/reject', authenticateDriver, async (req, res) => {
+  try {
+    const offerId = req.params.offerId;
+
+    // A body-supplied driverId is only ever checked against the token, never believed.
+    const bodyDriverId = req.body?.driverId || req.body?.driver_id || req.body?.driverUuid;
+    if (bodyDriverId) {
+      const callerUuid = db.driverRepo?.resolveUuid(req.driver.id) || req.driver.uuid || req.driver.id;
+      const targetUuid = db.driverRepo?.resolveUuid(bodyDriverId) || bodyDriverId;
+      if (bodyDriverId !== req.driver.id && callerUuid !== targetUuid) {
+        return res.status(403).json({
+          success: false,
+          code: 'IDENTITY_SPOOFING_REJECTED',
+          error: 'Driver impersonation rejected: driverId does not match authenticated credentials.'
+        });
+      }
+    }
+
+    const result = await db.dispatchRepo.rejectOfferAtomic({
+      offerId,
+      driverId: req.driver.id,
+      reason: req.body?.reason || null,
+    });
+
+    if (!result.success) {
+      return res.status(offerResponseStatus(result.code)).json(result);
+    }
+
+    // A declined offer takes the job out of this partner's queue. The competing offers for
+    // the same job are untouched — they were never this driver's to close, and the dispatch
+    // rule that re-offers a job belongs to the dispatcher, not to a decline.
+    res.json({ ...result, offerId });
+  } catch (err) {
+    if (supabaseHelper.isStoreUnreachable(err)) return replyStoreError(res, req, err, 'dispatch offer response');
+    console.error('[driver/offers/reject] failed:', err);
+    return res.status(err.status || 400).json({ success: false, code: err.code || 'OFFER_REJECT_FAILED', error: err.message });
   }
 });
 
@@ -4422,10 +5142,7 @@ app.post('/api/driver/accept-job', authenticateDriver, async (req, res) => {
       });
 
       if (!result.success) {
-        const statusCode = result.code === 'JOB_NOT_FOUND' ? 404 :
-          (result.code === 'DRIVER_MISMATCH' || result.code === 'DRIVER_SUSPENDED' ? 403 :
-          (result.code === 'JOB_ALREADY_ASSIGNED' ? 409 : 400));
-        return res.status(statusCode).json(result);
+        return res.status(offerResponseStatus(result.code)).json(result);
       }
 
       duplicate = !!result.duplicate;
@@ -4776,7 +5493,14 @@ app.post('/api/driver/payout', authenticateDriver, async (req, res) => {
     });
   }
 
-  const result = await db.recordPayout(effectiveDriverId, parsedAmount);
+  // The payout identity comes from the caller's Idempotency-Key when it sends one, so a client
+  // whose response was lost can retry the SAME operation instead of buying a second one. When
+  // absent, the repository mints a fresh unique identity — one effect per request — which is
+  // the honest default, because nothing in the request distinguishes a retry from a new
+  // intention. The key is scoped to the authenticated driver inside the repository, so it
+  // cannot be used to address another partner's wallet.
+  const idempotencyKey = readIdempotencyHeader(req);
+  const result = await db.recordPayout(effectiveDriverId, parsedAmount, undefined, { idempotencyKey });
   if (!result.success) {
     const statusCode = result.code === 'UNLINKED_DRIVER_ACCOUNT' ||
       result.code === 'KYC_VERIFICATION_REQUIRED' ||
@@ -4995,7 +5719,196 @@ app.post(['/api/rides/:id/cancel', '/api/jobs/:id/cancel'], async (req, res) => 
   }
 });
 
-app.get('/api/driver/:driverId/earnings', authenticateDriver, (req, res) => {
+// One implementation of "what has this driver earned", shared by the path-scoped
+// `/api/driver/:driverId/earnings` — which keeps its DRIVER_MISMATCH guard — and the
+// token-derived `/api/driver/earnings` that the driver app calls, where there is no id in
+// the request to tamper with in the first place.
+//
+// Why the money is summed from `jobs` rather than read off the driver record: the frozen
+// schema has no earnings columns on `drivers`. `mapRowToDriver` answers
+// `todayEarnings: 0, todayTrips: 0` for every PostgreSQL-hydrated driver and does not map
+// `weeklyEarnings`/`monthlyEarnings` at all, so the previous response was reporting
+// process-local counters — a driver who had worked all week read back as ₹0 the moment the
+// process restarted. `jobs.final_total`, `jobs.driver_earnings` and
+// `jobs.platform_commission` are per-job columns the pricing engine wrote at booking, so
+// the sum is durable and traceable to rows. `drivers.wallet_balance` stays the wallet
+// authority; it is a real column and survives a restart (`restart_test.js` locks that).
+//
+// The windows are rolling — last 24 hours, 7 days, 30 days — rather than calendar "today /
+// this week / this month" on purpose: a calendar day needs a platform timezone decision
+// that has not been made, and a money endpoint is not the place to invent one silently.
+async function buildDriverEarningsPayload(driver, sessionDriver) {
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const now = Date.now();
+  const windowStarts = { last24h: now - DAY_MS, last7d: now - 7 * DAY_MS, last30d: now - 30 * DAY_MS };
+  const totals = {
+    last24h: { trips: 0, grossFares: 0, platformFees: 0, netEarnings: 0 },
+    last7d: { trips: 0, grossFares: 0, platformFees: 0, netEarnings: 0 },
+    last30d: { trips: 0, grossFares: 0, platformFees: 0, netEarnings: 0 },
+  };
+  const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+
+  // Identity candidates come from the token first and the resolved record second, so a
+  // row is only ever matched to the session that is already proven to own it. Carrying
+  // both shapes is what lets a legacy `DRV-101` session line up with the PostgreSQL
+  // UUID the `jobs` rows are keyed by.
+  const identities = new Set([
+    sessionDriver?.id, sessionDriver?.uuid, driver?.id, driver?.uuid,
+  ].filter(Boolean).map(String));
+  const driverUuid = db.driverRepo?.resolveUuid(driver.id) || driver.uuid || driver.id;
+  if (driverUuid) identities.add(String(driverUuid));
+  // PHASE 38: both earnings routes go through this one builder (EARN-21 pins that), so the
+  // durable reconcile lives here and nowhere else. It re-reads the columns PostgreSQL owns
+  // (`drivers.wallet_balance` and the payout-destination set) so a long-lived process cannot
+  // answer from a mirror another settlement has already moved past. It keeps mutating the same
+  // object, which is why nothing below needs rebinding.
+  await db.reconcileDriverFromDurable(driver);
+  const rows = await db.jobRepo.getDriverCompletedRows(driverUuid, {
+    sinceIso: new Date(windowStarts.last30d).toISOString()
+  });
+
+  let source = 'postgres';
+  let settled;
+  if (rows === null) {
+    // Memory-only development mode: no PostgreSQL is configured, so the hydrated arrays
+    // are the only store there is. `getDriverCompletedRows` returns null to say so, which
+    // is different from returning `[]` — an empty array would mean "this driver has
+    // completed nothing", and a driver reading their own earnings must not be told that
+    // because a platform process is running without a database.
+    source = 'hydrated-memory';
+    settled = (db.jobs || [])
+      .filter(j => (identities.has(String(j.driverId)) || (j.driverUuid && identities.has(String(j.driverUuid))))
+        && String(j.status || '').toUpperCase() === 'COMPLETED')
+      .map(j => ({
+        id: j.id,
+        job_number: j.jobNumber || j.id,
+        service_type: j.type || j.serviceType || 'RIDE',
+        // Record whichever shape of this job's driver reference is the caller's, so the
+        // ownership check below compares like for like.
+        driver_id: identities.has(String(j.driverUuid)) ? j.driverUuid : j.driverId,
+        final_total: j.fare,
+        driver_earnings: j.driverEarnings,
+        platform_commission: j.platformFee,
+        payment_status: j.paymentStatus,
+        updated_at: j.updatedAt || j.createdAt,
+      }));
+  } else {
+    settled = rows;
+  }
+
+  // Nothing that is not the caller's may enter the sum. The PostgreSQL query is already
+  // keyed on the caller's resolved UUID, so a foreign row here means the read predicate
+  // stopped applying somewhere — which is a platform fault to raise, not a total to publish.
+  // Quietly dropping the row would under-report what a driver is owed, and under-reporting
+  // money is its own kind of wrong answer.
+  const foreignRow = settled.find(r => !identities.has(String(r.driver_id)));
+  if (foreignRow) {
+    const scopeErr = new Error('Earnings read returned a trip that is not assigned to this driver.');
+    scopeErr.code = 'EARNINGS_SCOPE_VIOLATION';
+    scopeErr.status = 500;
+    console.error(`[driver/earnings] refusing to total a foreign trip (${foreignRow.job_number || foreignRow.id})`);
+    throw scopeErr;
+  }
+
+  for (const row of settled) {
+    const at = Date.parse(row.updated_at || row.created_at) || 0;
+    const gross = Number(row.final_total || 0);
+    const net = Number(row.driver_earnings || 0);
+    const fee = Number(row.platform_commission || 0);
+    for (const [key, start] of Object.entries(windowStarts)) {
+      if (at >= start) {
+        totals[key].trips += 1;
+        totals[key].grossFares += gross;
+        totals[key].platformFees += fee;
+        totals[key].netEarnings += net;
+      }
+    }
+  }
+
+  for (const t of Object.values(totals)) {
+    t.grossFares = round2(t.grossFares);
+    t.platformFees = round2(t.platformFees);
+    t.netEarnings = round2(t.netEarnings);
+  }
+
+  const recentTrips = settled
+    .map(row => ({ row, at: Date.parse(row.updated_at || row.created_at) || 0 }))
+    .sort((a, b) => b.at - a.at)
+    .slice(0, 10)
+    .map(({ row, at }) => ({
+      id: row.id,
+      jobNumber: row.job_number,
+      serviceType: row.service_type,
+      grossFare: round2(row.final_total),
+      driverEarnings: round2(row.driver_earnings),
+      platformCommission: round2(row.platform_commission),
+      paymentStatus: row.payment_status || null,
+      settledAt: at ? new Date(at).toISOString() : null,
+    }));
+
+  const driverTx = (db.transactions || []).filter(t =>
+    (t.driverId && identities.has(String(t.driverId))) || (t.entityId && identities.has(String(t.entityId)))
+  );
+
+  return {
+    success: true,
+    source,
+    walletBalance: round2(driver.walletBalance),
+    // Legacy keys, unchanged in meaning: `weeklyEarnings`/`monthlyEarnings` were never
+    // columns, and `todayEarnings`/`todayTrips` were process-local. They now carry the
+    // PostgreSQL-derived figures so an existing reader stops getting a post-restart zero.
+    todayEarnings: totals.last24h.netEarnings,
+    todayTrips: totals.last24h.trips,
+    weeklyEarnings: totals.last7d.netEarnings,
+    monthlyEarnings: totals.last30d.netEarnings,
+    // The platform's own cut is durable — `jobs.platform_commission` is written per row at
+    // pricing time — so it is summed rather than read off a process-local counter.
+    commissionPaidToday: totals.last24h.platformFees,
+    // `cashCollectedToday` / `onlinePaidToday` were process-local counters that reset on
+    // every restart. They cannot be rebuilt from PostgreSQL yet: every COMPLETED job in the
+    // database still carries `payment_status = 'PENDING'`, so no row states that money was
+    // actually collected, and splitting by `payment_method` would report collection that may
+    // never have happened. `null` means "the platform does not know", where `0` would be a claim.
+    cashCollectedToday: null,
+    onlinePaidToday: null,
+    windows: totals,
+    recentTrips,
+    payout: {
+      destination: driver.payoutUpiVerified ? (driver.verifiedUpiId || null) : null,
+      destinationVerified: Boolean(driver.payoutUpiVerified),
+      pendingDestination: driver.pendingUpiId || null,
+      destinationCoolingUntil: driver.upiCoolingUntil || null,
+      kycStatus: driver.kycStatus || driver.status || null,
+      operationalStatus: driver.operationalStatus || null,
+    },
+    transactions: driverTx,
+  };
+}
+
+// The driver app's own earnings read. Identity comes from the bearer token and nowhere
+// else — there is no path or body id for a client to point at another driver — and an
+// unreachable or unfinished PostgreSQL read is a 503, never a zero: a driver asking what
+// they are owed must not be answered "nothing" because the store did not answer.
+app.get('/api/driver/earnings', authenticateDriver, async (req, res) => {
+  try {
+    // The money is read from the live driver record, not from `req.driver`. A persisted session
+    // stores an `entity` snapshot taken at sign-in (see `backend_sessions.entity`) and sessions
+    // live for 30 days, so answering from the snapshot tells a driver the balance they held when
+    // they authenticated rather than the balance they hold now — a completed trip would not show
+    // up until the app signed out and back in. This is the same resolution the sibling
+    // `/api/driver/:driverId/earnings` route performs, which is precisely what EARN-21 pins: one
+    // implementation, including where each route reads from. Identity still comes only from the
+    // bearer token; nothing here accepts a driver id from the client.
+    const driver = db.getDriver(req.driver.id) || req.driver;
+    res.json(await buildDriverEarningsPayload(driver, req.driver));
+  } catch (err) {
+    if (supabaseHelper.isStoreUnreachable(err)) return replyStoreError(res, req, err, 'driver earnings');
+    console.error('[driver/earnings] failed:', err);
+    return res.status(err.status || 500).json({ success: false, code: err.code || 'EARNINGS_READ_FAILED', error: err.message });
+  }
+});
+
+app.get('/api/driver/:driverId/earnings', authenticateDriver, async (req, res) => {
   const requestedId = req.params.driverId;
   const callerUuid = db.driverRepo?.resolveUuid(req.driver.id) || req.driver.uuid || req.driver.id;
   const targetUuid = db.driverRepo?.resolveUuid(requestedId) || requestedId;
@@ -5012,22 +5925,13 @@ app.get('/api/driver/:driverId/earnings', authenticateDriver, (req, res) => {
     return res.status(404).json({ success: false, code: 'DRIVER_NOT_FOUND', error: 'Driver profile not found.' });
   }
 
-  const driverTx = (db.transactions || []).filter(t =>
-    t.driverId === driver.id || t.driverId === req.driver.id || t.entityId === driver.id || t.entityId === req.driver.id
-  );
-
-  res.json({
-    success: true,
-    todayEarnings: driver.todayEarnings || 0,
-    todayTrips: driver.todayTrips || 0,
-    weeklyEarnings: driver.weeklyEarnings || 0,
-    monthlyEarnings: driver.monthlyEarnings || 0,
-    walletBalance: driver.walletBalance || 0,
-    commissionPaidToday: driver.commissionPaidToday || 0,
-    cashCollectedToday: driver.cashCollectedToday || 0,
-    onlinePaidToday: driver.onlinePaidToday || 0,
-    transactions: driverTx
-  });
+  try {
+    res.json(await buildDriverEarningsPayload(driver, req.driver));
+  } catch (err) {
+    if (supabaseHelper.isStoreUnreachable(err)) return replyStoreError(res, req, err, 'driver earnings');
+    console.error('[driver/:driverId/earnings] failed:', err);
+    return res.status(err.status || 500).json({ success: false, code: err.code || 'EARNINGS_READ_FAILED', error: err.message });
+  }
 });
 
 // SAVED SCHOOLS & CHILDREN CRUD (POSTGRESQL-AUTHORITATIVE VIA MIGRATION 015)
@@ -5340,7 +6244,7 @@ app.get('/api/grocery/products/:id/history', (req, res) => {
 });
 
 // Single Merchant Price Update
-app.put('/api/grocery/products/:id/price', authenticateMerchant, requireMerchantTenant, (req, res) => {
+app.put('/api/grocery/products/:id/price', authenticateMerchant, requireMerchantTenant, requireMerchantService('GROCERY'), (req, res) => {
   try {
     const { newPrice, reason, actor } = req.body;
     const merchantId = req.merchant.id;
@@ -5516,52 +6420,76 @@ app.get('/api/restaurants/:id/menu', async (req, res) => {
 });
 
 // --- ADMIN MASTER CATALOG ENDPOINTS ---
-app.get('/api/admin/master-catalog', authenticateAdmin, (req, res) => {
-  const masterProducts = db.getMasterProducts();
-  res.json({ success: true, count: masterProducts.length, masterProducts });
+// Durable against PostgreSQL whenever it is live, mirroring merchant inventory below:
+// the read is a read-through and every write is a write-through, so a catalogue edit
+// survives a restart. The permission gate runs in middleware, before any of these
+// handlers, so a refusal never touches the store.
+app.get('/api/admin/master-catalog', authenticateAdmin, async (req, res) => {
+  try {
+    const masterProducts = await db.getMasterProducts();
+    res.json({ success: true, count: masterProducts.length, masterProducts });
+  } catch (err) {
+    return replyStoreError(res, req, err, 'master catalogue');
+  }
 });
 
-app.post('/api/admin/master-catalog', authenticateAdmin, requirePermission('catalog.manage'), (req, res) => {
+app.post('/api/admin/master-catalog', authenticateAdmin, requirePermission('catalog.manage'), async (req, res) => {
   try {
-    const product = db.addMasterProduct(req.body);
+    const product = await db.addMasterProduct(req.body);
     broadcastToAdmins({ type: 'MASTER_PRODUCT_ADDED', product });
     res.json({ success: true, product });
   } catch (err) {
-    res.status(400).json({ success: false, error: err.message });
+    res.status(err.status || (err.code === 'MASTER_PRODUCT_NOT_FOUND' ? 404 : 400)).json({
+      success: false,
+      ...(err.code ? { code: err.code } : {}),
+      error: err.message
+    });
   }
 });
 
-app.put('/api/admin/master-catalog/:id', authenticateAdmin, requirePermission('catalog.manage'), (req, res) => {
+app.put('/api/admin/master-catalog/:id', authenticateAdmin, requirePermission('catalog.manage'), async (req, res) => {
   try {
-    const updated = db.updateMasterProduct(req.params.id, req.body);
+    const updated = await db.updateMasterProduct(req.params.id, req.body);
     broadcastToAdmins({ type: 'MASTER_PRODUCT_UPDATED', product: updated });
     res.json({ success: true, product: updated });
   } catch (err) {
-    res.status(400).json({ success: false, error: err.message });
+    res.status(err.status || (err.code === 'MASTER_PRODUCT_NOT_FOUND' ? 404 : 400)).json({
+      success: false,
+      ...(err.code ? { code: err.code } : {}),
+      error: err.message
+    });
   }
 });
 
-app.delete('/api/admin/master-catalog/:id', authenticateAdmin, requirePermission('catalog.manage'), (req, res) => {
+app.delete('/api/admin/master-catalog/:id', authenticateAdmin, requirePermission('catalog.manage'), async (req, res) => {
   try {
-    const deleted = db.deleteMasterProduct(req.params.id);
+    const deleted = await db.deleteMasterProduct(req.params.id);
     broadcastToAdmins({ type: 'MASTER_PRODUCT_DELETED', id: req.params.id });
     res.json({ success: true, deleted });
   } catch (err) {
-    res.status(400).json({ success: false, error: err.message });
+    res.status(err.status || (err.code === 'MASTER_PRODUCT_NOT_FOUND' ? 404 : 400)).json({
+      success: false,
+      ...(err.code ? { code: err.code } : {}),
+      error: err.message
+    });
   }
 });
 
-app.get('/api/admin/master-catalog/:id/stores', authenticateAdmin, (req, res) => {
+app.get('/api/admin/master-catalog/:id/stores', authenticateAdmin, async (req, res) => {
   try {
-    const matrix = db.getMasterProductStoreMatrix(req.params.id);
+    const matrix = await db.getMasterProductStoreMatrix(req.params.id);
     res.json({ success: true, ...matrix });
   } catch (err) {
-    res.status(400).json({ success: false, error: err.message });
+    res.status(err.status || (err.code === 'MASTER_PRODUCT_NOT_FOUND' ? 404 : 400)).json({
+      success: false,
+      ...(err.code ? { code: err.code } : {}),
+      error: err.message
+    });
   }
 });
 
 // --- MERCHANT STORE INVENTORY ENDPOINTS ---
-app.get('/api/merchant/inventory', authenticateMerchant, requireMerchantTenant, async (req, res) => {
+app.get('/api/merchant/inventory', authenticateMerchant, requireMerchantTenant, requireMerchantService('GROCERY'), async (req, res) => {
   try {
     const merchantId = req.merchant.id;
     const inventory = await db.getMerchantInventory(merchantId);
@@ -5571,18 +6499,29 @@ app.get('/api/merchant/inventory', authenticateMerchant, requireMerchantTenant, 
   }
 });
 
-app.post('/api/merchant/inventory', authenticateMerchant, requireMerchantTenant, async (req, res) => {
+app.post('/api/merchant/inventory', authenticateMerchant, requireMerchantTenant, requireMerchantService('GROCERY'), async (req, res) => {
   try {
+    // The store comes from the token and is placed after the spread on purpose: a
+    // `merchantId` in the body can never retarget somebody else's shelf.
     const item = await db.updateMerchantInventoryItem({ ...req.body, merchantId: req.merchant.id });
     res.json({ success: true, item });
   } catch (err) {
-    res.status(400).json({ success: false, error: err.message });
+    if (supabaseHelper.isStoreUnreachable(err)) return replyStoreError(res, req, err, 'store inventory');
+    // A refused value has to say which field and why. This used to answer 400 with only
+    // `error`, which left a merchant's form unable to tell a bad price from a bad product id.
+    const status = err.status || err.statusCode;
+    res.status(status === 400 ? 400 : status || 400).json({
+      success: false,
+      code: err.code || 'INVENTORY_UPDATE_FAILED',
+      error: err.message,
+      ...(err.field ? { field: err.field, reason: err.reason } : {}),
+    });
   }
 });
 
 // Un-stock a listing the merchant added themselves. The store is taken from the
 // bearer token, so an id in the URL can only ever address the caller's own shelf.
-app.delete('/api/merchant/inventory/:masterProductId', authenticateMerchant, requireMerchantTenant, async (req, res) => {
+app.delete('/api/merchant/inventory/:masterProductId', authenticateMerchant, requireMerchantTenant, requireMerchantService('GROCERY'), async (req, res) => {
   try {
     const result = await db.deleteMerchantInventoryItem({
       merchantId: req.merchant.id,
@@ -5598,6 +6537,12 @@ app.delete('/api/merchant/inventory/:masterProductId', authenticateMerchant, req
 // --- MERCHANT CATALOGUE READS (PostgreSQL authoritative) ---
 // The legacy in-memory menu is a different store from the `products` table that the
 // order path resolves against, so merchant clients read the real catalogue here.
+// `/api/merchant/catalog` is deliberately NOT entitlement-gated. `restaurant-merchant-web`
+// reads it (`app/page.tsx:22` -> `merchantApi.catalog()`), so marking it GROCERY-only would
+// break a working restaurant integration rather than protect one. The entanglement it exposes
+// is real and is recorded as a finding instead: a restaurant console is being served from the
+// grocery-shaped `products` table, which is the module-boundary question the entitlement rule
+// is asking, and answering it means changing a shipping app — a product decision.
 app.get('/api/merchant/catalog', authenticateMerchant, requireMerchantTenant, async (req, res) => {
   try {
     const merchant = await db.orderRepo.resolveMerchant(req.merchant.id);
@@ -5617,12 +6562,13 @@ app.get('/api/merchant/catalog', authenticateMerchant, requireMerchantTenant, as
     if (error) return replyStoreError(res, req, error, 'merchant product list');
     res.json({ success: true, merchantId: merchant.id, count: (data || []).length, products: data || [] });
   } catch (err) {
+    if (supabaseHelper.isStoreUnreachable(err)) return replyStoreError(res, req, err, 'merchant product list');
     res.status(400).json({ success: false, error: err.message });
   }
 });
 
 // Master grocery catalogue the merchant may stock in their store.
-app.get('/api/merchant/master-catalog', authenticateMerchant, requireMerchantTenant, async (req, res) => {
+app.get('/api/merchant/master-catalog', authenticateMerchant, requireMerchantTenant, requireMerchantService('GROCERY'), async (req, res) => {
   try {
     const { supabaseAdmin, isLivePostgres } = require('./supabase');
     if (!isLivePostgres || !supabaseAdmin) {
@@ -5642,7 +6588,7 @@ app.get('/api/merchant/master-catalog', authenticateMerchant, requireMerchantTen
 });
 
 // Bulk Merchant Price Update
-app.post('/api/grocery/products/bulk-price-update', authenticateMerchant, requireMerchantTenant, (req, res) => {
+app.post('/api/grocery/products/bulk-price-update', authenticateMerchant, requireMerchantTenant, requireMerchantService('GROCERY'), (req, res) => {
   try {
     const { updates, actor } = req.body;
     const merchantId = req.merchant.id;
@@ -5974,6 +6920,7 @@ app.post('/api/grocery/checkout/validate', authenticateUser, async (req, res) =>
       order: orderSnapshot
     });
   } catch (err) {
+    if (supabaseHelper.isStoreUnreachable(err)) return replyStoreError(res, req, err, 'grocery checkout');
     const statusCode = err.statusCode || (err.code === 'MERCHANT_MISMATCH' ? 400 : 409);
     res.status(statusCode).json({
       success: false,
@@ -5984,7 +6931,7 @@ app.post('/api/grocery/checkout/validate', authenticateUser, async (req, res) =>
 });
 
 // Merchant Submit Actual Packed Weight & Recalculate Order Total (PostgreSQL Authoritative)
-app.post('/api/grocery/orders/:id/packed-weight', authenticateMerchant, requireMerchantTenant, async (req, res) => {
+app.post('/api/grocery/orders/:id/packed-weight', authenticateMerchant, requireMerchantTenant, requireMerchantService('GROCERY'), async (req, res) => {
   try {
     const { itemId, packedWeight } = req.body;
     const merchantId = req.merchant.id;
@@ -6004,6 +6951,7 @@ app.post('/api/grocery/orders/:id/packed-weight', authenticateMerchant, requireM
     }
     res.json(result);
   } catch (err) {
+    if (supabaseHelper.isStoreUnreachable(err)) return replyStoreError(res, req, err, 'packed-weight update');
     res.status(err.statusCode || 400).json({ success: false, error: err.message });
   }
 });
@@ -6392,7 +7340,86 @@ app.put('/api/admin/platform-settings/:key', authenticateAdmin, requireSuperAdmi
 // HIGH-FREQUENCY LIVE FLEET TELEMETRY & SCOPED TRACKING (v1)
 // =========================================================================
 
-app.post(['/api/v1/driver/location', '/api/driver/location'], authenticateDriver, (req, res) => {
+// Who is allowed to write a merchant's media, decided from the bearer token alone.
+//
+// Three upload routes used to run this decision inline, and each of them let a request with
+// **no token at all** continue whenever the environment was not production, then took the
+// destination from the request body (`restaurantId`/`productId`, defaulting to `rest_1`).
+// Outside production that meant an anonymous caller could write into any store's gallery, and
+// `POST /api/grocery/products/:id/photo` had no check whatsoever: it accepted an unauthored
+// upload, overwrote any product's image by id, invented a catalogue entry when the id was
+// unknown, and answered 200. That is proven by `merchant_operations_test.js` (MCMD-01…06),
+// which measured 200 on all five doors before this existed.
+//
+// A token is now mandatory on every one of them. `allowsTestConvenience` remains what it was
+// for everywhere else — a dev affordance for *credentials*, never a way to become somebody.
+function resolveMediaCaller(req, res) {
+  const authHeader = req.headers['authorization'] || '';
+  const token = authHeader.replace(/^Bearer\s+/, '').trim();
+  if (!token) {
+    res.status(401).json({
+      success: false,
+      code: 'AUTH_REQUIRED',
+      error: 'Authentication required to upload merchant media.',
+      requestId: req.id
+    });
+    return null;
+  }
+  const session = db.getSessionByToken(token);
+  if (!session) {
+    res.status(401).json({
+      success: false,
+      code: 'INVALID_SESSION',
+      error: 'Invalid or expired session.',
+      requestId: req.id
+    });
+    return null;
+  }
+  const role = session.role;
+  const isAdmin = role === 'ADMIN' || role === 'SUPER_ADMIN';
+  if (role !== 'MERCHANT' && !isAdmin) {
+    res.status(403).json({
+      success: false,
+      code: 'FORBIDDEN',
+      error: 'Merchant or Admin authorization required.',
+      requestId: req.id
+    });
+    return null;
+  }
+  return { session, callerMerchantId: session.entityId, isAdmin };
+}
+
+// The store a media write may target: the caller's own, always. A path or body id is only
+// allowed when it resolves to that same store, so `rest_1`, a legacy alias, a uuid and a
+// forged id are all answered from identity rather than from what the client typed.
+async function mediaTargetStore(caller, suppliedId) {
+  const own = await db.orderRepo.resolveMerchant(caller.callerMerchantId);
+  if (!own) {
+    const err = new Error('Merchant profile not found for this session.');
+    err.status = 401;
+    throw err;
+  }
+  if (!suppliedId) return own;
+  if (String(suppliedId) === String(own.id)) return own;
+  const requested = await db.orderRepo.resolveMerchant(suppliedId);
+  if (requested && String(requested.id) === String(own.id)) return own;
+  if (caller.isAdmin) {
+    // An administrator acts for the store they named, but the store still has to exist.
+    const target = requested || (db.restaurants || []).find(r => r.id === suppliedId);
+    if (!target) {
+      const err = new Error('Restaurant not found.');
+      err.status = 404;
+      throw err;
+    }
+    return target;
+  }
+  const denied = new Error('Forbidden: Cannot write media for another merchant.');
+  denied.status = 403;
+  denied.code = 'MERCHANT_MISMATCH';
+  throw denied;
+}
+
+app.post(['/api/v1/driver/location', '/api/driver/location'], authenticateDriver, async (req, res) => {
   const { driverId, lat, lng, latitude, longitude, heading, bearing, speed, speedKmph, accuracy, timestamp, jobId, activeJobId, isOnline, status, serviceType } = req.body;
   const effectiveLat = lat !== undefined ? lat : latitude;
   const effectiveLng = lng !== undefined ? lng : longitude;
@@ -6432,19 +7459,44 @@ app.post(['/api/v1/driver/location', '/api/driver/location'], authenticateDriver
   const effectiveDriverId = req.driver.id;
   const targetJobId = jobId || activeJobId;
 
-  // Active job authorization: cannot attach telemetry to a job not assigned to this driver
+  // Active job authorization: cannot attach telemetry to a job not assigned to this driver.
+  //
+  // This used to consult the in-memory copy alone and to skip the check entirely when the
+  // job was not in it — which is the state of every job created by another process, or after
+  // a restart that did not hydrate it. "Cannot find it" was treated as "nothing to
+  // authorise", so the one case where the guard mattered most was the case it let through.
+  // The row is now read from PostgreSQL, and a job that cannot be resolved is refused.
   if (targetJobId) {
-    const job = db.getJob(targetJobId);
-    if (job) {
-      const callerUuid = db.driverRepo?.resolveUuid(effectiveDriverId) || req.driver.uuid || effectiveDriverId;
-      const jobDriverUuid = db.driverRepo?.resolveUuid(job.driverId) || job.driverUuid || job.driverId;
-      if (job.driverId !== effectiveDriverId && callerUuid !== jobDriverUuid) {
-        return res.status(403).json({
-          success: false,
-          code: 'JOB_NOT_ASSIGNED_TO_DRIVER',
-          error: 'Forbidden: You cannot attach telemetry to a job not assigned to you.'
-        });
-      }
+    let job;
+    try {
+      job = db.getJob(targetJobId) || await db.jobRepo?.findByIdAsync(targetJobId);
+    } catch (lookupErr) {
+      // The handler is async now, so a rejection here would otherwise surface as an
+      // unhandled promise rather than an answer to the driver. Not being able to ask the
+      // question is not permission to accept the telemetry.
+      if (supabaseHelper.isStoreUnreachable(lookupErr)) return replyStoreError(res, req, lookupErr, 'trip authorization');
+      console.error('[driver/location] authorization lookup failed:', lookupErr);
+      return res.status(403).json({
+        success: false,
+        code: 'JOB_AUTHORIZATION_UNRESOLVED',
+        error: 'Forbidden: that trip could not be verified as yours.'
+      });
+    }
+    if (!job) {
+      return res.status(404).json({
+        success: false,
+        code: 'JOB_NOT_FOUND',
+        error: 'Forbidden: that trip could not be resolved, so telemetry cannot be attached to it.'
+      });
+    }
+    const callerUuid = db.driverRepo?.resolveUuid(effectiveDriverId) || req.driver.uuid || effectiveDriverId;
+    const jobDriverUuid = db.driverRepo?.resolveUuid(job.driverId) || job.driverUuid || job.driverId;
+    if (job.driverId !== effectiveDriverId && callerUuid !== jobDriverUuid) {
+      return res.status(403).json({
+        success: false,
+        code: 'JOB_NOT_ASSIGNED_TO_DRIVER',
+        error: 'Forbidden: You cannot attach telemetry to a job not assigned to you.'
+      });
     }
   }
 
@@ -6908,13 +7960,23 @@ app.post('/api/payments/webhook', async (req, res) => {
 });
 
 // Double-Entry Financial Ledger Query Endpoint
-app.get('/api/admin/finance/ledger-double-entry', authenticateAdmin, requirePermission('finance.view'), (req, res) => {
+app.get('/api/admin/finance/ledger-double-entry', authenticateAdmin, requirePermission('finance.view'), async (req, res) => {
   const filters = {
     account: req.query.account || null,
     transactionId: req.query.transactionId || null
   };
-  const entries = db.getLedgerEntries(filters);
-  res.json({ success: true, entries, total: entries.length });
+  // F5: this is the durable journal, not the boot-time `ledgerEntries` projection it used to
+  // read. Path, authorization, filters and the { success, entries, total } envelope are
+  // unchanged; a store that cannot be walked completely is a typed 503 rather than a shorter
+  // ledger.
+  try {
+    const entries = await db.getDoubleEntryLedger(filters);
+    res.json({ success: true, entries, total: entries.length });
+  } catch (err) {
+    const status = err.status || err.statusCode || 500;
+    console.error('[API] double-entry ledger failed:', err.message);
+    res.status(status).json({ success: false, code: err.code || 'LEDGER_READ_FAILED', error: err.message, requestId: req.id });
+  }
 });
 
 // =========================================================================
@@ -7234,33 +8296,14 @@ app.post('/api/driver/vehicle/photo', async (req, res) => {
 // 7. Restaurant Logo, Cover, and Menu Item Photo Upload
 app.post(['/api/merchant/:restaurantId/media', '/api/merchant/media'], async (req, res) => {
   try {
-    const authHeader = req.headers['authorization'] || '';
-    const token = authHeader.replace(/^Bearer\s+/, '').trim();
-    const isTestOrDev = allowsTestConvenience('skipping an authentication check');
-
-    let callerMerchantId = null;
-    if (token) {
-      const session = db.getSessionByToken(token);
-      if (!session || (session.role !== 'MERCHANT' && session.role !== 'ADMIN' && session.role !== 'SUPER_ADMIN')) {
-        return res.status(403).json({ success: false, code: 'FORBIDDEN', error: 'Merchant or Admin authorization required.' });
-      }
-      callerMerchantId = session.entityId;
-    } else if (!isTestOrDev) {
-      return res.status(401).json({ success: false, code: 'AUTH_REQUIRED', error: 'Authentication required for merchant media upload.' });
-    }
-
-    const restaurantId = req.params.restaurantId || req.body.restaurantId || callerMerchantId || 'rest_1';
-    if (callerMerchantId && restaurantId !== callerMerchantId) {
-      const session = db.getSessionByToken(token);
-      if (session?.role !== 'ADMIN' && session?.role !== 'SUPER_ADMIN') {
-        return res.status(403).json({ success: false, code: 'MERCHANT_MISMATCH', error: 'Forbidden: Cannot upload media for another restaurant.' });
-      }
-    }
+    const caller = resolveMediaCaller(req, res);
+    if (!caller) return;
 
     const { fileData, mediaType = 'COVER', mimeType = 'image/jpeg' } = req.body;
-    // Phase 8: Fail-closed (DEC-005) — no fallback to first restaurant
-    const rest = db.restaurants.find(r => r.id === restaurantId);
-    if (!rest) return res.status(404).json({ success: false, code: 'RESTAURANT_NOT_FOUND', error: 'Restaurant not found.', requestId: req.id });
+    // Identity picks the store. A path or body id counts only when it resolves back to the
+    // caller's own, so neither `rest_1` nor a forged uuid is a way to write elsewhere.
+    const target = await mediaTargetStore(caller, req.params.restaurantId || req.body.restaurantId);
+    const rest = db.restaurants.find(r => r.id === target.id || (target.uuid && r.uuid === target.uuid)) || target;
 
     const folder = `nabin/restaurants/${rest.id}`;
     const publicId = `${folder}/${mediaType.toLowerCase()}`;
@@ -7295,33 +8338,26 @@ app.post(['/api/merchant/:restaurantId/media', '/api/merchant/media'], async (re
 
 app.post(['/api/merchant/:restaurantId/menu/:itemId/photo', '/api/merchant/menu/:itemId/photo'], async (req, res) => {
   try {
-    const authHeader = req.headers['authorization'] || '';
-    const token = authHeader.replace(/^Bearer\s+/, '').trim();
-    const isTestOrDev = allowsTestConvenience('skipping an authentication check');
+    const caller = resolveMediaCaller(req, res);
+    if (!caller) return;
 
-    let callerMerchantId = null;
-    if (token) {
-      const session = db.getSessionByToken(token);
-      if (!session || (session.role !== 'MERCHANT' && session.role !== 'ADMIN' && session.role !== 'SUPER_ADMIN')) {
-        return res.status(403).json({ success: false, code: 'FORBIDDEN', error: 'Merchant or Admin authorization required.' });
-      }
-      callerMerchantId = session.entityId;
-    } else if (!isTestOrDev) {
-      return res.status(401).json({ success: false, code: 'AUTH_REQUIRED', error: 'Authentication required for menu photo upload.' });
+    const target = await mediaTargetStore(caller, req.params.restaurantId || req.body.restaurantId);
+    const rest = db.restaurants.find(r => r.id === target.id || (target.uuid && r.uuid === target.uuid)) || target;
+
+    const itemId = req.params.itemId || req.body.itemId;
+    if (!itemId) {
+      return res.status(400).json({ success: false, code: 'ITEM_ID_REQUIRED', error: 'A menu item id is required.', requestId: req.id });
+    }
+    // The item has to be on the caller's own menu. Naming somebody's item id used to be
+    // enough to have its photo replaced, and a missing id silently fell back to 'item_1'.
+    const item = (rest.menu || []).find(m => m.id === itemId);
+    if (!item) {
+      return res.status(404).json({ success: false, code: 'MENU_ITEM_NOT_FOUND', error: 'Menu item not found for this store.', requestId: req.id });
     }
 
-    const restaurantId = req.params.restaurantId || req.body.restaurantId || callerMerchantId || 'rest_1';
-    if (callerMerchantId && restaurantId !== callerMerchantId) {
-      const session = db.getSessionByToken(token);
-      if (session?.role !== 'ADMIN' && session?.role !== 'SUPER_ADMIN') {
-        return res.status(403).json({ success: false, code: 'MERCHANT_MISMATCH', error: 'Forbidden: Cannot upload photo for another restaurant.' });
-      }
-    }
-
-    const itemId = req.params.itemId || req.body.itemId || 'item_1';
     const { fileData, mimeType = 'image/jpeg' } = req.body;
 
-    const folder = `nabin/restaurants/${restaurantId}/menu`;
+    const folder = `nabin/restaurants/${rest.id}/menu`;
     const publicId = `${folder}/${itemId}`;
 
     const uploadRes = await cloudinaryService.uploadImage({
@@ -7351,8 +8387,42 @@ app.post(['/api/merchant/:restaurantId/menu/:itemId/photo', '/api/merchant/menu/
 // 8. Grocery Product Photo Upload
 app.post(['/api/grocery/products/:id/photo', '/api/admin/grocery/products/:id/photo'], async (req, res) => {
   try {
-    const productId = req.params.id || req.body.productId;
+    const caller = resolveMediaCaller(req, res);
+    if (!caller) return;
+
     const { fileData, mimeType = 'image/jpeg' } = req.body;
+    const productId = req.params.id || req.body.productId;
+    if (!productId) {
+      return res.status(400).json({ success: false, code: 'PRODUCT_ID_REQUIRED', error: 'A product id is required.', requestId: req.id });
+    }
+
+    // The product must exist and belong to the caller's store. Previously this route had no
+    // authentication of any kind and, given an id it did not recognise, pushed a fabricated
+    // "Grocery Product Item" into the catalogue — an anonymous caller could therefore create
+    // products as well as repaint real ones.
+    const { supabaseAdmin, isLivePostgres } = require('./supabase');
+    if (isLivePostgres && supabaseAdmin) {
+      const target = await mediaTargetStore(caller, null);
+      const { data: productRow, error: productErr } = await supabaseAdmin
+        .from('products').select('id,merchant_id,name').eq('id', productId).maybeSingle();
+      if (productErr) return replyStoreError(res, req, productErr, 'the product being photographed');
+      if (!productRow) {
+        return res.status(404).json({ success: false, code: 'PRODUCT_NOT_FOUND', error: 'Product not found.', requestId: req.id });
+      }
+      if (!caller.isAdmin && String(productRow.merchant_id) !== String(target.id)) {
+        return res.status(403).json({
+          success: false,
+          code: 'MERCHANT_MISMATCH',
+          error: 'Forbidden: Cannot upload a photo for another merchant\'s product.',
+          requestId: req.id
+        });
+      }
+    } else if (!caller.isAdmin) {
+      const owned = (db.groceryCatalog || []).find(p => p.id === productId || p.sku === productId);
+      if (!owned) {
+        return res.status(404).json({ success: false, code: 'PRODUCT_NOT_FOUND', error: 'Product not found.', requestId: req.id });
+      }
+    }
 
     const folder = `nabin/grocery/products/${productId}`;
     const publicId = `${folder}/image`;
@@ -7376,25 +8446,16 @@ app.post(['/api/grocery/products/:id/photo', '/api/admin/grocery/products/:id/ph
     });
 
     let product = db.groceryCatalog?.find(p => p.id === productId || p.sku === productId);
-    if (!product) {
-      product = {
-        id: productId,
-        sku: productId,
-        name: 'Grocery Product Item',
-        imageUrl: uploadRes.optimized_urls?.medium || uploadRes.secure_url,
-        thumbnailUrl: uploadRes.optimized_urls?.thumbnail || uploadRes.secure_url
-      };
-      if (!db.groceryCatalog) db.groceryCatalog = [];
-      db.groceryCatalog.push(product);
-    } else {
+    if (product) {
       product.imageUrl = uploadRes.optimized_urls?.medium || uploadRes.secure_url;
       product.thumbnailUrl = uploadRes.optimized_urls?.thumbnail || uploadRes.secure_url;
+      db.save();
     }
-    db.save();
 
-    res.json({ success: true, productId, product, asset: savedAsset });
+    res.json({ success: true, productId, product: product || null, asset: savedAsset });
   } catch (err) {
-    res.status(400).json({ success: false, error: err.message });
+    if (supabaseHelper.isStoreUnreachable(err)) return replyStoreError(res, req, err, 'grocery product photo');
+    res.status(err.status || 400).json({ success: false, code: err.code, error: err.message });
   }
 });
 

@@ -93,6 +93,10 @@ class UserRepository {
 
   async findByIdAsync(id) {
     if (!id) return null;
+    // Owner Decision 11 (choice B): cache-first is the accepted outage semantics —
+    // a hydrated user answers from memory and must not become a false 503 when the
+    // store is unreachable. Do not convert these reads to fail-closed without a
+    // new owner order; backend/hydration_fallback_test.js (HYD-03/04) locks it in.
     const cached = this.findById(id);
     if (cached) return cached;
 
@@ -125,6 +129,9 @@ class UserRepository {
 
   async findByPhoneAsync(phone) {
     if (!phone) return null;
+    // Owner Decision 11 (choice B): cache-first, same accepted outage semantics
+    // as findByIdAsync above — a hydrated user answers from memory, never a false
+    // 503 during an outage.
     const clean = normalizePhone(phone);
     const cached = this.findByPhone(clean);
     if (cached) return cached;

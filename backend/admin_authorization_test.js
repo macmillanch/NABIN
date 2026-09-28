@@ -781,6 +781,46 @@ async function main() {
   const superStillWorks = await request('GET', '/api/admin/me', null, bearer(superToken));
   check('CLN-02', superStillWorks.status === 200,
     `and the platform's own SUPER_ADMIN session was never revoked by any of this (${superStillWorks.status})`);
+  
+  /* CLN-03 (N2 hygiene): disabling is not the same as not leaving behind. This matrix
+   * provisions one account per role on every run, and the ~340 disabled rows that accumulated
+   * across runs are precisely what pushed `admin_accounts` past PostgREST's max_rows = 1000 and
+   * made a real administrator-identity path decide from a truncated directory (T1). It deletes
+   * ONLY the accounts this run provisioned, by the ids it recorded - never another run's rows,
+   * and never the platform account - then verifies absence by re-reading, and prints the table
+   * size so growth is visible rather than assumed away. */
+  const PG_URL = process.env.NABIN_PG_NOTIFY || 'postgres://postgres:postgres@127.0.0.1:54322/postgres';
+  try {
+    if (!/^(?:127\.\d{1,3}\.\d{1,3}\.\d{1,3}|localhost|::1)$/i.test(new URL(PG_URL).hostname)) {
+      throw new Error('refusing to clean a non-loopback database');
+    }
+    const { Client } = require('pg');
+    const adm = new Client({ connectionString: PG_URL });
+    await adm.connect();
+    const before = Number((await adm.query('SELECT count(*) n FROM admin_accounts')).rows[0].n);
+    let removed = 0, unverified = [];
+    for (const p of provisioned) {
+      const r = p.accountId
+        ? await adm.query('DELETE FROM admin_accounts WHERE id=$1::uuid AND username<>$2',
+            [p.accountId, 'superadmin'])
+        : await adm.query('DELETE FROM admin_accounts WHERE username=$1 AND username<>$2',
+            [p.username, 'superadmin']);
+      const still = p.accountId
+        ? Number((await adm.query('SELECT count(*) n FROM admin_accounts WHERE id=$1::uuid', [p.accountId])).rows[0].n)
+        : Number((await adm.query('SELECT count(*) n FROM admin_accounts WHERE username=$1', [p.username])).rows[0].n);
+      if (r.rowCount === 1 && still === 0) removed += 1; else unverified.push(`${p.username}(rowCount=${r.rowCount},left=${still})`);
+    }
+    const after = Number((await adm.query('SELECT count(*) n FROM admin_accounts')).rows[0].n);
+    console.log(`  CLN-03 cleanup: provisioned=${provisioned.length} removed=${removed}`
+      + (unverified.length ? ` UNVERIFIED=${unverified.join(',')}` : '')
+      + ` | admin_accounts ${before} -> ${after}`);
+    check('CLN-03', unverified.length === 0 && removed === provisioned.length,
+      `every account this run provisioned is gone, verified by re-read (${removed}/${provisioned.length})`,
+      { before, after, unverified });
+    await adm.end();
+  } catch (e) {
+    check('CLN-03', false, 'per-run account cleanup completed', { error: e.message.slice(0, 120) });
+  }
 
   const failed = results.filter(r => !r.ok);
   console.log('\n=======================================================================');

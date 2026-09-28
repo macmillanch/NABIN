@@ -1,11 +1,28 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:url_launcher/url_launcher.dart';
+import '../../../../core/network/nabin_api_service.dart';
+import '../../../../core/network/nabin_ws_service.dart';
 import '../../../../core/theme/driver_theme.dart';
 import '../../../../core/widgets/driver_button.dart';
 import '../../../../core/widgets/driver_card.dart';
-import '../../../../core/widgets/driver_map_view.dart';
 
+/// Executing one trip, stage by stage, as the platform has it.
+///
+/// The whole screen used to be a local counter. Four buttons advanced `_stage` from 0 to 4:
+/// "Arrived", "Start Trip", "Complete" each changed an int, the OTP field was pre-filled with
+/// `7729` so the code was always right, and finishing the job showed a payment summary the
+/// device had worked out itself. Nothing was ever sent, so a partner could tap through a trip
+/// that never happened and be paid for nothing, or finish a real trip and have the platform
+/// still show it running.
+///
+/// Now every transition is a request and every label on screen is the answer:
+/// * arrival is `POST /api/driver/arrived`,
+/// * starting and finishing are `POST /api/driver/verify-otp` with a code the customer speaks
+///   and the server checks — never a value this app already knows,
+/// * the stage shown is the job's status as the platform holds it, re-read on entry and on
+///   push, so an app killed mid-trip, a phone that roamed, and a duplicate tap all end up
+///   looking at the same truth.
 class ActiveJobExecutionScreen extends StatefulWidget {
   final Map<String, dynamic>? jobData;
   const ActiveJobExecutionScreen({super.key, this.jobData});
@@ -14,594 +31,479 @@ class ActiveJobExecutionScreen extends StatefulWidget {
   State<ActiveJobExecutionScreen> createState() => _ActiveJobExecutionScreenState();
 }
 
-class _ActiveJobExecutionScreenState extends State<ActiveJobExecutionScreen> {
-  int _stage = 0; // 0: Nav to Pickup, 1: Arrived & Pickup Verification/OTP, 2: Active Transit, 3: Arrived at Drop & Delivery OTP, 4: Complete & Receipt
-  final TextEditingController _otpController = TextEditingController(text: '7729');
+/// The job exactly as the server described it. Nothing here is computed on the device.
+class _JobView {
+  const _JobView({
+    required this.ref,
+    required this.status,
+    required this.serviceType,
+    required this.pickup,
+    required this.drop,
+    required this.fare,
+    required this.driverEarnings,
+  });
 
-  Future<void> _launchPhoneCall(String phoneNumber) async {
-    final Uri launchUri = Uri(scheme: 'tel', path: phoneNumber);
-    try {
-      if (await canLaunchUrl(launchUri)) {
-        await launchUrl(launchUri, mode: LaunchMode.externalApplication);
-      } else {
-        await launchUrl(launchUri);
-      }
-    } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Opening Phone Dialer with $phoneNumber...')),
-        );
-      }
+  final String ref;
+  final String status;
+  final String serviceType;
+  final String? pickup;
+  final String? drop;
+  final double? fare;
+  final double? driverEarnings;
+
+  static _JobView? fromJson(Map json) {
+    final ref = (json['jobNumber'] as String?) ?? (json['id'] as String?);
+    if (ref == null) return null;
+    num? read(String key) {
+      final raw = json[key];
+      if (raw is num) return raw;
+      if (raw == null) return null;
+      return num.tryParse('$raw');
+    }
+
+    return _JobView(
+      ref: ref,
+      status: (json['status'] as String?) ?? '',
+      serviceType: (json['serviceType'] as String?) ?? 'RIDE',
+      pickup: json['pickupAddress'] as String?,
+      drop: json['dropAddress'] as String?,
+      fare: read('fare')?.toDouble(),
+      driverEarnings: read('driverEarnings')?.toDouble(),
+    );
+  }
+
+  bool get isPickupFlow => serviceType == 'RIDE';
+  bool get settled => status == 'COMPLETED';
+  bool get cancelled => status == 'CANCELLED';
+
+  /// The code this stage of the trip actually needs.
+  ///
+  /// The names are the platform's own — `START` proves the passenger or sender handed over a
+  /// code, `DELIVERY` proves receipt at the far end. A ride and a parcel differ only in what
+  /// the partner calls it, so the labels split here while the transition stays the server's.
+  String? get otpStage {
+    switch (status) {
+      case 'DRIVER_ARRIVED':
+      case 'ACCEPTED':
+      case 'ASSIGNED':
+      case 'DRIVER_ARRIVING':
+        return 'START';
+      case 'IN_TRANSIT':
+      case 'OUT_FOR_DELIVERY':
+        return 'DELIVERY';
+      default:
+        return null;
     }
   }
 
-  Map<String, dynamic> get job {
-    return widget.jobData ?? {
-      'type': 'RIDE',
-      'title': 'Passenger Ride (3W Auto)',
-      'pickup': 'Flat 402, Civil Lines, Delhi',
-      'drop': 'ABC Public School, Kamalanagar',
-      'distance': '3.8 km (11 mins)',
-      'fare': '₹85.00',
-      'customer': 'Rahul Sharma (Guardian)',
-      'customerPhone': '+919876543210',
-      'color': DriverTheme.rideBadge,
-      'icon': Icons.person_pin_circle,
-      'isForSomeoneElse': true,
-      'isSchoolChild': true,
-      'childName': 'Rahul Chakma',
-      'childPhoto': 'https://images.unsplash.com/photo-1543332164-6e82f355badc?w=200',
-      'schoolName': 'ABC Public School',
-      'gradeClass': 'Class 5',
-      'section': 'Section B',
-      'specialInstructions': 'Please verify with security guard at Gate 2.',
-    };
+  String get otpPromptLabel => isPickupFlow
+      ? (otpStage == 'DELIVERY' ? 'Ask the passenger for their OTP to finish the trip' : 'Ask the passenger for their OTP to start the trip')
+      : (otpStage == 'DELIVERY' ? 'Ask the recipient for the delivery OTP' : 'Enter the pickup OTP from the sender');
+}
+
+enum _View { loading, ready, failed, notFound }
+
+class _ActiveJobExecutionScreenState extends State<ActiveJobExecutionScreen> {
+  _View _view = _View.loading;
+  _JobView? _job;
+  String? _failureMessage;
+  final TextEditingController _otpController = TextEditingController();
+  bool _busy = false;
+  String? _actionError;
+  StreamSubscription<Map<String, dynamic>>? _tripFeed;
+
+  String? get _seedRef {
+    final data = widget.jobData;
+    if (data == null) return null;
+    return (data['jobId'] as String?) ?? (data['id'] as String?) ?? (data['jobNumber'] as String?);
   }
 
-  String get jobType => job['type'] as String? ?? 'RIDE';
-  bool get isForSomeoneElse => job['isForSomeoneElse'] as bool? ?? true;
-  bool get isSchoolChild => job['isSchoolChild'] as bool? ?? true;
+  @override
+  void initState() {
+    super.initState();
+    _refresh();
+    // The platform is the authority on the stage, so anything it pushes about this trip is a
+    // reason to read it again rather than to edit the screen.
+    _tripFeed = NabinWsService.instance.onTripUpdate.listen((_) {
+      if (mounted) unawaited(_refresh(silent: true));
+    });
+  }
+
+  @override
+  void dispose() {
+    _tripFeed?.cancel();
+    _otpController.dispose();
+    super.dispose();
+  }
+
+  /// Re-read the console and take this trip's state from it.
+  ///
+  /// Deliberately not a job-by-id endpoint: `/api/driver/home` only ever returns the trip
+  /// belonging to the token that asked, which is what makes a stale or hand-edited job id on
+  /// this screen unable to open somebody else's trip.
+  Future<void> _refresh({bool silent = false}) async {
+    if (!silent) setState(() => _view = _View.loading);
+    final home = await NabinApiService.getDriverHome();
+    if (!mounted) return;
+
+    if (home == null || home['success'] != true) {
+      setState(() {
+        _view = _View.failed;
+        _failureMessage = home == null
+            ? 'No connection to NABIN. The trip has not changed — its stage is stored on the platform, not here.'
+            : (home['error'] as String?) ?? 'Could not load this trip.';
+      });
+      return;
+    }
+
+    final active = home['activeJob'];
+    if (active is Map) {
+      final parsed = _JobView.fromJson(active);
+      if (parsed != null) {
+        setState(() {
+          _job = parsed;
+          _view = _View.ready;
+          _failureMessage = null;
+        });
+        return;
+      }
+    }
+
+    // No active assignment. That is either a trip already settled — whose money lives in the
+    // earnings ledger — or one that was never this partner's. Neither is a reason to draw a
+    // blank execution screen.
+    final settledRef = _seedRef;
+    setState(() {
+      _job = null;
+      _view = _View.notFound;
+      _failureMessage = settledRef == null
+          ? 'You are not on a trip right now.'
+          : '$settledRef is not one of your active trips. It may already be completed, cancelled, or assigned to another partner.';
+    });
+  }
+
+  Future<void> _markArrived() async {
+    final job = _job;
+    if (job == null || _busy) return;
+    setState(() {
+      _busy = true;
+      _actionError = null;
+    });
+    final res = await NabinApiService.driverArrived(jobId: job.ref);
+    if (!mounted) return;
+    setState(() => _busy = false);
+    await _afterAction(res, 'NABIN could not record your arrival.');
+  }
+
+  Future<void> _submitOtp() async {
+    final job = _job;
+    final stage = job?.otpStage;
+    if (job == null || stage == null || _busy) return;
+    final code = _otpController.text.trim();
+    if (code.length < 4) {
+      setState(() => _actionError = 'Enter the complete code the customer gave you.');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _actionError = null;
+    });
+    final res = await NabinApiService.submitTripOtp(jobId: job.ref, otp: code, otpType: stage);
+    if (!mounted) return;
+    setState(() => _busy = false);
+
+    final ok = res != null && res['success'] == true && res['verified'] == true;
+    if (ok) _otpController.clear();
+    await _afterAction(res, ok ? null : 'NABIN refused that code.');
+  }
+
+  /// Reports the platform's answer and then re-reads it, so the screen can never be left
+  /// showing a stage the server did not confirm.
+  Future<void> _afterAction(Map<String, dynamic>? res, String? fallbackError) async {
+    final accepted = res != null && res['success'] == true;
+    if (!accepted) {
+      final message = res?['error'] as String? ?? fallbackError ?? 'NABIN did not accept that action.';
+      setState(() => _actionError = message);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message), backgroundColor: Colors.red.shade700),
+      );
+    }
+    // Re-read even on failure: a refusal often means the trip already moved without this
+    // device knowing, and the correct screen then is the new stage, not the old one.
+    await _refresh(silent: true);
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: DriverTheme.bgLight,
-      body: Stack(
-        children: [
-          // 1. Vector Map Viewport showing active route
-          Positioned.fill(
-            child: DriverMapView(
-              vehicleType: '3W',
-              showRoute: true,
-              pickupLabel: job['pickup'] as String?,
-              dropLabel: job['drop'] as String?,
-            ),
+      appBar: AppBar(
+        title: const Text('Trip Execution'),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          // `go`, not `pop`: leaving and returning must re-read the platform rather than
+          // resume whatever stage this screen last believed it was on.
+          onPressed: () => context.go('/home'),
+        ),
+        actions: [
+          IconButton(
+            onPressed: _view == _View.loading ? null : _refresh,
+            icon: const Icon(Icons.refresh_rounded),
+            tooltip: 'Re-read from NABIN',
           ),
+        ],
+      ),
+      body: SafeArea(
+        child: switch (_view) {
+          _View.loading => const Center(child: CircularProgressIndicator()),
+          _View.failed => _buildMessage(
+              icon: Icons.cloud_off_rounded,
+              title: 'Could not load this trip',
+              body: _failureMessage ?? 'Nothing about the trip has changed.',
+              retry: true,
+            ),
+          _View.notFound => _buildMessage(
+              icon: Icons.info_outline,
+              title: 'No trip to execute',
+              body: _failureMessage ?? 'You are not on a trip right now.',
+            ),
+          _View.ready => _buildExecution(),
+        },
+      ),
+    );
+  }
 
-          // 2. Top Header Bar with Emergency SOS & Passenger Tag
-          SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Column(
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+  Widget _buildMessage({
+    required IconData icon,
+    required String title,
+    required String body,
+    bool retry = false,
+  }) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(28),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 54, color: DriverTheme.textMuted),
+            const SizedBox(height: 14),
+            Text(title, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 17, color: DriverTheme.textDark)),
+            const SizedBox(height: 6),
+            Text(body, textAlign: TextAlign.center, style: const TextStyle(color: DriverTheme.textMuted, fontSize: 13)),
+            const SizedBox(height: 18),
+            if (retry)
+              ElevatedButton.icon(
+                onPressed: _refresh,
+                icon: const Icon(Icons.refresh_rounded),
+                label: const Text('Retry'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: DriverTheme.primaryBlue,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                ),
+              ),
+            ElevatedButton.icon(
+              onPressed: () => context.go('/home'),
+              icon: const Icon(Icons.map_rounded),
+              label: const Text('Back to console'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.white,
+                foregroundColor: DriverTheme.textDark,
+                side: const BorderSide(color: DriverTheme.borderLight),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildExecution() {
+    final job = _job;
+    if (job == null) return const SizedBox.shrink();
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Stage banner — the platform's word, not this screen's progress bar.
+          DriverCard(
+            padding: const EdgeInsets.all(16),
+            borderRadius: 20,
+            backgroundColor: job.settled ? DriverTheme.onlineGreen : DriverTheme.primaryBlue,
+            borderColor: job.settled ? DriverTheme.onlineGreen : DriverTheme.primaryBlueDark,
+            child: Row(
+              children: [
+                Icon(job.settled ? Icons.task_alt : Icons.flag_outlined, color: Colors.white, size: 22),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: DriverTheme.borderLight),
-                          boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 8)],
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(job['icon'] as IconData, color: job['color'] as Color, size: 18),
-                            const SizedBox(width: 8),
-                            Text(
-                              job['title'] as String,
-                              style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 13, color: DriverTheme.textDark),
-                            ),
-                          ],
-                        ),
-                      ),
-
-                      // Emergency SOS Button
-                      GestureDetector(
-                        onTap: () {
-                          showDialog(
-                            context: context,
-                            builder: (ctx) => AlertDialog(
-                              title: const Row(
-                                children: [
-                                  Icon(Icons.shield, color: DriverTheme.alertRed),
-                                  SizedBox(width: 8),
-                                  Text('Emergency SOS'),
-                                ],
-                              ),
-                              content: const Text('Connecting to 24/7 Police Dispatch (112) & NABIN Driver Safety Control Room.'),
-                              actions: [
-                                TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-                                ElevatedButton(
-                                  onPressed: () {
-                                    Navigator.pop(ctx);
-                                    _launchPhoneCall('112');
-                                  },
-                                  style: ElevatedButton.styleFrom(backgroundColor: DriverTheme.alertRed),
-                                  child: const Text('Dial Police (112)', style: TextStyle(color: Colors.white)),
-                                ),
-                              ],
-                            ),
-                          );
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                          decoration: BoxDecoration(
-                            color: DriverTheme.alertRed,
-                            borderRadius: BorderRadius.circular(18),
-                            boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 8)],
-                          ),
-                          child: const Row(
-                            children: [
-                              Icon(Icons.warning, color: Colors.white, size: 16),
-                              SizedBox(width: 4),
-                              Text('SOS', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 12)),
-                            ],
-                          ),
-                        ),
-                      ),
+                      Text(job.ref,
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 15)),
+                      Text('Status on NABIN: ${job.status.isEmpty ? 'unknown' : job.status}',
+                          style: const TextStyle(color: Colors.white70, fontSize: 12)),
                     ],
                   ),
-
-                  // Prominent Banner for "Booked for Someone Else / School Child"
-                  if (isForSomeoneElse) ...[
-                    const SizedBox(height: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: isSchoolChild ? const Color(0xFFFF6D00) : DriverTheme.primaryBlue,
-                        borderRadius: BorderRadius.circular(12),
-                        boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 6)],
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(isSchoolChild ? Icons.school_rounded : Icons.person_rounded, color: Colors.white, size: 14),
-                          const SizedBox(width: 6),
-                          Text(
-                            isSchoolChild
-                                ? 'BOOKED FOR SOMEONE ELSE: SCHOOL CHILD PASSENGER'
-                                : 'BOOKED FOR SOMEONE ELSE',
-                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 11, letterSpacing: 0.5),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ),
-
-          // 3. Dynamic Bottom Navigation Sheet
-          Positioned(
-            left: 16,
-            right: 16,
-            bottom: 20,
-            child: _buildStageBottomSheet(),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStageBottomSheet() {
-    // Stage 0: Navigating to Pickup Point
-    if (_stage == 0) {
-      return DriverCard(
-        padding: const EdgeInsets.all(20),
-        borderRadius: 24,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text('NAVIGATING TO PICKUP', style: TextStyle(color: DriverTheme.primaryBlue, fontWeight: FontWeight.w900, fontSize: 12, letterSpacing: 0.8)),
-                Text(job['fare'] as String, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18, color: DriverTheme.textDark)),
-              ],
-            ),
-            const SizedBox(height: 10),
-
-            // School Child Comprehensive Identification & School Info Card
-            if (isSchoolChild) ...[
-              _buildSchoolChildInfoCard(),
-              const SizedBox(height: 10),
-            ],
-
-            Row(
-              children: [
-                const Icon(Icons.radio_button_checked, color: DriverTheme.onlineGreen, size: 20),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    job['pickup'] as String,
-                    style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: DriverTheme.textDark),
-                  ),
                 ),
               ],
             ),
-            if (job['specialInstructions'] != null) ...[
-              const SizedBox(height: 4),
-              Text(
-                'Note: ${job['specialInstructions']}',
-                style: const TextStyle(fontSize: 11, fontStyle: FontStyle.italic, color: DriverTheme.textMuted),
-              ),
-            ],
-            const SizedBox(height: 6),
-            InkWell(
-              onTap: () => _launchPhoneCall(job['customerPhone'] as String? ?? '+919876543210'),
-              borderRadius: BorderRadius.circular(8),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                child: Row(
-                  children: [
-                    const Icon(Icons.phone_outlined, size: 14, color: DriverTheme.primaryBlue),
-                    const SizedBox(width: 6),
-                    Text(
-                      'Booking Person / Guardian: ${job['customer']}',
-                      style: const TextStyle(color: DriverTheme.primaryBlue, fontWeight: FontWeight.bold, fontSize: 12),
-                    ),
-                    const SizedBox(width: 4),
-                    const Text('• Tap to Call', style: TextStyle(color: DriverTheme.textMuted, fontSize: 11)),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 14),
-            DriverButton(
-              text: jobType == 'FOOD' ? 'Arrived at Restaurant Kitchen' : (jobType == 'PARCEL' ? 'Arrived at Sender Pickup' : (isSchoolChild ? 'Arrived at Child Pickup Location' : 'Arrived at Passenger Location')),
-              color: DriverTheme.primaryBlue,
-              onPressed: () => setState(() => _stage = 1),
-            ),
-          ],
-        ),
-      );
-    }
-
-    // Stage 1: Arrived at Pickup (Enter Start/Pickup OTP)
-    if (_stage == 1) {
-      return DriverCard(
-        padding: const EdgeInsets.all(20),
-        borderRadius: 24,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              jobType == 'FOOD'
-                  ? 'KITCHEN ORDER VERIFICATION'
-                  : (jobType == 'PARCEL' ? 'ENTER SENDER PICKUP OTP' : (isSchoolChild ? 'GUARDIAN PICKUP VERIFICATION OTP' : 'ENTER PASSENGER START OTP')),
-              style: const TextStyle(color: DriverTheme.roadGold, fontWeight: FontWeight.w900, fontSize: 12, letterSpacing: 0.8),
-            ),
-            const SizedBox(height: 10),
-            if (isSchoolChild) ...[
-              const Text(
-                'Identify child with school uniform & guardian. Verify 4-digit OTP provided by booking person/guardian:',
-                style: TextStyle(color: DriverTheme.textMuted, fontSize: 12),
-              ),
-            ] else ...[
-              Text(
-                jobType == 'PARCEL' ? 'Ask sender for 4-digit Pickup OTP' : 'Ask passenger for 4-digit Ride Start OTP',
-                style: const TextStyle(color: DriverTheme.textMuted, fontSize: 13),
-              ),
-            ],
-            const SizedBox(height: 12),
-            TextField(
-              controller: _otpController,
-              keyboardType: TextInputType.number,
-              maxLength: 4,
-              style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: DriverTheme.primaryBlue, letterSpacing: 8),
-              decoration: InputDecoration(
-                hintText: '••••',
-                filled: true,
-                fillColor: const Color(0xFFF1F5F9),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
-                counterText: '',
-              ),
-            ),
-            const SizedBox(height: 14),
-            DriverButton(
-              text: isSchoolChild ? 'Verify OTP & Start School Transit' : (jobType == 'PARCEL' ? 'Verify OTP & Collect Parcel' : 'Verify OTP & Start Ride'),
-              color: DriverTheme.onlineGreen,
-              textColor: Colors.black,
-              onPressed: () => setState(() => _stage = 2),
-            ),
-          ],
-        ),
-      );
-    }
-
-    // Stage 2: Active Transit (Heading to Drop Location)
-    if (_stage == 2) {
-      return DriverCard(
-        padding: const EdgeInsets.all(20),
-        borderRadius: 24,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  isSchoolChild ? 'SCHOOL TRANSIT IN PROGRESS' : 'TRIP IN TRANSIT',
-                  style: const TextStyle(color: DriverTheme.onlineGreen, fontWeight: FontWeight.w900, fontSize: 12, letterSpacing: 0.8),
-                ),
-                Text(job['fare'] as String, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18, color: DriverTheme.textDark)),
-              ],
-            ),
-            const SizedBox(height: 10),
-            // School Child Details in Transit
-            if (isSchoolChild) ...[
-              _buildSchoolChildInfoCard(),
-              const SizedBox(height: 10),
-            ],
-
-            Row(
-              children: [
-                const Icon(Icons.location_on, color: DriverTheme.alertRed, size: 20),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    job['drop'] as String,
-                    style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15, color: DriverTheme.textDark),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 6),
-            Text(
-              '${job['distance']} remaining • Live GPS Telemetry broadcasting to Guardian',
-              style: const TextStyle(color: DriverTheme.textMuted, fontSize: 11.5),
-            ),
-            const SizedBox(height: 14),
-            Row(
-              children: [
-                Expanded(
-                  flex: 6,
-                  child: DriverButton(
-                    text: isSchoolChild ? 'Arrived at Gate' : 'Arrived at Drop',
-                    color: DriverTheme.primaryBlue,
-                    onPressed: () => setState(() => _stage = 3),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  flex: 4,
-                  child: OutlinedButton(
-                    onPressed: () {
-                      showDialog(
-                        context: context,
-                        builder: (ctx) => AlertDialog(
-                          title: const Row(
-                            children: [
-                              Icon(Icons.pan_tool_rounded, color: Color(0xFFFF6D00), size: 20),
-                              SizedBox(width: 8),
-                              Text('Early Stop Requested', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900)),
-                            ],
-                          ),
-                          content: const Text(
-                            'Passenger requested to end the ride early at current location.\n\nRule: Guaranteed minimum 50% fare or distance covered fare applies to driver earnings.',
-                            style: TextStyle(fontSize: 12),
-                          ),
-                          actions: [
-                            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-                            ElevatedButton(
-                              onPressed: () {
-                                Navigator.pop(ctx);
-                                setState(() => _stage = 4);
-                              },
-                              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFFF6D00)),
-                              child: const Text('End Trip & Collect Fare', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                            ),
-                          ],
-                        ),
-                      );
-                    },
-                    style: OutlinedButton.styleFrom(
-                      side: const BorderSide(color: Color(0xFFFF6D00)),
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                    ),
-                    child: const Text('Early Stop', style: TextStyle(color: Color(0xFFFF6D00), fontWeight: FontWeight.bold, fontSize: 12)),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      );
-    }
-
-    // Stage 3: Arrived at Drop & Delivery/Dropoff Handover
-    if (_stage == 3) {
-      return DriverCard(
-        padding: const EdgeInsets.all(20),
-        borderRadius: 24,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              isSchoolChild ? 'SAFE SCHOOL GATE HANDOVER' : 'TRIP COMPLETION',
-              style: const TextStyle(color: DriverTheme.roadGold, fontWeight: FontWeight.w900, fontSize: 12, letterSpacing: 0.8),
-            ),
-            const SizedBox(height: 10),
-            if (isSchoolChild) ...[
-              _buildSchoolChildInfoCard(),
-              const SizedBox(height: 10),
-            ],
-            Text(
-              isSchoolChild
-                  ? 'Safely assist ${job['childName'] ?? "passenger"} to the school entrance gate / security guard.'
-                  : 'Arrived at destination. Collect payment or confirm online auto-debit.',
-              style: const TextStyle(color: DriverTheme.textMuted, fontSize: 13),
-            ),
-            const SizedBox(height: 14),
-            DriverButton(
-              text: isSchoolChild ? 'Confirm School Dropoff & Complete Ride' : 'Complete Trip & Collect Fare',
-              color: DriverTheme.onlineGreen,
-              textColor: Colors.black,
-              onPressed: () => setState(() => _stage = 4),
-            ),
-          ],
-        ),
-      );
-    }
-
-    // Stage 4: Completed & Summary
-    return DriverCard(
-      padding: const EdgeInsets.all(20),
-      borderRadius: 24,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Icon(Icons.check_circle, color: DriverTheme.onlineGreen, size: 24),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('Trip Completed Successfully!', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15, color: DriverTheme.textDark)),
-                    Text('Earned ${job['fare']} • Added to Driver Wallet', style: const TextStyle(color: DriverTheme.textMuted, fontSize: 12)),
-                  ],
-                ),
-              ),
-            ],
           ),
           const SizedBox(height: 14),
-          DriverButton(
-            text: 'Back to Driver Console',
-            color: DriverTheme.primaryBlue,
-            onPressed: () => context.pop(),
-          ),
-        ],
-      ),
-    );
-  }
 
-  Widget _buildSchoolChildInfoCard() {
-    final childName = job['childName'] as String? ?? 'Rahul Chakma';
-    final schoolName = job['schoolName'] as String? ?? 'ABC Public School';
-    final gradeClass = job['gradeClass'] as String? ?? 'Class 5';
-    final section = job['section'] as String?;
-    final guardianName = job['customer'] as String? ?? 'Rahul Sharma (Guardian)';
-    final guardianPhone = job['customerPhone'] as String? ?? '+919876543210';
-    final instructions = job['specialInstructions'] as String? ?? 'Wait with security guard at Gate 2.';
-
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFFF8F1),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFFFCC80), width: 1.5),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: const BoxDecoration(
-                  gradient: LinearGradient(colors: [Color(0xFFFF6D00), Color(0xFFFF9E80)]),
-                  shape: BoxShape.circle,
-                ),
-                child: const Center(
-                  child: Icon(Icons.school_rounded, color: Colors.white, size: 22),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Text(
-                          childName,
-                          style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 14, color: DriverTheme.textDark),
-                        ),
-                        const SizedBox(width: 6),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFFF6D00),
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: Text(
-                            '$gradeClass${section != null && section.isNotEmpty ? " ($section)" : ""}',
-                            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.white),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      '🏫 $schoolName',
-                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFFE65100)),
-                    ),
-                  ],
-                ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.phone_in_talk_rounded, color: Color(0xFF00C853), size: 22),
-                tooltip: 'Call Guardian',
-                onPressed: () => _launchPhoneCall(guardianPhone),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: const Color(0xFFFFE0B2)),
-            ),
+          DriverCard(
+            padding: const EdgeInsets.all(16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    const Icon(Icons.info_outline_rounded, size: 13, color: Color(0xFFE65100)),
-                    const SizedBox(width: 4),
-                    Text(
-                      'Guardian: $guardianName',
-                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFFE65100)),
-                    ),
-                  ],
+                _line(Icons.radio_button_checked, DriverTheme.onlineGreen, 'Pickup', job.pickup ?? 'Unavailable'),
+                const Divider(color: DriverTheme.borderLight, height: 24),
+                _line(Icons.location_on, DriverTheme.alertRed, 'Drop', job.drop ?? 'Unavailable'),
+                const Divider(color: DriverTheme.borderLight, height: 24),
+                // The earning is the platform's figure from the job row. The old screen
+                // computed a 10% commission here in Dart; the platform charges what the row
+                // says, and this only repeats that.
+                Text(
+                  job.driverEarnings == null
+                      ? 'Earning not reported for this trip'
+                      : 'You earn ₹${job.driverEarnings!.toStringAsFixed(2)}'
+                          '${job.fare == null ? '' : '  ·  trip fare ₹${job.fare!.toStringAsFixed(2)}'}',
+                  style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 14, color: DriverTheme.onlineGreen),
                 ),
-                if (instructions.isNotEmpty) ...[
-                  const SizedBox(height: 2),
-                  Text(
-                    'Instructions: $instructions',
-                    style: const TextStyle(fontSize: 11, color: DriverTheme.textDark),
-                  ),
-                ],
               ],
             ),
           ),
+          const SizedBox(height: 18),
+
+          if (job.settled)
+            DriverCard(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Trip settled',
+                      style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15, color: DriverTheme.textDark)),
+                  const SizedBox(height: 6),
+                  const Text('NABIN has recorded this trip as completed and booked your earning. '
+                      'It is on your earnings ledger now.',
+                      style: TextStyle(fontSize: 13, color: DriverTheme.textMuted, height: 1.4)),
+                  const SizedBox(height: 14),
+                  DriverButton(
+                    text: 'View earnings',
+                    height: 48,
+                    onPressed: () => context.go('/earnings'),
+                  ),
+                ],
+              ),
+            )
+          else if (job.cancelled)
+            const DriverCard(
+              padding: EdgeInsets.all(16),
+              child: Text('This trip was cancelled on the platform. Nothing further is required of you.',
+                  style: TextStyle(fontSize: 13, color: DriverTheme.textMuted, height: 1.4)),
+            )
+          else ...[
+            if (job.status == 'ASSIGNED' || job.status == 'ACCEPTED' || job.status == 'DRIVER_ARRIVING')
+              DriverCard(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Reach the pickup point',
+                        style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15, color: DriverTheme.textDark)),
+                    const SizedBox(height: 6),
+                    const Text('Tell NABIN when you are there. The platform records the arrival; this screen only asks.',
+                        style: TextStyle(fontSize: 13, color: DriverTheme.textMuted, height: 1.4)),
+                    const SizedBox(height: 14),
+                    DriverButton(
+                      text: 'I have arrived',
+                      color: DriverTheme.primaryBlue,
+                      height: 48,
+                      isLoading: _busy,
+                      onPressed: _markArrived,
+                    ),
+                  ],
+                ),
+              ),
+            if (job.otpStage != null) ...[
+              const SizedBox(height: 14),
+              DriverCard(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(job.otpPromptLabel,
+                        style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 15, color: DriverTheme.textDark)),
+                    const SizedBox(height: 6),
+                    const Text('The code comes from the customer. NABIN checks it — this app never knows it in advance.',
+                        style: TextStyle(fontSize: 12, color: DriverTheme.textMuted, height: 1.4)),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _otpController,
+                      keyboardType: TextInputType.number,
+                      maxLength: 6,
+                      textAlign: TextAlign.center,
+                      enabled: !_busy,
+                      style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w900, letterSpacing: 10),
+                      decoration: const InputDecoration(
+                        hintText: '••••',
+                        counterText: '',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    if (_actionError != null) ...[
+                      const SizedBox(height: 8),
+                      Text(_actionError!, style: const TextStyle(color: DriverTheme.alertRed, fontSize: 12)),
+                    ],
+                    const SizedBox(height: 14),
+                    DriverButton(
+                      text: job.otpStage == 'DELIVERY' ? 'Complete trip' : 'Verify and start',
+                      color: job.otpStage == 'DELIVERY' ? DriverTheme.onlineGreen : DriverTheme.primaryBlue,
+                      textColor: job.otpStage == 'DELIVERY' ? Colors.black : Colors.white,
+                      height: 48,
+                      isLoading: _busy,
+                      onPressed: _submitOtp,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            const SizedBox(height: 14),
+            Center(
+              child: TextButton.icon(
+                onPressed: _busy ? null : () => _refresh(silent: true),
+                icon: const Icon(Icons.sync_rounded, size: 18),
+                label: const Text('Re-read this trip from NABIN'),
+              ),
+            ),
+          ],
+          const SizedBox(height: 40),
         ],
       ),
+    );
+  }
+
+  Widget _line(IconData icon, Color color, String label, String value) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, color: color, size: 18),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label.toUpperCase(),
+                  style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: DriverTheme.textMuted)),
+              const SizedBox(height: 2),
+              Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: DriverTheme.textDark)),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

@@ -178,6 +178,11 @@ class PaymentRepository {
     }
 
     // In-memory fallback
+    // Owner Decision 11 (choice B, docs/OWNER_SECURITY_DECISIONS.md): when
+    // PostgreSQL is unreachable a hydrated payment session keeps answering from
+    // memory rather than failing closed with a 503. This cache fallback is the
+    // accepted outage semantics — do NOT convert it to a 503 without a new owner
+    // order. backend/hydration_fallback_test.js (HYD-01/02) locks this in.
     return this.db.paymentSessions ? this.db.paymentSessions.get(orderId) : null;
   }
 

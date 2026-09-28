@@ -10,7 +10,52 @@ process.env.PAYMENT_KEY_SECRET ||= 'test_key_secret_not_for_deployment';
 process.env.NABIN_TEST_MODE = 'true';
 const { supabaseAdmin, isLivePostgres } = require('./src/supabase');
 
-const BASE_URL = 'http://127.0.0.1:4000';
+// The port this suite restarts. It defaults to 4000 for a human running the file
+// directly, and the chain gives it a private port through NABIN_RESTART_PORT so that
+// restarting "the backend" cannot mean "kill whichever process the harness owns".
+const RESTART_PORT = Number(process.env.NABIN_RESTART_PORT || 4000);
+const BASE_URL = `http://127.0.0.1:${RESTART_PORT}`;
+
+// Every backend process this suite starts is tracked so it can be terminated and the port
+// released. Nothing here is killed by port lookup: the previous version resolved the owner of
+// :4000 and called Stop-Process on it, which in a chained run meant killing the shared harness
+// server and then leaving this suite's own detached replacement bound to :4000 for whatever
+// link ran next. That is how a green chain came to depend on an orphan, and why the second
+// run of the same chain failed to bind the port at all.
+const spawnedServers = [];
+
+function trackServer(proc) {
+  if (proc && proc.pid) spawnedServers.push(proc);
+  return proc;
+}
+
+async function stopServer(proc) {
+  if (!proc || !proc.pid || proc.killed) return;
+  try {
+    if (process.platform === 'win32') {
+      // Windows detaches these children (`detached: true`, `unref()`), so a signal is not
+      // reliable; ask the OS to terminate the process tree by pid and ignore an
+      // already-exited one.
+      execSync(`taskkill /PID ${proc.pid} /T /F`, { stdio: 'ignore' });
+    } else {
+      proc.kill('SIGTERM');
+    }
+  } catch (e) { /* already gone */ }
+}
+
+async function stopAllServers() {
+  for (const proc of spawnedServers.splice(0)) await stopServer(proc);
+  // Confirm the port is genuinely free before the next suite is allowed to bind it.
+  for (let i = 0; i < 40; i++) {
+    try {
+      await request('GET', '/api/health');
+      await sleep(250);
+    } catch (e) {
+      return true;
+    }
+  }
+  return false;
+}
 
 function webhookHeaders(body) {
   const secret = process.env.PAYMENT_WEBHOOK_SECRET;
@@ -69,17 +114,24 @@ function assert(description, condition, details = '') {
 }
 
 async function ensureServerRunning() {
+  // This suite must own the process it restarts. If something is already answering on the
+  // restart port, the run is contaminated and saying so is more useful than quietly
+  // sharing-or-killing somebody else's server.
   try {
-    execSync('powershell -Command "Get-NetTCPConnection -LocalPort 4000 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }"');
-  } catch (e) {}
-  await sleep(1500);
+    const preexisting = await request('GET', '/api/health');
+    if (preexisting.status === 200) {
+      console.error(`✖ port ${RESTART_PORT} is already serving; run this suite with a free NABIN_RESTART_PORT`);
+      process.exit(1);
+    }
+  } catch (e) { /* expected: nothing listening yet */ }
 
-  const proc = spawn(process.execPath, [path.join(__dirname, 'src/server.js')], {
+  const proc = trackServer(spawn(process.execPath, [path.join(__dirname, 'src/server.js')], {
     cwd: __dirname,
     stdio: 'ignore',
     detached: true,
-    windowsHide: true
-  });
+    windowsHide: true,
+    env: { ...process.env, PORT: String(RESTART_PORT) }
+  }));
   proc.unref();
 
   for (let i = 0; i < 40; i++) {
@@ -99,12 +151,15 @@ async function runRestartTest() {
   // answered with, and reaped after the report runs, so a restart that
   // successfully persisted a boundary also successfully cleans it up.
   const geoRun = { fences: [], rules: [], baseline: null, token: null };
+  // The master catalogue product this run creates before the cold start, reaped by
+  // id in the final teardown so a mid-run exception cannot leave a live catalogue row.
+  const mcRun = { id: null };
   console.log('========================================================================');
   console.log('🔄 RUNNING NABIN MANDATORY BACKEND PERSISTENCE & RESTART TEST');
   console.log('========================================================================\n');
 
   try {
-    await ensureServerRunning();
+    const firstServer = await ensureServerRunning();
     // 1. Initial Health & Readiness Check
     const health = await request('GET', '/api/health');
     assert('Initial backend server is healthy & online', health.status === 200 && health.data.status === 'ONLINE');
@@ -301,21 +356,42 @@ async function runRestartTest() {
       preRestartAd.status === 200 && preRestartAd.data.success
       && preRestartAd.data.dataSource === 'postgres' && preRestartAd.data.persisted === true && !!preRestartAdId);
 
-    // Terminate existing server listening on port 4000 (do not kill test runner itself)
-    try {
-      execSync('powershell -Command "Get-NetTCPConnection -LocalPort 4000 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }"');
-    } catch (e) {}
+    // 6e. Create and revise a master catalogue product before the restart, so the
+    //     write-through to `master_grocery_catalog` is proven against a cold start
+    //     rather than the memory array that used to evaporate with the process.
+    const mcName = `Restart Master Item ${Date.now().toString().slice(-6)}`;
+    const preRestartMaster = await request('POST', '/api/admin/master-catalog', {
+      masterName: mcName, category: 'Grains', unit: 'kg', packSize: '5 kg',
+      imageUrl: 'https://nabin.example.com/mc/restart.png', pricingModel: 'FIXED_PRICE'
+    }, { 'Authorization': `Bearer ${adminToken}` });
+    const preRestartMasterId = preRestartMaster.data?.product?.id;
+    mcRun.id = preRestartMasterId || null;
+    assert('Master catalogue product created before restart and persisted to PostgreSQL',
+      preRestartMaster.status === 200 && preRestartMaster.data.success && !!preRestartMasterId,
+      `status=${preRestartMaster.status} body=${JSON.stringify(preRestartMaster.data).slice(0, 160)}`);
+    const preRestartMasterRevise = await request('PUT', `/api/admin/master-catalog/${preRestartMasterId}`,
+      { masterName: `${mcName} Revised` }, { 'Authorization': `Bearer ${adminToken}` });
+    assert('Master catalogue product revised before restart',
+      preRestartMasterRevise.status === 200 && preRestartMasterRevise.data.product.masterName === `${mcName} Revised`,
+      `status=${preRestartMasterRevise.status} body=${JSON.stringify(preRestartMasterRevise.data).slice(0, 160)}`);
+
+    // Terminate the backend this suite started, so the cold start below restarts a process it
+    // owns. This used to resolve the owner of :4000 and Stop-Process it, which in a chained
+    // run meant killing the shared harness server and leaving this suite's detached
+    // replacement bound to :4000 for whatever link executed next.
+    await stopServer(firstServer);
 
     await sleep(2000);
 
     // Start a fresh backend instance from scratch
     console.log('🚀 Spawning fresh backend process from cold start...');
-    const serverProcess = spawn(process.execPath, [path.join(__dirname, 'src/server.js')], {
+    const serverProcess = trackServer(spawn(process.execPath, [path.join(__dirname, 'src/server.js')], {
       cwd: path.join(__dirname),
       detached: true,
       stdio: 'ignore',
-      windowsHide: true
-    });
+      windowsHide: true,
+      env: { ...process.env, PORT: String(RESTART_PORT) }
+    }));
     serverProcess.unref();
 
     // A fixed sleep used to be enough, and then the cold start grew past it:
@@ -362,6 +438,22 @@ async function runRestartTest() {
     const postAdCleanup = await request('DELETE', `/api/admin/advertisements/${preRestartAdId}`, null,
       { 'Authorization': `Bearer ${postAdminToken}` });
     assert('Restart-probe advertisement cleaned up', postAdCleanup.status === 200 && postAdCleanup.data.success);
+
+    // 9c. The catalogue revision must be readable from PostgreSQL after the cold
+    //     start, then the product must soft-delete out of the active list. The row is
+    //     reaped straight from the store in teardown.
+    const postMasterList = await request('GET', '/api/admin/master-catalog', null, { 'Authorization': `Bearer ${postAdminToken}` });
+    const survivedMaster = (postMasterList.data?.masterProducts || []).find(p => p.id === preRestartMasterId);
+    assert('Master catalogue product survived the restart with its revision, served from PostgreSQL',
+      postMasterList.status === 200 && !!survivedMaster && survivedMaster.masterName === `${mcName} Revised`,
+      `found=${!!survivedMaster} name=${survivedMaster && survivedMaster.masterName}`);
+
+    const postMasterDelete = await request('DELETE', `/api/admin/master-catalog/${preRestartMasterId}`, null, { 'Authorization': `Bearer ${postAdminToken}` });
+    const postMasterAfterDelete = await request('GET', '/api/admin/master-catalog', null, { 'Authorization': `Bearer ${postAdminToken}` });
+    const stillListed = (postMasterAfterDelete.data?.masterProducts || []).find(p => p.id === preRestartMasterId);
+    assert('Master catalogue delete is durable and the retired product leaves the active list',
+      postMasterDelete.status === 200 && postMasterDelete.data.success && !stillListed,
+      `delete=${postMasterDelete.status} stillListed=${!!stillListed}`);
 
     // 10. Verify Driver Balance STILL EXISTS after restart
     const postDrvOtpSend = await request('POST', '/api/auth/send-otp', { phone: '9810122910', role: 'DRIVER', purpose: 'LOGIN' });
@@ -501,6 +593,17 @@ async function runRestartTest() {
       `fences ${geoRun.baseline.fences} → ${fencesAfter}, rules ${geoRun.baseline.rules} → ${rulesAfter}, ` +
       `deletes ${deleteStatuses.join('/') || 'none'}`);
   }
+
+  // The master catalogue product is soft-deleted by the run; reap the row straight from
+  // the store so repeat runs do not accumulate inactive catalogue rows.
+  if (isLivePostgres && supabaseAdmin && mcRun.id) {
+    await supabaseAdmin.from('master_grocery_catalog').delete().eq('id', mcRun.id);
+  }
+
+  // Release the backend this suite started, so the port is free for whatever runs next and no
+  // orphaned server is left standing in for the harness. Done before the summary so it also
+  // happens on a failed run.
+  try { await stopAllServers(); } catch (e) { console.error('server teardown did not complete:', e.message); }
 
   console.log('\n========================================================================');
   console.log(`📊 RESTART TEST RESULTS: ${passed} PASSED, ${failed} FAILED`);

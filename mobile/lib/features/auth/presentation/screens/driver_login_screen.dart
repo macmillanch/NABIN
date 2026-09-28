@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/theme/driver_theme.dart';
+import '../../../../core/network/nabin_api_service.dart';
 import '../../../../core/widgets/driver_button.dart';
 import '../../../../core/widgets/driver_card.dart';
 
@@ -12,23 +13,45 @@ class DriverLoginScreen extends StatefulWidget {
 }
 
 class _DriverLoginScreenState extends State<DriverLoginScreen> {
-  final TextEditingController _phoneController = TextEditingController(text: '9876543210');
+  // No pre-filled number: a remembered example phone is not this partner's number, and
+  // sending for one would either mail an OTP to a stranger or fail in a way that looks like
+  // a bug in the app.
+  final TextEditingController _phoneController = TextEditingController();
   bool _isLoading = false;
 
-  void _submitPhone() {
-    if (_phoneController.text.length < 10) {
+  Future<void> _submitPhone() async {
+    final phone = _phoneController.text.trim();
+    if (phone.length < 10) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please enter valid 10-digit mobile number')),
       );
       return;
     }
     setState(() => _isLoading = true);
-    Future.delayed(const Duration(milliseconds: 500), () {
-      if (mounted) {
-        setState(() => _isLoading = false);
-        context.push('/otp', extra: _phoneController.text);
-      }
-    });
+
+    Map<String, dynamic>? res;
+    try {
+      res = await NabinApiService.sendOtp(
+        phone: phone,
+        role: 'DRIVER',
+        purpose: 'LOGIN',
+      );
+    } catch (e) {
+      res = null;
+    }
+    if (!mounted) return;
+    setState(() => _isLoading = false);
+
+    if (res != null && res['success'] == true) {
+      context.push('/otp', extra: phone);
+    } else {
+      // The backend is the authority on whether this number is a registered partner, so its
+      // reason is what the partner should read.
+      final errorMsg = res?['error'] as String? ?? 'Could not reach NABIN. Check your connection and try again.';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(errorMsg), backgroundColor: Colors.red.shade700),
+      );
+    }
   }
 
   @override

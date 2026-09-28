@@ -12,15 +12,20 @@ class RestaurantRegistrationScreen extends StatefulWidget {
 class _RestaurantRegistrationScreenState extends State<RestaurantRegistrationScreen> {
   int _currentStep = 0; // 0: Restaurant Info, 1: Location & Owner, 2: Documents & Bank, 3: Approval Status
 
-  final TextEditingController _restNameController = TextEditingController(text: 'Dilli Darbar Mughlai Kitchen');
-  final TextEditingController _cuisineController = TextEditingController(text: 'North Indian, Mughlai, Biryani');
-  final TextEditingController _addressController = TextEditingController(text: 'Shop 14, Ring Road Market, Civil Lines, Delhi');
-  final TextEditingController _ownerNameController = TextEditingController(text: 'Vikram Sethi');
-  final TextEditingController _fssaiController = TextEditingController(text: '1002001928491');
-  final TextEditingController _gstController = TextEditingController(text: '07AAGCD1294F1Z8');
-  final TextEditingController _bankAccountController = TextEditingController(text: '50200049281092');
-  final TextEditingController _ifscController = TextEditingController(text: 'HDFC0001092');
-  final TextEditingController _upiController = TextEditingController(text: 'dillidarbar@okhdfcbank');
+  // All nine fields arrived pre-filled with an invented business identity: a restaurant name
+  // and address, an owner, an FSSAI licence, a GSTIN, a bank account number, an IFSC and a
+  // UPI id. None of them belong to the person opening the app, and tax and banking
+  // identifiers are not the kind of thing a form should suggest for somebody to submit as
+  // their own. Every field now starts empty.
+  final TextEditingController _restNameController = TextEditingController();
+  final TextEditingController _cuisineController = TextEditingController();
+  final TextEditingController _addressController = TextEditingController();
+  final TextEditingController _ownerNameController = TextEditingController();
+  final TextEditingController _fssaiController = TextEditingController();
+  final TextEditingController _gstController = TextEditingController();
+  final TextEditingController _bankAccountController = TextEditingController();
+  final TextEditingController _ifscController = TextEditingController();
+  final TextEditingController _upiController = TextEditingController();
 
   Widget _buildStepIndicator() {
     return Row(

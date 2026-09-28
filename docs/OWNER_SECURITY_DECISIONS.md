@@ -1,7 +1,8 @@
 # NABIN OWNER SECURITY DECISIONS
 
-**Status of this file: all ten decisions have been recorded by the owner. Nothing in it is
-implemented.**
+**Status of this file: eleven decisions have been recorded by the owner. Decision 11 (hydration-read
+outage semantics, choice B) is recorded as an accepted *no-change* semantics; nothing else in this file
+has been implemented.**
 
 Every decision below carries `STATUS: OWNER DECIDED`, the choice, the owner's rationale in the owner's
 own words, and the date it was given: **2026-09-24**. A recorded choice decides *what* to build; it does
@@ -385,10 +386,50 @@ investigation happens next.
 
 ---
 
+## Decision 11 — Money / Identity Hydration-Read Outage Semantics
+
+STATUS: OWNER DECIDED
+OWNER CHOICE: **B — Money/identity hydration reads may continue using hydrated memory when
+PostgreSQL is unavailable.**
+RATIONALE (owner's own words, 2026-09-24): the owner was shown that the six repository read paths
+below carry an `if (!error && data)` shape, but are the *opposite* failure mode from the checkout
+resolvers fixed in the outage sweep — they are deliberate read-through caches that answer from
+hydrated memory when the store cannot reply (fail-OPEN), not fail-closed-with-a-bad-code. The owner
+was asked to choose A (fail closed with 503, matching the Phase 4 OTP/admin-login stance) or B
+(preserve the existing cache fallback) and chose **B**. This is a deliberate, narrowly-scoped
+carve-out from the general fail-closed policy above, made knowing that policy exists; it applies only
+to these read paths and to the outage case. It does not authorize any behavior change — under B the
+existing fallback is *preserved as is*.
+DATE: 2026-09-24
+
+**Options on offer**
+
+- **A** — Money/identity hydration reads fail closed with 503 when PostgreSQL is unavailable.
+- **B** — Money/identity hydration reads may continue using hydrated memory when PostgreSQL is
+  unavailable. ← **CHOSEN**
+
+**Sites this decision names (behavior preserved, not changed):**
+`PaymentRepository.getPaymentSession`, `UserRepository.getByPhone`, `UserRepository.findByPhoneAsync`,
+`DriverRepository` cache-first reads, `JobRepository` read-through, `DispatchRepository`
+`getOffersForDriver`/`getActiveAssignmentForDriver` read-through paths. A genuine not-found must still
+return `null`/empty; an unreachable store must not turn a cached row into a false 503, and must not be
+treated as a business error either — it answers from the hydrated copy.
+(Note: the initial framing listed `SupportTicketRepository` too, but on inspection its
+`if (!error && data)` line is a **create/write**, not a read-through cache, so it is outside this
+read-semantics decision and was left untouched. This is a factual correction to the site list, not a
+change to the owner's A/B choice.)
+
+**Guard against accidental reversal:** these fallbacks are now the *accepted* semantics under this
+decision, not a bug to re-sweep. In-code comments at the sites and `backend/hydration_fallback_test.js`
+lock the choice in; neither may be removed without a new owner order.
+
+---
+
 ## General owner policy, recorded with these decisions
 
-The owner gave this alongside the ten choices. It is not an eleventh decision and does not add to them;
-it is the frame the ten choices were made inside.
+The owner gave this alongside the original ten choices. It is not itself one of the numbered
+decisions and does not add to them; it is the frame those choices were made inside. (Decision 11 above
+is a separate, later choice and is numbered on its own.)
 
 - Security-sensitive operations should fail closed where incomplete authoritative data could affect
   pricing, authorization, booking, or financial correctness.
@@ -414,7 +455,8 @@ Each of those needs its own order, and — for anything touching the hosted envi
 database's persisted state — the evidence the owner relied on should be re-checked against the state at
 that moment, because the counts quoted above are dated.
 
-*Ten decisions, recorded on 2026-09-24, with every options list and every evidence pointer still in
-place. None of them has been built: at the time of writing `HEAD` is still `a02971e`, nothing is
-committed beyond this file and `docs/GEO_SECURITY_DECISION_GATE.md`, nothing is pushed, no migration
-exists outside `docs/proposed/`, and no row has been deleted.*
+*Eleven decisions, recorded on 2026-09-24, with every options list and every evidence pointer still in
+place. Decisions 1–10 have not been built: at the time of writing no migration exists outside
+`docs/proposed/` and no row has been deleted on their account. Decision 11 is the exception in kind —
+it is an accepted *no-change* semantics (choice B), so "implemented" for it means the existing fallback
+is preserved and locked in by a test, not that any behavior was altered.*

@@ -105,6 +105,9 @@ class JobRepository {
     if (!id) return null;
     const cached = this.findById(id);
 
+    // Owner Decision 11 (choice B): this is a read-through cache, not a
+    // fail-closed read. Preserve the cached-row fallback; do not convert this
+    // `if (!error && data)` shape into a 503 without a new owner order.
     if (isLivePostgres && supabaseAdmin) {
       const isUuid = UUID_REGEX.test(id);
       let query = supabaseAdmin.from('jobs').select('*');
@@ -133,6 +136,71 @@ class JobRepository {
 
   findByJobNumber(jobNumber) {
     return this.findById(jobNumber);
+  }
+
+  // A customer's own ride/parcel history, filtered by the caller's resolved UUID so no
+  // request can point it at another account. Unlike `findByIdAsync` this is NOT a
+  // read-through cache: when PostgreSQL is unreachable it raises the shared
+  // STORE_UNAVAILABLE/503 instead of answering `[]`, because "you have no history" and
+  // "we could not read your history" are different answers to give a customer.
+  // Only RIDE and PARCEL are listed: a FOOD or GROCERY order already owns a commerce
+  // row in `orders` plus a delivery row in `jobs`, so including those types here would
+  // show the same purchase twice once the caller merges the two feeds.
+  async getJobsByCustomer(customerUuid, { limit = 50, serviceTypes = ['RIDE', 'PARCEL'] } = {}) {
+    if (!supabaseAdmin || !customerUuid) return [];
+    const rows = await this.db.orderRepo.settleStore(
+      supabaseAdmin
+        .from('jobs')
+        .select('id,job_number,service_type,status,pickup_address,drop_address,final_total,payment_status,driver_id,metadata,created_at,updated_at')
+        .eq('customer_id', customerUuid)
+        .in('service_type', serviceTypes)
+        .order('created_at', { ascending: false })
+        .limit(limit),
+      'your activity history'
+    );
+    return (rows || []).map(mapRowToJob);
+  }
+
+  // Every COMPLETED job owned by this driver whose row moved at or after `sinceIso`.
+  //
+  // The set is walked page by page instead of read once: `supabase/config.toml` caps any
+  // single PostgREST response at 1000 rows with no error and no notice, and a driver who
+  // has worked a month can pass that. A truncated set would not be a smaller answer, it
+  // would be a smaller *sum* — the platform quietly under-reporting what it owes — so an
+  // incomplete walk raises the same retryable 503 as an unreachable store rather than
+  // publishing a partial total. Identity is the caller's resolved driver UUID, which is
+  // why no request can point this at another driver's earnings.
+  //
+  // `jobs` has no `completed_at` column in the frozen schema, so `updated_at` is the
+  // closest completion stamp available; that is sound because `COMPLETED` is terminal —
+  // the settlement compare-and-set refuses a second transition — so the write that
+  // stamped the row is the one that completed it.
+  //
+  // Returns `null` (not an empty array) when PostgreSQL is not configured at all, which
+  // tells the caller to answer from the hydrated driver record the way it always did.
+  //
+  // `driver_id` is selected even though the query already filters on it, so the caller can
+  // prove that the rows it is about to add up are the caller's own. A sum of somebody else's
+  // trips is worse than no sum, and a predicate that silently stopped applying is exactly the
+  // failure this catches.
+  async getDriverCompletedRows(driverUuid, { sinceIso, maxPages = 40 } = {}) {
+    if (!supabaseAdmin) return null;
+    if (!driverUuid) {
+      throw this.db.orderRepo.storeUnavailableError('your earnings history', new Error('No driver identity was resolved for this session.'));
+    }
+    const read = await this.db.readAllRows(supabaseAdmin, {
+      table: 'jobs',
+      select: 'id,job_number,service_type,driver_id,status,final_total,driver_earnings,platform_commission,payment_status,created_at,updated_at',
+      maxPages,
+      filter: (query) => query
+        .eq('driver_id', driverUuid)
+        .eq('status', 'COMPLETED')
+        .gte('updated_at', sinceIso || new Date(0).toISOString()),
+    });
+    if (!read.complete) {
+      throw this.db.orderRepo.storeUnavailableError('your earnings history', new Error(read.error || 'the earnings read did not finish'));
+    }
+    return read.rows;
   }
 
   /**
@@ -337,6 +405,56 @@ class JobRepository {
     job.updatedAt = nowIso;
     Object.assign(job, extraFields);
     return job;
+  }
+
+  /**
+   * Job summaries for a bounded set of job uuids.
+   *
+   * A dispatch offer row carries ids, distance and rank — nothing a partner can decide on.
+   * The driver's offer list therefore has to join each offer to the job behind it, and this
+   * is that read: the fare the partner will earn, the service, and the two addresses, with
+   * no customer identity in it. Customer name and phone stay behind the acceptance, because
+   * before a driver has taken a job they have no claim on who gave it.
+   *
+   * Returns null when PostgreSQL is not configured (memory-only mode) and throws a
+   * store-unavailable error when the read did not finish, so a half-read list is never
+   * rendered as "these are all your offers".
+   */
+  async getJobSummariesByUuids(uuids = []) {
+    if (!supabaseAdmin) return null;
+    const ids = [...new Set(uuids.filter(Boolean).map(String))];
+    if (!ids.length) return [];
+
+    const read = await this.db.readAllRows(supabaseAdmin, {
+      table: 'jobs',
+      select: 'id,job_number,service_type,status,pickup_address,drop_address,pickup_lat,pickup_lng,drop_lat,drop_lng,distance_km,final_total,driver_earnings,platform_commission,payment_status,created_at,updated_at',
+      filter: (q) => q.in('id', ids),
+    });
+    if (!read.complete) {
+      throw this.db.orderRepo.storeUnavailableError('the jobs behind your offers', new Error(read.error || 'the offers read did not finish'));
+    }
+
+    const byId = new Map();
+    for (const row of read.rows) {
+      byId.set(String(row.id), {
+        jobUuid: row.id,
+        jobNumber: row.job_number,
+        serviceType: row.service_type,
+        status: row.status,
+        pickupAddress: row.pickup_address,
+        dropAddress: row.drop_address,
+        pickupLat: row.pickup_lat !== null && row.pickup_lat !== undefined ? parseFloat(row.pickup_lat) : null,
+        pickupLng: row.pickup_lng !== null && row.pickup_lng !== undefined ? parseFloat(row.pickup_lng) : null,
+        dropLat: row.drop_lat !== null && row.drop_lat !== undefined ? parseFloat(row.drop_lat) : null,
+        dropLng: row.drop_lng !== null && row.drop_lng !== undefined ? parseFloat(row.drop_lng) : null,
+        distanceKm: row.distance_km !== null && row.distance_km !== undefined ? parseFloat(row.distance_km) : null,
+        fare: row.final_total !== null ? parseFloat(row.final_total) : null,
+        driverEarnings: row.driver_earnings !== null ? parseFloat(row.driver_earnings) : null,
+        platformCommission: row.platform_commission !== null ? parseFloat(row.platform_commission) : null,
+        createdAt: row.created_at,
+      });
+    }
+    return byId;
   }
 
   getActiveJobsByCustomerId(customerId) {

@@ -718,6 +718,35 @@ class SupportTicketRepository {
         throw err;
       }
 
+      /* PHASE 21B: move the ticket out of its pre-money state before any money
+       * moves, so a failure part-way through can never look like "nothing
+       * happened to a ticket that already paid out".
+       *
+       * This is deliberately NOT presented as an exclusive claim. A conditional
+       * UPDATE on `status <> 'RESOLVED'` is not one: two concurrent requests both
+       * satisfy that predicate, because the second one re-evaluates against a row
+       * that is now IN_PROGRESS, not RESOLVED. A real claim needs either a
+       * claimant column to compare against or a single atomic RPC that does
+       * claim+refund+bounty+resolve in one statement - which is a migration, and
+       * the repository must not acquire one silently. See the phase report.
+       *
+       * What actually prevents duplicate money here is the deterministic key each
+       * money operation carries: `journal_transactions.idempotency_key` is UNIQUE
+       * and enforced by PostgreSQL, so the second concurrent attempt at the same
+       * refund or the same bounty is absorbed as a duplicate rather than paid
+       * twice, no matter which request wins the race. */
+      const { error: claimErr } = await supabaseAdmin.from('support_tickets')
+        .update({ status: 'IN_PROGRESS', updated_at: new Date().toISOString() })
+        .eq('id', row.id)
+        .neq('status', 'RESOLVED');
+      if (claimErr) {
+        const err = new Error(`Could not take ownership of ticket ${row.ticket_number}: ${claimErr.message}`);
+        err.statusCode = 503;
+        err.code = 'TICKET_CLAIM_UNAVAILABLE';
+        throw err;
+      }
+      row.status = 'IN_PROGRESS';
+
       let userRefunded = null;
       let driverAdjusted = null;
 
@@ -766,11 +795,65 @@ class SupportTicketRepository {
         if (!targetDriverUuid && Array.isArray(row.messages) && row.messages[0]?.metadata?.driverId) {
           targetDriverUuid = row.messages[0].metadata.driverId;
         }
-        if (!targetDriverUuid && (row.ticket_number === 'TCK-9481' || row.id === 'TCK-9481')) {
-          targetDriverUuid = 'drv_1';
-        }
-        if (bounty > 0 && targetDriverUuid && this.db.driverRepo) {
-          driverAdjusted = (await this.db.driverRepo.updateEarnings(targetDriverUuid, bounty))?.driver || null;
+        // Phase 21: the `drv_1` fallback is gone. `LEGACY_DRIVER_MAP` resolves it
+        // to a real durable driver (00000000-…-0101), so that line was not paying
+        // a fiction — it was letting a ticket with no job route a wallet credit to
+        // whichever demo driver the map happened to name. A bounty must now be
+        // resolved from the ticket's own job, or it is refused.
+        if (bounty > 0 && this.db.driverRepo) {
+          /* PHASE 21B Part E: crediting a wallet is a finance act, and
+           * `support.resolve` alone must not be enough to perform it. `finance.adjust`
+           * is the existing authority for moving money into an account (it gates
+           * /api/admin/finance/adjustments), so it is reused rather than inventing a
+           * permission. The wildcard and the grant list are read the same way
+           * `adminHoldsPermission` reads them, so this cannot drift from the routes. */
+          const { grantsForRole } = require('../adminPermissions');
+          const grants = grantsForRole(adminRole);
+          if (adminRole !== 'SUPER_ADMIN' && !(Array.isArray(grants) && grants.includes('finance.adjust'))) {
+            const err = new Error(`Role ${adminRole} may resolve support tickets but may not credit a driver`
+              + ' wallet: a bounty requires the finance.adjust authority.');
+            err.statusCode = 403;
+            err.code = 'BOUNTY_FINANCE_AUTHORITY_REQUIRED';
+            throw err;
+          }
+          if (!targetDriverUuid) {
+            const err = new Error(`Cannot pay a driver bounty on ${row.ticket_number}: no durable driver`
+              + ' is resolvable from this ticket (job_id is null and no verified driver reference exists).');
+            err.statusCode = 400;
+            err.code = 'BOUNTY_DRIVER_UNRESOLVABLE';
+            throw err;
+          }
+          // One bounty per ticket, keyed on the ticket. NOTE: the read-then-write
+          // status check in this function is NOT an atomic claim yet (Phase 21
+          // Part G, not implemented), so two concurrent resolves could both reach
+          // this line; the key makes the second one collapse to the same journal
+          // identity, which limits the damage but does not eliminate it. If the
+          // business ever allows several bounties on one ticket, this key is wrong
+          // and a real bounty-operation row must be introduced instead.
+          const bountyResult = await this.db.driverRepo.updateEarnings(
+            targetDriverUuid, bounty, null,
+            {
+              idempotencyKey: `SUPPORT_BOUNTY:${row.id}:DRIVER_EARNINGS`,
+              purpose: `Lost-item driver bounty for ${row.ticket_number}`,
+            });
+          /* PHASE 34 Part E: a bounty is satisfied only when this attempt booked it
+           * (`posted`) or PostgreSQL reports this exact bounty already exists
+           * (`duplicate`). The previous `(await ...) ?.driver || null` read a missing
+           * result as "no driver" and let the ticket continue to RESOLVED with no
+           * wallet movement and no journal entry. There is deliberately no rollback
+           * added here: the claim above leaves the ticket IN_PROGRESS, which is the
+           * safe, already-documented state for a money operation that could not
+           * complete. Turning it back to OPEN would be a business rule, and an atomic
+           * claim+refund+bounty needs a migration that has not been authorised. */
+          if (!bountyResult || (bountyResult.posted !== true && bountyResult.duplicate !== true)) {
+            const err = new Error(`Lost-item bounty of ${bounty} on ${row.ticket_number} was not booked`
+              + ` for driver ${targetDriverUuid}; the ticket is being left un-resolved rather than`
+              + ' reporting success for a money operation that did not happen.');
+            err.statusCode = 503;
+            err.code = 'BOUNTY_NOT_BOOKED';
+            throw err;
+          }
+          driverAdjusted = bountyResult.driver || null;
         }
       }
 

@@ -6,10 +6,13 @@ const crypto = require('crypto');
 const path = require('path');
 const { spawn, execSync } = require('child_process');
 const { Client } = require('pg');
+const { createLogin } = require('./testSessionCache');
 
 process.env.NABIN_TEST_MODE = 'true';
 
-const BASE_URL = 'http://127.0.0.1:4000';
+// The chain owns the harness and says where it is; running this file on its own still finds the
+// local backend on its default port.
+const BASE_URL = process.env.NABIN_TEST_BASE_URL || 'http://127.0.0.1:4000';
 const PG_CONN_STRING = process.env.DATABASE_URL || 'postgresql://postgres:postgres@127.0.0.1:54322/postgres';
 
 function createPgClient() {
@@ -114,49 +117,43 @@ async function runSuite() {
   const adminToken = adminLoginRes.data?.token;
   assert('Super Admin authenticated successfully', adminLoginRes.status === 200 && !!adminToken);
 
-  // Authenticate Customer 1: Priya Saxena (00000000-0000-0000-0000-000000000002, VERIFIED)
-  const cust1OtpSend = await request('POST', '/api/auth/send-otp', { phone: '9845011982', role: 'CUSTOMER', purpose: 'LOGIN' });
-  const cust1Login = await request('POST', '/api/auth/verify-otp', {
-    phone: '9845011982',
-    otp: cust1OtpSend.data?.testOtp || '7729',
-    role: 'CUSTOMER'
-  });
-  const cust1Token = cust1Login.data?.token;
-  const cust1Id = cust1Login.data?.user?.id || '00000000-0000-0000-0000-000000000002';
-  assert('Customer 1 (Priya Saxena) authenticated successfully', cust1Login.status === 200 && !!cust1Token);
+  // Authenticate the four identities these modules act as.
+  //
+  // OTP here is a means to a session, not the thing under test, so it goes through the local
+  // harness session cache: an identity that is already signed in is not signed in again, and a
+  // cached token is only accepted once `GET /api/auth/me` confirms it is live *and* carries the
+  // role asked for. The assertions below therefore require a token and a server-confirmed
+  // identity, which is strictly more than the old "verify-otp answered 200" check, while the
+  // chain stops spending five dispatches per identity on every run.
+  const login = createLogin({ baseUrl: BASE_URL, request });
 
-  // Authenticate Customer 2: Rahul Sharma (00000000-0000-0000-0000-000000000001, PENDING KYC)
-  const cust2OtpSend = await request('POST', '/api/auth/send-otp', { phone: '9876543210', role: 'CUSTOMER', purpose: 'LOGIN' });
-  const cust2Login = await request('POST', '/api/auth/verify-otp', {
-    phone: '9876543210',
-    otp: cust2OtpSend.data?.testOtp || '7729',
-    role: 'CUSTOMER'
-  });
-  const cust2Token = cust2Login.data?.token;
-  const cust2Id = cust2Login.data?.user?.id || '00000000-0000-0000-0000-000000000001';
-  assert('Customer 2 (Rahul Sharma) authenticated successfully', cust2Login.status === 200 && !!cust2Token);
+  // Customer 1: Priya Saxena (00000000-0000-0000-0000-000000000002, VERIFIED)
+  const cust1 = await login('9845011982', 'CUSTOMER');
+  const cust1Token = cust1.token;
+  const cust1Id = (cust1.user && cust1.user.id) || '00000000-0000-0000-0000-000000000002';
+  assert('Customer 1 (Priya Saxena) authenticated successfully',
+    Boolean(cust1Token) && Boolean(cust1.user), JSON.stringify(cust1.failure || {}));
 
-  // Authenticate Driver 1: Rajesh Kumar (DRV-101 / 00000000-0000-0000-0000-000000000101)
-  const drv1OtpSend = await request('POST', '/api/auth/send-otp', { phone: '9810122910', role: 'DRIVER', purpose: 'LOGIN' });
-  const drv1Login = await request('POST', '/api/auth/verify-otp', {
-    phone: '9810122910',
-    otp: drv1OtpSend.data?.testOtp || '4892',
-    role: 'DRIVER'
-  });
-  const drv1Token = drv1Login.data?.token;
-  const drv1Id = drv1Login.data?.user?.id || drv1Login.data?.driver?.id || 'DRV-101';
-  assert('Driver 1 (Rajesh Kumar / DRV-101) authenticated successfully', drv1Login.status === 200 && !!drv1Token);
+  // Customer 2: Rahul Sharma (00000000-0000-0000-0000-000000000001, PENDING KYC)
+  const cust2 = await login('9876543210', 'CUSTOMER');
+  const cust2Token = cust2.token;
+  const cust2Id = (cust2.user && cust2.user.id) || '00000000-0000-0000-0000-000000000001';
+  assert('Customer 2 (Rahul Sharma) authenticated successfully',
+    Boolean(cust2Token) && Boolean(cust2.user), JSON.stringify(cust2.failure || {}));
 
-  // Authenticate Driver 2: Deepak Auto (DRV-103 / 00000000-0000-0000-0000-000000000103)
-  const drv2OtpSend = await request('POST', '/api/auth/send-otp', { phone: '9833344556', role: 'DRIVER', purpose: 'LOGIN' });
-  const drv2Login = await request('POST', '/api/auth/verify-otp', {
-    phone: '9833344556',
-    otp: drv2OtpSend.data?.testOtp || '4892',
-    role: 'DRIVER'
-  });
-  const drv2Token = drv2Login.data?.token;
-  const drv2Id = drv2Login.data?.user?.id || drv2Login.data?.driver?.id || 'DRV-103';
-  assert('Driver 2 (Deepak Auto / DRV-103) authenticated successfully', drv2Login.status === 200 && !!drv2Token);
+  // Driver 1: Rajesh Kumar (DRV-101 / 00000000-0000-0000-0000-000000000101)
+  const drv1 = await login('9810122910', 'DRIVER');
+  const drv1Token = drv1.token;
+  const drv1Id = (drv1.user && drv1.user.id) || 'DRV-101';
+  assert('Driver 1 (Rajesh Kumar / DRV-101) authenticated successfully',
+    Boolean(drv1Token) && Boolean(drv1.user), JSON.stringify(drv1.failure || {}));
+
+  // Driver 2: Deepak Auto (DRV-103 / 00000000-0000-0000-0000-000000000103)
+  const drv2 = await login('9833344556', 'DRIVER');
+  const drv2Token = drv2.token;
+  const drv2Id = (drv2.user && drv2.user.id) || 'DRV-103';
+  assert('Driver 2 (Deepak Auto / DRV-103) authenticated successfully',
+    Boolean(drv2Token) && Boolean(drv2.user), JSON.stringify(drv2.failure || {}));
 
   // =========================================================================
   // MODULE 1: ADMIN PASSWORD RESET & BACKDOOR ELIMINATION

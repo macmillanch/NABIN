@@ -5,6 +5,306 @@
 `origin/main` (`0bd03ce`) and nothing newer has been pushed
 **Status**: AUTHORITATIVE SNAPSHOT
 
+> **Uncommitted working tree (2026-09-25, local only):** eleven verified slices sit
+> on top of `HEAD` `8aa395f` — 24 tracked files modified, 5086 insertions / 1490
+> deletions, plus 7 new test files (`checkout_store_semantics_test.js`,
+> `hydration_fallback_test.js`, `campaign_outage_test.js`, `customer_activity_test.js`,
+> `driver_earnings_test.js`, `driver_operations_test.js`, and
+> `mobile/test/driver_login_screen_test.dart`) — none committed (this session's directive does
+> not authorize commits). The only other untracked path is `.kilo/agents/data.md`,
+> written by the tool environment rather than by this work. (1) The **admin master-catalogue persistence** slice (`database.js`,
+> `server.js`, `test_suite.js` MODULE 38, `restart_test.js`) already recorded below.
+> (2) The **codebase-wide 5xx/4xx outage-classification sweep** — the Phase 4 open
+> item at the bottom of this record. `OrderRepository.js` gained `settleStore` +
+> `storeUnavailableError`, so the three checkout resolvers (merchant lookup,
+> restaurant menu, store inventory) now raise a `503` when PostgreSQL cannot answer
+> instead of swallowing the error into a not-found; the nine checkout/merchant route
+> catches in `server.js` hand that error to the shared `storeReply` classifier, and
+> the food route's previously un-caught `resolveMerchant` is now wrapped. Verified
+> green on the live local stack: full `npm test` chain (test_suite 427/0, session
+> reconcile 26/0, boot mirror 20/0, geo policy 55/0, geo adversarial 60/0, geo anon
+> 44/0, restart 40/0), `auth_failclosed_test.js` 15/0, and the new
+> `checkout_store_semantics_test.js` 5/0 with a red-green proof.
+>
+> **Hydration-read outage semantics — OWNER DECISION 11 (choice B), implemented
+> (2026-09-24, uncommitted):** the same sweep surfaced six sibling repository reads
+> (`PaymentRepository.getPaymentSession`, `UserRepository.findByIdAsync`/
+> `findByPhoneAsync`, `DriverRepository`, `JobRepository`, `DispatchRepository`)
+> that are read-through caches answering from hydrated memory when PostgreSQL is
+> unreachable (fail-OPEN) — the opposite failure mode. The owner chose **B: keep the
+> memory fallback** (recorded in `docs/OWNER_SECURITY_DECISIONS.md` as a deliberate
+> carve-out from the general fail-closed policy). No read behavior was changed; each
+> site now carries an "Owner Decision 11 (choice B)" guard comment, and
+> `backend/hydration_fallback_test.js` (8/0, sensitivity-checked) locks the
+> semantics. `SupportTicketRepository`'s flagged line was confirmed to be a write,
+> out of scope. `checkout_store_semantics_test.js`, `hydration_fallback_test.js`
+> and `auth_failclosed_test.js` were added to the `npm test` chain — the whole
+> 265-check chain is green.
+>
+> **Campaign outage coverage (2026-09-24, uncommitted):** the sweep's last untested
+> guard — `CAMPAIGNS_UNAVAILABLE` → 503, previously verified only by reading the
+> code because an outage also kills admin authentication — now has
+> `backend/campaign_outage_test.js` (CAMP-01…05, 5/0). It drives
+> `CampaignRepository` directly from a child process pointed at a closed port, so
+> all three campaign reads are proven to throw `CAMPAIGNS_UNAVAILABLE`/503 rather
+> than answer an empty list, and both not-live paths are proven to return `null`
+> (the route's 503 branch). Sensitivity-checked: swallowing `settle()`'s store
+> rejection reddens CAMP-01/02/03 while the two controls stay green. Added to the
+> `npm test` chain and `npm run test:outage`; the full chain re-ran green afterwards
+> (427 + 26 + 20 + 55 + 60 + 44 + 40 + 15 + 5 + 8 + 5 checks at that point, 0 failures —
+> the suite has grown since, see the next paragraph).
+>
+> **Browser-reachable idempotency + a pageable coupon list (2026-09-24, uncommitted):**
+> the two non-gated items left in `TASKS.md`'s Phase 4 list. `Idempotency-Key` — the
+> canonical spelling that **six** routes read before the `X-` fallback (ride and parcel
+> booking, grocery checkout, offer acceptance, food ordering, coupon redemption) — was
+> missing from CORS `allowedHeaders`, so a browser sending it failed its own preflight
+> and a retry without it could double-book; the list is now widened, not rewritten.
+> `GET /api/admin/promotions` answered an unlabelled first 50 rows, which on a local
+> table of 539 coupons meant an older voucher was invisible to the console;
+> `PromotionRepository.list()` now pages (`limit` 1…100, `offset`), searches code/name/
+> description through a filter-syntax-stripped term, orders on a stable `id`
+> tiebreaker, and reports `{promotions, total, limit, offset, hasMore}`. The new tests
+> caught a real defect in that implementation: PostgreSQL answers an out-of-range
+> `.range()` with `416 Requested range not satisfiable`, so an offset past the end was a
+> 500 — the count is now established with a head request first and the range clamped.
+> `test_suite.js` MODULE 39 (CORS-01…05) and MODULE 40 (PL-00…PL-10 + PL-TEARDOWN,
+> fixtures reaped) lock both, each reddened in isolation — CORS-01/04 alone with the
+> header removed, the 11 paging assertions alone with the repository reverted while
+> PROMO-01…13 stayed green. Full chain green afterwards: **722 checks, 0 failures,
+> exit 0** (test_suite 444, session reconcile 26, boot mirror 20, geo policy 55, geo
+> adversarial 60, anon geo 44, restart 40, auth fail-closed 15, checkout 5, hydration
+> 8, campaign 5).
+>
+> **The dormant security suite is now armed (2026-09-24, uncommitted):**
+> `test_phase7_security.js` was recorded here as red 36/9 and probing a route that no
+> longer exists. Both halves of that note are false against the file as committed — it is
+> **45/0 green** with no working change to it, and both its ride-booking probes already
+> call the live `/api/customer/book-ride`. The genuine defect was that no command the
+> project runs executed it: `npm test` stopped at eleven suites and CI runs three, so
+> 45 authorization, privacy, RLS, `search_path`, OTP-leak and race assertions were
+> protecting nothing. It is now the twelfth link of `npm test`, plus
+> `npm run test:security`. Before wiring it in, two properties were verified rather than
+> assumed: that it **bites** — weakening the media-asset ownership guard in `server.js`
+> reddens that one assertion, 44/1 with exit code 1, so the chain aborts — and that it is
+> **neutral** to what follows — two consecutive full chains, phase7 last both times, came
+> back **767 checks / 0 failures / exit 0** each. No assertion was edited, loosened or
+> skipped anywhere in this slice.
+>
+> **The five dormant admin suites are armed too (2026-09-24, uncommitted):** the same
+> search found five more files in the same condition — `admin_identity_gates_test.js`
+> (64 assertions), `admin_authorization_test.js` (113, the permission-matrix and
+> session-revocation suite), `admin_customers_test.js` (83),
+> `admin_settings_surface_test.js` (31) and `admin_audit_fail_closed_test.js` (79) — none
+> of them named by any `npm` script or CI step. Run fresh, **all five were already green**,
+> so this slice wires coverage rather than repairing anything: `npm test` now has
+> seventeen links and `npm run test:admin` runs the family alone. Each file was checked
+> for the two properties that make chaining safe — a non-zero exit when assertions fail,
+> and deleting only rows it inserted. Load-bearing proof: dropping
+> `requirePermission('admin_accounts.manage')` from `GET /api/admin/accounts` reddened
+> **CAT-04** in the authorization suite, the ratchet that counts admin routes with no
+> permission check (18 against a ceiling of 17), and the chain halted there with exit 1;
+> the gate was restored and verified byte-identical. Two consecutive full chains after
+> the restore: **1137 checks, 0 failures, exit 0 each**.
+>
+> **The customer Activity screen was fabricating trips (2026-09-24, uncommitted):**
+> `mobile/lib/features/activity/` rendered a `const` list of journeys nobody had
+> taken ("Auto Ride to Connaught Place" `TRIP-884910`, "Dilli Darbar Mughlai"
+> `FOOD-294711`, "Instant Parcel to Karol Bagh" `PKG-110293`) and its receipt sheet
+> asserted a payment mode ("NABIN Wallet (Instant Settlement)") the server had never
+> reported — a §32 fake-UI violation on a screen that shows a customer their money.
+> There was no endpoint to point it at: `GET /api/customer/orders` existed but no
+> per-customer read of `jobs` did, and `JobRepository` had no such method. Backend now
+> has `JobRepository.getJobsByCustomer()` and `GET /api/customer/activity`, which
+> derives identity from the bearer token only (never a body/query id), reads RIDE+PARCEL
+> legs from `jobs` and FOOD+INSTAMART legs from `orders` — deliberately not a naive
+> merge, because a food or grocery purchase owns both an `orders` row and a delivery
+> `jobs` row and merging them double-counts — and fails closed with a 503 through the
+> existing `settleStore` helper rather than answering "no history" when PostgreSQL
+> cannot be reached (Owner Decision 11's memory fallback is *not* extended here). The
+> screen is rebuilt on that feed with loading / error+retry / empty states, an
+> Instamart filter, In-progress and Earlier sections, and a receipt that shows only
+> fields the server returned. `backend/customer_activity_test.js` (ACT-01…20, **20/0**)
+> is the eighteenth link of `npm test`. Load-bearing proof: replacing the ownership
+> filter with `.not('customer_id','is',null)` reddened exactly the two security
+> assertions — ACT-08 named the foreign owners it had leaked and ACT-19 showed both
+> feeds sharing 49 rows — with exit code 1 while the other 18 held; the filter was
+> restored and re-verified. `dart analyze` on the two touched Dart paths reports **No
+> issues found**. **Paging trap found while writing it:** an unbounded PostgREST read
+> silently caps at 1000 rows and this fixture customer has 1305 orders, so a "read all
+> of theirs and diff" probe reports false IDOR leaks — ownership is verified with
+> `.in(...)` over the ids the feed itself returned, which also asserts every row's
+> `customer_id` equals the caller. Full chain after arming: **1157 checks, 0 failures,
+> exit 0** (444 + 26 + 20 + 55 + 60 + 44 + 40 + 15 + 5 + 8 + 5 + 45 + 64 + 113 + 83 +
+> 31 + 79 + 20).
+>
+> **A driver's earnings did not survive a restart (2026-09-24, uncommitted):**
+> `todayTrips`/`todayEarnings`/`weeklyEarnings`/`monthlyEarnings` were process-local
+> counters that boot hydration pinned to `0` while restoring `wallet_balance` from
+> PostgreSQL — so a partner's wallet outlived a restart and the earnings printed beside it
+> did not. Both driver earnings routes now share one `buildDriverEarningsPayload()` fed by
+> `JobRepository.getDriverCompletedRows()`, which totals durable `jobs` rows through the
+> paging-safe `readAllRows` walk; identity comes from the bearer token alone, an
+> unreadable ledger is a 503 rather than a zero, and a read that returns a foreign trip
+> throws `EARNINGS_SCOPE_VIOLATION` instead of quietly dropping it (dropping under-reports
+> money owed). `cashCollectedToday`/`onlinePaidToday` are now `null`, because every
+> COMPLETED job still carries `payment_status = 'PENDING'` and `0` would assert a fact the
+> database does not hold. `backend/driver_earnings_test.js` (EARN-01…29, **29/0**) is the
+> nineteenth link of `npm test` and recomputes each window independently with `range()`
+> paging, so a broken cursor walk cannot agree with itself. Four mutations reddened
+> exactly their targets: widening the status filter inflated 30-day pay by ₹26,653 and
+> leaked two foreign job numbers (EARN-16), restoring the counters reproduced the original
+> ₹0 defect (EARN-09/10), swallowing an incomplete read failed EARN-27, dropping the
+> mismatch guard failed EARN-20. Full chain on current source: **19/19 links exit 0, zero
+> `[FAIL]`/`❌` marks** (444 + 26 + 20 + 55 + 60 + 44 + 40 + 15 + 5 + 8 + 5 + 45 + 64 +
+> 113 + 83 + 31 + 79 + 20 + 29).
+>
+> **The standalone driver app had no backend at all (2026-09-24, uncommitted):**
+> `driver_otp_screen.dart` "signed in" with `Future.delayed(600ms)` and a navigation —
+> anyone pressing Verify became an authenticated driver with no credential sent and no
+> token held — while `driver_earnings_screen.dart` was entirely literal: ₹1,420.00 /
+> ₹9,850.00 / ₹38,400.00, a UPI address `rajesh.driver@okhdfcbank` present in no table, a
+> "Platform Fee (10%)" row where the platform's own settlement rule is 15%, three invented
+> trips, and a Withdraw button that only displayed a snack bar. No driver screen
+> referenced `NabinApiService`; the four driver methods it does expose were called from
+> nowhere. Login and the money surface are now real: driver-role OTP dispatch and
+> verification through `/api/auth/*`, a session saved **only when the server issued a
+> token**, a working resend behind a 30s countdown (the prefilled code and "Demo code:
+> 7729" label are gone), and an earnings ledger rendered from
+> `GET /api/driver/earnings` with loading / error-retry / empty states, a ledger-outage
+> message distinct from "no trips", the server's own payout destination, and a real
+> `POST /api/driver/payout` that repeats the platform's answer — where a payout is not
+> allowed the card states the reason instead of offering a dead button.
+> `driver_router.dart` no longer renders the console, ledger or account to an
+> unauthenticated session, and `acceptJob`'s `driverId = 'drv_1'` default identity is
+> removed. `dart analyze` on all five changed Dart paths: **No issues found** (the
+> project-wide run still lists 67 pre-existing info-level lints, none in these files).
+> A 17-check live probe, run against a server the harness spawned and verified, confirmed
+> every field the Dart parser reads and proved three refused payouts leave the wallet at
+> ₹1111 → ₹1111. **Not yet wired, recorded rather than glossed:**
+> `driver_home_screen.dart`, `driver_account_screen.dart` and
+> `active_job_execution_screen.dart` still contain zero API usage (online toggle, offers,
+> accept/reject, trip OTP, complete flow), and `features/driver/…/driver_app_shell.dart`
+> — the customer super-app's `/driver-dashboard` "Partner Mode Simulator", which holds the
+> seeded `_walletBalance = 1420.0` and the Dart-side `fare * 0.1` commission — is flagged
+> for an owner decision rather than deleted.
+>
+> **The driver console, trip screen and account page were theatre (2026-09-25, uncommitted):**
+> finishing the driver app. Home kept availability in a Dart boolean, printed `₹1,420.00` and
+> "8 Trips Done" as text, and had three **Simulator Trigger Buttons** that invented an offer on
+> tap — addresses, fare and a customer's name — for a trip the platform never created; the trip
+> screen was a local `_stage = 1..4` counter with the OTP field pre-filled `7729`, so arriving,
+> starting and completing sent nothing anywhere; the account page invented the partner's name,
+> phone, rating, licence plate and payout address, had two `onTap: () {}` rows (an emergency SOS
+> and a helpline), and its Logout navigated without ending the session. All three now render
+> `GET /api/driver/home` (new, token-only: identity, durable `is_online`, operational status,
+> wallet, active assignment, offer list) plus the existing lifecycle endpoints, and Logout really
+> revokes. Availability is a request whose **answer** is drawn — on refusal or timeout the last
+> server-confirmed state goes back on screen.
+> **Backend work and three latent defects found.** The online switch wrote memory only, though
+> `drivers.is_online` is a column boot hydration reads back, so Online was silently undone by a
+> restart while the app still said ONLINE; it now persists through `DriverRepository.setOnlineStatus`
+> and 503s if the write fails. `POST /api/driver/offers/:offerId/reject` implements the REJECTED
+> state and the "drivers can ONLY update their own offers (e.g. reject/respond)" RLS policy that
+> migrations 014/020 declared with no endpoint behind it — one conditional `UPDATE`, so accept
+> and decline cannot both win. Offers came back as ids, distance and rank, so both offer reads
+> now hydrate the job behind each offer (fare, driver earning, addresses) through one shared
+> function, with `detailsAvailable: false` instead of an invented fare.
+> `getActiveAssignmentForDriver` had applied its ownership filter **only when the caller's id
+> resolved** — an unresolvable identity produced a query with no filter and returned whichever job
+> was active, somebody else's trip — and it returned `start_otp`/`delivery_otp`, letting a partner
+> read out the code the customer is meant to give; both are now refused and replaced with
+> `otpRequired`. `POST /api/driver/location` skipped its ownership check whenever the job was not
+> in that process's memory, so "cannot find it" meant "nothing to authorise"; it now resolves via
+> PostgreSQL and refuses an unidentified trip. `DriverRepository.update` raised an unclassifiable
+> error on a store failure and now raises `STORE_UNAVAILABLE`.
+> **Evidence.** `backend/driver_operations_test.js` **66/0** as chain link 20, including two
+> drivers racing one job with `Promise.all` (exactly one wins, loser gets 409, replay is
+> `duplicate: true`), cross-driver decline/arrival/telemetry refusals, a full
+> ASSIGNED→DRIVER_ARRIVED→IN_TRANSIT→COMPLETED lifecycle paying exactly `driver_earnings` **once**
+> with a replayed completion moving nothing, production refusal of the fixed OTP asserted in a
+> `NODE_ENV=production` child, and three closed-store child checks failing closed while the offer
+> list keeps only its approved Owner-Decision-11 fallback. Five mutations each reddened their own
+> guard and were reverted: memory-only availability (OPS-13/16), dropped decline ownership
+> (OPS-64/65 — B really did decline A's offer), restored telemetry skip (OPS-66 answered **200**
+> to a nonexistent trip), removed hydration (OPS-21 `fare:null`), re-prefilled the OTP (client
+> suite 3/4 red). Full backend chain on current source: **20/20 links exit 0, zero failure
+> marks, 1105 explicit totals**. `dart analyze`: no issues. `flutter test`: **60 passed**, of
+> which `mobile/test/driver_login_screen_test.dart` is 4 new deterministic no-fabrication checks.
+> **Not faked, recorded:** the driver app has **no GPS at all** (no location provider in
+> `pubspec.yaml`, nothing in `lib/` references one — `DriverMapView` animates hard-coded
+> coordinates and invented "nearby drivers", now switched off), so these screens send no
+> telemetry and say so rather than posting invented positions into the real, hardened server
+> pipeline; there is no driver-initiated cancellation endpoint, so the trip screen offers none;
+> and `requireSupportCallerAuth` labels any non-admin/non-merchant caller `CUSTOMER`, so a
+> partner's help ticket is filed under the wrong role — reported, not silently patched.
+> **§10 answer:** `/driver-dashboard` is **not** obsolete — the customer home's "Driver Mode"
+> button and Profile's "Switch to Driver Partner Mode" tile both link to it, so it is a live
+> customer-facing surface built as a fabrication that now duplicates the real driver app.
+> Consolidation is blocked on an owner choice, because the partner screens need a `DRIVER`-role
+> token that a customer session does not have. Left untouched.
+>
+> **Merchant audited; the web consoles are clean and the Flutter restaurant app was not
+> (2026-09-25, uncommitted):** first establishing what exists, since the target is NABIN
+> MERCHANT (Android) + NABIN MERCHANT PORTAL (Web/Desktop). `restaurant-merchant-web` and
+> `grocery-merchant-web` are two ~2,200-line Next.js consoles audited for every fabrication
+> class — mock/dummy/demo data, `setTimeout` as a fake call, hardcoded prices or merchant
+> identity, fake auth or logout — with **zero matches**: both are genuinely axios-backed on
+> `/api/merchant/*` with real `role: 'MERCHANT'` OTP auth, and the dashboard even states that
+> its "today" figure is not a calendar-day figure because the endpoint has no date filter.
+> Nothing there was rewritten. The Merchant app also already exists as Flutter entrypoints —
+> `main_restaurant.dart` → `restaurantRouter`, `main_grocery_merchant.dart` →
+> `groceryMerchantRouter`, seven entrypoints in one package (no `apps/`+`packages/` split, so
+> §7 is packaging work, not missing capability).
+> **Fixed:** `restaurant_otp_screen.dart` printed **`Demo OTP: 7729`** on the merchant UI and
+> its resend was `onPressed: () {}` — label removed, resend made real behind a 30s countdown
+> with the timer cancelled in `dispose`; `restaurantRouter` had **no auth gate** (the console
+> holding a named store's orders, menu and money was reachable cold, with no bearer token) and
+> defaulted the OTP target to the invented `9876543210` — both fixed as in `driverRouter`;
+> `restaurant_registration_screen.dart` prefilled **nine** fields with a complete invented
+> business identity (owner "Vikram Sethi", FSSAI `1002001928491`, GSTIN `07AAGCD1294F1Z8`, bank
+> `50200049281092`, IFSC `HDFC0001092`, UPI `dillidarbar@okhdfcbank`) — all emptied.
+> `dart analyze` clean on all three; `flutter test` still **60/60**. No `backend/src` file was
+> touched in this step, so the 20-link chain result above stands unchanged.
+> **Found, not fixed (see `TASKS.md` for the full list):** the **live API-backed** restaurant
+> console `restaurant_main_shell.dart` renders `'Dilli Darbar Mughlai Kitchen'` and
+> `'FSSAI: 1002001928491 • Verified Partner'` inside a `const Row` on its Profile tab — so
+> whichever store signs in is shown as a different business holding a licence it never filed and
+> a verified status the platform never granted, plus two more dead `onPressed: () {}` controls;
+> `restaurant_app_shell.dart` (the customer app's `/restaurant-dashboard`) does
+> `setState(() => order['status'] = 'PREPARING')`, i.e. **local-only order state**, alongside
+> `₹28,450` as earnings; **there is no merchant onboarding endpoint at all**, so the
+> registration flow cannot be wired honestly without building it; **merchant has zero IDOR or
+> concurrency test coverage** (one dormant file logs in as MERCHANT, and no assertion anywhere
+> checks cross-tenant refusal) even though `authenticateMerchant` and `requireMerchantTenant`
+> look correct on inspection; and `database.js:5867` assigns `restaurants[0]` to any verified
+> phone outside production, with `/api/merchant/:id/media` taking `restaurantId` from the body
+> under the same convenience gate. Real fixtures exist for the security suite: `…000201`
+> `+919811223344` (950 orders) and `2699ade3-…` `+919871133479`.
+>
+> **Attribution hazard that voided a green run (2026-09-24):** a "29 PASSED" result was
+> produced against a `:4000` listener started *before* the last two edits, because the
+> restart had died with `EADDRINUSE` while the HTTP probe still returned 200 from the old
+> process. The claim was declared void and everything above was re-proven through a host
+> that binds-and-releases the port first, starts the server as its own child, accepts the
+> run only when **that child's stdout** prints its listen line, confirms `/api/health` 200,
+> and kills exactly that pid — turning "did the test answer from this code?" into a check
+> that fails loudly. `npm test` itself could not be used for this: `spawnSync('npm.cmd')`
+> returns exit `null` with zero bytes in this sandbox, so the chain is walked per-link
+> from `package.json` instead, which also attributes any failure to a named suite.
+>
+> **Harness precondition, learned the hard way this session:** `test_suite.js` sets
+> `PAYMENT_WEBHOOK_SECRET` / `PAYMENT_KEY_SECRET` *in its own process* and signs the
+> webhook fixtures with them, so a backend already listening on `:4000` must have been
+> started with the matching values (`test_webhook_secret_not_for_deployment`,
+> `test_key_secret_not_for_deployment`). A server started without them fails MODULE 18
+> closed — two `503 WEBHOOK_NOT_CONFIGURED` — and that cascades into
+> `NOTIF-API-14/15`. That is the no-default-secret behavior working as designed, not a
+> product regression; restart the server with the two variables and the chain is green.
+> A second, smaller trap on the same harness: liveness is `GET /api/health` (readiness
+> is `/api/ready`) — probing `/health` returns 404 and reads as an outage that does not
+> exist, which is how a healthy backend got reported as down earlier today.
+
 > **Re-baseline note (2026-09-24):** the 2026-09-22 snapshot below-left stale.
 > Verified live: HEAD = `a02971e`, origin/main = `0bd03ce`, `main` is **33 commits
 > ahead of `origin/main` locally and NOT pushed** (`c974fc9..HEAD` = 33 commits).
@@ -457,15 +757,24 @@ d7ef7f5 feat(phase-16): implement postgres kyc, verified vpa, partial refund and
 | Repositories | User, Driver, Job, Ledger, Payment (Phase 13+), Promotion, SchoolChild, Advertisement, **Campaign** (`repositories/CampaignRepository.js`, 685 lines — Phase 3, then given touched-column writes, a mandatory revision guard and store-rejection translation in Phase 4) |
 | Server-driven config | `services/AppConfigService.js` composes `GET /api/app/config` sections: `services, features, offers, settings, theme, campaigns, advertisements`, 30s cache, invalidated by ad/campaign/settings/**coupon** writes; ETag/304 on the feed, `ETag` exposed to browsers |
 | Campaign writes | Conditional: `PUT /api/admin/campaigns/:idOrCode` requires `If-Match` with the revision the reader was given (428 without it, 400 if it is not an instant, 412 if the row moved, 409 if the state moved, 409 `CAMPAIGN_CODE_TAKEN` on a duplicate code, 503 on an unreachable store) |
-| Test Suite | **408 passed / 0 failed of 408** (2026-09-22, `ea4c146`) — MODULE 36 CC-00…CC-17 covers campaign concurrency; the previously chronic `gprod_5` revalidate failure is fixed at the fixture |
-| Cold Restart Tests | **35 passed / 0 failed** (includes the step that restores `global_surge_multiplier` to 1.0) |
+| Test Suite | **444 passed / 0 failed of 444** (2026-09-24, uncommitted) — MODULE 38 MC-01…07 proves `/api/admin/master-catalog` is read-through/write-through to PostgreSQL with a durable `is_active=false` soft delete, and that the legacy memory handle `mp_101` now 404s instead of editing a phantom; MODULE 39 CORS-01…05 proves the preflight grants the canonical `Idempotency-Key`, keeps every previously allowed header, still refuses one the API does not take, grants it on a second idempotent route, and still blocks an unknown origin; MODULE 40 PL-00…PL-10 + PL-TEARDOWN proves the coupon list is a real page — search total, one-row page, `hasMore`, offset paging without repeats or skips, empty page past the end, underscore-wildcard handling, syntax-character sanitization, clamped `limit`/`offset` — and reaps its own fixtures. (Prior baselines: 408 with MODULE 36 campaign concurrency, 427 after MODULE 38) |
+| Cold Restart Tests | **40 passed / 0 failed** (adds a master-catalogue product created and revised before the cold start, read back from PostgreSQL afterwards, then durably soft-deleted; still restores `global_surge_multiplier` to 1.0) |
 | Auth fail-closed | `backend/auth_failclosed_test.js` **15 passed / 0 failed** (AUTH-00…06, 10…17) |
+| Checkout store-semantics | `backend/checkout_store_semantics_test.js` **5 passed / 0 failed** (CHK-01…05, uncommitted outage sweep) — with the store unreachable each order resolver now throws a `503` `isStoreUnreachable()` recognises (merchant lookup, restaurant menu, store inventory) instead of a `MERCHANT_NOT_FOUND`/`PRODUCT_NOT_FOUND`/`INVENTORY_NOT_FOUND` 4xx that blamed the customer for the platform's outage; with the store live a genuine miss is still `null` / a business 4xx and never a false 503. Red-green proven: with `OrderRepository.js` stashed to `HEAD`, CHK-01/02/03 fail (404/undefined) and the two live-miss controls still pass |
+| Hydration-read fallback | `backend/hydration_fallback_test.js` **8 passed / 0 failed** (HYD-01…08, Owner Decision 11 / choice B) — money/identity hydration reads (`getPaymentSession`, user/driver `findByIdAsync`/`findByPhoneAsync`) keep answering from hydrated memory when the store is unreachable and never become a false 503, while a genuine not-found is still a `null`/miss against the live store. Sensitivity-checked: temporarily converting `getPaymentSession` to a fail-closed 503 makes HYD-01/02 FAIL, then reverting restores green |
+| Campaign outage branch | `backend/campaign_outage_test.js` **5 passed / 0 failed** (CAMP-01…05) — the `CAMPAIGNS_UNAVAILABLE` → 503 guard in `CampaignRepository.settle()` is now proven by assertion, not by code-reading: store unreachable ⇒ `listCampaigns`/`getCampaign`/`liveCampaigns` all throw `CAMPAIGNS_UNAVAILABLE` with `status=503` (never an empty list dressed as "no campaigns"), and PostgreSQL-not-configured ⇒ both reads return `null`, which the route maps to 503. Sensitivity-checked: swallowing the store rejection reddens CAMP-01/02/03 and leaves the two not-live controls green |
+| Coupon list paging | `GET /api/admin/promotions` is a real page: `limit` (default 50, clamped 1…100), `offset` ≥0, `search`/`q` over code/name/description, ordering `created_at desc, id desc`, and an answer of `{promotions, total, limit, offset, hasMore}` where `total` counts the filtered set. A range past the last row is answered as an empty page — PostgreSQL returns `416 Requested range not satisfiable` for one, so the count is established by a head request first and the range clamped. Search terms lose `,` `(` `)` `|` `%` `*` (PostgREST filter syntax) and an all-syntax term answers zero rows; `_` is kept so `SAVE40_ABC` stays findable. The memory fallback mirrors it. Proven by `test_suite.js` MODULE 40 |
+| CORS header policy | `allowedHeaders` carries `Idempotency-Key` beside `X-Idempotency-Key`, because six routes read the canonical spelling first and the ledger/dispatch procedures deduplicate on it. Proven by `test_suite.js` MODULE 39, which also asserts the list is a policy (an unrelated header is refused) and that origins did not widen |
+| Phase 7 security audit | `backend/test_phase7_security.js` **45 passed / 0 failed** (MODULE 1…9: admin password-reset boundaries and backdoor auto-provisioning, driver-earnings privacy, ride ownership/cancellation/idempotent replay, KYC and media-asset authorization, live RLS + `search_path` + `anon` grant catalog, production OTP never returning `testOtp`, cancellation race). It asserted nothing anywhere the project runs — not in `npm test`, not in CI — so it is now the **twelfth link of the chain**, with `npm run test:security` for solo use. Load-bearing proof: temporarily disabling the media-asset ownership guard in `server.js` reddens exactly that assertion (**44/1, exit 1**), guard then restored. Its reset writes the Super Admin credential back to the value every suite logs in with, so two consecutive full chains were run to prove neutrality: both **exit 0, 0 failures** |
+| Admin surface suites | Five `backend/admin_*_test.js` suites — identity gates **64/64**, authorisation matrix **113/0** (permission-per-route, session revocation, lockout shape, the CAT-04 ungated-route ratchet at ceiling 17), customers **83/83**, settings surface **31/0** (refuses a secret-shaped value), audit fail-closed **79/0** (in-process, store replaced) — all green and now links 13–17 of `npm test`, also runnable together via `npm run test:admin` |
 | Chaos / resilience | `chaos_audit.js` → `PASS=15 FINDING=1 BLOCKED=3 FAIL=2 NOTE=1`; CH-02 settlement race PASS; FI-01…FI-07 green; CH-08 and FI-08 open and owned |
+| Customer activity feed | `GET /api/customer/activity` (uncommitted) — bearer-token identity only, RIDE+PARCEL from `jobs`, FOOD+INSTAMART from `orders`, newest first, 503 on an unreachable store. `backend/customer_activity_test.js` **20 passed / 0 failed** (ACT-01…20) as the eighteenth link of `npm test`: unauthenticated 401, every row exists in PostgreSQL, every returned row's `customer_id` equals the caller (verified with `.in(...)`, immune to the 1000-row page cap), no delivery-leg job doubles an order, amounts match the DB to the paisa, the newest ride and newest order both appear, and two customers' feeds are disjoint. Red-green proven on the ownership filter (ACT-08/19 fail, exit 1) |
+| Chain totals | **1157 checks, 0 failures, exit 0** across eighteen links (re-measured 2026-09-24: 444 + 26 + 20 + 55 + 60 + 44 + 40 + 15 + 5 + 8 + 5 + 45 + 64 + 113 + 83 + 31 + 79 + 20) |
 
 ### Flutter Mobile Apps
 | App | Status |
 |-----|--------|
-| Customer App | Flutter 3.47, Stitch design system; reads the config feed's `campaigns` section for palette, festival logo, banner slot and gated popup (`core/widgets/nabin_campaign.dart`) — no festival content hard-coded |
+| Customer App | Flutter 3.47, Stitch design system; reads the config feed's `campaigns` section for palette, festival logo, banner slot and gated popup (`core/widgets/nabin_campaign.dart`) — no festival content hard-coded. `main.dart` boots `NabinCustomerSuperApp` on one GoRouter (`core/router/app_router.dart`) carrying Ride, Food, Grocery/Instamart, Parcel, wallet, activity, profile and support behind a single auth chain — the unified app the spec asks for already exists; `main_grocery.dart` / `main_restaurant.dart` are separate entrypoints, not separate customer products. Activity tab is now a real `GET /api/customer/activity` feed with an Instamart filter (uncommitted) |
 | Driver App | Flutter, GPS telemetry, dispatch |
 | Merchant App | Flutter, restaurant/grocery operations |
 | Widget Tests | 56/56 passing (2026-09-22) |
@@ -503,7 +812,7 @@ d7ef7f5 feat(phase-16): implement postgres kyc, verified vpa, partial refund and
 | Server-driven Phase 1 | COMPLETE (local, unpushed) | Advertisements on PostgreSQL, server-authoritative checkout coupons, `GET /api/app/config`, local chaos audit |
 | Server-driven Phase 2 | COMPLETE (local, unpushed) | Client render pass (remote-config layer + cache + server-time authority, theme/offers/features sections, banner and feature gating in Flutter) and the CRITICAL trip settlement race fixed at database level with a 50-way ledger-asserting regression (MODULE 32) |
 | Server-driven Phase 3 | COMPLETE (local, unpushed) | Dynamic campaigns / festival themes / assets on migration 027: PostgreSQL clock resolves what is live, admin campaign editor, `campaigns` section on the config feed, Customer App renders theme + logo + banner + popup with no rebuild. **Limits:** `CUSTOMER_HOME` is the only wired surface, assets are pasted URLs (no in-admin upload), 027 is not applied to any hosted project |
-| Server-driven Phase 4 | IN PROGRESS (local, unpushed) | Done: telemetry validated once for both transports (`c1f3d1d`), authentication fails closed on an unreachable store (`e994e44`, `31d0d62`), a permission check in front of every admin write with a durable credential reset (`a551dd6`), campaign concurrency — touched-columns writes, mandatory revision guard (428/412/409/400), UNIQUE code answered as 409, outage as 503, `CAMPAIGN_PARTIALLY_APPLIED` naming what landed, and the CORS headers the conditional write needs (`ea4c146`) — **the admin surface pass** (`19c2ecf`…`30489e4`: suspension enforcement, KYC gates, customer-accounts screen, permission catalogue) and **the geofencing security pass** (`635b406`…`a02971e` + the 2026-09-24 closure commits: one `GeoPolicyService` authority, zoneId-body pricing deleted, bounded boot geo read, suite self-hygiene, Owner Decision 1 implemented as migration 029 — anon/authenticated reads of the six Section-A tables revoked on the local store). FI-08 documented, not corrected (`97578c4`). Open: the "Still open in this phase" list in `TASKS.md` — the codebase-wide 5xx/4xx sweep, driver/merchant campaign surfaces, the campaign asset decision, mobile offline matrix, env isolation + secret scan, financial re-verification, the public-website decision, the Phase 4 verification chain A–O, and the nine remaining owner decisions from `docs/OWNER_SECURITY_DECISIONS.md` (each awaits its own implementation order) |
+| Server-driven Phase 4 | IN PROGRESS (local, unpushed) | Done: telemetry validated once for both transports (`c1f3d1d`), authentication fails closed on an unreachable store (`e994e44`, `31d0d62`), a permission check in front of every admin write with a durable credential reset (`a551dd6`), campaign concurrency — touched-columns writes, mandatory revision guard (428/412/409/400), UNIQUE code answered as 409, outage as 503, `CAMPAIGN_PARTIALLY_APPLIED` naming what landed, and the CORS headers the conditional write needs (`ea4c146`) — **the admin surface pass** (`19c2ecf`…`30489e4`: suspension enforcement, KYC gates, customer-accounts screen, permission catalogue) and **the geofencing security pass** (`635b406`…`a02971e` + the 2026-09-24 closure commits: one `GeoPolicyService` authority, zoneId-body pricing deleted, bounded boot geo read, suite self-hygiene, Owner Decision 1 implemented as migration 029 — anon/authenticated reads of the six Section-A tables revoked on the local store). FI-08 documented, not corrected (`97578c4`). **Admin master-catalogue persistence** (2026-09-24, uncommitted checkpoint): the five memory-only `masterProducts` methods now read-through/write-through the migration-001 `master_grocery_catalog` table with the fixtures kept only as the dev fallback, a legacy-id resolver, and a durable `is_active=false` soft delete (a hard delete would cascade into merchant stock). Open: the "Still open in this phase" list in `TASKS.md` — driver/merchant campaign surfaces, the campaign asset decision, mobile offline matrix, env isolation + secret scan, financial re-verification, the public-website decision, the Phase 4 verification chain A–O, and the owner decisions from `docs/OWNER_SECURITY_DECISIONS.md` (each awaits its own implementation order). Closed since that list was written (2026-09-24, uncommitted): **the codebase-wide 5xx/4xx sweep** — the three checkout resolvers answer 503 when PostgreSQL cannot (`checkout_store_semantics_test.js` 5/0), the six money/identity hydration reads keep the memory fallback the owner accepted as Decision 11 / choice B (`hydration_fallback_test.js` 8/0), and the campaign 503 guard is proven by assertion (`campaign_outage_test.js` 5/0); and **browser/console reachability** — CORS allows the canonical `Idempotency-Key` that six routes read before the `X-` spelling (MODULE 39), and the admin coupon list is a real page with a search and a filtered total (MODULE 40). Full chain green: 722 checks, 0 failures, exit 0 at that point; `test_phase7_security.js` (45) and the five `admin_*_test.js` suites (370) were then armed as links 13–17, and two consecutive seventeen-link chains came back **1137 checks, 0 failures, exit 0** each. Two Phase 4 items are deliberately NOT auto-implemented: the promotion upsert-on-code `usage_count` reset and the audit-write semantics (36 `createAuditLog` call sites, 7 awaited, re-counted 2026-09-24). Since that count was taken, **the customer Activity screen was rebuilt on real data** (2026-09-24, uncommitted): `GET /api/customer/activity` + `JobRepository.getJobsByCustomer` (bearer-token identity, jobs/orders split to avoid double-counting, fail-closed 503) and `customer_activity_test.js` as link 18 — chain re-measured at **1157 checks / 0 failures / exit 0**, red-green proven on the ownership filter, `dart analyze` clean on both touched Dart paths. |
 
 ---
 
@@ -513,7 +822,27 @@ d7ef7f5 feat(phase-16): implement postgres kyc, verified vpa, partial refund and
 1. **Hardcoded mock KYC** — `backend/src/database.js:440` seeds `kycStatus: 'VERIFIED'` for DRV-104 test fixture
 
 ### Open from Phase 13/14/15
-2. **Mobile UI unwired** — Most mobile screens use local state rather than live API calls
+2. ~~**Mobile UI unwired** — Most mobile screens use local state rather than live API
+   calls~~ — **overstated; re-measured 2026-09-24.** Across the 90 `.dart` files under
+   `mobile/lib/features/` a case-sensitive scan finds **zero** `TODO`, `FIXME`, `mock`,
+   `dummy`, `fake` or `hardcoded` markers (the 43 case-insensitive `TODO` hits are all
+   `toDouble()`/`roundToDouble()`), and 37 of the 90 files make real API calls. The
+   claim that survives measurement is narrower and real: individual screens render
+   invented data. One is **fixed** in this tree — the customer Activity screen (see the
+   activity-feed paragraph above). The rest are **open**, and the driver app is not one
+   screen but the whole of it: `mobile/lib/features/driver/` contains exactly two files
+   (`presentation/screens/driver_app_shell.dart`, `presentation/widgets/driver_job_offer_card.dart`)
+   and **neither references `NabinApiService` at all**, while the four driver calls the
+   API client does expose (`toggleDriverOnline`, `acceptJob`, `verifyTripOtp`,
+   `getDriverEarnings`) are invoked from nowhere in `lib/`. In `driver_app_shell.dart`
+   the wallet starts at a hard-coded `1420.0` (L31-32), trip completion adds a locally
+   computed `fare - (fare * 0.1)` to it (L133-141) with a fabricated `?? 85.0` fallback
+   fare, the OTP field is pre-filled with `'7729'`/`'4892'` (L113, L122-124), and
+   "withdraw" sets the displayed balance to `0` in `setState` (L836-837). None of that
+   reaches the server: settlement, commission and wallet balances are PostgreSQL
+   authorities (`POST /api/driver/complete-trip` writes the ledger), so the driver app
+   currently shows a driver money that does not exist. Not papered over here — this is
+   recorded as the next P0-adjacent slice, not silently rewritten.
 3. **34 of 38 PostgreSQL tables unused** — Backend predominantly uses in-memory arrays
 4. **Migration 016 formal approval workflow** — Present in authorized Git baseline via c0cdf47; explicit user approval record not yet documented (see DEC-017)
 5. **Migration 017** — Absent; NOT approved for future implementation
@@ -545,18 +874,55 @@ d7ef7f5 feat(phase-16): implement postgres kyc, verified vpa, partial refund and
     voucher comes back to life. Fixing it to refuse conflicts with `test_suite.js:270`,
     which re-creates fixed code `FESTIVAL30` every run and asserts 200 — reported, not
     chosen for, because which of the two is the requirement is the owner's call.
-12. **`GET /api/admin/promotions` caps at 50 rows with no total and no search**, so an
-    older coupon is invisible to the console on a local table that now holds 539.
-13. **The campaign outage branch (503 `CAMPAIGNS_UNAVAILABLE`) has no test** — auth
-    fails closed before any admin token can exist during an outage, so it is verified by
-    code reading and the `CHAOS_DB_DOWN=1` audit only.
-14. **`Idempotency-Key` is not CORS-allowed** (only `X-Idempotency-Key` is). No browser
-    client sends it today; it is a trap for the next one.
+12. ~~**`GET /api/admin/promotions` caps at 50 rows with no total and no search**~~ —
+    **closed 2026-09-24, uncommitted:** the route is a real page with a search, a filtered
+    `total` and `hasMore`; `test_suite.js` MODULE 40 locks it and reaps its fixtures.
+13. ~~**The campaign outage branch (503 `CAMPAIGNS_UNAVAILABLE`) has no test**~~ — **closed
+    2026-09-24, uncommitted:** `backend/campaign_outage_test.js` drives the repository from
+    a child process pointed at a closed port, so the 503 branch is proven by assertion.
+14. ~~**`Idempotency-Key` is not CORS-allowed** (only `X-Idempotency-Key` is)~~ — **closed
+    2026-09-24, uncommitted:** the canonical spelling is allowed and MODULE 39 asserts the
+    grant, the unchanged origin policy and that the list is still a policy.
 15. **Local fixture rows accumulate with no reaper** — 539 promotions, 45 campaigns, 13
     orphan "Test Basmati Rice" catalogue rows. Hygiene only; nothing financial is deleted
     by a test run unasked.
-16. **`test_phase7_security.js` is red (36/9)**, partly against a route that no longer
-    exists; it is outside this phase's chain and repairing it must not mean loosening it.
+16. ~~**`test_phase7_security.js` is red (36/9)**, partly against a route that no longer
+    exists~~ — **note was stale; closed 2026-09-24.** The suite is **45/0 green** with the
+    file unmodified, and it contains no `/api/ride/book` probe (both bookings use the live
+    `/api/customer/book-ride`). The real gap was that nothing ran it: it is now the twelfth
+    link of `npm test` (with `npm run test:security`), proven load-bearing — disabling the
+    media-asset ownership guard reddens exactly that assertion (44/1, exit 1) — and proven
+    state-neutral across two consecutive full-chain runs.
+17. **`backend/bootstrap_test.js` is the only unqualified table wipe in the repo and is
+    NOT in the `npm test` chain — by design, not by oversight.** It deletes
+    `backend/data/store.json` (L42-43) and then
+    `.from('admin_accounts').delete().neq('id','00000000-…')` (L48) — every admin account,
+    no fixture scoping, no `id LIKE 'authz_%'` guard like the other suites use — before
+    spawning its own detached server on `:4000` with `ADMIN_BOOTSTRAP_SECRET:
+    'test-secret'` and killing it in a `finally` (L132), which is how the shared harness
+    got left down once already. A grep for
+    `delete\(\)\.neq|delete\(\)\.not|\.delete\(\)\s*[;,\)]` across `backend/*.js` returns
+    exactly this one hit, so the exclusion is evidence, not caution. It must not be
+    chained (chain-hostile port + a wipe that never restores what it took), and must not
+    be run while `.env` can reach a hosted project, where it would delete that project's
+    administrators. Left as an owner decision; not disarmed, not wired.
+18. **The local store is full of operations that never finish.** Reading the fixture
+    customer's feed for the activity test measured **81 of its 100 newest rows in a
+    non-terminal state** (the figure moves a few either way between runs because suites
+    create and settle rows; it was 85 earlier the same day). Read straight from
+    PostgreSQL with `pg` just now: `jobs` — SEARCHING 1158, COMPLETED 860, CANCELLED 470,
+    ASSIGNED 72; `orders` — RECEIVED 1314, CANCELLED 35, REJECTED 34, READY_FOR_PICKUP 33,
+    ACCEPTED 1. Ownership is concentrated almost entirely on one fixture —
+    `00000000-0000-0000-0000-000000000002` owns 2513 of the 2560 jobs, the next customer
+    29 — so the shape is seeding plus a missing lifecycle rule, not an endpoint defect.
+    Abandoned
+    searches and received-but-never-cooked orders have no expiry, so a real customer's
+    "In progress" section would fill with trips that will never start. Two owner-level
+    questions follow — whether a stale `SEARCHING`/`RECEIVED` row should be reaped by a
+    TTL job, and whether the feed should hide non-terminal rows older than some window —
+    and neither is answered here, because both change what a customer is told about money
+    and both would need `orders/expire-stale` semantics extended beyond `checkouts`.
+    Deliberately **not** papered over with an arbitrary filter in the new endpoint.
 
 ---
 

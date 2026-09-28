@@ -110,6 +110,25 @@ class NabinApiService {
     }
   }
 
+  /// The customer's real history across Ride, Food, Instamart and Parcel.
+  ///
+  /// Returns null when the read could not be completed, which the caller must render as
+  /// "could not load, retry" rather than "no activity" — the backend answers an unreadable
+  /// store with a 503 precisely so those two stay distinguishable on this side.
+  static Future<Map<String, dynamic>?> getCustomerActivity() async {
+    try {
+      final client = HttpClient();
+      final request = await client.getUrl(Uri.parse('$effectiveUrl/customer/activity'));
+      _attachAuthHeader(request);
+      final response = await request.close();
+      if (response.statusCode != 200) return null;
+      final body = await response.transform(utf8.decoder).join();
+      return jsonDecode(body) as Map<String, dynamic>;
+    } catch (e) {
+      return null;
+    }
+  }
+
   /// Logout and Invalidate Session
   static Future<bool> logout() async {
     try {
@@ -333,13 +352,20 @@ class NabinApiService {
     }
   }
 
-  static Future<Map<String, dynamic>?> acceptJob(String jobId, {String driverId = 'drv_1'}) async {
+  /// `driverId` is deliberately not defaulted. A hard-coded partner id in the client is a
+  /// fabricated identity: whichever driver happened to be signed in would have asked the
+  /// platform to assign the job to somebody else. Omit it and the backend takes the
+  /// identity from the bearer token, which is the only trustworthy source.
+  static Future<Map<String, dynamic>?> acceptJob(String jobId, {String? driverId}) async {
     try {
       final client = HttpClient();
       final request = await client.postUrl(Uri.parse('$effectiveUrl/driver/accept-job'));
       request.headers.set('content-type', 'application/json');
       _attachAuthHeader(request);
-      request.add(utf8.encode(jsonEncode({'jobId': jobId, 'driverId': driverId})));
+      request.add(utf8.encode(jsonEncode({
+        'jobId': jobId,
+        if (driverId != null) 'driverId': driverId,
+      })));
       final response = await request.close();
       final body = await response.transform(utf8.decoder).join();
       return jsonDecode(body) as Map<String, dynamic>;
@@ -350,6 +376,21 @@ class NabinApiService {
 
   /// Authoritative OTP Verification (START, PICKUP, DELIVERY)
   static Future<bool> verifyTripOtp(String jobId, String otp, {String otpType = 'START'}) async {
+    final res = await submitTripOtp(jobId: jobId, otp: otp, otpType: otpType);
+    return res != null && res['success'] == true && res['verified'] == true;
+  }
+
+  /// The same verification, returning the platform's answer rather than only a boolean.
+  ///
+  /// A partner whose code was refused needs to know whether it was wrong, expired, already
+  /// used, or whether the trip simply is not at the stage that accepts a code — a bool
+  /// forces the UI to guess, and guessing about a money-moving transition is how a driver
+  /// ends up believing a trip started when it did not.
+  static Future<Map<String, dynamic>?> submitTripOtp({
+    required String jobId,
+    required String otp,
+    String otpType = 'START',
+  }) async {
     try {
       final client = HttpClient();
       final request = await client.postUrl(Uri.parse('$effectiveUrl/driver/verify-otp'));
@@ -358,13 +399,231 @@ class NabinApiService {
       request.add(utf8.encode(jsonEncode({'jobId': jobId, 'otp': otp, 'otpType': otpType})));
       final response = await request.close();
       final body = await response.transform(utf8.decoder).join();
-      final data = jsonDecode(body) as Map<String, dynamic>;
-      return data['success'] == true && data['verified'] == true;
+      if (body.isEmpty) return {'success': false, 'statusCode': response.statusCode};
+      final decoded = jsonDecode(body);
+      if (decoded is Map<String, dynamic>) return {...decoded, 'statusCode': response.statusCode};
+      return {'success': false, 'statusCode': response.statusCode};
     } catch (e) {
-      return false;
+      return null;
     }
   }
 
+  /// The signed-in driver's own earnings, wallet and settlement readiness.
+  ///
+  /// Identity travels in the bearer token only — there is no id for this screen to pass, so
+  /// there is nothing for it to get wrong. A non-200 response is returned parsed when the
+  /// body allows it, because the driver app must tell "the store did not answer" (503) apart
+  /// from "you have no trips" (200 with empty windows) and must not paint a failure as zero
+  /// earnings. Returns null only when there is genuinely no usable answer.
+  static Future<Map<String, dynamic>?> getMyEarnings() async {
+    try {
+      final client = HttpClient();
+      final request = await client.getUrl(Uri.parse('$effectiveUrl/driver/earnings'));
+      _attachAuthHeader(request);
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (response.statusCode == 200) {
+        return jsonDecode(body) as Map<String, dynamic>;
+      }
+      final decoded = body.isEmpty ? null : jsonDecode(body);
+      if (decoded is Map<String, dynamic>) return decoded;
+      return {'success': false, 'statusCode': response.statusCode};
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /// Withdraw the wallet balance to the driver's verified UPI address.
+  ///
+  /// Only the requested amount is sent. The balance, the destination, the KYC gate and the
+  /// destination cooling window are all decided server-side, so the client can neither move
+  /// money it has not earned nor redirect it to an unverified address; the rejection `code`
+  /// comes back here so the screen can explain the refusal instead of guessing.
+  static Future<Map<String, dynamic>?> requestDriverPayout({required num amount}) async {
+    try {
+      final client = HttpClient();
+      final request = await client.postUrl(Uri.parse('$effectiveUrl/driver/payout'));
+      request.headers.set('content-type', 'application/json');
+      _attachAuthHeader(request);
+      request.add(utf8.encode(jsonEncode({'amount': amount})));
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (body.isEmpty) return {'success': false, 'statusCode': response.statusCode};
+      final decoded = jsonDecode(body);
+      if (decoded is Map<String, dynamic>) {
+        return {...decoded, 'statusCode': response.statusCode};
+      }
+      return {'success': false, 'statusCode': response.statusCode};
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /// The signed-in partner's console: who they are, whether the platform currently has them
+  /// online, the trip they are standing on, and the offers actually in front of them.
+  ///
+  /// One call, because the screen used to answer all four questions from Dart variables and
+  /// literal text. Availability in particular is *server* state now — `drivers.is_online` is
+  /// a column that survives a restart, where the old `_isOnline` boolean did not, so a
+  /// partner could be shown ONLINE while dispatch could not see them at all.
+  ///
+  /// Returns the parsed body even on a non-200 so the caller can tell a ledger outage
+  /// (503) from an empty list, and null only when there is no usable answer at all.
+  static Future<Map<String, dynamic>?> getDriverHome() async {
+    try {
+      final client = HttpClient();
+      final request = await client.getUrl(Uri.parse('$effectiveUrl/driver/home'));
+      _attachAuthHeader(request);
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (body.isEmpty) return {'success': false, 'statusCode': response.statusCode};
+      final decoded = jsonDecode(body);
+      if (decoded is Map<String, dynamic>) return {...decoded, 'statusCode': response.statusCode};
+      return {'success': false, 'statusCode': response.statusCode};
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /// Ask the platform to mark this partner available or unavailable.
+  ///
+  /// The value returned is the platform's answer, not the value requested: if the write
+  /// could not be persisted the call reports the failure, and the screen must render that
+  /// rather than the state it hoped for.
+  static Future<Map<String, dynamic>?> setDriverAvailability({required bool isOnline}) async {
+    try {
+      final client = HttpClient();
+      final request = await client.postUrl(Uri.parse('$effectiveUrl/driver/status'));
+      request.headers.set('content-type', 'application/json');
+      _attachAuthHeader(request);
+      request.add(utf8.encode(jsonEncode({'isOnline': isOnline})));
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (body.isEmpty) return {'success': false, 'statusCode': response.statusCode};
+      final decoded = jsonDecode(body);
+      if (decoded is Map<String, dynamic>) return {...decoded, 'statusCode': response.statusCode};
+      return {'success': false, 'statusCode': response.statusCode};
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /// Accept one dispatch offer.
+  ///
+  /// [idempotencyKey] makes a retry (a double tap, a dropped connection that came back) the
+  /// same request instead of a second claim on the job. The backend answers a lost race with
+  /// a conflict, so the caller must handle `success: false` with a code and refresh — two
+  /// partners cannot both have the trip.
+  static Future<Map<String, dynamic>?> acceptDriverOffer({
+    required String offerId,
+    String? idempotencyKey,
+  }) async {
+    try {
+      final client = HttpClient();
+      final request = await client.postUrl(Uri.parse('$effectiveUrl/driver/offers/$offerId/accept'));
+      request.headers.set('content-type', 'application/json');
+      if (idempotencyKey != null && idempotencyKey.isNotEmpty) {
+        request.headers.set('idempotency-key', idempotencyKey);
+      }
+      _attachAuthHeader(request);
+      // No driverId in the body: identity is the bearer token's, and a client-supplied one
+      // is only ever an excuse for a mismatch.
+      request.add(utf8.encode(jsonEncode({})));
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (body.isEmpty) return {'success': false, 'statusCode': response.statusCode};
+      final decoded = jsonDecode(body);
+      if (decoded is Map<String, dynamic>) return {...decoded, 'statusCode': response.statusCode};
+      return {'success': false, 'statusCode': response.statusCode};
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /// Decline one dispatch offer, with an optional reason the platform stores.
+  static Future<Map<String, dynamic>?> rejectDriverOffer({
+    required String offerId,
+    String? reason,
+  }) async {
+    try {
+      final client = HttpClient();
+      final request = await client.postUrl(Uri.parse('$effectiveUrl/driver/offers/$offerId/reject'));
+      request.headers.set('content-type', 'application/json');
+      _attachAuthHeader(request);
+      request.add(utf8.encode(jsonEncode({if (reason != null) 'reason': reason})));
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (body.isEmpty) return {'success': false, 'statusCode': response.statusCode};
+      final decoded = jsonDecode(body);
+      if (decoded is Map<String, dynamic>) return {...decoded, 'statusCode': response.statusCode};
+      return {'success': false, 'statusCode': response.statusCode};
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /// Announce arrival at the pickup / drop point. The server moves the job through its own
+  /// state machine and refuses a transition that is out of order.
+  static Future<Map<String, dynamic>?> driverArrived({required String jobId}) async {
+    try {
+      final client = HttpClient();
+      final request = await client.postUrl(Uri.parse('$effectiveUrl/driver/arrived'));
+      request.headers.set('content-type', 'application/json');
+      _attachAuthHeader(request);
+      request.add(utf8.encode(jsonEncode({'jobId': jobId})));
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (body.isEmpty) return {'success': false, 'statusCode': response.statusCode};
+      final decoded = jsonDecode(body);
+      if (decoded is Map<String, dynamic>) return {...decoded, 'statusCode': response.statusCode};
+      return {'success': false, 'statusCode': response.statusCode};
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /// POSTed twin of the WebSocket telemetry frame, for when the socket is down.
+  ///
+  /// Same validator on the server, so a fix this socket would reject cannot be posted
+  /// through this door instead. Coordinates are never stored as "last known" on the device —
+  /// the platform is the record of where the partner was.
+  static Future<Map<String, dynamic>?> postDriverLocation({
+    required double lat,
+    required double lng,
+    double? heading,
+    double? speed,
+    double? accuracy,
+    String? jobId,
+  }) async {
+    try {
+      final client = HttpClient();
+      final request = await client.postUrl(Uri.parse('$effectiveUrl/driver/location'));
+      request.headers.set('content-type', 'application/json');
+      _attachAuthHeader(request);
+      request.add(utf8.encode(jsonEncode({
+        'lat': lat,
+        'lng': lng,
+        'timestamp': DateTime.now().toUtc().toIso8601String(),
+        if (heading != null) 'heading': heading,
+        if (speed != null) 'speed': speed,
+        if (accuracy != null) 'accuracy': accuracy,
+        if (jobId != null) 'jobId': jobId,
+      })));
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (body.isEmpty) return {'success': false, 'statusCode': response.statusCode};
+      final decoded = jsonDecode(body);
+      if (decoded is Map<String, dynamic>) return {...decoded, 'statusCode': response.statusCode};
+      return {'success': false, 'statusCode': response.statusCode};
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /// Legacy: earnings for an explicitly named partner.
+  ///
+  /// The driver app should call [getMyEarnings] instead. This stays only for tools that hold
+  /// another driver's id legitimately; the backend refuses a mismatch against the token.
   static Future<Map<String, dynamic>?> getDriverEarnings(String driverId) async {
     try {
       final client = HttpClient();
@@ -505,6 +764,53 @@ class NabinApiService {
       final response = await request.close();
       final body = await response.transform(utf8.decoder).join();
       return jsonDecode(body) as Map<String, dynamic>;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /// The signed-in merchant's own profile and authorized services.
+  ///
+  /// One authenticated read, no id in the request: the backend decides who this merchant is
+  /// and which services they hold. The Restaurant console used to answer "which store am I?"
+  /// with a constant typed into the widget — a name, an FSSAI number and a "Verified Partner"
+  /// claim belonging to a business that does not exist — and every store that signed in was
+  /// shown that same identity.
+  ///
+  /// Returns the parsed body even on a non-200 so a caller can tell a refusal or an outage
+  /// (503) apart from a merchant that genuinely has no services configured.
+  static Future<Map<String, dynamic>?> getMerchantServices() async {
+    try {
+      final client = HttpClient();
+      final request = await client.getUrl(Uri.parse('$effectiveUrl/merchant/services'));
+      _attachAuthHeader(request);
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (response.statusCode == 200) return jsonDecode(body) as Map<String, dynamic>;
+      final decoded = body.isEmpty ? null : jsonDecode(body);
+      if (decoded is Map<String, dynamic>) return decoded;
+      return {'success': false, 'statusCode': response.statusCode};
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /// The caller's own catalogue — for a restaurant these rows ARE the menu items.
+  ///
+  /// `products` is a shared table that both services draw from, scoped by `merchant_id` to
+  /// the authenticated merchant server-side, so this is the real menu read and not a grocery
+  /// endpoint being borrowed. No client-side merchant id is sent.
+  static Future<Map<String, dynamic>?> getMerchantCatalog() async {
+    try {
+      final client = HttpClient();
+      final request = await client.getUrl(Uri.parse('$effectiveUrl/merchant/catalog'));
+      _attachAuthHeader(request);
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (response.statusCode == 200) return jsonDecode(body) as Map<String, dynamic>;
+      final decoded = body.isEmpty ? null : jsonDecode(body);
+      if (decoded is Map<String, dynamic>) return decoded;
+      return {'success': false, 'statusCode': response.statusCode};
     } catch (e) {
       return null;
     }

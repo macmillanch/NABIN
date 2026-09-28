@@ -42,6 +42,7 @@ require('dotenv').config({ path: path.resolve(__dirname, '.env') });
 
 const geoPolicy = require('./src/services/GeoPolicyService');
 const { REASON } = geoPolicy;
+const { createLogin } = require('./testSessionCache');
 
 const BASE = process.env.GEO_TEST_BASE || 'http://127.0.0.1:4000';
 const PGRST = process.env.SUPABASE_URL || 'http://127.0.0.1:54321';
@@ -774,10 +775,41 @@ function groupF() {
   // 12(K) and 12(L): a window the clock has passed, and one not yet reached. With
   // the rules in play the multiplier also carries a rule's number, which is the
   // point of the check.
-  const ruled = geoPolicy.evaluate({ latitude: 28.68, longitude: 77.28, service: 'RIDE', operation: 'QUOTE' });
-  const expired = geoPolicy.evaluate({ latitude: 28.62, longitude: 77.25, service: 'RIDE', operation: 'QUOTE' })
+  // G1: these two rules are time-of-day windows (01:00-01:30 and 23:30-23:59), and
+  // GeoPolicyService measures them against UTC minutes-of-day. Left on the real clock, this
+  // suite only passed for part of every day: after 23:30 UTC "r_future" had already opened
+  // (PH6-L red), and between 00:00 and 01:30 UTC "r_expired" was not yet open rather than
+  // expired, so PH6-K asked for the wrong reason code. The engine already accepts a
+  // server-side replay instant for exactly this purpose (`input.timestamp`; no production
+  // caller forwards a client-supplied time, which the "who passes timestamp" search
+  // confirms - it appears only inside the service). Noon UTC sits unambiguously between the
+  // two windows, so the fixtures are past and future by construction, every hour, forever.
+  // Nothing about the windows themselves, their codes, or the reported-but-not-enforced
+  // semantics is changed: only the moment they are measured at is fixed.
+  const WINDOW_INSTANT = '2000-01-01T12:00:00.000Z';
+  const ruled = geoPolicy.evaluate({ latitude: 28.68, longitude: 77.28, service: 'RIDE', operation: 'QUOTE', timestamp: WINDOW_INSTANT });
+  const expired = geoPolicy.evaluate({ latitude: 28.62, longitude: 77.25, service: 'RIDE', operation: 'QUOTE', timestamp: WINDOW_INSTANT })
     .applicableSurgeRules.find(r => r.id === 'r_expired');
   const future = ruled.applicableSurgeRules.find(r => r.id === 'r_future');
+  // If the engine ever stops honouring the replay instant, this fails here instead of the
+  // two checks below quietly becoming clock-dependent again at some hour of the day.
+  check('PH6-CLOCK', ruled.evaluatedAt === WINDOW_INSTANT
+    && new Date().getTime() - new Date(ruled.evaluatedAt).getTime() > 60 * 60 * 1000,
+    `the window results are measured at the fixed replay instant (${ruled.evaluatedAt}), not at wall-clock now`);
+  // And here is the coupling that made this suite time-dependent, pinned as a check rather
+  // than left as a comment: at 23:45 the "future" rule is open, and at 00:30 the "expired"
+  // rule has not opened yet, so the two fixtures trade identities depending on the hour.
+  // If anyone removes the fixed instant, PH6-K/PH6-L become hour-dependent again - and this
+  // check is the evidence of what they would then be measuring.
+  const at2345 = geoPolicy.evaluate({ latitude: 28.68, longitude: 77.28, service: 'RIDE', operation: 'QUOTE', timestamp: '2000-01-01T23:45:00.000Z' })
+    .applicableSurgeRules.find(r => r.id === 'r_future');
+  const at0030 = geoPolicy.evaluate({ latitude: 28.62, longitude: 77.25, service: 'RIDE', operation: 'QUOTE', timestamp: '2000-01-01T00:30:00.000Z' })
+    .applicableSurgeRules.find(r => r.id === 'r_expired');
+  check('PH6-CLOCK-B', !!at2345 && !!at0030
+    && at2345.window.inWindow === true && at2345.window.code === null
+    && at0030.window.inWindow === false && at0030.window.code === REASON.RULE_NOT_YET_ACTIVE,
+    `23:45 makes r_future live (${at2345?.window.code}) and 00:30 makes r_expired merely unopened `
+    + `(${at0030?.window.code}) - the hour used to decide which fact this suite proved`);
   check('PH6-K', expired && expired.window.inWindow === false && expired.window.code === REASON.RULE_EXPIRED &&
     expired.applied === true,
     `an expired rule says so (${expired?.window.code}) and is priced anyway ` +
@@ -947,19 +979,25 @@ async function main() {
   const relogin = adminLogin.status === 200 ? adminLogin : await request('POST', BASE, '/api/admin/login', { username: 'superadmin', password: 'AdminPassword123!' });
   const adminHeaders = { Authorization: `Bearer ${relogin.data.token}` };
 
-  const otp = await request('POST', BASE, '/api/auth/send-otp', { phone: '9845011982', role: 'CUSTOMER', purpose: 'LOGIN' });
-  const verified = await request('POST', BASE, '/api/auth/verify-otp', { phone: '9845011982', otp: otp.data?.testOtp || '7729', role: 'CUSTOMER' });
-  const token = verified.data?.token;
-  const rahulOtp = await request('POST', BASE, '/api/auth/send-otp', { phone: '9876543210', role: 'CUSTOMER', purpose: 'LOGIN' });
-  const rahul = await request('POST', BASE, '/api/auth/verify-otp', { phone: '9876543210', otp: rahulOtp.data?.testOtp || '7729', role: 'CUSTOMER' });
+  // These three sessions buy a seat at the routes under test; the OTP itself is not what this
+  // suite asserts. They come from the local harness session cache, which only honours a cached
+  // token after `GET /api/auth/me` reports it live and carrying the role asked for, so every
+  // booking below still runs against a session the server just vouched for. The customer guard
+  // after this block continues to exit 2 rather than run the matrix unauthenticated.
+  const geoLogin = createLogin({
+    baseUrl: BASE,
+    request: (method, urlPath, body, headers) => request(method, BASE, urlPath, body, headers),
+  });
+  const priya = await geoLogin('9845011982', 'CUSTOMER');
+  const token = priya.token;
+  const rahul = await geoLogin('9876543210', 'CUSTOMER');
   // 9810122334 is the driver the main suite drives as well: its profile is linked
   // to a user account, which `authenticateDriver` requires. The neighbouring
   // fixture 9822233445 is a profile with no account behind it, so every driver
   // route answers 403 UNLINKED_DRIVER_ACCOUNT there — which is the right answer
   // and the wrong fixture for a lifecycle probe.
-  const drvOtp = await request('POST', BASE, '/api/auth/send-otp', { phone: '9810122334', role: 'DRIVER', purpose: 'LOGIN' });
-  const drv = await request('POST', BASE, '/api/auth/verify-otp', { phone: '9810122334', otp: drvOtp.data?.testOtp || '7729', role: 'DRIVER' });
-  const driverHeaders = drv.data?.token ? { Authorization: `Bearer ${drv.data.token}` } : null;
+  const drv = await geoLogin('9810122334', 'DRIVER');
+  const driverHeaders = drv.token ? { Authorization: `Bearer ${drv.token}` } : null;
 
   if (!token) {
     console.error('Cannot run the matrix without a verified customer session.');
@@ -979,7 +1017,7 @@ async function main() {
   await groupA(token, zoneId);
   await groupB(token);
   await groupC(adminHeaders);
-  await groupD(token, rahul.data?.token, adminHeaders);
+  await groupD(token, rahul.token, adminHeaders);
   await groupE(adminHeaders);
   groupF();
   await groupG(driverHeaders);

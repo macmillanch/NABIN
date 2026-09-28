@@ -226,15 +226,86 @@ async function runAllTests() {
       resolveTicket.status === 200 && resolveTicket.data.ticket.status === 'RESOLVED' && resolveTicket.data.user.walletBalance >= 85.0
     );
 
-    // Reset seed tickets to OPEN for test suite repeatability
-    if (isLivePostgres && supabaseAdmin) {
-      await supabaseAdmin.from('support_tickets')
-        .update({ status: 'OPEN', resolution_notes: null, resolved_at: null })
-        .in('ticket_number', ['TCK-9481', 'TCK-9479']);
-    }
+    // Phase 22: the seed-ticket reset is gone. Resetting TCK-9481/TCK-9479 to OPEN
+    // every run was itself a write to shared seed data, standing in for the
+    // isolation the fixtures below provide properly.
 
-    // Test Specialized LOST_ITEM Resolution (TCK-9481)
-    const resolveLostItem = await request('POST', '/api/admin/support/TCK-9481/resolve', {
+    /* Phase 22 fixture isolation.
+     *
+     * Both specialized-resolution tests used the SEEDED tickets TCK-9481 and
+     * TCK-9479, and a "reset to OPEN" write before them, so every run mutated
+     * shared seed data. The LOST_ITEM bounty also depends on a driver, and the
+     * Phase 21D version picked "the first job with a driver" - measured to be
+     * 00000000-...-0101 (Rajesh Kumar), the same driver EARN-13, EARN-24 and
+     * OPS-54 assert on, who now carries 1,013 completed jobs, 234 earnings
+     * credits and 30 payouts within 24 hours. That is how a passing ticket test
+     * could move another test's baseline.
+     *
+     * The fixtures below are therefore built from scratch, on a driver and a
+     * customer chosen from the population that no money test reads (zero wallet,
+     * zero completed jobs, and explicitly not the 0101/0102/0103 fixture set),
+     * and every created row is tracked for teardown. Seeded tickets are not
+     * touched, and the "reset seed to OPEN" write is gone with them.
+     */
+    const p22Fixtures = { tickets: [], jobs: [], drivers: [], users: [] };
+    let lostItemTicket = null;
+    let safetyTicket = null;
+    if (isLivePostgres && supabaseAdmin) {
+      const EXCLUDED_DRIVERS = ['00000000-0000-0000-0000-000000000101',
+        '00000000-0000-0000-0000-000000000102', '00000000-0000-0000-0000-000000000103'];
+      const EXCLUDED_USERS = ['00000000-0000-0000-0000-000000000002'];
+      const { data: quietDriver } = await supabaseAdmin.from('drivers')
+        .select('id, phone, name, wallet_balance, operational_status')
+        .eq('wallet_balance', 0).not('id', 'in', `(${EXCLUDED_DRIVERS.join(',')})`)
+        .order('id', { ascending: true }).limit(1).maybeSingle();
+      const { data: quietCustomer } = await supabaseAdmin.from('users')
+        .select('id, phone, wallet_balance')
+        .eq('wallet_balance', 0).not('id', 'in', `(${EXCLUDED_USERS.join(',')})`)
+        .order('id', { ascending: true }).limit(1).maybeSingle();
+      if (quietDriver && quietCustomer) {
+        const { data: quietJob, error: jobErr } = await supabaseAdmin.from('jobs').insert({
+          job_number: `JOB-P22-${Date.now()}`,
+          service_type: 'RIDE',
+          status: 'COMPLETED',
+          customer_id: quietCustomer.id,
+          driver_id: quietDriver.id,
+          pickup_address: 'Phase 22 isolation fixture pickup',
+          drop_address: 'Phase 22 isolation fixture drop',
+          distance_km: 1.0,
+          fare_subtotal: 100.0,
+          final_total: 100.0,
+          driver_earnings: 85.0,
+          platform_commission: 15.0,
+          payment_method: 'WALLET',
+          payment_status: 'PAID'
+        }).select('id').single();
+        if (!jobErr && quietJob) {
+          p22Fixtures.jobs.push(quietJob.id);
+          const mkTicket = async (category, number) => {
+            const { data: made, error: mkErr } = await supabaseAdmin.from('support_tickets').insert({
+              ticket_number: number,
+              user_type: 'CUSTOMER',
+              user_id: quietCustomer.id,
+              subject: `Phase 22 isolated ${category} fixture`,
+              description: 'Created by test_suite; owned by this run; removed in teardown.',
+              status: 'OPEN', priority: 'NORMAL', category, job_id: quietJob.id
+            }).select('ticket_number, id').single();
+            if (!mkErr && made) { p22Fixtures.tickets.push(made.id); return made.ticket_number; }
+            return null;
+          };
+          const stamp = Date.now();
+          lostItemTicket = await mkTicket('LOST_ITEM', `TCK-P22-LI-${stamp}`);
+          safetyTicket = await mkTicket('SAFETY_INCIDENT', `TCK-P22-SF-${stamp}`);
+          p22Fixtures.drivers.push({ id: quietDriver.id, operational_status: quietDriver.operational_status });
+        }
+      }
+    }
+    const p22FixtureReady = !!(lostItemTicket && safetyTicket);
+    assert('P22-00 isolated LOST_ITEM and SAFETY_INCIDENT fixtures were created', p22FixtureReady,
+      `lostItem=${lostItemTicket || 'none'} safety=${safetyTicket || 'none'}`);
+
+    // Test Specialized LOST_ITEM Resolution (isolated fixture ticket)
+    const resolveLostItem = await request('POST', `/api/admin/support/${lostItemTicket || 'TCK-9481'}/resolve`, {
       resolutionNotes: 'Driver confirmed brown wallet in cab. Delivered to passenger address with ₹150 bounty.',
       refundAmount: 0.0,
       specializedData: {
@@ -248,8 +319,8 @@ async function runAllTests() {
       resolveLostItem.status === 200 && resolveLostItem.data.ticket.status === 'RESOLVED' && resolveLostItem.data.ticket.itemDetails.retrievalStatus === 'RETURNED_TO_CUSTOMER'
     );
 
-    // Test Specialized SAFETY_INCIDENT Resolution (TCK-9479)
-    const resolveSafety = await request('POST', '/api/admin/support/TCK-9479/resolve', {
+    // Test Specialized SAFETY_INCIDENT Resolution (isolated fixture ticket)
+    const resolveSafety = await request('POST', `/api/admin/support/${safetyTicket || 'TCK-9479'}/resolve`, {
       resolutionNotes: 'High-speed reckless driving verified on GPS. 48-hr driver account freeze enforced.',
       refundAmount: 150.0,
       specializedData: {
@@ -261,6 +332,29 @@ async function runAllTests() {
     assert('Admin resolves SAFETY_INCIDENT dispute with 48-hr driver operational freeze & passenger safety credit',
       resolveSafety.status === 200 && resolveSafety.data.ticket.status === 'RESOLVED' && resolveSafety.data.driver.operationalStatus === 'SUSPENDED'
     );
+
+    /* Phase 22 teardown: remove exactly the rows this run created, by tracked id.
+     * No broad DELETE, no seed data, no financial history - the journal and the
+     * bounty money are deliberately left in place, because the journal is
+     * append-only by design and deleting from it is forbidden here. What must not
+     * remain is the ticket/job scaffolding and this run's incidental driver/customer
+     * state, so those are reverted or dropped. */
+    if (isLivePostgres && supabaseAdmin && p22Fixtures.tickets.length) {
+      for (const ticketId of p22Fixtures.tickets) {
+        await supabaseAdmin.from('support_tickets').delete().eq('id', ticketId);
+      }
+      for (const jobId of p22Fixtures.jobs) {
+        await supabaseAdmin.from('jobs').delete().eq('id', jobId);
+      }
+      for (const driver of p22Fixtures.drivers) {
+        await supabaseAdmin.from('drivers')
+          .update({ operational_status: driver.operational_status || 'AVAILABLE' }).eq('id', driver.id);
+      }
+      const left = await supabaseAdmin.from('support_tickets')
+        .select('id', { count: 'exact', head: true }).like('ticket_number', 'TCK-P22-%');
+      assert('P22-99 Phase 22 ticket fixtures were removed in teardown',
+        (left.count || 0) === 0, `remaining TCK-P22-* tickets: ${left.count}`);
+    }
 
     // --- 5. MODULE 3: Finance & Settlements ---
     console.log('\n--- 5. MODULE 3: Finance & Settlements ---');
@@ -3380,6 +3474,10 @@ async function runAllTests() {
     // M4-07: Settled payout emits PAYOUT_SETTLED to linked driver user_id
     if (isLivePostgres && supabaseAdmin) {
       await supabaseAdmin.from('drivers').update({
+        // Phase 24 RUN B experiment concluded and reverted: removing this field
+        // changed the absolute numbers but not the failure signature (EARN-13
+        // still off by exactly one trip's 89, OPS-54 still moved by 178), so the
+        // bypass write was NOT the cause. The field is restored verbatim.
         wallet_balance: 1000,
         payout_upi_verified: true,
         verified_upi_id: 'rajesh.kumar@okhdfcbank',
@@ -4890,6 +4988,223 @@ async function runAllTests() {
       String(ccConfigGet.headers['access-control-expose-headers'] || '').toLowerCase().includes('etag'),
       `preflight=${ccConfigPreflight.status} allow=${ccConfigAllowed.slice(0, 90)} etag=${ccConfigGet.headers['etag']}`
     );
+
+    // --- 41. MODULE 38: The admin master catalogue is durable in PostgreSQL ---
+    //
+    // The catalogue used to be a memory array: every admin edit vanished on restart, and
+    // `/api/admin/master-catalog` answered from a source of truth no other surface shared.
+    // It is now read-through/write-through to `master_grocery_catalog`, the same store the
+    // merchant stock and public browse already read: a create lands a UUID row, an edit
+    // persists, and a delete retires the row with `is_active = false` rather than hard
+    // deleting it, because `merchant_grocery_inventory.product_id` is `ON DELETE CASCADE`.
+    console.log('\n--- 41. MODULE 38: Durable Admin Master Catalogue ---');
+    const mcStamp = fixtureSuffix();
+    const mcAdmin = { 'Authorization': `Bearer ${superToken}` };
+    const mcCols = 'id, name, category, standard_unit, pack_size, standard_image_url, pricing_model, is_active';
+    const UUID_ONLY = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+    const mcList = await request('GET', '/api/admin/master-catalog', null, mcAdmin);
+    const mcItems = mcList.data?.masterProducts || [];
+    assert('MC-01: The admin master catalogue is served as a non-empty list',
+      mcList.status === 200 && mcList.data.success === true && Array.isArray(mcItems) && mcItems.length > 0,
+      `status=${mcList.status} count=${mcItems.length}`);
+    assert('MC-02: Live, the list is PostgreSQL-backed (UUID ids), never the legacy mp_* memory fixtures',
+      !isLivePostgres || (mcItems.every(p => UUID_ONLY.test(String(p.id))) && !mcItems.some(p => String(p.id).startsWith('mp_'))),
+      `sample=${mcItems.slice(0, 3).map(p => p.id).join()}`);
+    assert('MC-03: The legacy memory handle mp_101 resolves against the store and 404s instead of editing a phantom',
+      !isLivePostgres || (await request('PUT', '/api/admin/master-catalog/mp_101', { masterName: 'phantom' }, mcAdmin)).status === 404,
+      'the old memory array can no longer be written through the API');
+
+    const mcName = `MC Probe ${mcStamp}`;
+    const mcCreate = await request('POST', '/api/admin/master-catalog', {
+      masterName: mcName, category: 'Grains', unit: 'kg', packSize: '1 kg',
+      imageUrl: 'https://cdn.nabin.in/mc/probe.png', pricingModel: 'FIXED_PRICE'
+    }, mcAdmin);
+    const mcId = mcCreate.data?.product?.id;
+    assert('MC-04: A created catalogue product returns a persisted row (a UUID when live)',
+      mcCreate.status === 200 && mcCreate.data.success === true && !!mcId
+      && (!isLivePostgres || UUID_ONLY.test(String(mcId || ''))),
+      `status=${mcCreate.status} id=${mcId} body=${JSON.stringify(mcCreate.data).slice(0, 120)}`);
+
+    const mcSeen = (await request('GET', '/api/admin/master-catalog', null, mcAdmin)).data?.masterProducts || [];
+    const mcStored = isLivePostgres && supabaseAdmin
+      ? (await supabaseAdmin.from('master_grocery_catalog').select(mcCols).eq('id', mcId).maybeSingle()).data
+      : null;
+    assert('MC-05: The new product is both listed by the API and physically present in master_grocery_catalog',
+      mcSeen.some(p => p.id === mcId) && (!mcStored || mcStored.name === mcName),
+      `listed=${mcSeen.some(p => p.id === mcId)} row=${JSON.stringify(mcStored || {}).slice(0, 120)}`);
+
+    const mcEdit = await request('PUT', `/api/admin/master-catalog/${mcId}`, { masterName: `${mcName} v2` }, mcAdmin);
+    const mcEditedRow = isLivePostgres && supabaseAdmin
+      ? (await supabaseAdmin.from('master_grocery_catalog').select('name').eq('id', mcId).maybeSingle()).data
+      : null;
+    assert('MC-06: An edit writes through — the API returns the new name and PostgreSQL holds it',
+      mcEdit.status === 200 && mcEdit.data.product.masterName === `${mcName} v2`
+      && (!mcEditedRow || mcEditedRow.name === `${mcName} v2`),
+      `status=${mcEdit.status} name=${mcEdit.data && mcEdit.data.product && mcEdit.data.product.masterName}`);
+
+    const mcDelete = await request('DELETE', `/api/admin/master-catalog/${mcId}`, null, mcAdmin);
+    const mcGoneFromList = !(await request('GET', '/api/admin/master-catalog', null, mcAdmin)).data?.masterProducts?.some(p => p.id === mcId);
+    const mcRowAfter = isLivePostgres && supabaseAdmin
+      ? (await supabaseAdmin.from('master_grocery_catalog').select('is_active').eq('id', mcId).maybeSingle()).data
+      : null;
+    assert('MC-07: A delete is a durable soft delete — retired from the active list, row kept inactive (no cascade)',
+      mcDelete.status === 200 && mcDelete.data.success === true && mcGoneFromList
+      && (!mcRowAfter || mcRowAfter.is_active === false),
+      `delete=${mcDelete.status} gone=${mcGoneFromList} isActive=${mcRowAfter && mcRowAfter.is_active}`);
+
+    // Reap the probe row so repeated runs do not accumulate catalogue fixtures.
+    if (isLivePostgres && supabaseAdmin && mcId) {
+      await supabaseAdmin.from('master_grocery_catalog').delete().eq('id', mcId);
+    }
+
+    // --- 42. MODULE 39: The preflight allows the headers the routes actually read ---
+    //
+    // Six routes take the idempotency key under its canonical `Idempotency-Key` spelling
+    // before the `X-` form (ride and parcel booking, grocery and food checkout, offer
+    // acceptance, coupon redemption), and the ledger and dispatch procedures deduplicate
+    // on the value it carries. A browser asks permission for every non-simple header before
+    // it sends one, so a header missing from the CORS allow-list never reaches the server —
+    // the double-booking protection is unreachable from the web while Node and Flutter
+    // clients, which never preflight, sail past the gap. No ordinary API assertion can see
+    // this, so these checks speak the preflight itself.
+    console.log('\n--- 42. MODULE 39: CORS Preflight Covers The Documented Request Headers ---');
+    const corsPreflight = (requestHeaders, pathName = '/api/customer/book-ride') => request('OPTIONS', pathName, null, {
+      'Origin': 'https://admin.nabin.in',
+      'Access-Control-Request-Method': 'POST',
+      'Access-Control-Request-Headers': requestHeaders
+    });
+    const allowedSet = (res) => new Set(String((res.headers || {})['access-control-allow-headers'] || '')
+      .split(',').map(h => h.trim().toLowerCase()).filter(Boolean));
+
+    const corsBooking = await corsPreflight('content-type,authorization,idempotency-key');
+    const bookingAllowed = allowedSet(corsBooking);
+    assert('CORS-01: a booking preflight asking for Idempotency-Key is granted it',
+      corsBooking.status === 204 && bookingAllowed.has('idempotency-key'),
+      `status=${corsBooking.status} allowed=${[...bookingAllowed].join(',')}`);
+    assert('CORS-02: every header that was allowed before stays allowed (the list was widened, not rewritten)',
+      ['content-type', 'authorization', 'x-request-id', 'x-idempotency-key', 'x-app-version', 'x-device-id', 'if-match', 'if-none-match']
+        .every(h => bookingAllowed.has(h)),
+      `allowed=${[...bookingAllowed].join(',')}`);
+    const corsProbe = await corsPreflight('content-type,x-not-a-nabin-header');
+    assert('CORS-03: the list is a policy and not an echo — a header the API does not take is still refused',
+      corsProbe.status === 204 && !allowedSet(corsProbe).has('x-not-a-nabin-header')
+      && allowedSet(corsProbe).size > 0,
+      `allowed=${[...allowedSet(corsProbe)].join(',')}`);
+    const corsParcel = await corsPreflight('content-type,idempotency-key', '/api/customer/book-parcel');
+    assert('CORS-04: the grant is global, so the other route that reads the key is reachable from a browser too',
+      corsParcel.status === 204 && allowedSet(corsParcel).has('idempotency-key'),
+      `status=${corsParcel.status} allowed=${[...allowedSet(corsParcel)].join(',')}`);
+    const corsOrigin = await request('OPTIONS', '/api/customer/book-ride', null, {
+      'Origin': 'https://evil.example.com',
+      'Access-Control-Request-Method': 'POST',
+      'Access-Control-Request-Headers': 'content-type,idempotency-key'
+    });
+    assert('CORS-05: widening the header list did not widen the origin policy — an unknown origin is still blocked',
+      corsOrigin.status >= 400 || !String((corsOrigin.headers || {})['access-control-allow-origin'] || '')
+        .includes('evil.example.com'),
+      `status=${corsOrigin.status} allowOrigin=${(corsOrigin.headers || {})['access-control-allow-origin']}`);
+
+    // --- 43. MODULE 40: The promotion list can be paged and searched ---
+    //
+    // `GET /api/admin/promotions` answered the newest 50 rows with no total and no search,
+    // so on a store that has outgrown one page an older coupon was simply invisible: an
+    // operator could not find it, and a list assertion could not tell "this coupon does not
+    // exist" from "this coupon is on page two". The route now takes limit/offset/search and
+    // reports the total the page was cut from.
+    console.log('\n--- 43. MODULE 40: Promotion List Paging, Search And Total ---');
+    const plAdmin = { 'Authorization': `Bearer ${superToken}` };
+    // A run-scoped prefix no earlier fixture can collide with: the collision-free search
+    // assertions below count rows, so a recycled prefix would silently change the answer.
+    const plPrefix = `PL${fixtureSuffix()}${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
+    const plCodes = [`${plPrefix}_A`, `${plPrefix}_B`];
+    const plCreated = [];
+    for (const code of plCodes) {
+      plCreated.push(await request('POST', '/api/admin/promotions', {
+        code, name: `Paging Probe ${code}`, description: 'MODULE 40 paging fixture',
+        discountType: 'PERCENTAGE', discountValue: 15, maxDiscount: 60,
+        minOrderAmount: 100, serviceType: 'ALL', totalUsageLimit: 10, perUserLimit: 1
+      }, plAdmin));
+    }
+    assert('PL-00: the two probe coupons this module pages through were created',
+      plCreated.every(r => r.status === 200 && r.data && r.data.success === true),
+      plCreated.map(r => `${r.status}:${JSON.stringify(r.data || {}).slice(0, 80)}`).join(' | '));
+
+    const plAll = await request('GET', `/api/admin/promotions?search=${plPrefix}&limit=100`, null, plAdmin);
+    const plAllCodes = (plAll.data.promotions || []).map(p => p.code).sort();
+    assert('PL-01: a search returns exactly the matching coupons and the total says how many matched',
+      plAll.status === 200 && plAll.data.success === true && plAll.data.total === 2
+      && plAllCodes.join(',') === [...plCodes].sort().join(','),
+      `status=${plAll.status} total=${plAll.data.total} codes=${plAllCodes.join(',')}`);
+
+    const plPage1 = await request('GET', `/api/admin/promotions?search=${plPrefix}&limit=1&offset=0`, null, plAdmin);
+    const plRow1 = (plPage1.data.promotions || [])[0];
+    assert('PL-02: a one-row page returns one row, the whole total, and admits more rows exist',
+      plPage1.status === 200 && (plPage1.data.promotions || []).length === 1 && plRow1
+      && plPage1.data.total === 2 && plPage1.data.hasMore === true
+      && plPage1.data.limit === 1 && plPage1.data.offset === 0,
+      `rows=${(plPage1.data.promotions || []).length} total=${plPage1.data.total} hasMore=${plPage1.data.hasMore} limit=${plPage1.data.limit}`);
+
+    const plPage2 = await request('GET', `/api/admin/promotions?search=${plPrefix}&limit=1&offset=1`, null, plAdmin);
+    const plRow2 = (plPage2.data.promotions || [])[0];
+    assert('PL-03: the next offset returns the other coupon once — no row twice, no row skipped — and is the last page',
+      (plPage2.data.promotions || []).length === 1 && plRow2 && plRow1
+      && plRow2.code !== plRow1.code && plPage2.data.hasMore === false && plPage2.data.total === 2,
+      `page1=${plRow1 && plRow1.code} page2=${plRow2 && plRow2.code} hasMore=${plPage2.data.hasMore}`);
+
+    const plPast = await request('GET', `/api/admin/promotions?search=${plPrefix}&limit=1&offset=9`, null, plAdmin);
+    assert('PL-04: an offset past the end is an empty page with the total still intact',
+      plPast.status === 200 && Array.isArray(plPast.data.promotions) && plPast.data.promotions.length === 0
+      && plPast.data.total === 2 && plPast.data.hasMore === false,
+      `rows=${(plPast.data.promotions || []).length} total=${plPast.data.total} hasMore=${plPast.data.hasMore}`);
+
+    const plNone = await request('GET', `/api/admin/promotions?search=${plPrefix}ZZNONE&limit=100`, null, plAdmin);
+    assert('PL-05: a coupon that was never issued reads as absent (total 0), not as "somewhere off this page"',
+      plNone.status === 200 && plNone.data.success === true && plNone.data.total === 0
+      && (plNone.data.promotions || []).length === 0 && plNone.data.hasMore === false,
+      `status=${plNone.status} total=${plNone.data.total}`);
+
+    const plUnderscore = await request('GET', `/api/admin/promotions?search=${plCodes[0]}&limit=100`, null, plAdmin);
+    assert('PL-06: searching a code that contains an underscore finds that code (the wildcard stays literal)',
+      plUnderscore.status === 200 && plUnderscore.data.total === 1
+      && (plUnderscore.data.promotions || [])[0]?.code === plCodes[0],
+      `total=${plUnderscore.data.total} codes=${(plUnderscore.data.promotions || []).map(p => p.code).join(',')}`);
+
+    const plSyntax = await request('GET', `/api/admin/promotions?search=${plCodes[0]}%2C%25%28%2A&limit=100`, null, plAdmin);
+    assert('PL-07: syntax characters in a term are data — they neither re-shape the query nor hide the coupon',
+      plSyntax.status === 200 && plSyntax.data.success === true && plSyntax.data.total === 1
+      && (plSyntax.data.promotions || [])[0]?.code === plCodes[0],
+      `status=${plSyntax.status} total=${plSyntax.data.total} codes=${(plSyntax.data.promotions || []).map(p => p.code).join(',')}`);
+
+    const plJunk = await request('GET', `/api/admin/promotions?search=${encodeURIComponent('%,(*)|')}&limit=100`, null, plAdmin);
+    assert('PL-08: a term made only of syntax answers no rows rather than the whole table',
+      plJunk.status === 200 && plJunk.data.success === true && plJunk.data.total === 0
+      && (plJunk.data.promotions || []).length === 0,
+      `status=${plJunk.status} total=${plJunk.data.total} body=${JSON.stringify(plJunk.data).slice(0, 120)}`);
+
+    const plDefault = await request('GET', '/api/admin/promotions', null, plAdmin);
+    const plDefRows = (plDefault.data.promotions || []).length;
+    assert('PL-09: the unpaged default keeps its shape and now states when the page is a slice of more rows',
+      plDefault.status === 200 && Array.isArray(plDefault.data.promotions)
+      && typeof plDefault.data.total === 'number' && plDefault.data.total >= plDefRows
+      && plDefault.data.hasMore === (plDefault.data.total > plDefRows),
+      `rows=${plDefRows} total=${plDefault.data.total} hasMore=${plDefault.data.hasMore}`);
+
+    const plClamp = await request('GET', `/api/admin/promotions?search=${plPrefix}&limit=5000&offset=-5`, null, plAdmin);
+    assert('PL-10: a wild page request is clamped to a page the store will actually serve',
+      plClamp.status === 200 && plClamp.data.limit <= 100 && plClamp.data.offset === 0
+      && (plClamp.data.promotions || []).length === 2,
+      `limit=${plClamp.data.limit} offset=${plClamp.data.offset} rows=${(plClamp.data.promotions || []).length}`);
+
+    // Reap the probe coupons. This module exists partly because fixture rows accumulate in
+    // this table, so it must not add to the pile it is measuring.
+    if (isLivePostgres && supabaseAdmin) {
+      await supabaseAdmin.from('promotions').delete().in('code', plCodes);
+    }
+    const plReaped = await request('GET', `/api/admin/promotions?search=${plPrefix}&limit=100`, null, plAdmin);
+    assert('PL-TEARDOWN: the coupons this module created are gone, so the store returns to its baseline',
+      plReaped.data.total === 0,
+      `remaining=${plReaped.data.total} codes=${(plReaped.data.promotions || []).map(p => p.code).join(',')}`);
   } catch (err) {
     console.error('Fatal Test Suite Exception:', err);
     failed++;

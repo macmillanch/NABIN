@@ -5,6 +5,13 @@ import '../../../../core/theme/restaurant_theme.dart';
 import '../../../../core/network/nabin_api_service.dart';
 import '../../../../core/network/session_manager.dart';
 
+/// Whether a list on this screen has actually been fetched.
+///
+/// `failed` is kept distinct from `empty` on purpose: "we could not reach the platform" and
+/// "you have no items yet" ask for different sentences, and collapsing them is how an outage
+/// gets rendered to a merchant as an empty store.
+enum _ListState { loading, ready, failed }
+
 class RestaurantMainShell extends StatefulWidget {
   const RestaurantMainShell({super.key});
 
@@ -14,12 +21,32 @@ class RestaurantMainShell extends StatefulWidget {
 
 class _RestaurantMainShellState extends State<RestaurantMainShell> {
   int _currentTab = 0; // 0: Dashboard, 1: Orders (KDS), 2: Menu/Inventory, 3: Analytics/Finance, 4: Profile
-  String _merchantMode = 'RESTAURANT'; // 'RESTAURANT' or 'GROCERY'
-  String _storeStatus = 'OPEN'; // 'OPEN', 'CLOSED', 'TEMPORARILY UNAVAILABLE'
-  String _ordersFilter = 'Active'; // 'Active' or 'History'
+
+  /// The services this merchant is actually authorized to operate, as the backend said.
+  ///
+  /// This used to be a local switch — `_merchantMode = 'RESTAURANT'` flipped by tapping a row
+  /// in the profile tab — which meant the app decided, on-device, whether you were a grocery
+  /// store. It was cosmetic, not a control (the server never saw it), and it was wrong in both
+  /// directions: a restaurant-only partner could appear to be running an instamart store, and a
+  /// genuine hybrid partner had no way to see both. Now it is a list the platform produced.
+  List<String> _services = const [];
+  String _merchantMode = 'RESTAURANT';
+
+  /// Read from the merchant's own record. There is no merchant open/close endpoint yet, so the
+  /// control below is deliberately non-interactive rather than a switch that only looks live.
+  bool? _storeIsOpen;
+  String _ordersFilter = 'Active';
   String _restaurantId = '';
 
+  Map<String, dynamic>? _profile;
+  bool _profileFailed = false;
+
   List<Map<String, dynamic>> _orders = [];
+
+  /// Menu state. `_menuItems` was once a hardcoded list of five dishes with Unsplash photos,
+  /// shown to every store that opened this screen — the menu tab was a simulator, not a view.
+  _ListState _menuState = _ListState.loading;
+  List<Map<String, dynamic>> _menuItems = const [];
 
   @override
   void initState() {
@@ -29,258 +56,115 @@ class _RestaurantMainShellState extends State<RestaurantMainShell> {
 
   Future<void> _initMerchant() async {
     final user = SessionManager.instance.currentUser;
-    if (user != null && user['restaurantId'] != null) {
-      _restaurantId = user['restaurantId'] as String;
-    } else if (!SessionManager.instance.isAuthenticated) {
-      // No authenticated session — redirect to login
-      if (mounted) {
-        context.go('/login');
-      }
-      return;
-    }
+    final fromSession = user?['restaurantId'] as String? ?? user?['id'] as String?;
+    _restaurantId = fromSession ?? '';
 
-    if (_restaurantId.isEmpty) return;
+    // Who this store is, and what it is allowed to sell: one authenticated read, no id sent.
+    final svc = await NabinApiService.getMerchantServices();
+    if (!mounted) return;
 
-    final res = await NabinApiService.getMerchantOrders(_restaurantId);
-    if (mounted) {
+    if (svc == null || svc['success'] != true) {
+      // A refusal or an outage is not "a store with no name". Say which one it was.
+      setState(() => _profileFailed = true);
+    } else {
+      final services = (svc['services'] as List?)?.map((e) => e.toString()).toList() ?? const [];
       setState(() {
-        if (res != null && res['success'] == true) {
-          _orders = List<Map<String, dynamic>>.from(res['orders'] ?? []);
-        }
+        _profile = svc['profile'] is Map
+            ? Map<String, dynamic>.from(svc['profile'] as Map)
+            : <String, dynamic>{};
+        _services = services;
+        _merchantMode = services.contains('RESTAURANT') ? 'RESTAURANT' : (services.isNotEmpty ? services.first : 'RESTAURANT');
+        _storeIsOpen = svc['isOpen'] is bool ? svc['isOpen'] as bool : null;
+        if (svc['merchantId'] != null) _restaurantId = svc['merchantId'].toString();
       });
     }
+
+    await _loadOrders();
+    await _loadMenu();
   }
 
-  // Menu Catalog (Hardcoded for now)
-  final List<Map<String, dynamic>> _menuItems = [
-    {
-      'id': '1',
-      'name': 'Special Dum Biryani (Chicken)',
-      'category': 'Rice & Biryani',
-      'desc': 'Slow-cooked fragrant basmati rice with marinated chicken & royal saffron spices.',
-      'price': 220,
-      'inStock': true,
-      'isVeg': false,
-      'isRecommended': true,
-      'imageUrl': 'https://images.unsplash.com/photo-1563379091339-03b21ab4a4f8?w=600&q=80',
-    },
-    {
-      'id': '2',
-      'name': 'Paneer Tikka Butter Masala',
-      'category': 'Main Course',
-      'desc': 'Charcoal grilled cottage cheese simmered in velvety makhani gravy.',
-      'price': 180,
-      'inStock': true,
-      'isVeg': true,
-      'isRecommended': true,
-      'imageUrl': 'https://images.unsplash.com/photo-1631452180519-c014fe946bc7?w=600&q=80',
-    },
-    {
-      'id': '3',
-      'name': 'Garlic Butter Naan (2 Pcs)',
-      'category': 'Breads',
-      'desc': 'Crisp tandoori bread brushed with fresh garlic & golden butter.',
-      'price': 40,
-      'inStock': true,
-      'isVeg': true,
-      'isRecommended': false,
-      'imageUrl': 'https://images.unsplash.com/photo-1601050690597-df0568f70950?w=600&q=80',
-    },
-    {
-      'id': '4',
-      'name': 'Tandoori Malai Chaap Tikka',
-      'category': 'Starters',
-      'desc': 'Smoky soya chaap infused with cardamom cream and mint dip.',
-      'price': 160,
-      'inStock': true,
-      'isVeg': true,
-      'isRecommended': false,
-      'imageUrl': 'https://images.unsplash.com/photo-1599488615731-7e5c2823ff28?w=600&q=80',
-    },
-    {
-      'id': '5',
-      'name': 'Hot Gulab Jamun with Rabri',
-      'category': 'Desserts',
-      'desc': 'Melt-in-mouth milk dumplings served warm with rich thickened rabri.',
-      'price': 90,
-      'inStock': false,
-      'isVeg': true,
-      'isRecommended': true,
-      'imageUrl': 'https://images.unsplash.com/photo-1541781774459-bb2af2f05b55?w=600&q=80',
-    },
-  ];
-
-  // Incoming Order Modal Alert
-  void _showIncomingOrderDialog() {
-    int countdown = 45;
-    int selectedPrep = 20;
-    Timer? timer;
-
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (context, setModalState) {
-            timer ??= Timer.periodic(const Duration(seconds: 1), (t) {
-              if (countdown > 0) {
-                setModalState(() => countdown--);
-              } else {
-                t.cancel();
-                if (Navigator.of(ctx).canPop()) Navigator.of(ctx).pop();
-              }
-            });
-
-            return Dialog(
-              backgroundColor: RestaurantTheme.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20), side: const BorderSide(color: RestaurantTheme.border)),
-              insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Header
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(8),
-                              decoration: const BoxDecoration(color: RestaurantTheme.neonOrangeLight, shape: BoxShape.circle),
-                              child: const Icon(Icons.notifications_active, color: RestaurantTheme.neonOrange, size: 22),
-                            ),
-                            const SizedBox(width: 10),
-                            const Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text('NEW INCOMING ORDER', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: RestaurantTheme.neonOrange, letterSpacing: 1.0)),
-                                Text('#1043', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: RestaurantTheme.charcoal)),
-                              ],
-                            ),
-                          ],
-                        ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: RestaurantTheme.neonOrangeLight,
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: RestaurantTheme.neonOrange),
-                          ),
-                          child: Text('${countdown}s', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 15, color: RestaurantTheme.neonOrangeDark)),
-                        ),
-                      ],
-                    ),
-                    const Divider(height: 24, color: RestaurantTheme.border),
-
-                    // Customer & Items
-                    const Text('Customer: David K. • Home Delivery', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13, color: RestaurantTheme.charcoal)),
-                    const SizedBox(height: 10),
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: RestaurantTheme.lightBg,
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: RestaurantTheme.border),
-                      ),
-                      child: const Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('2x Special Dum Biryani', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5, color: RestaurantTheme.charcoal)),
-                          SizedBox(height: 4),
-                          Text('1x Paneer Butter Masala', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5, color: RestaurantTheme.charcoal)),
-                          SizedBox(height: 6),
-                          Text('Special Note: Please provide extra green mint chutney.', style: TextStyle(fontSize: 11.5, color: RestaurantTheme.neonOrangeDark, fontStyle: FontStyle.italic)),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-
-                    // Prep Time Selector
-                    const Text('Estimated Preparation Time:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: RestaurantTheme.secondaryText)),
-                    const SizedBox(height: 8),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [15, 20, 30, 45].map((m) {
-                        final isSel = selectedPrep == m;
-                        return ChoiceChip(
-                          label: Text('${m}m'),
-                          selected: isSel,
-                          selectedColor: RestaurantTheme.neonOrange,
-                          labelStyle: TextStyle(color: isSel ? Colors.white : RestaurantTheme.charcoal, fontWeight: FontWeight.bold),
-                          onSelected: (val) {
-                            if (val) setModalState(() => selectedPrep = m);
-                          },
-                        );
-                      }).toList(),
-                    ),
-                    const SizedBox(height: 20),
-
-                    // Buttons
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton(
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: RestaurantTheme.nonVegRed,
-                              side: const BorderSide(color: RestaurantTheme.nonVegRed),
-                              padding: const EdgeInsets.symmetric(vertical: 14),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                            ),
-                            onPressed: () {
-                              timer?.cancel();
-                              Navigator.of(ctx).pop();
-                            },
-                            child: const Text('Reject', style: TextStyle(fontWeight: FontWeight.w800)),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          flex: 2,
-                          child: ElevatedButton(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: RestaurantTheme.neonOrange,
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(vertical: 14),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                            ),
-                            onPressed: () {
-                              timer?.cancel();
-                              Navigator.of(ctx).pop();
-                              setState(() {
-                                _orders.insert(0, {
-                                  'id': '1043',
-                                  'customer': 'David K.',
-                                  'time': 'Just now',
-                                  'type': 'Delivery',
-                                  'status': 'ACCEPTED',
-                                  'items': [
-                                    {'name': 'Special Dum Biryani', 'qty': 2, 'done': false, 'notes': 'Extra raita'},
-                                    {'name': 'Paneer Butter Masala', 'qty': 1, 'done': false, 'notes': ''},
-                                  ],
-                                  'total': '₹620.00',
-                                  'pickupOtp': '5519',
-                                  'driver': 'Searching for nearby driver...',
-                                });
-                                _currentTab = 1;
-                              });
-                            },
-                            child: const Text('Accept Order', style: TextStyle(fontWeight: FontWeight.w900)),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        );
-      },
-    );
+  Future<void> _loadOrders() async {
+    if (_restaurantId.isEmpty) return;
+    final res = await NabinApiService.getMerchantOrders(_restaurantId);
+    if (!mounted) return;
+    if (res != null && res['success'] == true) {
+      setState(() => _orders = List<Map<String, dynamic>>.from(res['orders'] ?? []));
+    }
   }
+
+  /// The merchant's own catalogue rows — for a restaurant these ARE the menu items.
+  Future<void> _loadMenu() async {
+    setState(() => _menuState = _ListState.loading);
+    final res = await NabinApiService.getMerchantCatalog();
+    if (!mounted) return;
+    if (res == null) {
+      setState(() => _menuState = _ListState.failed);
+      return;
+    }
+    if (res['success'] != true) {
+      setState(() => _menuState = _ListState.failed);
+      return;
+    }
+    setState(() {
+      _menuItems = List<Map<String, dynamic>>.from((res['products'] ?? res['items'] ?? []) as List);
+      _menuState = _ListState.ready;
+    });
+  }
+
+  /// Switch between services the platform has actually granted this merchant.
+  ///
+  /// The header switcher used to write `_merchantMode` from a tap with no check at all, so any
+  /// partner could put their own app into "Grocery" mode regardless of what they sell. That
+  /// was never a control — the server did not consult it — and it was misleading in the one
+  /// way that matters: a restaurant partner could believe they were looking at a grocery
+  // console, and the writes they then attempted were refused. The list below is the backend's
+  /// answer, and nothing here pretends to be entitled to a service it was not granted.
+  void _selectService(String mode) {
+    final granted = mode == 'RESTAURANT' ? _services.contains('RESTAURANT') : _services.contains('INSTAMART');
+    if (!granted) {
+      final label = mode == 'RESTAURANT' ? 'Restaurant' : 'Instamart';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('This merchant account is not authorized for $label on NABIN.'),
+          duration: const Duration(seconds: 3),
+        ),
+      );
+      return;
+    }
+    setState(() => _merchantMode = mode);
+  }
+
+  /// Derived from the merchant record, never from a tap.
+  ///
+  /// `_storeStatus` used to be a plain string initialised to `'OPEN'` and rewritten by
+  /// `onTap: () => setState(...)`, so pressing "Closed" told the partner they were closed
+  /// while the platform — and every customer searching for them — still saw an open store.
+  /// Nothing was sent and nothing was stored. Until there is a merchant open/close endpoint,
+  /// the real value is displayed and the control is explicit about not being live.
+  String get _storeStatus {
+    if (_storeIsOpen == null) return 'UNKNOWN';
+    return _storeIsOpen! ? 'OPEN' : 'CLOSED';
+  }
+
+  String get _displayName {
+    final name = _profile?['name'];
+    return (name == null || name.toString().trim().isEmpty) ? '' : name.toString().trim();
+  }
+
+  // The menu is the merchant's own catalogue rows, loaded in `_loadMenu()` from
+  // `GET /api/merchant/catalog`. What used to sit here was a `final` list of five dishes —
+  // biryani, paneer tikka, naan, chaap, gulab jamun — with prices, descriptions and Unsplash
+  // photo URLs, offered to every restaurant that opened the app. A partner could not tell
+  // their own menu from a prop, and toggling availability on those rows would have flipped
+  // stock on items the platform never priced.
+
+  // The "NEW INCOMING ORDER" dialog that lived here was a generator, not a view. It showed
+  // order `#1043`, a customer named "David K.", two line items and a note nobody had written,
+  // and its Accept button inserted all of that into `_orders` locally. It was wired to the
+  // AppBar notification bell and to a button labelled "Simulate Order", so a partner could
+  // manufacture a booked order that the platform had never created and then cook food for it.
+  // Incoming orders arrive from the merchant order read; nothing here may invent one.
+
 
   // 1. DASHBOARD TAB
   Widget _buildDashboardTab() {
@@ -421,10 +305,17 @@ class _RestaurantMainShellState extends State<RestaurantMainShell> {
     final isSelected = (_storeStatus == statusKey) || (statusKey == 'PAUSED' && _storeStatus == 'TEMPORARILY UNAVAILABLE');
     return Expanded(
       child: InkWell(
+        // Tapping used to rewrite a Dart string, which showed the partner whichever state they
+        // had just pressed while the platform — and every customer searching this store — kept
+        // showing the stored one. There is no merchant open/close endpoint yet, so this reports
+        // that plainly instead of mimicking a control that works.
         onTap: () {
-          setState(() {
-            _storeStatus = statusKey == 'PAUSED' ? 'TEMPORARILY UNAVAILABLE' : statusKey;
-          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Store open/close is set on NABIN and is not changeable from this app yet.'),
+              duration: Duration(seconds: 3),
+            ),
+          );
         },
         borderRadius: BorderRadius.circular(8),
         child: Container(
@@ -517,6 +408,9 @@ class _RestaurantMainShellState extends State<RestaurantMainShell> {
                   ),
                 ],
               ),
+              // Was a button labelled "Simulate Order" that opened a dialog inventing order
+              // `#1043` for a customer called David K. A merchant pressing it saw an order
+              // nobody had placed. This one re-reads the real order list.
               ElevatedButton.icon(
                 style: ElevatedButton.styleFrom(
                   backgroundColor: RestaurantTheme.neonOrange,
@@ -525,9 +419,9 @@ class _RestaurantMainShellState extends State<RestaurantMainShell> {
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                   elevation: 0,
                 ),
-                icon: const Icon(Icons.flash_on, size: 14, color: Colors.white),
-                label: const Text('Simulate Order', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-                onPressed: _showIncomingOrderDialog,
+                icon: const Icon(Icons.refresh_rounded, size: 14, color: Colors.white),
+                label: const Text('Refresh', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                onPressed: _loadOrders,
               ),
             ],
           ),
@@ -811,20 +705,56 @@ class _RestaurantMainShellState extends State<RestaurantMainShell> {
                 ),
                 icon: const Icon(Icons.add, size: 16, color: Colors.white),
                 label: const Text('Add Dish', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                onPressed: () {},
+                // There is no merchant-facing "create a menu item" endpoint, so this used to be
+                // a button that opened nothing. Say so rather than look like a working control.
+                onPressed: () {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Adding dishes is done on the NABIN merchant portal, not in this app.'),
+                      duration: Duration(seconds: 3),
+                    ),
+                  );
+                },
               ),
             ],
           ),
         ),
         const Divider(height: 1, color: RestaurantTheme.border),
-        Expanded(
-          child: ListView.builder(
-            padding: const EdgeInsets.all(16),
-            itemCount: _menuItems.length,
-            itemBuilder: (context, index) {
-              final item = _menuItems[index];
-              final inStock = item['inStock'] as bool;
-              final isVeg = item['isVeg'] as bool;
+        Expanded(child: _buildMenuList()),
+      ],
+    );
+  }
+
+  /// Loading / failed / empty / real rows. Never a fabricated dish.
+  Widget _buildMenuList() {
+    if (_menuState == _ListState.loading) {
+      return const Center(child: Padding(
+        padding: EdgeInsets.all(32),
+        child: CircularProgressIndicator(color: RestaurantTheme.neonOrange),
+      ));
+    }
+    if (_menuState == _ListState.failed) {
+      return _buildMenuMessage(
+        icon: Icons.cloud_off_rounded,
+        title: 'Menu unavailable',
+        body: 'NABIN could not read your catalogue. This is a connection problem, not an empty menu.',
+      );
+    }
+    if (_menuItems.isEmpty) {
+      return _buildMenuMessage(
+        icon: Icons.restaurant_menu_rounded,
+        title: 'No dishes listed yet',
+        body: 'This store has no menu items on NABIN. Dishes added on the merchant portal appear here.',
+      );
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: _menuItems.length,
+      itemBuilder: (context, index) {
+        final row = _menuItems[index];
+        final item = _normalizeMenuItem(row);
+        final inStock = item['inStock'] as bool;
+        final isVeg = item['isVeg'] as bool;
 
               return Container(
                 margin: const EdgeInsets.only(bottom: 14),
@@ -966,22 +896,30 @@ class _RestaurantMainShellState extends State<RestaurantMainShell> {
                                     value: inStock,
                                     activeThumbColor: RestaurantTheme.neonOrange,
                                     onChanged: (val) async {
-                                      // Optimistic update
-                                      setState(() => item['inStock'] = val);
-                                      
+                                      // Written back onto the fetched row, not onto a copy:
+                                      // `_MenuRow` is a read view over `_menuItems[index]`, and
+                                      // the map is what the list re-renders from.
+                                      final row = _menuItems[index];
+                                      final previous = row['is_available'];
+                                      setState(() => row['is_available'] = val);
+
+                                      // Resolved before the gap: `context` after an await is a
+                                      // use-after-unmount waiting to happen, and the mounted
+                                      // check below is on the State, not on this BuildContext.
+                                      final messenger = ScaffoldMessenger.of(context);
+
                                       final res = await NabinApiService.toggleMenuItem(
                                         restaurantId: _restaurantId,
                                         itemId: item['id'] as String,
                                         inStock: val,
                                       );
-                                      
-                                      if (!context.mounted) return;
-                                      
+
+                                      if (!mounted) return;
+
                                       if (res == null || res['success'] != true) {
-                                        // Revert on failure
-                                        setState(() => item['inStock'] = !val);
-                                        ScaffoldMessenger.of(context).showSnackBar(
-                                          SnackBar(content: Text('Failed to update stock: ${res?['error'] ?? 'Unknown'}')),
+                                        setState(() => row['is_available'] = previous);
+                                        messenger.showSnackBar(
+                                          SnackBar(content: Text('NABIN refused the change: ${res?['error'] ?? 'no response from the platform'}')),
                                         );
                                       }
                                     },
@@ -997,77 +935,108 @@ class _RestaurantMainShellState extends State<RestaurantMainShell> {
                 ),
               );
             },
-          ),
-        ),
-      ],
     );
+  }
+
+  Widget _buildMenuMessage({required IconData icon, required String title, required String body}) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 38, color: RestaurantTheme.secondaryText),
+            const SizedBox(height: 12),
+            Text(title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: RestaurantTheme.charcoal)),
+            const SizedBox(height: 6),
+            Text(body, textAlign: TextAlign.center, style: const TextStyle(fontSize: 12.5, color: RestaurantTheme.secondaryText)),
+            const SizedBox(height: 14),
+            OutlinedButton(onPressed: _loadMenu, child: const Text('Try again')),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Maps one `products` row onto the keys this list renders.
+  ///
+  /// Deliberately tolerant of missing columns rather than casting: a real catalogue row has
+  /// `is_available` and `in_stock_quantity`, and has no notion of veg/non-veg at all, so the
+  /// previous `item['isVeg'] as bool` on a hand-written literal would have thrown the moment
+  /// the list came from the server. Absent values render as absent, never as a guess.
+  Map<String, dynamic> _normalizeMenuItem(Map<String, dynamic> row) {
+    final price = row['discount_price'] ?? row['price'];
+    return <String, dynamic>{
+      'id': (row['id'] ?? row['sku'] ?? '').toString(),
+      'name': (row['name'] ?? 'Untitled item').toString(),
+      'desc': (row['description'] ?? '').toString(),
+      'price': price is num ? price : num.tryParse('$price') ?? 0,
+      'category': (row['category'] ?? 'Menu').toString(),
+      'imageUrl': row['image_url']?.toString(),
+      'inStock': row['is_available'] == true,
+      'isVeg': row['is_veg'] == true,
+      'isRecommended': false,
+    };
   }
 
   // 4. FINANCE TAB
+  //
+  // This tab used to print a payout balance of ₹18,420.50, a settlement schedule, a bank
+  // account ending 1092, and three dated "PAID TO BANK" rows — all typed into the source, all
+  // shown to every restaurant that opened it. There is no merchant payouts or settlements
+  // endpoint on the backend at all, so there is nothing honest to render here yet; the numbers
+  // were not stale, they were invented. Reporting "not available" is the only correct state
+  // until that endpoint exists, and this screen must not become a statement about money.
   Widget _buildFinanceTab() {
-    return SingleChildScrollView(
+    return ListView(
       padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(18),
-            decoration: BoxDecoration(
-              color: RestaurantTheme.charcoal,
-              borderRadius: BorderRadius.circular(18),
-              boxShadow: [BoxShadow(color: RestaurantTheme.charcoal.withValues(alpha: 0.25), blurRadius: 10)],
-            ),
-            child: const Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('TOTAL PAYOUT BALANCE', style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w900, color: RestaurantTheme.neonOrange, letterSpacing: 0.5)),
-                SizedBox(height: 6),
-                Text('₹18,420.50', style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900, color: Colors.white)),
-                SizedBox(height: 6),
-                Text('Auto-settles daily at 08:00 AM to HDFC Bank (•••• 1092)', style: TextStyle(fontSize: 11.5, color: Color(0xFF94A3B8))),
-              ],
-            ),
+      children: [
+        Container(
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            color: RestaurantTheme.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: RestaurantTheme.border),
           ),
-          const SizedBox(height: 16),
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: RestaurantTheme.white,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: RestaurantTheme.border),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('Recent Daily Settlements', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14, color: RestaurantTheme.charcoal)),
-                const SizedBox(height: 12),
-                _buildSettlementRow('Yesterday (21 Aug)', '₹4,120.00', 'PAID TO BANK'),
-                _buildSettlementRow('20 Aug 2026', '₹5,890.00', 'PAID TO BANK'),
-                _buildSettlementRow('19 Aug 2026', '₹3,750.00', 'PAID TO BANK'),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSettlementRow(String date, String amount, String status) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Column(
+          child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(date, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: RestaurantTheme.charcoal)),
-              Text(status, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: RestaurantTheme.vegGreen)),
+              const Row(
+                children: [
+                  Icon(Icons.lock_clock_rounded, size: 18, color: RestaurantTheme.secondaryText),
+                  SizedBox(width: 8),
+                  Text('Payouts and settlements', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: RestaurantTheme.charcoal)),
+                ],
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                'Not available in this app yet.',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: RestaurantTheme.charcoal),
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                'NABIN has no merchant payout or settlement endpoint to read from, so this '
+                'screen shows no balance, no bank account and no settlement history rather than '
+                'a figure that would look like money you are owed.',
+                style: TextStyle(fontSize: 12.5, height: 1.4, color: RestaurantTheme.secondaryText),
+              ),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: () {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Payout history is not available from this app yet.'),
+                      duration: Duration(seconds: 3),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.help_outline_rounded, size: 16),
+                label: const Text('Why is this empty?'),
+              ),
             ],
           ),
-          Text(amount, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w900, color: RestaurantTheme.charcoal)),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
@@ -1084,16 +1053,34 @@ class _RestaurantMainShellState extends State<RestaurantMainShell> {
               borderRadius: BorderRadius.circular(16),
               border: Border.all(color: RestaurantTheme.border),
             ),
-            child: const Row(
+            child: Row(
               children: [
-                Icon(Icons.storefront_rounded, size: 36, color: RestaurantTheme.neonOrange),
-                SizedBox(width: 14),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Dilli Darbar Mughlai Kitchen', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: RestaurantTheme.charcoal)),
-                    Text('FSSAI: 1002001928491 • Verified Partner', style: TextStyle(fontSize: 11, color: RestaurantTheme.vegGreen, fontWeight: FontWeight.bold)),
-                  ],
+                const Icon(Icons.storefront_rounded, size: 36, color: RestaurantTheme.neonOrange),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // The store's own name from its merchant record, or nothing at all. This
+                      // row previously read "Dilli Darbar Mughlai Kitchen" with
+                      // "FSSAI: 1002001928491 • Verified Partner" under it — a business, a
+                      // food licence and a verification claim that belong to no one, shown to
+                      // every restaurant that signed in. `merchants` has no verification
+                      // column, so there is no badge to render here and none is implied.
+                      Text(
+                        _displayName.isNotEmpty
+                            ? _displayName
+                            : (_profileFailed ? 'Could not load your store profile' : 'Restaurant profile not configured'),
+                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: RestaurantTheme.charcoal),
+                      ),
+                      Text(
+                        _profile?['fssaiLicense']?.toString().trim().isNotEmpty == true
+                            ? 'FSSAI: ${_profile!['fssaiLicense']}'
+                            : 'No FSSAI licence on this merchant record',
+                        style: const TextStyle(fontSize: 11, color: RestaurantTheme.secondaryText, fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -1134,7 +1121,18 @@ class _RestaurantMainShellState extends State<RestaurantMainShell> {
         elevation: 0,
         leading: IconButton(
           icon: Icon(isRestaurant ? Icons.restaurant_rounded : Icons.storefront_rounded, color: primaryAccent),
-          onPressed: () {},
+          // Was `onPressed: () {}` — an icon button in the app bar that swallowed every tap.
+          // It now reports the identity and services the platform actually granted, which is
+          // what a partner reaching for the store icon is asking.
+          onPressed: () {
+            final services = _services.isEmpty ? 'none on record' : _services.join(', ');
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('${_displayName.isNotEmpty ? _displayName : 'This store'} — authorized services: $services'),
+                duration: const Duration(seconds: 3),
+              ),
+            );
+          },
         ),
         title: Row(
           mainAxisSize: MainAxisSize.min,
@@ -1165,8 +1163,14 @@ class _RestaurantMainShellState extends State<RestaurantMainShell> {
         centerTitle: true,
         actions: [
           IconButton(
+            // The bell used to open the fabricated "new order" dialog. It now re-reads the
+            // real order list and shows it, which is what a partner pressing it expects.
+            tooltip: 'Refresh orders',
             icon: Icon(Icons.notifications_active_rounded, color: primaryAccent),
-            onPressed: _showIncomingOrderDialog,
+            onPressed: () async {
+              await _loadOrders();
+              if (mounted) setState(() => _currentTab = 1);
+            },
           ),
         ],
         bottom: PreferredSize(
@@ -1185,7 +1189,7 @@ class _RestaurantMainShellState extends State<RestaurantMainShell> {
                 children: [
                   Expanded(
                     child: GestureDetector(
-                      onTap: () => setState(() => _merchantMode = 'RESTAURANT'),
+                      onTap: () => _selectService('RESTAURANT'),
                       child: AnimatedContainer(
                         duration: const Duration(milliseconds: 200),
                         padding: const EdgeInsets.symmetric(vertical: 6),
@@ -1215,7 +1219,7 @@ class _RestaurantMainShellState extends State<RestaurantMainShell> {
                   const SizedBox(width: 4),
                   Expanded(
                     child: GestureDetector(
-                      onTap: () => setState(() => _merchantMode = 'GROCERY'),
+                      onTap: () => _selectService('GROCERY'),
                       child: AnimatedContainer(
                         duration: const Duration(milliseconds: 200),
                         padding: const EdgeInsets.symmetric(vertical: 6),

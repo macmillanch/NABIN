@@ -1615,6 +1615,17 @@ class NabinDatabase {
     this.schoolChildRepo = new SchoolChildRepository(this);
     this.supportTicketRepo = new SupportTicketRepository(this);
     this.auditLogRepo = new AuditLogRepository(this);
+    // DS-2 dark store foundation. Two repositories for the two tables, plus the service that
+    // owns validation and ownership decisions. Routes must reach these only through
+    // db.darkStoreService, never through the repositories directly.
+    {
+      const DarkStoreRepository = require('./repositories/DarkStoreRepository');
+      const DarkStoreInventoryRepository = require('./repositories/DarkStoreInventoryRepository');
+      const DarkStoreService = require('./services/darkStoreService');
+      this.darkStoreRepo = new DarkStoreRepository(this);
+      this.darkStoreInventoryRepo = new DarkStoreInventoryRepository(this);
+      this.darkStoreService = new DarkStoreService(this);
+    }
     this.promotionRepo = new PromotionRepository(this);
     this.pricingRepo = new PricingRepository(this);
     this.notificationRepo = new NotificationRepository(this);
@@ -2879,31 +2890,222 @@ class NabinDatabase {
   }
 
   // --- Financial Ledger & Adjustments ---
-  getFinancialMetrics() {
-    const grossGtv = this.transactions
-      .filter(t => t.type === 'TRIP_EARNING' && t.paymentStatus === 'SUCCESS')
-      .reduce((sum, t) => sum + Math.abs(t.amount || 0), 0);
+  /**
+   * F1: every figure below is computed from the durable ledger, not from
+   * `this.transactions` / `this.settlements`.
+   *
+   * Those two arrays are seeded once from literals (see `this.transactions = [` and
+   * `this.settlements = [` in this constructor) and appended to by whatever this process
+   * happened to do. They are never re-read from PostgreSQL and never persisted, so the
+   * admin finance endpoint was reporting 4 in-memory rows as though they described a ledger
+   * holding thousands of transactions: reported driver earnings of 386.50 against 294,138.00
+   * actually booked, refunds of 0 against 59,305.00, and a number that resets to the seed on
+   * every restart and cannot see another process's money.
+   *
+   * The statuses below are the ones the schema actually contains: `driver_payouts.status`
+   * holds SETTLED/INITIATED, while the old memory filters looked for 'PENDING'/'PAID' and so
+   * matched nothing at all. Sums are taken with the platform's keyset walk because a single
+   * PostgREST select is capped at max_rows = 1000 — the same truncation that broke admin
+   * identity resolution — and an incomplete walk is a refusal, never a partial total.
+   */
+  /**
+   * F3: the driver settlement screen has to answer "who is owed money", so it is built
+   * from the authoritative `drivers` table rather than from this process's mirror.
+   *
+   * Two defects are fixed here and nothing else. Coverage: enumerating `db.drivers` hid any
+   * driver created after this process hydrated, so a driver with a real balance was simply
+   * absent from the screen. Authority: `walletBalance` came from the mirror, so it could be
+   * stale by whatever another process moved.
+   *
+   * It is a union, not a replacement. Mirror rows are kept even when no durable row exists
+   * (legacy seeded records), because dropping rows that callers can see today would be a
+   * silent contract change on a screen people act on. The `status` value keeps its original
+   * meaning - balance present or not - and is deliberately NOT mapped onto
+   * `driver_payouts.status`, which is a different concept. `upiId`, `bankAccount` and
+   * `todayEarnings` are left exactly as they were sourced: they have no verified durable
+   * contract, so inventing one here would be a new business rule.
+   */
+  async getDriverSettlements() {
+    const { isLivePostgres, supabaseAdmin } = require('./supabase');
+    if (!isLivePostgres || !supabaseAdmin) {
+      const err = new Error('Driver settlements are derived from the authoritative drivers table, '
+        + 'which is not available. Refusing to answer from the boot-time mirror.');
+      err.code = 'FINANCE_STORE_UNAVAILABLE';
+      err.status = 503;
+      err.statusCode = 503;
+      throw err;
+    }
+    const walk = await this.readAllRows(supabaseAdmin, {
+      table: 'drivers', select: 'id, name, wallet_balance'
+    });
+    if (!walk.complete) {
+      throw this.authStoreUnavailable(
+        new Error(walk.error || 'the driver directory could not be read completely'),
+        'the driver directory');
+    }
 
+    const byUuid = new Map();
+    for (const row of walk.rows) byUuid.set(String(row.id), row);
+
+    const rows = [];
+    const matched = new Set();
+    for (const d of (Array.isArray(this.drivers) ? this.drivers : [])) {
+      const uuid = (d.uuid && String(d.uuid))
+        || (this.driverRepo && typeof this.driverRepo.resolveUuid === 'function'
+          ? this.driverRepo.resolveUuid(d.id) : null);
+      const durable = uuid ? byUuid.get(String(uuid)) : null;
+      if (durable && uuid) matched.add(String(uuid));
+      // Durable wins whenever a durable row exists; legacy mirror-only records keep the
+      // value they have always reported.
+      const walletBalance = durable ? Number(durable.wallet_balance) : Number(d.walletBalance || 0);
+      rows.push({
+        driverId: d.id,
+        driverName: durable ? durable.name : d.name,
+        upiId: d.upiId,
+        bankAccount: d.bankAccount,
+        walletBalance,
+        todayEarnings: d.todayEarnings,
+        status: walletBalance > 0 ? 'PENDING' : 'SETTLED'
+      });
+    }
+
+    // Every durable driver this process never met, so the screen cannot understate liability.
+    for (const row of walk.rows) {
+      if (matched.has(String(row.id))) continue;
+      const walletBalance = Number(row.wallet_balance || 0);
+      rows.push({
+        driverId: row.id,
+        driverName: row.name,
+        walletBalance,
+        todayEarnings: null,
+        status: walletBalance > 0 ? 'PENDING' : 'SETTLED'
+      });
+    }
+    return rows;
+  }
+
+  /**
+   * F5: the endpoint named "ledger-double-entry" has to answer from the actual double-entry
+   * books. It used to return `ledgerEntries`, an in-memory array restored from a file and
+   * populated at boot from `.limit(500)` newest-first, while the durable journal holds
+   * thousands of headers - so the screen understated the ledger by design.
+   *
+   * One response element keeps the meaning the projection already had and no other: a journal
+   * TRANSACTION collapsed to its primary debit/credit pair. It is not a line-level row, and
+   * `amount` is `total_debit` (the balanced header total), never a sum of lines, so a
+   * two-legged entry can never be counted twice.
+   *
+   * Preserved deliberately:
+   *   - the FIRST DEBIT / FIRST CREDIT choice, ordered by line id so it is deterministic. No
+   *     current transaction has two legs on the same side, so nothing is dropped today; the
+   *     legacy fallback account codes are kept verbatim because callers already receive them
+   *     even though no durable row asserts them (11 single-leg entries rely on this).
+   *   - `currency: 'INR'`: a constant the projection always emitted. journal_transactions has
+   *     no currency column, so there is no durable value to read and none is invented.
+   *   - no status filter: POSTED, VOIDED and PENDING headers were all listed before, and
+   *     choosing a subset would be a new business rule.
+   *   - filter semantics: `account` matches EITHER side exactly, and `transactionId` matches
+   *     `transaction_id` OR `reference_id` exactly. reference_id is shared by many headers, so
+   *     that OR branch is load-bearing; matching stays exact rather than becoming a substring.
+   *
+   * An incomplete walk is a refusal, never a shorter ledger. `ledgerEntries` is left in place
+   * for its other consumers; nothing here reads it.
+   */
+  async getDoubleEntryLedger(filters = {}) {
+    const { isLivePostgres, supabaseAdmin } = require('./supabase');
+    if (!isLivePostgres || !supabaseAdmin) {
+      const err = new Error('The double-entry ledger is the durable journal (journal_transactions '
+        + 'and journal_lines), which is not available. Refusing to answer from the boot-time '
+        + 'ledgerEntries projection.');
+      err.code = 'FINANCE_STORE_UNAVAILABLE';
+      err.status = 503;
+      err.statusCode = 503;
+      throw err;
+    }
+
+    const walk = await this.readAllRows(supabaseAdmin, {
+      table: 'journal_transactions',
+      select: '*, journal_lines(*)'
+    });
+    if (!walk.complete) {
+      throw this.authStoreUnavailable(
+        new Error(walk.error || 'the durable journal could not be read completely'),
+        'the durable journal');
+    }
+
+    const entries = walk.rows.map(txn => {
+      const lines = [...(txn.journal_lines || [])]
+        .sort((a, b) => String(a.id).localeCompare(String(b.id)));
+      const debitLine = lines.find(l => l.entry_type === 'DEBIT');
+      const creditLine = lines.find(l => l.entry_type === 'CREDIT');
+      return {
+        id: txn.transaction_id || txn.id,
+        transactionId: txn.transaction_id || txn.id,
+        debitAccount: debitLine ? debitLine.account_code : 'CUSTOMER_RECEIVABLE',
+        creditAccount: creditLine ? creditLine.account_code : 'DRIVER_PAYABLE',
+        amount: parseFloat(txn.total_debit || 0),
+        currency: 'INR',
+        description: txn.description,
+        referenceId: txn.reference_id,
+        timestamp: txn.created_at
+      };
+    });
+
+    let list = entries;
+    const account = filters && filters.account;
+    const transactionId = filters && filters.transactionId;
+    if (account) {
+      list = list.filter(e => e.debitAccount === account || e.creditAccount === account);
+    }
+    if (transactionId) {
+      list = list.filter(e => e.transactionId === transactionId || e.referenceId === transactionId);
+    }
+    return [...list].sort((a, b) => String(b.timestamp || '').localeCompare(String(a.timestamp || '')));
+  }
+
+  async getFinancialMetrics() {
+    const { isLivePostgres, supabaseAdmin } = require('./supabase');
+    if (!isLivePostgres || !supabaseAdmin) {
+      const err = new Error('Financial metrics are derived from the authoritative PostgreSQL '
+        + 'ledger, which is not available. Refusing to answer from the in-memory projection.');
+      err.code = 'FINANCE_STORE_UNAVAILABLE';
+      err.status = 503;
+      err.statusCode = 503;
+      throw err;
+    }
+
+    const sumDurable = async (table, column, filters, what) => {
+      const select = `id, ${column}`;
+      const walk = await this.readAllRows(supabaseAdmin, {
+        table, select, filter: (q) => filters.reduce((acc, [col, val]) => acc.eq(col, val), q)
+      });
+      if (!walk.complete) throw this.authStoreUnavailable(
+        new Error(walk.error || `could not read every ${table} row`), what);
+      return Math.round(walk.rows.reduce((sum, r) => sum + (Number(r[column]) || 0), 0) * 100) / 100;
+    };
+
+    // Each figure is one leg of a balanced double entry, so summing a single account and
+    // entry type cannot double-count a transaction.
+    const driverEarnings = await sumDurable('journal_lines', 'amount',
+      [['account_code', 'DRIVER_EARNINGS_PAYABLE'], ['entry_type', 'CREDIT']],
+      'the driver earnings ledger lines');
+    const platformRevenue = await sumDurable('journal_lines', 'amount',
+      [['account_code', 'PLATFORM_COMMISSION_REVENUE'], ['entry_type', 'CREDIT']],
+      'the platform commission ledger lines');
+    const totalRefunds = await sumDurable('journal_lines', 'amount',
+      [['account_code', 'DISPUTE_REFUND_EXPENSE'], ['entry_type', 'DEBIT']],
+      'the dispute refund ledger lines');
+    const grossGtv = await sumDurable('jobs', 'final_total',
+      [['status', 'COMPLETED']], 'the completed job fares');
+    const pendingSettlements = await sumDurable('driver_payouts', 'amount',
+      [['status', 'INITIATED']], 'the initiated payouts');
+    const completedSettlements = await sumDurable('driver_payouts', 'amount',
+      [['status', 'SETTLED']], 'the settled payouts');
+
+    // totalCustomerPayments and the outstanding balance keep their existing definitions; only
+    // their source changed. outstandingBalances stays `earnings - settled`, which is now a
+    // figure the platform can actually stand behind.
     const totalCustomerPayments = grossGtv;
-    const driverEarnings = this.transactions
-      .filter(t => t.type === 'TRIP_EARNING')
-      .reduce((sum, t) => sum + (t.net || 0), 0);
-
-    const platformRevenue = this.transactions
-      .filter(t => t.type === 'TRIP_EARNING')
-      .reduce((sum, t) => sum + (t.commission || t.platformFee || 0), 0);
-
-    const totalRefunds = this.transactions
-      .filter(t => t.type === 'WALLET_REFUND')
-      .reduce((sum, t) => sum + (t.amount || 0), 0);
-
-    const pendingSettlements = this.settlements
-      .filter(s => s.status === 'PENDING')
-      .reduce((sum, s) => sum + (s.netPayout || 0), 0);
-
-    const completedSettlements = this.settlements
-      .filter(s => s.status === 'PAID')
-      .reduce((sum, s) => sum + (s.netPayout || 0), 0);
 
     return {
       grossGtv,
@@ -2913,11 +3115,11 @@ class NabinDatabase {
       totalRefunds,
       pendingSettlements,
       completedSettlements,
-      outstandingBalances: driverEarnings - completedSettlements
+      outstandingBalances: Math.round((driverEarnings - completedSettlements) * 100) / 100
     };
   }
 
-  async processFinancialAdjustment(targetType, targetId, direction, amount, reason, adminId, adminName) {
+  async processFinancialAdjustment(targetType, targetId, direction, amount, reason, adminId, adminName, options = {}) {
     const amt = Number(amount);
     if (!amt || amt <= 0) return { success: false, error: 'Invalid adjustment amount' };
     if (direction !== 'CREDIT' && direction !== 'DEBIT') {
@@ -2939,8 +3141,18 @@ class NabinDatabase {
     // credit adjustments -> 'WALLET_TOPUP'; debit adjustments -> 'DISPUTE_REFUND'
     // (both satisfy the journal_transactions category CHECK constraint).
     const category = direction === 'CREDIT' ? 'WALLET_TOPUP' : 'DISPUTE_REFUND';
-    const idempotencyKey = `admin_adj_${targetType}_${targetId}_${direction}_${amt}_${Date.now()}`;
+    // Scoped to the account whose money moves, not to the admin: the same retry of the same
+    // operation deduplicates even if a second admin re-submits it, and a key can never be
+    // replayed onto a different account's balance because the account is part of the identity.
+    // Deliberately NOT scoped to amount/direction/reason, because two legitimate goodwill
+    // credits of ₹100 for the same reason are two operations; without a caller key each
+    // request is one fresh effect (see moneyIdentity).
+    const { operationKey } = require('./services/moneyIdentity');
+    const identity = operationKey('admin_adjustment',
+      [targetType, targetEntity.uuid || targetId], options.idempotencyKey);
+    const idempotencyKey = identity.key;
     let authoritativeBalance = null;
+    let duplicate = false;
 
     if (this.ledgerRepo) {
       try {
@@ -2953,6 +3165,12 @@ class NabinDatabase {
           referenceId: `admin_adjustment_${adminId || 'unknown'}`,
           idempotencyKey
         });
+        if (result && result.status === 'IDEMPOTENT_SKIPPED') {
+          // PostgreSQL already booked this exact operation. Report the existing result and
+          // stop here: a retry must not append a second transaction row or a second audit
+          // entry either, or the trail claims money moved twice even though it did not.
+          duplicate = true;
+        }
         if (result && result.balance !== undefined) {
           authoritativeBalance = Number(result.balance);
         }
@@ -2971,6 +3189,17 @@ class NabinDatabase {
 
     if (authoritativeBalance !== null) {
       targetEntity.walletBalance = authoritativeBalance;
+    }
+
+    if (duplicate) {
+      return {
+        success: true,
+        duplicate: true,
+        idempotencyKey,
+        alreadyApplied: true,
+        updatedBalance: targetEntity.walletBalance,
+        error: undefined
+      };
     }
 
     const txn = {
@@ -3005,7 +3234,7 @@ class NabinDatabase {
       reason: reason || `Admin financial adjustment of ₹${amt}`
     });
 
-    return { success: true, transaction: txn, updatedBalance: targetEntity.walletBalance };
+    return { success: true, transaction: txn, updatedBalance: targetEntity.walletBalance, idempotencyKey };
   }
 
   // --- Promotions & Coupons Methods ---
@@ -3777,6 +4006,58 @@ class NabinDatabase {
     return null;
   }
 
+  /**
+   * PHASE 38: durable authority for the driver earnings read.
+   *
+   * `db.drivers` is a mirror hydrated at boot. Phase 37 instrumented five real completions
+   * inside the running server and proved the money-WRITING path is correct - one
+   * `adjust_wallet_atomic` credit each, `posted:true`, mirror and durable agreeing immediately
+   * afterwards. What is wrong is the read: a long-lived process answers from a record that can
+   * lag durable by a settlement (EARN-13: mirror 1022 vs durable 1111) or lead it on the payout
+   * columns (EARN-24: the API returned a per-run `rajesh.verified.m4.<ms>@okhdfcbank` while
+   * `drivers.verified_upi_id` is `rajesh.kumar@okhdfcbank`).
+   *
+   * This moves no money and changes no calculation - it re-reads the columns PostgreSQL owns.
+   * It deliberately mirrors the existing re-sync precedent just below (both the camelCase mirror
+   * key and the snake_case field are set). Semantics follow Owner Decision 11 /
+   * `hydration_fallback_test.js` HYD-05: durable when the store answers, cached when it cannot,
+   * and never a throw for a read that merely could not be resolved - so no endpoint that calls
+   * this gains a new failure mode.
+   */
+  async reconcileDriverFromDurable(driver) {
+    if (!driver) return driver;
+    const { isLivePostgres, supabaseAdmin } = require('./supabase');
+    if (!isLivePostgres || !supabaseAdmin) return driver;
+
+    const targetUuid = this.driverRepo && typeof this.driverRepo.resolveUuid === 'function'
+      ? this.driverRepo.resolveUuid(driver.id) : null;
+    const lookup = targetUuid || driver.uuid || null;
+    if (!lookup) return driver;
+
+    let data = null, error = null;
+    try {
+      const read = await supabaseAdmin.from('drivers')
+        .select('wallet_balance,payout_upi_verified,verified_upi_id,pending_upi_id,upi_cooling_until')
+        .eq('id', lookup).maybeSingle();
+      data = read.data; error = read.error;
+    } catch (e) { error = e; }
+    // No durable row, or no answer: keep the cached record rather than reporting a zero.
+    if (error || !data) return driver;
+
+    if (data.wallet_balance !== null && data.wallet_balance !== undefined) {
+      driver.walletBalance = Number(data.wallet_balance);
+    }
+    driver.payoutUpiVerified = Boolean(data.payout_upi_verified);
+    driver.payout_upi_verified = data.payout_upi_verified;
+    driver.verifiedUpiId = data.verified_upi_id;
+    driver.verified_upi_id = data.verified_upi_id;
+    driver.pendingUpiId = data.pending_upi_id;
+    driver.pending_upi_id = data.pending_upi_id;
+    driver.upiCoolingUntil = data.upi_cooling_until;
+    driver.upi_cooling_until = data.upi_cooling_until;
+    return driver;
+  }
+
   async updateJobStatus(jobId, status, driverId = null) {
     const job = this.getJob(jobId);
     if (!job) return null;
@@ -3937,7 +4218,7 @@ class NabinDatabase {
     return job;
   }
 
-  async recordPayout(driverId, amount) {
+  async recordPayout(driverId, amount, _ignoredDestination, options = {}) {
     let driver = this.driverRepo ? this.driverRepo.findById(driverId) : this.getDriver(driverId);
     if (!driver && this.driverRepo) {
       driver = await this.driverRepo.findByIdAsync(driverId);
@@ -3969,6 +4250,13 @@ class NabinDatabase {
       }
     }
 
+    // F4: an omitted amount means "settle the driver's full available wallet" - the admin
+    // settlement contract stated in the payout route. It is resolved HERE, from the durable
+    // row refreshed just above, because a route must not read a mirror number to decide how
+    // much money to move. The driver-facing /api/driver/payout route requires a validated
+    // positive amount before it ever calls this, so it can never reach this default.
+    if (amount === undefined || amount === null) amount = driver.walletBalance;
+    
     if (!driver.userId && !driver.user_id) {
       return {
         success: false,
@@ -4010,7 +4298,25 @@ class NabinDatabase {
       return { success: false, error: 'Insufficient wallet balance', code: 'INSUFFICIENT_BALANCE' };
     }
 
-    const payoutKey = `payout_${driver.id}_${Date.now()}`;
+    // The identity of THIS payout, not of the moment it was submitted.
+    //
+    // `payout_${driver.id}_${Date.now()}` failed as an idempotency identity in both
+    // directions: a retry after a lost response landed in a later millisecond, got a new key,
+    // and paid the driver twice; two genuinely different payouts in the same millisecond got
+    // the SAME key and collided on `driver_payouts.payout_id`, which is UNIQUE — on an insert
+    // whose error was never checked, so the ledger had already debited the wallet while no
+    // payout record existed. The durable barriers (`driver_payouts.idempotency_key`,
+    // `driver_payouts.payout_id`, `journal_transactions.idempotency_key`, all UNIQUE) were
+    // always in place; they simply had nothing stable to compare.
+    //
+    // Scoped to the resolved driver uuid, so a key one partner presents cannot address
+    // another partner's money. This is identity, not authorisation: the route's bearer-token
+    // check and the cooling/KYC gates above still decide whether the caller may be paid.
+    const { operationKey, stableRecordId } = require('./services/moneyIdentity');
+    const targetUuid = this.driverRepo?.resolveUuid(driver.id) || driver.uuid || driver.id;
+    const identity = operationKey('driver_payout', [targetUuid], options.idempotencyKey);
+    const payoutKey = identity.key;
+    const payoutRecordId = stableRecordId('PO', payoutKey);
 
     if (this.ledgerRepo) {
       const res = await this.ledgerRepo.adjustWallet({
@@ -4027,14 +4333,33 @@ class NabinDatabase {
       if (res && res.balance !== undefined) {
         driver.walletBalance = Number(res.balance);
       }
+      if (res && res.status === 'IDEMPOTENT_SKIPPED') {
+        // This exact payout is already booked. Report the existing result and stop: no second
+        // payout row, no second transaction entry. Re-read the durable balance for the same
+        // reason as below — the skipped path returns without moving money.
+        if (isLivePostgres && supabaseAdmin && targetUuid) {
+          const cur = await supabaseAdmin.from('drivers').select('wallet_balance')
+            .eq('id', targetUuid).maybeSingle();
+          if (!cur.error && cur.data && cur.data.wallet_balance !== null) {
+            driver.walletBalance = Number(cur.data.wallet_balance);
+          }
+        }
+        return {
+          success: true,
+          duplicate: true,
+          alreadyApplied: true,
+          payoutKey,
+          balance: driver.walletBalance,
+          verifiedUpiId: driver.verifiedUpiId
+        };
+      }
     } else {
       driver.walletBalance -= numAmount;
     }
 
     if (isLivePostgres && supabaseAdmin) {
-      const targetUuid = this.driverRepo?.resolveUuid(driver.id) || driver.uuid || driver.id;
-      await supabaseAdmin.from('driver_payouts').insert({
-        payout_id: `PO-${Date.now()}`,
+      const { error: payoutErr } = await supabaseAdmin.from('driver_payouts').insert({
+        payout_id: payoutRecordId,
         driver_id: targetUuid,
         amount: numAmount,
         upi_id: driver.verifiedUpiId,
@@ -4042,6 +4367,21 @@ class NabinDatabase {
         settled_at: new Date().toISOString(),
         idempotency_key: payoutKey
       });
+      // Checked now. The money has moved by this point whatever the record says, so a refused
+      // write is reported as an inconsistency between the ledger and the payout record rather
+      // than being dropped on the floor the way a discarded promise used to.
+      if (payoutErr) {
+        console.error(`[payout] ledger debited but driver_payouts write refused for ${payoutKey}: ${payoutErr.message}`);
+        return {
+          success: true,
+          recordInconsistent: true,
+          amount: numAmount,
+          payoutKey,
+          error: `Payout was booked in the ledger but its record was refused: ${payoutErr.message}`,
+          balance: driver.walletBalance,
+          verifiedUpiId: driver.verifiedUpiId
+        };
+      }
     }
 
     this.transactions.unshift({
@@ -4064,7 +4404,9 @@ class NabinDatabase {
     });
 
     this.save();
-    return { success: true, balance: driver.walletBalance, verifiedUpiId: driver.verifiedUpiId };
+    // F4: the payout route reports the amount in its audit trail, so the amount actually
+    // booked is returned rather than guessed from a value the route no longer owns.
+    return { success: true, amount: numAmount, balance: driver.walletBalance, verifiedUpiId: driver.verifiedUpiId, payoutKey };
   }
 
   getAdminAccounts() {
@@ -4207,32 +4549,149 @@ class NabinDatabase {
   }
 
   // --- Master Catalog & Merchant Inventory Methods ---
-  getMasterProducts() {
+  //
+  // PostgreSQL is the master catalogue's source of truth whenever it is live, exactly as
+  // it already is for `getMerchantInventory` below: the in-memory `masterProducts` fixtures
+  // survive only as the development fallback. A row is retired by flipping `is_active`
+  // rather than by DELETE, because `merchant_grocery_inventory.product_id` is
+  // `ON DELETE CASCADE` — a hard delete here would silently destroy every store's stock
+  // line for that product, and the public browse and merchant stock surfaces already
+  // filter on `is_active = true`. `sku`/`emoji`/`mrp`/`barcode` have no column on
+  // `master_grocery_catalog`, so they persist only in the memory fallback; that limitation
+  // is recorded in the project state, not hidden by a fake value.
+  _mapMasterRow(row) {
+    return {
+      id: row.id,
+      masterName: row.name,
+      name: row.name,
+      category: row.category || 'General Grocery',
+      subcategory: row.subcategory || null,
+      brand: row.brand || 'NABIN Select',
+      emoji: '📦',
+      imageUrl: row.standard_image_url || '',
+      unit: row.standard_unit,
+      packSize: row.pack_size,
+      pricingModel: row.pricing_model,
+      sku: null,
+      isActive: row.is_active,
+      createdAt: row.created_at
+    };
+  }
+
+  _masterNotFound(id) {
+    const err = new Error(`Master product with ID [${id}] not found.`);
+    err.code = 'MASTER_PRODUCT_NOT_FOUND';
+    err.status = 404;
+    return err;
+  }
+
+  async getMasterProducts() {
+    const { supabaseAdmin, isLivePostgres } = require('./supabase');
+    if (isLivePostgres && supabaseAdmin) {
+      const { data, error } = await supabaseAdmin
+        .from('master_grocery_catalog')
+        .select('id, name, category, subcategory, brand, standard_unit, pack_size, standard_image_url, pricing_model, is_active, created_at')
+        .eq('is_active', true)
+        .order('category', { ascending: true })
+        .order('name', { ascending: true });
+      if (error) throw error;
+      return (data || []).map((row) => this._mapMasterRow(row));
+    }
     return this.masterProducts;
   }
 
-  addMasterProduct({ masterName, category, brand, emoji, imageUrl, unit, packSize }) {
+  async addMasterProduct(payload = {}) {
+    const { masterName, name, category, brand, emoji, imageUrl, unit, packSize, pricingModel } = payload;
+    const fallbackImage = 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=400&q=80';
+    const label = String(masterName || name || '').trim();
+    const row = {
+      name: label,
+      category: category || 'General Grocery',
+      brand: brand || 'NABIN Select',
+      standard_unit: unit || 'pack',
+      pack_size: packSize || '1 unit',
+      standard_image_url: imageUrl || fallbackImage,
+      pricing_model: pricingModel || 'FIXED_PRICE',
+      is_active: true
+    };
+
+    const { supabaseAdmin, isLivePostgres } = require('./supabase');
+    if (isLivePostgres && supabaseAdmin) {
+      if (!row.name) {
+        const err = new Error('A master product name is required.');
+        err.code = 'MASTER_PRODUCT_NAME_REQUIRED';
+        err.status = 400;
+        throw err;
+      }
+      const { data, error } = await supabaseAdmin
+        .from('master_grocery_catalog')
+        .insert(row)
+        .select('id, name, category, subcategory, brand, standard_unit, pack_size, standard_image_url, pricing_model, is_active, created_at')
+        .single();
+      if (error) throw error;
+      return this._mapMasterRow(data);
+    }
+
+    // Development fallback: the memory fixtures carry sku/emoji the table cannot.
     const id = `mp_${Date.now()}`;
-    const sku = `SKU-${(category || 'GEN').substring(0, 3).toUpperCase()}-${Math.floor(Math.random() * 90 + 10)}`;
+    const sku = `SKU-${(row.category || 'GEN').substring(0, 3).toUpperCase()}-${Math.floor(Math.random() * 90 + 10)}`;
     const newMaster = {
       id,
       sku,
-      masterName,
-      category: category || 'General Grocery',
-      brand: brand || 'NABIN Select',
+      masterName: row.name,
+      name: row.name,
+      category: row.category,
+      brand: row.brand,
       emoji: emoji || '📦',
-      imageUrl: imageUrl || 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=400&q=80',
-      unit: unit || 'pack',
-      packSize: packSize || '1 unit',
+      imageUrl: row.standard_image_url,
+      unit: row.standard_unit,
+      packSize: row.pack_size,
+      pricingModel: row.pricing_model,
+      isActive: true,
       createdAt: new Date().toISOString()
     };
     this.masterProducts.push(newMaster);
     return newMaster;
   }
 
-  updateMasterProduct(id, updates) {
+  async updateMasterProduct(id, updates = {}) {
+    const { supabaseAdmin, isLivePostgres } = require('./supabase');
+    if (isLivePostgres && supabaseAdmin) {
+      const productId = await this.resolveMasterProductId(id);
+      if (!productId) throw this._masterNotFound(id);
+
+      const patch = {};
+      const label = (updates.masterName !== undefined ? updates.masterName : updates.name);
+      if (label) patch.name = String(label).trim();
+      if (updates.category) patch.category = updates.category;
+      if (updates.brand) patch.brand = updates.brand;
+      if (updates.imageUrl) patch.standard_image_url = updates.imageUrl;
+      if (updates.unit) patch.standard_unit = updates.unit;
+      if (updates.packSize) patch.pack_size = updates.packSize;
+      if (updates.pricingModel) patch.pricing_model = updates.pricingModel;
+      if (updates.isActive !== undefined) patch.is_active = Boolean(updates.isActive);
+
+      const selectCols = 'id, name, category, subcategory, brand, standard_unit, pack_size, standard_image_url, pricing_model, is_active, created_at';
+      // A PUT that names only columns the table has no field for (sku/emoji/mrp/barcode)
+      // is a no-op on PostgreSQL: read the row back unchanged rather than sending an
+      // empty UPDATE that PostgREST refuses.
+      if (Object.keys(patch).length === 0) {
+        const { data, error } = await supabaseAdmin
+          .from('master_grocery_catalog').select(selectCols).eq('id', productId).maybeSingle();
+        if (error) throw error;
+        if (!data) throw this._masterNotFound(id);
+        return this._mapMasterRow(data);
+      }
+
+      const { data, error } = await supabaseAdmin
+        .from('master_grocery_catalog').update(patch).eq('id', productId).select(selectCols).maybeSingle();
+      if (error) throw error;
+      if (!data) throw this._masterNotFound(id);
+      return this._mapMasterRow(data);
+    }
+
     const product = this.masterProducts.find(p => p.id === id);
-    if (!product) throw new Error(`Master product with ID [${id}] not found.`);
+    if (!product) throw this._masterNotFound(id);
 
     if (updates.masterName) product.masterName = updates.masterName;
     if (updates.category) product.category = updates.category;
@@ -4249,18 +4708,74 @@ class NabinDatabase {
     return product;
   }
 
-  deleteMasterProduct(id) {
+  async deleteMasterProduct(id) {
+    const { supabaseAdmin, isLivePostgres } = require('./supabase');
+    if (isLivePostgres && supabaseAdmin) {
+      const productId = await this.resolveMasterProductId(id);
+      if (!productId) throw this._masterNotFound(id);
+      // Soft delete: flip is_active. A hard DELETE would cascade to every merchant's
+      // stock line for this product (see the note above the CRUD methods).
+      const { data, error } = await supabaseAdmin
+        .from('master_grocery_catalog')
+        .update({ is_active: false })
+        .eq('id', productId)
+        .select('id, name, category, subcategory, brand, standard_unit, pack_size, standard_image_url, pricing_model, is_active, created_at')
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) throw this._masterNotFound(id);
+      return this._mapMasterRow(data);
+    }
+
     const index = this.masterProducts.findIndex(p => p.id === id);
-    if (index === -1) throw new Error(`Master product with ID [${id}] not found.`);
+    if (index === -1) throw this._masterNotFound(id);
     const deleted = this.masterProducts.splice(index, 1)[0];
     // Remove linked inventory references
     this.merchantInventory = this.merchantInventory.filter(inv => inv.masterProductId !== id);
     return deleted;
   }
 
-  getMasterProductStoreMatrix(id) {
+  async getMasterProductStoreMatrix(id) {
+    const { supabaseAdmin, isLivePostgres } = require('./supabase');
+    if (isLivePostgres && supabaseAdmin) {
+      const productId = await this.resolveMasterProductId(id);
+      if (!productId) throw this._masterNotFound(id);
+
+      const { data: masterRow, error: mErr } = await supabaseAdmin
+        .from('master_grocery_catalog')
+        .select('id, name, category, subcategory, brand, standard_unit, pack_size, standard_image_url, pricing_model, is_active, created_at')
+        .eq('id', productId).maybeSingle();
+      if (mErr) throw mErr;
+      if (!masterRow) throw this._masterNotFound(id);
+
+      const { data: invRows, error: iErr } = await supabaseAdmin
+        .from('merchant_grocery_inventory')
+        .select('merchant_id, store_price, stock_quantity, is_available, status, updated_at, merchants(id, name)')
+        .eq('product_id', productId);
+      if (iErr) throw iErr;
+
+      const stores = (invRows || []).map((inv) => {
+        const merchant = inv.merchants || {};
+        return {
+          merchantId: inv.merchant_id,
+          merchantName: merchant.name || inv.merchant_id,
+          merchantAddress: merchant.address || 'DarkStore Location',
+          mrp: null,
+          currentPrice: Number(inv.store_price),
+          stockQty: inv.stock_quantity,
+          isAvailable: inv.is_available,
+          lastUpdated: inv.updated_at || new Date().toISOString()
+        };
+      });
+
+      return {
+        masterProduct: this._mapMasterRow(masterRow),
+        totalLinkedStores: stores.length,
+        stores
+      };
+    }
+
     const master = this.masterProducts.find(p => p.id === id);
-    if (!master) throw new Error(`Master product with ID [${id}] not found.`);
+    if (!master) throw this._masterNotFound(id);
 
     const linkedStores = this.merchantInventory.filter(inv => inv.masterProductId === id).map(inv => {
       const merchant = this.merchants.find(m => m.id === inv.merchantId) || { name: inv.merchantId, address: 'DarkStore Location' };
@@ -4359,6 +4874,16 @@ class NabinDatabase {
   }
 
   async updateMerchantInventoryItem({ merchantId, masterProductId, currentPrice, mrp, stockQty, isAvailable }) {
+    // Money and stock are validated here, once, before anything is read or written, so both
+    // the PostgreSQL path and the memory fallback below are covered. This method used to run
+    // `parseFloat(currentPrice)` / `parseInt(stockQty)`, which accepted -1, -0.01, 1e999
+    // (Infinity) and 'abc' (NaN) and silently truncated 12.9 to 12 — and `store_price` is
+    // what `create_order_with_lines_atomic` snapshots into a customer's order line. The
+    // bounds come from the column definitions, not from a guess: see services/inventoryDomain.
+    const { validateStorePrice, validateStockQuantity } = require('./services/inventoryDomain');
+    const price = validateStorePrice(currentPrice);
+    const stock = validateStockQuantity(stockQty);
+
     const { supabaseAdmin, isLivePostgres } = require('./supabase');
     if (isLivePostgres && supabaseAdmin) {
       const productId = await this.resolveMasterProductId(masterProductId);
@@ -4374,8 +4899,8 @@ class NabinDatabase {
         .maybeSingle();
 
       const patch = { updated_at: new Date().toISOString() };
-      if (currentPrice !== undefined) patch.store_price = parseFloat(currentPrice);
-      if (stockQty !== undefined) patch.stock_quantity = parseInt(stockQty);
+      if (price !== undefined) patch.store_price = price;
+      if (stock !== undefined) patch.stock_quantity = stock;
       if (isAvailable !== undefined) patch.is_available = Boolean(isAvailable);
 
       const nextPrice = patch.store_price ?? (existing ? Number(existing.store_price) : 0);
@@ -4400,7 +4925,7 @@ class NabinDatabase {
       if (error) throw new Error(`Inventory write failed: ${error.message}`);
 
       const previousPrice = existing ? Number(existing.store_price) : null;
-      if (currentPrice !== undefined && previousPrice !== Number(nextPrice)) {
+      if (price !== undefined && previousPrice !== Number(nextPrice)) {
         const { data: catalogRow } = await supabaseAdmin
           .from('master_grocery_catalog').select('standard_unit').eq('id', productId).maybeSingle();
         await supabaseAdmin.from('grocery_price_history').insert({
@@ -4426,15 +4951,19 @@ class NabinDatabase {
         merchantId,
         masterProductId,
         mrp: parseFloat(mrp) || 100,
-        currentPrice: parseFloat(currentPrice) || 90,
-        stockQty: parseInt(stockQty) || 100,
+        // The validated value, or the seeded default when the caller sent no price. The
+        // `|| 90` / `|| 100` here used to coerce a legitimate 0 stock into 100 as well as
+        // turning 'abc' into the default; validation above means what arrives is now either
+        // a legal number or an exception.
+        currentPrice: price !== undefined ? price : 90,
+        stockQty: stock !== undefined ? stock : 100,
         isAvailable: isAvailable !== false,
       };
       this.merchantInventory.push(inv);
     } else {
-      if (currentPrice !== undefined) inv.currentPrice = parseFloat(currentPrice);
+      if (price !== undefined) inv.currentPrice = price;
       if (mrp !== undefined) inv.mrp = parseFloat(mrp);
-      if (stockQty !== undefined) inv.stockQty = parseInt(stockQty);
+      if (stock !== undefined) inv.stockQty = stock;
       if (isAvailable !== undefined) inv.isAvailable = isAvailable;
     }
     return inv;
@@ -5275,14 +5804,36 @@ class NabinDatabase {
    * '+919876500000' are the same number to us and different ones to PostgREST);
    * administrator tables are staff-sized, so normalising in one place costs
    * nothing and cannot miss.
+   *
+   * T1: that last clause was false. `admin_accounts` measures >1000 rows, and PostgREST is
+   * configured with max_rows = 1000, so one unfiltered select returns a page, not a directory -
+   * an enrolled administrator outside it resolved as "not enrolled", and a number shared by two
+   * accounts could be decided from whichever half of the pair happened to be in the page. An
+   * identity decision must never be taken on a partial authoritative set, so this now walks the
+   * table with the platform's own keyset reader and refuses if the walk cannot complete.
    */
   async resolveAdminByPhone(normPhone) {
     const { supabaseAdmin, isLivePostgres } = require('./supabase');
     if (isLivePostgres && supabaseAdmin) {
-      const rows = await this.authoritativeRead(
-        supabaseAdmin.from('admin_accounts').select('*'),
-        { what: 'the administrator enrolment list' }
-      );
+      const walk = await this.readAllRows(supabaseAdmin, { table: 'admin_accounts', select: '*' });
+      if (!walk.complete) {
+        // Two different failures, both refusing to answer from a partial set. Nothing read at all
+        // means the store could not be reached, and that keeps the code the rest of the auth
+        // surface already reports (`AUTH_STORE_UNAVAILABLE`, asserted by auth_failclosed_test).
+        // A walk that read some pages and then broke is a distinct completeness fault.
+        if (!walk.rows.length) {
+          throw this.authStoreUnavailable(
+            new Error(walk.error || 'the administrator directory could not be read'),
+            'the administrator directory');
+        }
+        const refusal = new Error('The administrator directory could not be read completely'
+          + ` (${walk.error || 'the walk did not finish'}), so this phone number cannot be resolved`
+          + ' against it. Refusing rather than answering from a partial page.');
+        refusal.code = 'ADMIN_DIRECTORY_INCOMPLETE';
+        refusal.status = 503;
+        throw refusal;
+      }
+      const rows = walk.rows;
       const matches = (rows || []).filter(a => a.phone && this.normalizePhone(a.phone) === normPhone);
       if (matches.length > 1) {
         const refusal = new Error('This phone number is enrolled for more than one administrator account. Access is refused until that is corrected.');
@@ -5889,7 +6440,12 @@ class NabinDatabase {
   // "the walk ended because there was nothing left" from an inference into a checked
   // fact, and makes a cap configured below `pageSize` — which would otherwise
   // truncate every walk invisibly — one the reader refuses to publish.
-  async readAllRows(store, { table, select = '*', pageSize = 500, maxPages = 40, orderDesc = null } = {}) {
+  // `filter` narrows the walk to one tenant's rows (`.eq('driver_id', …)` and friends).
+  // It is applied to every page, so the `id` cursor stays valid — a filter that changed
+  // between pages would be the one thing this walk cannot survive. `count: 'exact'` is
+  // computed by PostgreSQL over the *filtered* set, so the completeness check at the end
+  // compares the assembled rows against the same predicate, not against the whole table.
+  async readAllRows(store, { table, select = '*', pageSize = 500, maxPages = 40, orderDesc = null, filter = null } = {}) {
     const rows = [];
     const seen = new Set();
     let cursor = null;
@@ -5910,6 +6466,7 @@ class NabinDatabase {
         .select(select, pages === 1 ? { count: 'exact' } : undefined)
         .order('id', { ascending: true })
         .limit(pageSize);
+      if (typeof filter === 'function') query = filter(query);
       if (cursor !== null) query = query.gt('id', cursor);
 
       const page = await query;
@@ -6988,19 +7545,51 @@ class NabinDatabase {
     let row = null;
     let activeSuperAdmins = 0;
     if (store) {
-      // Matched in one pass rather than filtered in PostgREST: `identifier` is free
-      // text typed into a form, and embedding it in a filter string lets a comma or a
-      // parenthesis turn an equality check into something else. Administrator tables
-      // are staff-sized, the same reason `resolveAdminByPhone` gives.
-      const rows = await this.authoritativeRead(
-        store.from('admin_accounts').select('id, username, name, email, role, is_active'),
-        { what: 'the administrator enrolment list' }
-      );
-      const matches = (rows || []).filter(a =>
-        String(a.id).toLowerCase() === wanted ||
+      /* PHASE 41: this read used to pull the whole `admin_accounts` table and filter it here.
+       * PostgREST caps one response at 1000 rows, so once the directory outgrew that, the row
+       * being acted on was simply absent from the page - and the fail-closed guard below then
+       * reported ADMIN_NOT_ENROLLED for an account that existed, was enabled and could still
+       * sign in: an administrator the platform could not revoke. Authentication never noticed
+       * because it matches by exact identifier. The lookup is therefore narrowed to the same
+       * three equalities the old in-memory filter expressed, so it cannot be truncated, and the
+       * SUPER_ADMIN census became a count instead of a tally over a partial page.
+       * `identifier` is still never interpolated into a filter string; it is only ever bound as
+       * a value, which is the reason the original comment rejected `.or()`. */
+      const raw = String(identifier || '').trim();
+      const wantedForms = [...new Set([raw, wanted].filter(Boolean))];
+      const cols = 'id, username, name, email, role, is_active';
+      const looksUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(wanted);
+      const found = [];
+      if (looksUuid) {
+        found.push(...(await this.authoritativeRead(
+          store.from('admin_accounts').select(cols).eq('id', wanted),
+          { what: 'the administrator account' }) || []));
+      }
+      found.push(...(await this.authoritativeRead(
+        store.from('admin_accounts').select(cols).in('username', wantedForms),
+        { what: 'the administrator enrolment list' }) || []));
+      found.push(...(await this.authoritativeRead(
+        store.from('admin_accounts').select(cols).in('email', wantedForms),
+        { what: 'the administrator enrolment list' }) || []));
+
+      const seenIds = new Set();
+      const matches = [];
+      // The three reads above are already exact, but the predicate is re-applied here on
+      // purpose: a row whose stored id/username/email does not equal the identifier must never
+      // be acted on, whichever store (or stubbed store) handed it back. The in-process guard
+      // tests feed this method a stub that ignores filters, and fail-closed means the shape of
+      // the answer cannot depend on whether the reader honoured the query.
+      const reallyMatches = (found || []).filter(a =>
+        String(a.id || '').toLowerCase() === wanted ||
         String(a.username || '').toLowerCase() === wanted ||
         String(a.email || '').toLowerCase() === wanted
       );
+      for (const a of reallyMatches) {
+        const key = String(a.id).toLowerCase();
+        if (seenIds.has(key)) continue;
+        seenIds.add(key);
+        matches.push(a);
+      }
       if (matches.length > 1) {
         const refusal = new Error('More than one administrator account matches that identifier. Disable one by its account id.');
         refusal.code = 'ADMIN_ACCOUNT_AMBIGUOUS';
@@ -7008,7 +7597,18 @@ class NabinDatabase {
         throw refusal;
       }
       row = matches[0] || null;
-      activeSuperAdmins = (rows || []).filter(a => a.role === 'SUPER_ADMIN' && a.is_active !== false).length;
+
+      // Filtered by role, so it cannot be truncated the way the whole-table scan was, and read
+      // through `authoritativeRead` so the in-process guard tests can still stub the store. The
+      // predicate is re-applied in memory for the same reason as above: the answer must not
+      // depend on whether the reader honoured the filter, and the columns it needs are selected
+      // so that check is meaningful rather than vacuous.
+      const superAdmins = await this.authoritativeRead(
+        store.from('admin_accounts').select('id, role, is_active').eq('role', 'SUPER_ADMIN').eq('is_active', true),
+        { what: 'the SUPER_ADMIN census' }
+      );
+      activeSuperAdmins = (superAdmins || [])
+        .filter(a => a && a.role === 'SUPER_ADMIN' && a.is_active !== false).length;
     }
 
     if (store && !row) {

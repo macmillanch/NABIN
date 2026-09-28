@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/theme/restaurant_theme.dart';
@@ -15,6 +17,66 @@ class RestaurantOtpScreen extends StatefulWidget {
 class _RestaurantOtpScreenState extends State<RestaurantOtpScreen> {
   final TextEditingController _otpController = TextEditingController();
   bool _isLoading = false;
+  bool _isResending = false;
+  int _resendSecondsLeft = 0;
+  Timer? _resendTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _startResendCooldown();
+  }
+
+  void _startResendCooldown() {
+    _resendTimer?.cancel();
+    setState(() => _resendSecondsLeft = 30);
+    _resendTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      setState(() {
+        _resendSecondsLeft -= 1;
+        if (_resendSecondsLeft <= 0) timer.cancel();
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _resendTimer?.cancel();
+    _otpController.dispose();
+    super.dispose();
+  }
+
+  /// A real resend. The control used to be `onPressed: () {}` — a button that looked
+  /// available to a merchant whose code had expired and did nothing at all.
+  Future<void> _resendOtp() async {
+    if (_resendSecondsLeft > 0 || _isResending) return;
+    setState(() => _isResending = true);
+    Map<String, dynamic>? res;
+    try {
+      res = await NabinApiService.sendOtp(
+        phone: widget.phoneNumber,
+        role: 'MERCHANT',
+        purpose: 'LOGIN',
+      );
+    } catch (e) {
+      res = null;
+    }
+    if (!mounted) return;
+    setState(() => _isResending = false);
+    final sent = res != null && res['success'] == true;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(sent
+            ? 'A new code has been sent to +91 ${widget.phoneNumber}'
+            : res?['error'] as String? ?? 'Could not send a new code right now.'),
+        backgroundColor: sent ? RestaurantTheme.primaryBlue : Colors.red.shade700,
+      ),
+    );
+    if (sent) _startResendCooldown();
+  }
 
   Future<void> _verifyOtp() async {
     final otp = _otpController.text;
@@ -114,30 +176,35 @@ class _RestaurantOtpScreenState extends State<RestaurantOtpScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: RestaurantTheme.statusReadyBg,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Text(
-                      'Demo OTP: 7729',
-                      style: TextStyle(
-                        color: RestaurantTheme.statusReadyGreen,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 12,
-                      ),
+                  // No code is ever shown here. "Demo OTP: 7729" was a development
+                  // affordance printed into the merchant-facing UI, and the fixed code it
+                  // advertises is accepted only where the platform is configured to accept a
+                  // challenge nobody was sent — which production is not.
+                  const Expanded(
+                    child: Text(
+                      'Enter the 4-digit code sent to this store\'s registered number.',
+                      style: TextStyle(color: RestaurantTheme.textMuted, fontSize: 12),
                     ),
                   ),
                   TextButton(
-                    onPressed: () {},
-                    child: const Text(
-                      'Resend Code',
-                      style: TextStyle(
-                        color: RestaurantTheme.primaryBlue,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 12,
-                      ),
+                    onPressed: _resendSecondsLeft > 0 || _isResending ? null : _resendOtp,
+                    child: _isResending
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : Text(
+                            _resendSecondsLeft > 0
+                                ? 'Resend Code (${_resendSecondsLeft}s)'
+                                : 'Resend Code',
+                            style: TextStyle(
+                              color: _resendSecondsLeft > 0
+                                  ? RestaurantTheme.textMuted
+                                  : RestaurantTheme.primaryBlue,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                            ),
                     ),
                   ),
                 ],

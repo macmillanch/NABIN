@@ -379,17 +379,45 @@ function staticChecks(sources) {
   );
   check('ST-04', naked.length <= 4, `async handlers that await with no catch left standing: ${naked.length} (${naked.map(h => `${h.verb} ${h.path}:${h.line}`).join(', ')})`);
 
-  // ST-05/06 — the paths deliberately NOT failed closed stay as they were. A wallet
-  // adjustment's idempotency key ends in Date.now(), so a 503 that invites a retry would
-  // move the money twice; the six payment-repository trails are fire-and-forget on purpose.
+  // ST-05/06 — the paths deliberately NOT failed closed. ST-05 still stands as written: the
+  // six payment-repository trails are fire-and-forget on purpose. ST-06 no longer belongs to
+  // that pairing, and is explained where it runs.
   const pay = sources.find(s => s.file.endsWith(path.join('repositories', 'PaymentRepository.js'))).text;
   const payWrites = (pay.match(/this\.db\.createAuditLog\(/g) || []).length;
   const payAwaited = (pay.match(/await\s+this\.db\.createAuditLog\(/g) || []).length;
   check('ST-05', payWrites === 6 && payAwaited === 0, `PaymentRepository still holds ${payWrites} un-awaited trail writes (${payAwaited} awaited) — untouched by this change, still reported by A3`);
+  // ST-06 — rewritten by PHASE 13, because it had stopped testing what mattered.
+  //
+  // It used to assert the opposite condition: that `processFinancialAdjustment` stayed
+  // un-awaited *while* its idempotency key ended in Date.now(). Those two facts were one
+  // decision, not two bugs — a 503 on the audit write invites the operator to retry, and with
+  // a clock-derived key a retry moves the money a second time. Leaving the trail un-awaited was
+  // the safer half of that pairing.
+  //
+  // Phase 13 replaced the clock with a stable, account-scoped operation identity, so the
+  // premise is gone and the check would have kept green only by describing a world that no
+  // longer exists. It now pins the invariant itself, and does so more strictly than before:
+  // any `Date.now()` anywhere near either money identity fails it, and it covers the payout as
+  // well as the adjustment. The un-awaited audit write is left as it is — with a stable key it
+  // can now be awaited safely, but that is a separate change, not this one.
   const dbText = sources.find(s => s.file.endsWith(path.join('src', 'database.js'))).text;
-  const adj = /const idempotencyKey = `admin_adj_\$\{targetType\}_\$\{targetId\}_\$\{direction\}_\$\{amt\}_\$\{Date\.now\(\)\}`/.test(dbText);
-  check('ST-06', adj && !/async processFinancialAdjustment[\s\S]{0,4000}?await this\.auditAppliedChange\(/.test(dbText),
-    `processFinancialAdjustment is still un-awaited while its key is clock-derived (${adj ? 'Date.now() key confirmed' : 'key shape changed — re-read this'})`);
+  const adjBody = (dbText.match(/async processFinancialAdjustment\([\s\S]*?\n  \}\n/) || [''])[0];
+  const payBody = (dbText.match(/async recordPayout\([\s\S]*?\n  \}\n/) || [''])[0];
+  // Only the assignment of the identity itself. A window around it would flag unrelated
+  // display identifiers such as `TXN-ADJ-${Date.now()...}`, which name a row in a list and
+  // have nothing to do with whether a retry moves money twice.
+  const assignOf = (body, name) => (body.match(new RegExp(`(?:const|let)\\s+${name}\\s*=[^\\n]*`, 'g')) || []);
+  const adjAssign = assignOf(adjBody, 'idempotencyKey');
+  const payAssign = assignOf(payBody, 'payoutKey');
+  const adjClock = adjAssign.some((line) => /Date\.now\(\)/.test(line));
+  const payClock = payAssign.some((line) => /Date\.now\(\)/.test(line));
+  const adjIdentity = /operationKey\(/.test(adjBody);
+  const payIdentity = /operationKey\(/.test(payBody);
+  check('ST-06',
+    adjBody.length > 0 && payBody.length > 0 && adjAssign.length > 0 && payAssign.length > 0
+    && !adjClock && !payClock && adjIdentity && payIdentity,
+    `neither money identity may be derived from the clock (identities found: adjustment=${adjAssign.length}, payout=${payAssign.length}; `
+    + `clock in identity: adjustment=${adjClock}, payout=${payClock}; stable identity used: adjustment=${adjIdentity}, payout=${payIdentity})`);
 }
 
 async function main() {

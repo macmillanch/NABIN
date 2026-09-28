@@ -256,34 +256,93 @@ class PromotionRepository {
   }
 
   /**
-   * List promotions with optional filters.
+   * List promotions with filtering, search and pagination.
+   *
+   * This used to answer one unlabelled page — the first 50 rows, newest first, with no
+   * total and no way to search — so on a database that has outgrown that page an older
+   * coupon is simply invisible to the console, and a list assertion cannot tell "the
+   * coupon does not exist" from "the coupon is on page two". The caller now names the
+   * page it wants and what it is looking for, and the answer carries the total the page
+   * was cut from. `total` counts the rows matching the filters, not the rows in the
+   * table, because a page is only meaningful against the set it paginates.
    */
   async list(filters = {}) {
+    const limit = Math.min(Math.max(Number(filters.limit) || 50, 1), 100);
+    const offset = Math.max(Number(filters.offset) || 0, 0);
+    // The term is embedded inside an `or(...)` filter string, so the characters PostgREST
+    // reads as filter syntax (`,`, `(`, `)`, `|`) and the multi-character LIKE wildcards
+    // (`%`, `*`) are turned into spaces first: left in, a comma would have re-shaped the
+    // query instead of narrowing it. A single underscore is deliberately *kept* — it is a
+    // one-character wildcard, so it still matches the literal underscore in a code like
+    // `SAVE40_ABC`, and the only cost is that it can also match one other character there.
+    // Dropping it the way a blanket strip would has the worse failure of the two: the
+    // console searching a real coupon would find nothing.
+    const rawSearch = filters.search !== undefined && filters.search !== null
+      ? String(filters.search)
+      : (filters.q !== undefined && filters.q !== null ? String(filters.q) : null);
+    const term = String(rawSearch || '').replace(/[%(),*|]/g, ' ').trim();
+    if (rawSearch !== null && rawSearch.trim() !== '' && term === '') {
+      // Every character the caller typed was syntax or a wildcard. Answering the whole
+      // table here would be the opposite of what was asked for, so a search that cannot
+      // match any code answers no rows — honestly, and still as a page.
+      return { promotions: [], total: 0, limit, offset, hasMore: false };
+    }
+
     if (isLivePostgres && supabaseAdmin) {
-      let query = supabaseAdmin.from('promotions').select('*');
+      // The same filters on both queries, so `total` always describes the set the page is
+      // cut from rather than the whole table.
+      const applyFilters = (q) => {
+        if (filters.serviceType && filters.serviceType !== 'ALL') {
+          q = q.or(`service_type.eq.${filters.serviceType},service_type.eq.ALL`);
+        }
+        if (filters.status) {
+          q = q.eq('is_active', filters.status === 'ACTIVE');
+        }
+        if (filters.activeOnly || filters.isActive === true) {
+          q = q.eq('is_active', true);
+        }
+        if (term) {
+          q = q.or(`code.ilike.%${term}%,name.ilike.%${term}%,description.ilike.%${term}%`);
+        }
+        return q;
+      };
 
-      if (filters.serviceType && filters.serviceType !== 'ALL') {
-        query = query.or(`service_type.eq.${filters.serviceType},service_type.eq.ALL`);
+      // The boundary is established before any range is asked for. PostgreSQL answers a
+      // range that starts past the last row with a 416 "Requested range not satisfiable"
+      // rather than an empty page, and a page the caller cannot see is not an error worth
+      // handing back as a 500 — page twelve of a two-row search is simply empty.
+      const { count: filteredCount, error: countError } = await applyFilters(
+        supabaseAdmin.from('promotions').select('id', { count: 'exact', head: true })
+      );
+      if (countError) {
+        throw new Error(`Failed to count promotions in PostgreSQL: ${countError.message}`);
       }
-      if (filters.status) {
-        query = query.eq('is_active', filters.status === 'ACTIVE');
-      }
-      if (filters.activeOnly || filters.isActive === true) {
-        query = query.eq('is_active', true);
+      const total = filteredCount !== null && filteredCount !== undefined ? filteredCount : 0;
+      if (offset >= total) {
+        return { promotions: [], total, limit, offset, hasMore: false };
       }
 
-      query = query.order('created_at', { ascending: false });
-      const limit = Math.min(parseInt(filters.limit, 10) || 50, 100);
-      query = query.limit(limit);
+      let query = applyFilters(supabaseAdmin.from('promotions').select('*', { count: 'exact' }));
+      query = query
+        .order('created_at', { ascending: false })
+        // Two coupons created in the same instant would otherwise sit in whatever order
+        // the heap hands back, and `offset` paging across such a tie can show one row
+        // twice and hide another. A stable secondary key makes page N+1 dependable.
+        .order('id', { ascending: false })
+        // Never ask for more rows than the filtered set holds: the same 416 applies to a
+        // range that runs off the end.
+        .range(offset, Math.min(offset + limit - 1, total - 1));
 
       const { data, error } = await query;
       if (error) {
         throw new Error(`Failed to query promotions from PostgreSQL: ${error.message}`);
       }
-      return (data || []).map(mapRowToDTO);
+      const promotions = (data || []).map(mapRowToDTO);
+      return { promotions, total, limit, offset, hasMore: offset + promotions.length < total };
     }
 
-    // Non-live fallback
+    // Non-live fallback — the same filters, the same ordering and the same page
+    // semantics, so a development process cannot pass a paging test the store would fail.
     let results = [...(this.db.promotions || [])];
     if (filters.serviceType && filters.serviceType !== 'ALL') {
       results = results.filter(p => p.eligibleService === filters.serviceType || p.eligibleService === 'ALL');
@@ -291,7 +350,21 @@ class PromotionRepository {
     if (filters.status) {
       results = results.filter(p => p.status === filters.status);
     }
-    return results;
+    if (filters.activeOnly || filters.isActive === true) {
+      results = results.filter(p => p.status === 'ACTIVE' || p.isActive === true);
+    }
+    if (term) {
+      const needle = term.toLowerCase();
+      results = results.filter(p =>
+        (p.code && String(p.code).toLowerCase().includes(needle)) ||
+        (p.name && String(p.name).toLowerCase().includes(needle)) ||
+        (p.description && String(p.description).toLowerCase().includes(needle)));
+    }
+    results.sort((a, b) => (new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
+      || String(b.code || '').localeCompare(String(a.code || '')));
+    const total = results.length;
+    const promotions = results.slice(offset, offset + limit);
+    return { promotions, total, limit, offset, hasMore: offset + promotions.length < total };
   }
 
   /**

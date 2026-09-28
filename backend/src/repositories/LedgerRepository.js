@@ -70,6 +70,104 @@ class LedgerRepository {
    * Authoritative Wallet Mutation via PostgreSQL RPC: adjust_wallet_atomic
    * Never performs arithmetic in JavaScript. Delegates directly to database.
    */
+  /**
+   * E2: the durable record of an operation, addressed by its idempotency key.
+   *
+   * Two filtered reads rather than one embedded join: `journal_lines.journal_id` is a real foreign
+   * key, but an embed depends on PostgREST's relationship cache and this sits on the money path.
+   * Returns null when the key has not been used, which is the normal case.
+   */
+  async findOperationByKey(idempotencyKey) {
+    if (!idempotencyKey || !isLivePostgres || !supabaseAdmin) return null;
+    const txn = await supabaseAdmin.from('journal_transactions')
+      .select('id, transaction_id, category, total_credit, total_debit, reference_id')
+      .eq('idempotency_key', String(idempotencyKey)).maybeSingle();
+    if (txn.error || !txn.data) return null;
+    const lines = await supabaseAdmin.from('journal_lines')
+      .select('account_code, entry_type, amount, entity_type, entity_id')
+      .eq('journal_id', txn.data.id);
+    return { txn: txn.data, lines: (!lines.error && lines.data) || [] };
+  }
+
+  /**
+   * The attributes that make an operation itself: how much, to whom, from and to which accounts,
+   * under which ledger category, against which business reference. `description` is deliberately
+   * NOT compared — it is narration, and two callers describing one movement differently is not two
+   * movements. Returns the mismatches found; empty means the request truly replays the stored one.
+   */
+  operationMismatch(existing, requested) {
+    const problems = [];
+    if (!existing || !existing.txn) return problems;
+    const money = (v) => Math.round((Number(v) || 0) * 100) / 100;
+    const want = money(Math.abs(Number(requested.amount) || 0));
+    if (money(existing.txn.total_credit) !== want || money(existing.txn.total_debit) !== want) {
+      problems.push(`amount ${money(existing.txn.total_credit)}/${money(existing.txn.total_debit)} `
+        + `is already booked, this request says ${want}`);
+    }
+    if (existing.txn.category && requested.category && existing.txn.category !== requested.category) {
+      problems.push(`category ${existing.txn.category} is already booked, this request says ${requested.category}`);
+    }
+    const debit = (existing.lines || []).find(l => l.entry_type === 'DEBIT');
+    const credit = (existing.lines || []).find(l => l.entry_type === 'CREDIT');
+    if (debit && requested.debitAccount && debit.account_code !== requested.debitAccount) {
+      problems.push(`debit account ${debit.account_code} is already booked, this request says ${requested.debitAccount}`);
+    }
+    if (credit && requested.creditAccount && credit.account_code !== requested.creditAccount) {
+      problems.push(`credit account ${credit.account_code} is already booked, this request says ${requested.creditAccount}`);
+    }
+    const owned = (existing.lines || []).filter(l => l.entity_type && l.entity_id);
+    if (owned.length && requested.ownerUuid) {
+      const sameOwner = owned.every(l => String(l.entity_type).toUpperCase() === String(requested.ownerType || '').toUpperCase()
+        && String(l.entity_id).toLowerCase() === String(requested.ownerUuid).toLowerCase());
+      if (!sameOwner) {
+        problems.push(`booked against ${owned[0].entity_type}:${owned[0].entity_id}, `
+          + `this request names ${requested.ownerType}:${requested.ownerUuid}`);
+      }
+    }
+    if (existing.txn.reference_id !== null && existing.txn.reference_id !== undefined
+      && requested.referenceId !== null && requested.referenceId !== undefined
+      && String(existing.txn.reference_id) !== String(requested.referenceId)) {
+      problems.push(`reference ${existing.txn.reference_id} is already booked, this request says ${requested.referenceId}`);
+    }
+    return problems;
+  }
+
+  /** A conflict is its own outcome: typed, refused, and provably before any movement. */
+  idempotencyConflict(idempotencyKey, problems) {
+    const err = new Error(`Idempotency key "${idempotencyKey}" is already used by a different `
+      + `operation (${problems.join('; ')}). This request moved nothing and booked nothing.`);
+    err.code = 'IDEMPOTENCY_CONFLICT';
+    err.status = 409;
+    err.statusCode = 409;
+    return err;
+  }
+
+  /**
+   * What a true replay reports: this caller's operation is the one already committed, so it gets
+   * the authoritative balance and the existing transaction id. Refreshing the cache from a durable
+   * read is the same behaviour the concurrent-collision path has always had.
+   */
+  async duplicateResultFor(ownerType, ownerUuid, ownerId, existing) {
+    const balanceTable = ownerType === 'CUSTOMER' ? 'users'
+      : ownerType === 'DRIVER' ? 'drivers' : 'merchants';
+    const current = await supabaseAdmin.from(balanceTable)
+      .select('wallet_balance').eq('id', ownerUuid).maybeSingle();
+    const balance = !current.error && current.data ? current.data.wallet_balance : undefined;
+    if (balance !== undefined && this.db) {
+      const cached = ownerType === 'CUSTOMER' ? this.db.getUser?.(ownerId)
+        : ownerType === 'DRIVER' ? this.db.getDriver?.(ownerId) : null;
+      if (cached) cached.walletBalance = Number(balance);
+    }
+    return {
+      success: true,
+      status: 'IDEMPOTENT_SKIPPED',
+      duplicate: true,
+      entry: null,
+      balance,
+      transactionId: existing && existing.txn ? existing.txn.transaction_id : undefined
+    };
+  }
+
   async adjustWallet({
     ownerId,
     ownerType = 'CUSTOMER',
@@ -118,6 +216,24 @@ class LedgerRepository {
     }
 
     if (isLivePostgres && supabaseAdmin) {
+      /* E2: an idempotency key names ONE operation. Until now a reused key was treated as a
+       * duplicate purely because a row existed, so a request carrying a different amount, a
+       * different owner, a different posting account or a different category was swallowed as
+       * "already done": no money moved (the UNIQUE index guarantees that much) but the caller was
+       * told its own operation had been handled. Silence in place of a refusal is how a mis-keyed
+       * integration loses money without ever noticing. The comparison reads only rows PostgreSQL
+       * already holds immutably, so no schema change and no new state is involved. */
+      const seen = await this.findOperationByKey(idempotencyKey);
+      if (seen) {
+        const problems = this.operationMismatch(seen, {
+          amount: numAmount, category, debitAccount: dAccount, creditAccount: cAccount,
+          ownerType, ownerUuid, referenceId
+        });
+        if (problems.length) throw this.idempotencyConflict(idempotencyKey, problems);
+        const replay = await this.duplicateResultFor(ownerType, ownerUuid, ownerId, seen);
+        if (replay) return replay;
+      }
+
       const { data, error } = await supabaseAdmin.rpc('adjust_wallet_atomic', {
         p_owner_id: ownerUuid,
         p_owner_type: ownerType,
@@ -131,16 +247,75 @@ class LedgerRepository {
       });
 
       if (error) {
-        // Two callers that both cleared the read-check race in PostgreSQL: the
-        // UNIQUE idempotency_key index decides, and the loser has moved no money.
-        if (error.code === '23505' && idempotencyKey) {
-          return { success: true, status: 'IDEMPOTENT_SKIPPED', duplicate: true, entry: null };
+        /* Two callers that both cleared the read-check race in PostgreSQL: the UNIQUE
+         * idempotency_key index decides, and the loser has moved no money. The SQLSTATE alone is
+         * not enough, because `adjust_wallet_atomic` re-raises the violation from its own handler
+         * and PostgREST then reports a generic code with the original text - so a collision was
+         * previously thrown out unclassified (`PostgreSQL adjust_wallet_atomic failed: …`) instead
+         * of being reported as the duplicate/conflict it is. Matching the message is restricted to
+         * the idempotency constraint on purpose: any other unique violation must stay an error. */
+        const idempotencyCollision = error.code === '23505'
+          || (/duplicate key value/i.test(String(error.message || ''))
+            && /idempotency_key/i.test(String(error.message || '')));
+        if (idempotencyCollision && idempotencyKey) {
+          // Two requests raced to the same key. The constraint decided which one moved money and
+          // the loser has moved none, but "same key" is only a duplicate if it is the same
+          // operation: the loser's own request is compared against what the winner committed, and
+          // a different amount/owner/account/category is a conflict, not a success. The pre-flight
+          // above normally catches this first; this covers the window between that read and the
+          // insert, which is exactly when a concurrent pair would disagree.
+          const raced = await this.findOperationByKey(idempotencyKey);
+          if (raced) {
+            const problems = this.operationMismatch(raced, {
+              amount: numAmount, category, debitAccount: dAccount, creditAccount: cAccount,
+              ownerType, ownerUuid, referenceId
+            });
+            if (problems.length) throw this.idempotencyConflict(idempotencyKey, problems);
+          }
+          // The loser must still be able to report the operation's result, so read the balance
+          // the winner's commit produced. Without this a caller can only see "skipped" and has
+          // nothing to answer the client with — which is how a lost-response retry ends up
+          // looking like a failure and getting attempted again. `adjust_wallet_atomic` already
+          // does exactly this on its own in-function idempotency branch; this is the same
+          // behaviour on the concurrent-collision path, with the same table mapping.
+          const balanceTable = ownerType === 'CUSTOMER' ? 'users'
+            : ownerType === 'DRIVER' ? 'drivers' : 'merchants';
+          const current = await supabaseAdmin.from(balanceTable)
+            .select('wallet_balance').eq('id', ownerUuid).maybeSingle();
+          const balance = !current.error && current.data ? current.data.wallet_balance : undefined;
+          if (balance !== undefined && this.db) {
+            // Cache refresh only: this is the value PostgreSQL holds, read after its commit.
+            const cached = ownerType === 'CUSTOMER' ? this.db.getUser?.(ownerId)
+              : ownerType === 'DRIVER' ? this.db.getDriver?.(ownerId) : null;
+            if (cached) cached.walletBalance = Number(balance);
+          }
+          return {
+            success: true,
+            status: 'IDEMPOTENT_SKIPPED',
+            duplicate: true,
+            entry: null,
+            balance
+          };
         }
         throw new Error(`PostgreSQL adjust_wallet_atomic failed: ${error.message}`);
       }
 
       if (!data || !data.success) {
         throw new Error(`adjust_wallet_atomic returned unsuccessful: ${JSON.stringify(data)}`);
+      }
+
+      // The RPC answers IDEMPOTENT_SKIPPED from its own key lookup, which compares nothing. Money
+      // did not move either way, so this is purely about not reporting someone else's operation as
+      // this one's: compare, and refuse when the stored operation is not the requested one.
+      if (data.status === 'IDEMPOTENT_SKIPPED' && idempotencyKey) {
+        const raced = await this.findOperationByKey(idempotencyKey);
+        if (raced) {
+          const problems = this.operationMismatch(raced, {
+            amount: numAmount, category, debitAccount: dAccount, creditAccount: cAccount,
+            ownerType, ownerUuid, referenceId
+          });
+          if (problems.length) throw this.idempotencyConflict(idempotencyKey, problems);
+        }
       }
 
       // Update runtime cache with the authoritative balance returned by PostgreSQL
@@ -167,11 +342,17 @@ class LedgerRepository {
         referenceId: referenceId ? String(referenceId) : null,
         status: data.status || 'POSTED'
       };
-      this.db.ledgerEntries.unshift(journalEntry);
+      if (data.status !== 'IDEMPOTENT_SKIPPED') {
+        // Only a booked movement belongs in the ledger view. Adding an entry for an operation
+        // PostgreSQL refused as a duplicate would double the trail's claim about money that
+        // moved once.
+        this.db.ledgerEntries.unshift(journalEntry);
+      }
 
       return {
         success: true,
         status: data.status,
+        duplicate: data.status === 'IDEMPOTENT_SKIPPED',
         balance: Number(data.balance),
         transactionId: data.transaction_id,
         entry: journalEntry

@@ -120,6 +120,10 @@ class DriverRepository {
 
   async findByIdAsync(id) {
     if (!id) return null;
+    // Owner Decision 11 (choice B): cache-first is the accepted outage semantics —
+    // a hydrated driver answers from memory and must not become a false 503 when
+    // the store is unreachable. Do not convert to fail-closed without a new owner
+    // order; backend/hydration_fallback_test.js (HYD-05) locks it in.
     const cached = this.findById(id);
     if (cached) return cached;
 
@@ -253,7 +257,11 @@ class DriverRepository {
         .eq('id', targetUuid);
 
       if (error) {
-        throw new Error(`Failed to update driver in PostgreSQL: ${error.message}`);
+        // Named as a store failure rather than a generic one. Availability decides whether
+        // dispatch hands this partner a trip, so the caller has to be able to tell "the
+        // database refused the write" apart from "the write succeeded" — a driver shown
+        // ONLINE because a 500 was quietly reinterpreted is the worse failure.
+        throw this.db.orderRepo.storeUnavailableError('the driver account record', new Error(error.message));
       }
     }
 
@@ -278,10 +286,43 @@ class DriverRepository {
 
   /**
    * Authoritative Driver Earnings Mutation via adjust_wallet_atomic RPC
+   *
+   * Phase 21 money-identity contract. A credit to a driver's money must name the
+   * operation that earned it, so "already booked" is decided by the database's
+   * UNIQUE index and not by whichever request arrived first. Before this, a
+   * caller that passed no identity still moved money: the reference fell back to
+   * `drv_earn_${Date.now()}` and the idempotency key stayed NULL, so a retry was
+   * indistinguishable from a second, legitimate credit. Phase 20 measured 296
+   * such rows against three jobs (₹106 booked ~100 times each) and proved the
+   * duplicate never reached `drivers.wallet_balance` - the book was written
+   * repeatedly while the wallet was not.
+   *
+   * So an identity is now required, and its absence fails closed instead of
+   * inventing one. The ride identity is untouched: callers that pass `tripId`
+   * still produce `RIDE_SETTLEMENT:<tripId>:DRIVER_EARNINGS`.
    */
-  async updateEarnings(driverId, earningAmount, tripId = null, { idempotencyKey = null } = {}) {
-    const driver = this.findById(driverId);
-    if (!driver) return null;
+  async updateEarnings(driverId, earningAmount, tripId = null, { idempotencyKey = null, purpose = null } = {}) {
+    // PHASE 34: a driver earnings credit is a money operation, so it must never end
+    // in "returned nothing". This method used to `return null` on a cache miss,
+    // ahead of every guard below, which meant a driver created after boot-time
+    // hydration could not be paid: `SupportTicketRepository.resolveTicket()` read
+    // the null as "no driver", still resolved the ticket, and answered 200 with no
+    // wallet movement and no journal entry (reproduced in Phase 32).
+    //
+    // `findByIdAsync` is cache-first, so a hydrated driver still answers from memory
+    // exactly as Owner Decision 11 requires (HYD-05 locks that in); it only reaches
+    // for PostgreSQL when the cache has never seen the id, and hydrates the mirror
+    // when it finds the row. This is the same precedent the other five driver state
+    // methods in this class already use.
+    const driver = await this.findByIdAsync(driverId);
+    if (!driver) {
+      const err = new Error(`Refusing driver earnings credit of ${earningAmount}: no driver can be`
+        + ` found for ${driverId} in the cache or in PostgreSQL. A money operation that could not`
+        + ' be carried out must fail, not return null and be read as success.');
+      err.statusCode = 404;
+      err.code = 'DRIVER_NOT_FOUND';
+      throw err;
+    }
 
     const targetUuid = this.resolveUuid(driverId);
     const numAmount = Number(earningAmount);
@@ -292,14 +333,28 @@ class DriverRepository {
     // PostgreSQL and not by whichever request happened to arrive first.
     const settleKey = idempotencyKey || (tripId ? `RIDE_SETTLEMENT:${tripId}:DRIVER_EARNINGS` : null);
 
+    // No identity, no credit. `purpose` lets a non-ride caller name its own
+    // operation (for example a support bounty anchored on the ticket id) without
+    // this file inventing business semantics on its behalf.
+    if (!settleKey) {
+      const err = new Error(
+        `Refusing an unidentified driver earnings credit of ${earningAmount}`
+        + `${tripId ? '' : ' (no trip)'}: pass tripId, or idempotencyKey with a durable operation identity.`);
+      err.statusCode = 400;
+      err.code = 'MONEY_OPERATION_IDENTITY_REQUIRED';
+      throw err;
+    }
+
     if (isLivePostgres && supabaseAdmin && targetUuid) {
       const rpcResult = await this.db.ledgerRepo.adjustWallet({
         ownerId: targetUuid,
         ownerType: 'DRIVER',
         amount: numAmount,
         category: 'RIDE_SETTLEMENT',
-        description: `Trip earnings settlement: ${tripId || 'TRIP'}`,
-        referenceId: tripId || `drv_earn_${Date.now()}`,
+        description: `${purpose ? `${purpose}: ` : 'Trip earnings settlement: '}${tripId || settleKey}`,
+        // The key is derived from a durable business entity, so the reference can
+        // be that same entity. There is no timestamp fallback to fall back to.
+        referenceId: tripId || settleKey,
         debitAccount: 'CUSTOMER_WALLET_LIABILITY',
         creditAccount: 'DRIVER_EARNINGS_PAYABLE',
         idempotencyKey: settleKey
@@ -320,6 +375,20 @@ class DriverRepository {
         // just booked, so the caller must not post that same movement again.
         return { driver, duplicate: false, posted: true };
       }
+    }
+
+    // A driver id that cannot be resolved to a durable `drivers` row must not be
+    // credited by mutating the mirror. Legitimate offline development (no
+    // PostgreSQL at all) still falls through to the mirror path below.
+    // Note on `drv_1`: LEGACY_DRIVER_MAP does resolve that legacy alias to a real
+    // durable driver, so this guard is about ids that map nowhere, not about the
+    // alias itself — the alias was removed at its call site instead.
+    if (isLivePostgres && !targetUuid) {
+      const err = new Error(`Refusing driver earnings credit: no durable driver row for ${driverId}.`
+        + ' Money cannot be booked against an in-memory-only identity.');
+      err.statusCode = 400;
+      err.code = 'DRIVER_NOT_DURABLE';
+      throw err;
     }
 
     driver.walletBalance = Math.round(((driver.walletBalance || 0) + numAmount) * 100) / 100;
