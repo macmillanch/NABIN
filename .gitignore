@@ -9,6 +9,10 @@ node_modules/
 !.env.example
 !.env.beta.example
 !.env.production.example
+# Any `*.example` template stays committable at any depth — backend/.env.testing.example
+# and backend/.env.production.example are per-environment templates, and `.env.*` above
+# would otherwise swallow them and the templates would exist only on one machine.
+!.env.*.example
 .env.local
 .env.development.local
 .env.test.local
@@ -53,3 +57,13 @@ backend/.nabin_test_sessions.json
 
 # Per-link output written by backend/scripts/test_chain.js during a regression run.
 backend/.chain-logs/
+
+# Local tool output, regenerable and not project source: `.kilo/` is a second checkout the Kilo
+# agent manager maintains beside this repo (615 files / 11 MB of duplicated dart, js and md), and
+# `graphify-out/` is a graph renderer's cache and HTML (15 MB). Both sat untracked and un-ignored,
+# which made every `git add -A` in this repo a 44 MB mistake waiting to happen.
+.kilo/
+graphify-out/
+
+# State written by backend/scripts/chain_scratch.js (disposable chain schema: proxy pid, not source data).
+backend/.chain-scratch/

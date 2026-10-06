@@ -4,6 +4,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart' hide Path;
 import '../../../../core/theme/driver_theme.dart';
+import '../../../../core/widgets/nabin_demo_simulator_banner.dart';
 
 import '../../../../core/network/nabin_ws_service.dart';
 
@@ -1157,12 +1158,19 @@ class _DriverAppShellState extends State<DriverAppShell> with SingleTickerProvid
     return Scaffold(
       backgroundColor: DriverTheme.bgLight,
       body: SafeArea(
-        child: IndexedStack(
-          index: _currentTab,
+        child: Column(
           children: [
-            _buildDriverHomeTab(),
-            _buildEarningsTab(),
-            _buildAccountTab(),
+            const NabinDemoSimulatorBanner(surface: 'the Driver app'),
+            Expanded(
+              child: IndexedStack(
+                index: _currentTab,
+                children: [
+                  _buildDriverHomeTab(),
+                  _buildEarningsTab(),
+                  _buildAccountTab(),
+                ],
+              ),
+            ),
           ],
         ),
       ),

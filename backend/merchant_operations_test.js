@@ -14,11 +14,12 @@
  *   A  00000000-0000-0000-0000-000000000201  +919811223344  Dilli Darbar Authentic Mughlai
  *   B  2699ade3-e014-4731-95dc-c79b095def40  +919871133479  Test Bistro M1
  *
- * Order of attack matters for honesty: cross-tenant attempts target the OTHER tenant's
- * existing rows and must leave them bit-identical, and the only orders this file mutates are
- * ones it creates for itself. Client-controlled identifiers are manipulated in path, body and
- * query on every group, because "the route uses req.merchant.id" is only true until a caller
- * supplies the other one too.
+ * Order of attack matters for honesty: cross-tenant attempts target the OTHER tenant's rows and
+ * must leave them bit-identical, and the only orders this file mutates are ones it creates for
+ * itself — which is why it also *creates* the orders it reads and attacks (see MCA-FX) rather
+ * than relying on whatever a previous run left in the store. Client-controlled identifiers are
+ * manipulated in path, body and query on every group, because "the route uses req.merchant.id"
+ * is only true until a caller supplies the other one too.
  */
 const http = require('http');
 const path = require('path');
@@ -159,6 +160,36 @@ async function productRow(store, id) {
 
 const sameRow = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
+/**
+ * One order for one tenant, created here through the customer checkout route.
+ * Groups 2 and 3 need a live order owned by each tenant. They used to get one by discovering
+ * whatever earlier runs had left in the store, which made the file measure its own residue: on
+ * a database cleared of transactional rows B owned nothing, MCA-09 reported "B cannot read its
+ * own orders" when the finding was "B has no orders", and the empty list then crashed the IDOR
+ * group at `victim.id`. The line also promises that "the only orders this file mutates are ones
+ * it creates for itself", so minting them here is what the file already claimed to do.
+ *
+ * The item comes from the tenant's own catalogue, so no product is invented.
+ */
+async function mintOrderFor(tenant, merchantToken, customerToken) {
+  if (!customerToken) return { ok: false, why: 'no customer session to check out with' };
+  const cat = await request('GET', '/api/merchant/catalog', null, tok(merchantToken));
+  const prods = (cat.data || {}).products || [];
+  const prod = prods.find((p) => p.is_available !== false) || prods[0];
+  if (!prod) return { ok: false, why: 'the tenant has no catalogue row to order', s: cat.status };
+  const booked = await request('POST', '/api/customer/book-food',
+    { merchantId: tenant.uuid, deliveryAddress: 'Flat 402, Civil Lines Hub, North Delhi', items: [{ productId: prod.id, quantity: 1 }] },
+    { ...tok(customerToken), 'Idempotency-Key': uniq('mch_fixture') });
+  const order = booked.data.order || booked.data.job || {};
+  return {
+    ok: booked.status === 200 && !!order.id,
+    id: order.id || null,
+    product: String(prod.id),
+    status: booked.status,
+    body: JSON.stringify(booked.data || {}).slice(0, 160),
+  };
+}
+
 async function main() {
   console.log('--- MERCHANT SECURITY / TENANT ISOLATION TESTS ---');
 
@@ -224,6 +255,13 @@ async function main() {
   assert('MCA-07 an order mutation without a token is refused before any lookup', noTokStatus.status === 401, { s: noTokStatus.status });
 
   // =============================== 2. own-tenant reads ===============================
+  // Mint first, then read: "B can read its own orders" is a statement about the read path, and
+  // it can only be proven against an order B actually owns.
+  const fa = await mintOrderFor(A, A_T, C_T);
+  const fb = await mintOrderFor(B, B_T, C_T);
+  assert('MCA-FX this file created one order for each tenant through customer checkout',
+    fa.ok && fb.ok, { a: fa, b: fb, customer: C_T ? 'session' : (lc.failure && lc.failure.body && lc.failure.body.code) || 'no session' });
+
   const aOrders = await request('GET', '/api/merchant/orders', null, tok(A_T));
   const bOrders = await request('GET', '/api/merchant/orders', null, tok(B_T));
   const aList = (aOrders.data || {}).orders || [];
@@ -242,51 +280,66 @@ async function main() {
     { a: aList.length, b: bList.length });
 
   // =============================== 3. IDOR: the other tenant's order ===============================
-  const victim = bList.find((o) => o.order_state === 'RECEIVED') || bList[0];
-  const before = await orderRow(store, victim.id);
-  assert('MCI-04 the target row exists and is B\'s before the attack',
-    before.row && String(before.row.merchant_id) === B.uuid, { before: before.row });
+  // Attack the row this file just minted when it exists, so the target's whole history is known
+  // here; fall back to any row of that tenant otherwise.
+  const victim = bList.find((o) => String(o.id) === String(fb.id))
+    || bList.find((o) => o.order_state === 'RECEIVED') || bList[0] || null;
+  const victimA = aList.find((o) => String(o.id) === String(fa.id))
+    || aList.find((o) => o.order_state === 'RECEIVED') || aList[0] || null;
 
-  const aReadB = await request('GET', `/api/merchant/${B.uuid}/orders`, null, tok(A_T));
-  assert('MCI-05 A cannot list B\'s orders through B\'s own id in the path',
-    aReadB.status === 403 && aReadB.data.success !== true, { s: aReadB.status, code: aReadB.data.code });
+  if (!victim || !victimA) {
+    // Only reachable when MCA-FX has already failed: with no order owned by a tenant there is no
+    // row to attack. It is reported per check name instead of crashing the file at `victim.id`,
+    // which is exactly how an empty store used to end this run.
+    for (const n of ['MCI-04', 'MCI-05', 'MCI-06', 'MCI-07', 'MCI-08', 'MCI-09', 'MCI-10',
+      'MCI-11', 'MCI-12']) {
+      skip(n, `no order to attack -> A=${JSON.stringify(fa)} B=${JSON.stringify(fb)}`);
+    }
+  } else {
+    const before = await orderRow(store, victim.id);
+    assert('MCI-04 the target row exists and is B\'s before the attack',
+      before.row && String(before.row.merchant_id) === B.uuid, { before: before.row });
 
-  const aMutB = await request('POST', `/api/merchant/orders/${victim.id}/status`, { status: 'ACCEPTED' }, tok(A_T));
-  assert('MCI-06 A cannot move B\'s order forward',
-    aMutB.status === 403 && aMutB.data.success !== true, { s: aMutB.status, body: aMutB.data });
+    const aReadB = await request('GET', `/api/merchant/${B.uuid}/orders`, null, tok(A_T));
+    assert('MCI-05 A cannot list B\'s orders through B\'s own id in the path',
+      aReadB.status === 403 && aReadB.data.success !== true, { s: aReadB.status, code: aReadB.data.code });
 
-  const aMutBPath = await request('POST', `/api/merchant/${B.uuid}/orders/${victim.id}/status`, { status: 'ACCEPTED' }, tok(A_T));
-  assert('MCI-07 A cannot do it either by naming B\'s restaurant in the path',
-    aMutBPath.status === 403 && aMutBPath.data.success !== true, { s: aMutBPath.status });
+    const aMutB = await request('POST', `/api/merchant/orders/${victim.id}/status`, { status: 'ACCEPTED' }, tok(A_T));
+    assert('MCI-06 A cannot move B\'s order forward',
+      aMutB.status === 403 && aMutB.data.success !== true, { s: aMutB.status, body: aMutB.data });
 
-  const aMutBBody = await request('POST', '/api/merchant/orders', {
-    merchantId: B.uuid, orders: [{ id: victim.id, status: 'ACCEPTED' }],
-  }, tok(A_T));
-  const aMutBBodyStatus = await request('POST', `/api/merchant/orders/${victim.id}/status`,
-    { status: 'ACCEPTED', merchantId: B.uuid, restaurantId: B.uuid }, tok(A_T));
-  assert('MCI-08 a merchantId/restaurantId in the body never overrides the token',
-    aMutBBodyStatus.status === 403 && aMutBBody.data.success !== true,
-    { list: aMutBBody.status, status: aMutBBodyStatus.status, code: aMutBBodyStatus.data.code });
+    const aMutBPath = await request('POST', `/api/merchant/${B.uuid}/orders/${victim.id}/status`, { status: 'ACCEPTED' }, tok(A_T));
+    assert('MCI-07 A cannot do it either by naming B\'s restaurant in the path',
+      aMutBPath.status === 403 && aMutBPath.data.success !== true, { s: aMutBPath.status });
 
-  const qSpoof = await request('POST', `/api/merchant/orders/${victim.id}/status?merchantId=${B.uuid}&restaurantId=${B.uuid}`,
-    { status: 'ACCEPTED' }, tok(A_T));
-  assert('MCI-09 and neither does one in the query string',
-    qSpoof.status === 403 && qSpoof.data.success !== true, { s: qSpoof.status });
+    const aMutBBody = await request('POST', '/api/merchant/orders', {
+      merchantId: B.uuid, orders: [{ id: victim.id, status: 'ACCEPTED' }],
+    }, tok(A_T));
+    const aMutBBodyStatus = await request('POST', `/api/merchant/orders/${victim.id}/status`,
+      { status: 'ACCEPTED', merchantId: B.uuid, restaurantId: B.uuid }, tok(A_T));
+    assert('MCI-08 a merchantId/restaurantId in the body never overrides the token',
+      aMutBBodyStatus.status === 403 && aMutBBody.data.success !== true,
+      { list: aMutBBody.status, status: aMutBBodyStatus.status, code: aMutBBodyStatus.data.code });
 
-  const after = await orderRow(store, victim.id);
-  assert('MCI-10 five attacks left B\'s stored order byte-identical',
-    !after.error && sameRow(before.row, after.row), { before: before.row, after: after.row });
+    const qSpoof = await request('POST', `/api/merchant/orders/${victim.id}/status?merchantId=${B.uuid}&restaurantId=${B.uuid}`,
+      { status: 'ACCEPTED' }, tok(A_T));
+    assert('MCI-09 and neither does one in the query string',
+      qSpoof.status === 403 && qSpoof.data.success !== true, { s: qSpoof.status });
 
-  // and the same in the other direction, on A's rows
-  const victimA = aList.find((o) => o.order_state === 'RECEIVED') || aList[0];
-  const beforeA = await orderRow(store, victimA.id);
-  const bMutA = await request('POST', `/api/merchant/orders/${victimA.id}/status`, { status: 'ACCEPTED' }, tok(B_T));
-  const bReadA = await request('GET', `/api/merchant/${A.uuid}/orders`, null, tok(B_T));
-  const afterA = await orderRow(store, victimA.id);
-  assert('MCI-11 B cannot move A\'s order, nor list it through A\'s id',
-    bMutA.status === 403 && bReadA.status === 403, { mut: bMutA.status, read: bReadA.status });
-  assert('MCI-12 and A\'s stored row is untouched by the attempt',
-    sameRow(beforeA.row, afterA.row), { before: beforeA.row, after: afterA.row });
+    const after = await orderRow(store, victim.id);
+    assert('MCI-10 five attacks left B\'s stored order byte-identical',
+      !after.error && sameRow(before.row, after.row), { before: before.row, after: after.row });
+
+    // and the same in the other direction, on A's rows
+    const beforeA = await orderRow(store, victimA.id);
+    const bMutA = await request('POST', `/api/merchant/orders/${victimA.id}/status`, { status: 'ACCEPTED' }, tok(B_T));
+    const bReadA = await request('GET', `/api/merchant/${A.uuid}/orders`, null, tok(B_T));
+    const afterA = await orderRow(store, victimA.id);
+    assert('MCI-11 B cannot move A\'s order, nor list it through A\'s id',
+      bMutA.status === 403 && bReadA.status === 403, { mut: bMutA.status, read: bReadA.status });
+    assert('MCI-12 and A\'s stored row is untouched by the attempt',
+      sameRow(beforeA.row, afterA.row), { before: beforeA.row, after: afterA.row });
+  }
 
   // =============================== 4. products / catalogue ===============================
   const aCat = await request('GET', '/api/merchant/catalog', null, tok(A_T));
@@ -512,7 +565,7 @@ async function main() {
   } else {
   const bookKey = uniq('mch_book');
   const booked = await request('POST', '/api/customer/book-food',
-    { restaurantId: REST_LEGACY, items: ['1x Special Dum Biryani (Chicken)'] },
+    { restaurantId: REST_LEGACY, deliveryAddress: 'Flat 402, Civil Lines Hub, North Delhi', items: ['1x Special Dum Biryani (Chicken)'] },
     { ...tok(C_T), 'Idempotency-Key': bookKey });
   const order = booked.data.order || booked.data.job || {};
   assert('MCO-01 a fresh food order was created for the transition tests',

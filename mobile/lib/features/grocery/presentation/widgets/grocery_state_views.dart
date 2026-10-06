@@ -117,7 +117,7 @@ class GroceryNotice extends StatelessWidget {
               icon: const Icon(Icons.refresh_rounded, size: 18),
               label: Text(actionLabel!),
               style: ElevatedButton.styleFrom(
-                backgroundColor: GroceryTheme.primaryGreenDark,
+                backgroundColor: GroceryTheme.primaryAction,
                 foregroundColor: Colors.white,
                 minimumSize: const Size(150, 44),
               ),

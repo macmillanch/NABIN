@@ -81,6 +81,24 @@ function describeError(err, connectionString) {
     process.exit(1);
   }
 
+  // The one command in this repo that can change a schema, checked against the same
+  // environment pin the server uses. A `DATABASE_URL` copied from the wrong project is
+  // how a dev migration lands in production, and no amount of care in the SQL fixes it —
+  // so the target has to name the environment it belongs to, out loud, before it connects.
+  const binding = require('../src/services/nabinEnv').audit(process.env);
+  for (const problem of binding.problems) {
+    console.error(`❌ ${problem}`);
+  }
+  if (binding.problems.length) {
+    console.error('❌ Migration refused: see docs/SUPABASE_ENVIRONMENTS.md.');
+    process.exit(1);
+  }
+  const target = binding.view.declaredRef || binding.view.observedRefs[0] || 'local';
+  console.log(
+    `📍 Migrations will run against NABIN_ENV=${binding.view.env}`
+    + ` (${binding.view.nodeEnv}) → ${target}${binding.view.restLocal ? ' via loopback' : ''}`
+  );
+
   const pendingPreview = discover(migrationsDir());
   const client = new Client({ connectionString, ssl: sslConfig(connectionString) });
   try {

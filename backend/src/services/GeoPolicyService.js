@@ -136,6 +136,34 @@ function isPointInCircle(lat, lng, centerLat, centerLng, radiusMeters) {
   return EARTH_RADIUS_M * c <= radiusMeters;
 }
 
+// The platform's only great-circle distance. A trip's length used to be a literal
+// in the booking route — `3.8 km` for a ride, `6.1 km` for a parcel — so the fare
+// the customer paid was priced on a journey nobody measured, and it was the same
+// fare however far they actually went. This answers the question the money path
+// has to ask: how far apart are the two places the customer placed.
+//
+// It refuses rather than guesses. An unvalidated or absent coordinate is `null`,
+// never a distance, because a distance is the input to a charge and a made-up one
+// is a bill for a trip that did not happen.
+function distanceKmBetween(from, to) {
+  const points = [from, to].map((p) => [Number(p?.lat), Number(p?.lng)]);
+  if (!points.every(([lat, lng]) => Number.isFinite(lat) && Number.isFinite(lng))) return null;
+
+  const [lat1, lng1] = points[0];
+  const [lat2, lng2] = points[1];
+  const phi1 = (lat1 * Math.PI) / 180;
+  const phi2 = (lat2 * Math.PI) / 180;
+  const deltaPhi = ((lat2 - lat1) * Math.PI) / 180;
+  const deltaLambda = ((lng2 - lng1) * Math.PI) / 180;
+
+  const a =
+    Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2) +
+    Math.cos(phi1) * Math.cos(phi2) * Math.sin(deltaLambda / 2) * Math.sin(deltaLambda / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+  return (EARTH_RADIUS_M * c) / 1000;
+}
+
 function isPointInPolygon(lat, lng, polygonCoords) {
   const ring = normalizeRing(polygonCoords);
   if (!ring || ring.length < 3) return false;
@@ -707,6 +735,7 @@ geoPolicyService.BOOKING_CRITICAL = BOOKING_CRITICAL;
 geoPolicyService.validateCoordinatePair = validateCoordinatePair;
 geoPolicyService.validateFenceGeometry = validateFenceGeometry;
 geoPolicyService.isPointInCircle = isPointInCircle;
+geoPolicyService.distanceKmBetween = distanceKmBetween;
 geoPolicyService.isPointInPolygon = isPointInPolygon;
 geoPolicyService.fenceSignature = fenceSignature;
 

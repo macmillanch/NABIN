@@ -1,9 +1,19 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/theme/driver_theme.dart';
 import '../../../../core/widgets/driver_button.dart';
 import '../../../../core/widgets/driver_card.dart';
 
+/// The four steps a NABIN partner is asked to fill in, kept honest about what this
+/// app can do with them.
+///
+/// Nothing here is submitted. There is no driver-facing KYC intake route: `drivers`
+/// is written by the admin fleet routes, and `drivers.kyc_status` — the column that
+/// decides whether a partner may drive — is only ever changed by an administrator.
+/// The screen used to answer a button press with a green "KYC Document Review
+/// Complete / APPROVED" board, which told a partner they had been verified by a
+/// review that had not happened.
 class DriverKycRegistrationScreen extends StatefulWidget {
   const DriverKycRegistrationScreen({super.key});
 
@@ -12,14 +22,42 @@ class DriverKycRegistrationScreen extends StatefulWidget {
 }
 
 class _DriverKycRegistrationScreenState extends State<DriverKycRegistrationScreen> {
-  int _currentStep = 0; // 0: Personal, 1: Vehicle 2W/3W/4W, 2: Documents (DL, RC, Ins), 3: Bank/UPI, 4: KYC Review & Status
-  String _selectedVehicle = '3W'; // '2W', '3W', '4W'
-  bool _isSubmitted = false;
+  // 0: Personal, 1: Vehicle, 2: Documents, 3: Payout.
+  int _currentStep = 0;
 
-  final TextEditingController _nameController = TextEditingController(text: 'Rajesh Kumar');
-  final TextEditingController _dlController = TextEditingController(text: 'DL-14201900192');
-  final TextEditingController _rcController = TextEditingController(text: 'DL 1RA 4892');
-  final TextEditingController _upiController = TextEditingController(text: 'rajesh.driver@okhdfcbank');
+  /// Null until the partner picks one. The ids are three of the five values
+  /// `drivers.vehicle_type` accepts; a pre-selected '3W' would have claimed a
+  /// vehicle category the applicant never named.
+  String? _selectedVehicle;
+
+  // Every field opens empty. They used to open pre-filled with one invented
+  // applicant — a Delhi licence plate, a Delhi registration, and a bank account
+  // with an IFSC — in a NABIN build that operates in Aizawl.
+  final TextEditingController _nameController = TextEditingController();
+  final TextEditingController _dlController = TextEditingController();
+  final TextEditingController _rcController = TextEditingController();
+  final TextEditingController _upiController = TextEditingController();
+
+  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _dlController.dispose();
+    _rcController.dispose();
+    _upiController.dispose();
+    super.dispose();
+  }
+
+  void _notice(String message) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Text(message),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: DriverTheme.textDark,
+      ));
+  }
 
   Widget _buildStepIndicator() {
     return Row(
@@ -39,44 +77,90 @@ class _DriverKycRegistrationScreenState extends State<DriverKycRegistrationScree
     );
   }
 
+  /// States a capability this app does not have, instead of dressing its absence up
+  /// as a completed step.
+  Widget _buildLimitationNote(String text) {
+    return DriverCard(
+      backgroundColor: DriverTheme.bgLight,
+      padding: const EdgeInsets.all(14),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.info_outline, color: DriverTheme.textMuted, size: 20),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(color: DriverTheme.textMuted, fontSize: 11.5, height: 1.35),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildField({
+    required TextEditingController controller,
+    required String label,
+    required int maxLength,
+    TextInputType keyboardType = TextInputType.text,
+    bool uppercase = false,
+  }) {
+    return DriverCard(
+      backgroundColor: Colors.white,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      child: TextFormField(
+        controller: controller,
+        maxLength: maxLength,
+        keyboardType: keyboardType,
+        textCapitalization: uppercase ? TextCapitalization.characters : TextCapitalization.words,
+        inputFormatters: uppercase ? [UpperCaseFormatter()] : null,
+        style: const TextStyle(fontWeight: FontWeight.bold, color: DriverTheme.textDark),
+        decoration: InputDecoration(
+          labelText: label,
+          counterText: '',
+          border: InputBorder.none,
+        ),
+        validator: (value) =>
+            (value ?? '').trim().isEmpty ? 'Enter the $label.' : null,
+      ),
+    );
+  }
+
   // Step 0: Personal Details & Profile Photo
   Widget _buildPersonalStep() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('1. Personal Details & Photo', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: DriverTheme.textDark)),
+        const Text('1. Personal Details', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: DriverTheme.textDark)),
         const SizedBox(height: 6),
-        const Text('Enter legal name as per government Driving Licence.', style: TextStyle(color: DriverTheme.textMuted, fontSize: 13)),
+        const Text('Enter the legal name on your government Driving Licence.', style: TextStyle(color: DriverTheme.textMuted, fontSize: 13)),
         const SizedBox(height: 20),
 
-        // Photo Upload Box
+        // There is no camera or gallery picker in the NABIN apps, so no photo can be
+        // attached from here. The circle used to be captioned 'Profile Photo
+        // (Verified)' with nothing behind it.
         Center(
           child: Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
               color: Colors.white,
               shape: BoxShape.circle,
-              border: Border.all(color: DriverTheme.primaryBlue, width: 2),
+              border: Border.all(color: DriverTheme.borderLight, width: 2),
             ),
-            child: const Icon(Icons.add_a_photo, size: 36, color: DriverTheme.primaryBlue),
+            child: const Icon(Icons.add_a_photo, size: 36, color: DriverTheme.textMuted),
           ),
         ),
         const SizedBox(height: 8),
         const Center(
-          child: Text('Profile Photo (Verified)', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: DriverTheme.onlineGreen)),
+          child: Text('Profile photo — not attached', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: DriverTheme.textMuted)),
         ),
         const SizedBox(height: 24),
 
-        DriverCard(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-          child: TextField(
-            controller: _nameController,
-            style: const TextStyle(fontWeight: FontWeight.bold, color: DriverTheme.textDark),
-            decoration: const InputDecoration(
-              labelText: 'Driver Full Name',
-              border: InputBorder.none,
-            ),
-          ),
+        _buildField(
+          controller: _nameController,
+          label: 'Driver Full Name',
+          maxLength: 100,
         ),
       ],
     );
@@ -138,153 +222,95 @@ class _DriverKycRegistrationScreenState extends State<DriverKycRegistrationScree
     );
   }
 
-  // Step 2: Documents (Driving Licence, RC, Insurance)
+  // Step 2: Driving Licence & Vehicle Registration numbers
   Widget _buildDocumentsStep() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('3. Commercial Documents', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: DriverTheme.textDark)),
+        const Text('3. Licence & Registration', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: DriverTheme.textDark)),
         const SizedBox(height: 6),
-        const Text('Upload photos and numbers for automated KYC approval.', style: TextStyle(color: DriverTheme.textMuted, fontSize: 13)),
+        const Text('Enter the numbers exactly as they appear on your documents.', style: TextStyle(color: DriverTheme.textMuted, fontSize: 13)),
         const SizedBox(height: 20),
 
-        DriverCard(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-          child: TextField(
-            controller: _dlController,
-            style: const TextStyle(fontWeight: FontWeight.bold, color: DriverTheme.textDark),
-            decoration: const InputDecoration(
-              labelText: 'Driving Licence Number',
-              border: InputBorder.none,
-            ),
-          ),
+        _buildField(
+          controller: _dlController,
+          label: 'Driving Licence Number',
+          maxLength: 50,
         ),
         const SizedBox(height: 14),
 
-        DriverCard(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-          child: TextField(
-            controller: _rcController,
-            style: const TextStyle(fontWeight: FontWeight.bold, color: DriverTheme.textDark),
-            decoration: const InputDecoration(
-              labelText: 'Vehicle Registration (RC Number)',
-              border: InputBorder.none,
-            ),
-          ),
+        _buildField(
+          controller: _rcController,
+          label: 'Vehicle Registration Number',
+          maxLength: 30,
+          uppercase: true,
         ),
-        const SizedBox(height: 14),
+        const SizedBox(height: 16),
 
-        _buildDocUploadTile('Commercial Insurance Certificate', 'Valid until Nov 2027', Icons.security),
-        const SizedBox(height: 10),
-        _buildDocUploadTile('Vehicle Fitness Certificate', 'Verified by RTO', Icons.speed),
+        // Two tiles used to sit here reporting 'Valid until Nov 2027' and 'Verified by
+        // RTO' with a green check, for documents nobody had looked at.
+        _buildLimitationNote(
+          'Document photos cannot be attached from the NABIN Driver app — it has no '
+          'camera or gallery picker. Insurance and fitness certificates are not '
+          'recorded here, and nothing you type on this screen has been checked '
+          'against the real document.',
+        ),
       ],
     );
   }
 
-  Widget _buildDocUploadTile(String title, String subtitle, IconData icon) {
-    return DriverCard(
-      padding: const EdgeInsets.all(14),
-      child: Row(
-        children: [
-          Icon(icon, color: DriverTheme.primaryBlue, size: 22),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: DriverTheme.textDark)),
-                Text(subtitle, style: const TextStyle(color: DriverTheme.onlineGreen, fontSize: 11, fontWeight: FontWeight.w600)),
-              ],
-            ),
-          ),
-          const Icon(Icons.check_circle_outline, color: DriverTheme.onlineGreen, size: 20),
-        ],
-      ),
-    );
-  }
-
-  // Step 3: Bank / UPI Details
+  // Step 3: Payout UPI
   Widget _buildBankStep() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('4. Payout Bank & UPI', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: DriverTheme.textDark)),
+        const Text('4. Payout UPI', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: DriverTheme.textDark)),
         const SizedBox(height: 6),
-        const Text('Daily instant payouts and earnings will be credited here.', style: TextStyle(color: DriverTheme.textMuted, fontSize: 13)),
+        const Text('The UPI ID you want NABIN payouts sent to.', style: TextStyle(color: DriverTheme.textMuted, fontSize: 13)),
         const SizedBox(height: 20),
 
-        DriverCard(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-          child: TextField(
-            controller: _upiController,
-            style: const TextStyle(fontWeight: FontWeight.bold, color: DriverTheme.textDark),
-            decoration: const InputDecoration(
-              labelText: 'UPI ID (Google Pay / PhonePe / Paytm)',
-              border: InputBorder.none,
-            ),
-          ),
+        _buildField(
+          controller: _upiController,
+          label: 'UPI ID (Google Pay / PhonePe / Paytm)',
+          maxLength: 100,
+          keyboardType: TextInputType.emailAddress,
         ),
         const SizedBox(height: 16),
 
-        const DriverCard(
-          padding: EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Linked Settlement Bank', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: DriverTheme.textDark)),
-              SizedBox(height: 4),
-              Text('HDFC Bank Ltd • A/C **** 4892 • IFSC: HDFC000182', style: TextStyle(color: DriverTheme.textMuted, fontSize: 12)),
-            ],
-          ),
+        // The settlement bank card below it named a bank, a masked account and an IFSC
+        // that belong to no one. The one payout-destination route that exists
+        // (POST /api/driver/payout-destination/request) needs a driver session and an
+        // already-VERIFIED KYC, so it cannot be reached from a pre-sign-in form either.
+        _buildLimitationNote(
+          'No bank account is linked to this form. NABIN can record a payout UPI for a '
+          'driver whose account is already signed in and already verified — not for an '
+          'applicant who has not signed in yet.',
         ),
       ],
     );
   }
 
-  // Final Screen: Approval Status & Activation
-  Widget _buildStatusStep() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Icon(Icons.verified, size: 72, color: DriverTheme.onlineGreen),
-          const SizedBox(height: 16),
-          const Text('KYC Document Review Complete', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: DriverTheme.textDark)),
-          const SizedBox(height: 8),
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 20),
-            child: Text(
-              'Your Driving Licence, Vehicle RC & Bank Account are approved. Your account is active and ready to accept jobs!',
-              style: TextStyle(color: DriverTheme.textMuted, fontSize: 13, height: 1.4),
-              textAlign: TextAlign.center,
-            ),
-          ),
-          const SizedBox(height: 24),
-          DriverCard(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: [
-                _buildStatusChip('DL', 'APPROVED'),
-                _buildStatusChip('RC', 'APPROVED'),
-                _buildStatusChip('INSURANCE', 'APPROVED'),
-                _buildStatusChip('UPI', 'ACTIVE'),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  void _onPrimaryAction() {
+    if (_currentStep < 3) {
+      // The step's own fields gate the way forward: an empty form should not advance
+      // as though it had been answered.
+      if (_currentStep == 1) {
+        if (_selectedVehicle == null) {
+          _notice('Choose the vehicle category you will drive with.');
+          return;
+        }
+      } else if (!(_formKey.currentState?.validate() ?? false)) {
+        return;
+      }
+      setState(() => _currentStep++);
+      return;
+    }
 
-  Widget _buildStatusChip(String title, String status) {
-    return Column(
-      children: [
-        Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: DriverTheme.textMuted)),
-        const SizedBox(height: 2),
-        Text(status, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 11, color: DriverTheme.onlineGreen)),
-      ],
-    );
+    if (!(_formKey.currentState?.validate() ?? false)) return;
+
+    _notice('Nothing was sent. The NABIN Driver app has no KYC intake route yet, so '
+        'these details are not recorded, reviewed or approved anywhere. A NABIN '
+        'administrator sets a driver\'s KYC status in the fleet directory.');
   }
 
   @override
@@ -292,14 +318,14 @@ class _DriverKycRegistrationScreenState extends State<DriverKycRegistrationScree
     return Scaffold(
       backgroundColor: DriverTheme.bgLight,
       appBar: AppBar(
-        title: const Text('Driver KYC & Vehicle Onboarding'),
+        title: const Text('Driver KYC & Vehicle Details'),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           onPressed: () {
-            if (_currentStep > 0 && !_isSubmitted) {
+            if (_currentStep > 0) {
               setState(() => _currentStep--);
             } else {
-              context.pop();
+              context.go('/login');
             }
           },
         ),
@@ -307,45 +333,44 @@ class _DriverKycRegistrationScreenState extends State<DriverKycRegistrationScree
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-          child: Column(
-            children: [
-              if (!_isSubmitted) ...[
+          child: Form(
+            key: _formKey,
+            child: Column(
+              children: [
                 _buildStepIndicator(),
                 const SizedBox(height: 20),
-              ],
-              Expanded(
-                child: SingleChildScrollView(
-                  child: _isSubmitted
-                      ? _buildStatusStep()
-                      : (_currentStep == 0
-                          ? _buildPersonalStep()
-                          : (_currentStep == 1
-                              ? _buildVehicleStep()
-                              : (_currentStep == 2 ? _buildDocumentsStep() : _buildBankStep()))),
+                Expanded(
+                  child: SingleChildScrollView(
+                    child: _currentStep == 0
+                        ? _buildPersonalStep()
+                        : (_currentStep == 1
+                            ? _buildVehicleStep()
+                            : (_currentStep == 2 ? _buildDocumentsStep() : _buildBankStep()))),
                 ),
-              ),
-              const SizedBox(height: 16),
-              DriverButton(
-                text: _isSubmitted
-                    ? 'Start Driving Now'
-                    : (_currentStep == 3 ? 'Submit KYC for Instant Approval' : 'Continue to Next Step'),
-                color: _isSubmitted ? DriverTheme.onlineGreen : DriverTheme.primaryBlue,
-                textColor: _isSubmitted ? Colors.black : Colors.white,
-                onPressed: () {
-                  if (_isSubmitted) {
-                    context.go('/home');
-                  } else if (_currentStep < 3) {
-                    setState(() => _currentStep++);
-                  } else {
-                    setState(() => _isSubmitted = true);
-                  }
-                },
-              ),
-              const SizedBox(height: 12),
-            ],
+                const SizedBox(height: 16),
+                DriverButton(
+                  text: _currentStep == 3 ? 'Send these details to NABIN' : 'Continue to Next Step',
+                  onPressed: _onPrimaryAction,
+                ),
+                const SizedBox(height: 12),
+              ],
+            ),
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Keeps a registration number the way a licence reads it, without the field
+/// silently changing anything else the partner typed.
+class UpperCaseFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
+    return TextEditingValue(
+      text: newValue.text.toUpperCase(),
+      selection: newValue.selection,
+      composing: TextRange.empty,
     );
   }
 }

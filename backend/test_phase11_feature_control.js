@@ -1,10 +1,18 @@
 const http = require('http');
 const { spawn } = require('child_process');
+// The port sweep below must kill only a NABIN backend, never whatever else owns the port.
+const { releasePrivatePort } = require('./scripts/port_release');
 
 process.env.NABIN_TEST_MODE = 'true';
 process.env.JWT_SECRET = process.env.JWT_SECRET || 'test_jwt_secret_for_local_testing_only';
 
-const BASE_URL = 'http://127.0.0.1:4000';
+// F-3(b): this suite starts its own backend and clears the port it is about to use, which is only safe on
+// a port that belongs to it. `NABIN_RESTART_PORT` is the private-port convention the chain already uses
+// (for `restart_test.js` and the isolated links), so when one is allocated this suite binds, probes and
+// sweeps only that port and can never evict the shared harness on :4000. With no env set it keeps the
+// historical :4000 behaviour unchanged.
+const TEST_PORT = Number(process.env.NABIN_RESTART_PORT || process.env.NABIN_TEST_PORT || 4000);
+const BASE_URL = `http://127.0.0.1:${TEST_PORT}`;
 
 let superAdminToken;
 let supportAdminToken;
@@ -49,7 +57,12 @@ function request(method, pathName, body = null, headers = {}) {
 
 function ensureServerRunning() {
   return new Promise((resolve, reject) => {
-    const srv = spawn('node', ['src/server.js'], { cwd: __dirname });
+    // Explicit PORT, so an inherited value cannot make the backend listen somewhere this suite is not
+    // probing.
+    const srv = spawn('node', ['src/server.js'], {
+      cwd: __dirname,
+      env: Object.assign({}, process.env, { PORT: String(TEST_PORT) })
+    });
     let resolved = false;
     
     srv.stdout.on('data', (data) => {
@@ -67,28 +80,23 @@ function ensureServerRunning() {
       if (!resolved) reject(new Error('Server failed to start'));
     });
 
-    // Give it 15 seconds max
+    // Startup detection is unchanged (the "Backend running" line), but 15s was a race waiting to happen:
+    // cold boot here measures 7-26s, so the deadline now matches the other harnesses and the failure is
+    // explicit about which port it gave up on.
     setTimeout(() => {
-        if (!resolved) reject(new Error('Server start timeout'));
-    }, 15000);
+        if (!resolved) reject(new Error(`Server start timeout on port ${TEST_PORT} (no "Backend running" line within 90s)`));
+    }, 90000);
   });
 }
 
 async function killProcessOnPort(port) {
-    try {
-        const { execSync } = require('child_process');
-        const out = execSync('netstat -ano').toString();
-        const lines = out.split('\n');
-        for (const line of lines) {
-            if (line.includes(':' + port + ' ') && line.includes('LISTENING')) {
-                const parts = line.trim().split(/\s+/);
-                const pid = parts[parts.length - 1];
-                console.log('Killing lingering process on port', port, 'PID:', pid);
-                execSync('taskkill /F /PID ' + pid);
-            }
-        }
-    } catch(e) {
-        // ignore
+    // Never evict a port owner by pid alone: releasePrivatePort kills only a NABIN
+    // `src/server.js` listener and reports anything foreign untouched, which is the same
+    // rule the chain runner applies to the ports it allocates.
+    const verdict = releasePrivatePort(port);
+    if (/released:/.test(verdict)) console.log('Killing lingering NABIN backend on port', port, '->', verdict);
+    if (/skipped:foreign/.test(verdict)) {
+        console.warn('  ⚠️  port', port, 'is held by a process that is not a NABIN backend — leaving it running, so this suite may fail to bind');
     }
 }
 
@@ -97,7 +105,7 @@ async function runTests() {
   console.log('🛡️ RUNNING NABIN PHASE 11: FEATURE CONTROL SYSTEM SUITE');
   console.log('========================================================================\n');
 
-  await killProcessOnPort(4000);
+  await killProcessOnPort(TEST_PORT);
   console.log('Starting server...');
   const server = await ensureServerRunning();
   console.log('Server started.');
@@ -314,7 +322,7 @@ async function runTests() {
     assert(res.status === 403, '24. Existing security controls remain intact.');
 
     // 20. Feature state persists across backend restart.
-    await killProcessOnPort(4000);
+    await killProcessOnPort(TEST_PORT);
     console.log('Restarting server to verify persistence...');
     const server2 = await ensureServerRunning();
     res = await request('GET', '/api/features');

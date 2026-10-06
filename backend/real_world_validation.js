@@ -197,10 +197,10 @@ async function runRealWorldValidation() {
   console.log('\n--- 5. PARCEL DUAL-OTP WORKFLOW ---');
   const parcelRes = await request('POST', '/api/customer/book-parcel', {
     customerId: 'usr_2',
-    sender: { name: 'Mukul Sen', phone: '9811002233', address: 'Sector 15, Rohini' },
-    recipient: { name: 'Aarav Mehta', phone: '9822003344', address: 'Khan Market, Delhi' },
-    category: 'DOCUMENTS',
-    weightKg: 0.5
+    senderDetails: { name: 'Mukul Sen', phone: '9811002233', address: 'Civil Lines Hub, Delhi', lat: 28.6853, lng: 77.2185 },
+    recipientDetails: { name: 'Aarav Mehta', phone: '9822003344', address: 'Khan Market, Delhi', lat: 28.5900, lng: 77.2300 },
+    packageDetails: 'Box of documents',
+    weightTier: 'UPTO_1_KG'
   }, { 'Authorization': `Bearer ${customerToken}` });
 
   assert('Parcel booked with independent dual OTPs', parcelRes.status === 200 && parcelRes.body.success, `Job ID: ${parcelRes.body.job?.id}`);
@@ -219,6 +219,7 @@ async function runRealWorldValidation() {
   const foodRes = await request('POST', '/api/customer/book-food', {
     customerId: 'usr_2',
     restaurantId: 'rest_1',
+    deliveryAddress: 'Flat 402, Civil Lines Hub, North Delhi',
     items: ['1x Special Dum Biryani (Chicken)', '2x Garlic Butter Naan']
   }, { 'Authorization': `Bearer ${customerToken}` });
 

@@ -1,0 +1,30 @@
+{
+  "phase": "PHASE 21",
+  "label": "before22",
+  "taken_at": "2026-09-26T13:18:09.966Z",
+  "target": {
+    "host": "127.0.0.1",
+    "database": "postgres",
+    "privileged_local_connection": true
+  },
+  "counts": {
+    "journal_transactions": "4473",
+    "journal_lines": "8913",
+    "driver_payouts": "487",
+    "jobs": "3265",
+    "completed_jobs": "1016",
+    "support_tickets": "988",
+    "sum_drivers_wallet_balance": "3817.00"
+  },
+  "driver_earnings": {
+    "driver_earnings_transactions": "2309",
+    "null_key_driver_earnings": "1364"
+  },
+  "historical_fingerprints": {
+    "journal_last_created": "2026-09-26T13:04:14.585Z",
+    "payouts_last_created": "2026-09-26T13:00:47.703Z",
+    "tickets_last_updated": "2026-09-26T13:00:40.649Z",
+    "tck_9481_status": "OPEN",
+    "historical_duplicate_rows": "296"
+  }
+}

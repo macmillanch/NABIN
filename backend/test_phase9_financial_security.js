@@ -494,8 +494,19 @@ async function runTests() {
   });
 
   await test('admin adjustments route awaits the async adjustment handler', async () => {
-    const routeMatch = serverSrc.match(/app\.post\('\/api\/admin\/finance\/adjustments'[\s\S]{0,700}?app\.post\(/);
-    assert.ok(routeMatch, 'adjustments route must exist');
+    // This used to match `app.post('/api/admin/finance/adjustments' ... app.post(` inside 700 characters,
+    // which quietly encoded two assumptions about the file's shape: that another POST exists within 700
+    // characters, and that the handler is shorter than that. Neither is part of the contract, so the
+    // probe went red purely because unrelated routes moved closer or further away.
+    // The contract being asserted is: inside THIS route's handler, the async adjustment helper is awaited.
+    // So slice from this route to the next route registration of any verb, and assert on that slice.
+    const routeStart = serverSrc.indexOf("app.post('/api/admin/finance/adjustments'");
+    assert.ok(routeStart !== -1, 'adjustments route must exist');
+    const afterRoute = serverSrc.slice(routeStart + 10);
+    const nextRouteOffset = afterRoute.search(/\napp\.(get|post|put|patch|delete)\(/);
+    const routeMatch = [nextRouteOffset === -1
+      ? afterRoute.slice(0, 4000)
+      : serverSrc.slice(routeStart, routeStart + 10 + nextRouteOffset)];
     assert.ok(/await db\.processFinancialAdjustment\(/.test(routeMatch[0]),
       'adjustments route must await db.processFinancialAdjustment');
   });

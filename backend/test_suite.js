@@ -2,6 +2,8 @@ const http = require('http');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
 const path = require('path');
+// Reap the backend this run starts, and only that one — scripts/spawned_server.js.
+const { trackServer } = require('./scripts/spawned_server');
 const WebSocket = require('ws');
 // A server spawned by a suite carries these, and the payment verifiers refuse without
 // them — neither one falls back to a value written in the source any more.
@@ -93,12 +95,12 @@ async function ensureServerRunning() {
     if (res.status === 200) return null;
   } catch (e) {}
 
-  const proc = spawn(process.execPath, [path.join(__dirname, 'src/server.js')], {
+  const proc = trackServer(spawn(process.execPath, [path.join(__dirname, 'src/server.js')], {
     cwd: __dirname,
     stdio: 'ignore',
     detached: true,
     windowsHide: true
-  });
+  }));
   proc.unref();
 
   for (let i = 0; i < 30; i++) {
@@ -534,8 +536,8 @@ async function runAllTests() {
     const blockedRide = await request('POST', '/api/customer/book-ride', {
       customerId: 'usr_2',
       vehicleType: 'AUTO',
-      pickup: { address: 'CyberCity Gate 1' },
-      drop: { address: 'DLF Phase 2' }
+      pickup: { address: 'CyberCity Gate 1', lat: 28.4951, lng: 77.0890 },
+      drop: { address: 'DLF Phase 2', lat: 28.4650, lng: 77.0960 }
     }, { 'Authorization': 'Bearer usr_session_priya' });
     assert('Customer ride booking returns HTTP 423 Locked when service is paused',
       blockedRide.status === 423 && blockedRide.data.servicePaused === true
@@ -554,8 +556,8 @@ async function runAllTests() {
     const allowedRide = await request('POST', '/api/customer/book-ride', {
       customerId: 'usr_2',
       vehicleType: 'AUTO',
-      pickup: { address: 'CyberCity Gate 1' },
-      drop: { address: 'DLF Phase 2' }
+      pickup: { address: 'CyberCity Gate 1', lat: 28.4951, lng: 77.0890 },
+      drop: { address: 'DLF Phase 2', lat: 28.4650, lng: 77.0960 }
     }, { 'Authorization': 'Bearer usr_session_priya' });
     assert('Customer ride booking succeeds once service is resumed',
       allowedRide.status === 200 && allowedRide.data.success
@@ -651,14 +653,25 @@ async function runAllTests() {
       livePricingEstimate.status === 200 && livePricingEstimate.data.estimate.surgeMultiplier >= 1.4
     );
 
-    // 6. Reverse-Geocoding resolution into human-readable locality
+    // 6. Reverse-Geocoding refuses to name a place it cannot resolve
+    //
+    // This assertion used to demand `locality.includes('Connaught Place')`, which
+    // was only satisfiable because the endpoint had a Delhi gazetteer inside it and
+    // returned a fabricated locality for any coordinate. The platform runs no
+    // geocoder, so the honest contract is a refusal that echoes the pin and says it
+    // does not know — the same guarantee `place_substitution_test.js` pins as RS-01.
     const revGeoRes = await request('POST', '/api/geofence/reverse-geocode', {
       lat: 28.6300,
       lng: 77.2200
     });
-    assert('Reverse geocoding resolves coordinates into human-readable locality name',
-      revGeoRes.status === 200 && revGeoRes.data.success && revGeoRes.data.locality.includes('Connaught Place')
-    );
+    assert('Reverse geocoding answers a valid pin with an explicit refusal instead of an invented locality',
+      revGeoRes.status === 200 && revGeoRes.data.success === true &&
+      revGeoRes.data.resolved === false && revGeoRes.data.reason === 'NO_GEOCODER' &&
+      [revGeoRes.data.locality, revGeoRes.data.landmark, revGeoRes.data.city, revGeoRes.data.formattedAddress]
+        .every(v => v === null) &&
+      revGeoRes.data.coordinates?.lat === 28.63 && revGeoRes.data.coordinates?.lng === 77.22,
+      `${revGeoRes.status} resolved=${revGeoRes.data.resolved} reason=${revGeoRes.data.reason} ` +
+      `locality=${JSON.stringify(revGeoRes.data.locality)} pin=${JSON.stringify(revGeoRes.data.coordinates)}`);
 
     // --- 10. MODULE 8: Advertisement Placements on the PostgreSQL `advertisements` table ---
     console.log('\n--- 10. MODULE 8: Advertisement Placements & Campaign Persistence ---');
@@ -896,6 +909,7 @@ async function runAllTests() {
     const foodBookingRes = await request('POST', '/api/customer/book-food', {
       customerId: 'usr_2',
       restaurantId: 'rest_1',
+      deliveryAddress: 'Flat 402, Civil Lines Hub, North Delhi',
       items: ['1x Special Dum Biryani (Chicken)', '2x Garlic Butter Naan']
     }, { 'Authorization': `Bearer ${customerToken}` });
 
@@ -1076,13 +1090,23 @@ async function runAllTests() {
     // Step 1: Customer books Parcel Courier
     const parcelRes = await request('POST', '/api/customer/book-parcel', {
       customerId: 'usr_2',
-      senderDetails: { address: 'Civil Lines Hub, Delhi' },
-      recipientDetails: { address: 'Connaught Place Outer Circle, New Delhi' }
+      senderDetails: { address: 'Civil Lines Hub, Delhi', lat: 28.6853, lng: 77.2185 },
+      recipientDetails: { address: 'Connaught Place Outer Circle, New Delhi', lat: 28.6328, lng: 77.2197 },
+      packageDetails: 'Box of books',
+      weightTier: 'UPTO_5_KG'
     }, { 'Authorization': `Bearer ${customerToken}` });
     assert('Customer books Parcel with Dual-OTP generation',
       parcelRes.status === 200 && parcelRes.data.success && parcelRes.data.job.startOtp && parcelRes.data.job.deliveryOtp
     );
     const parcelJob = parcelRes.data.job;
+    assert('Parcel trip distance and duration are derived from the placed points, not a fixed 6.1 km',
+      parcelJob.distance === '5.84 km' && parcelJob.duration === '18 mins',
+      `distance=${parcelJob.distance} duration=${parcelJob.duration}`
+    );
+    assert('Parcel carries the package the customer declared',
+      parcelJob.packageDetails === 'Box of books' && parcelJob.weightTier === 'UPTO_5_KG',
+      `packageDetails=${parcelJob.packageDetails}`
+    );
 
     // Step 2: Driver accepts parcel job
     const acceptParcelRes = await request('POST', '/api/driver/accept-job', {
@@ -2071,6 +2095,42 @@ async function runAllTests() {
     });
     assert('CHK-14: Quote with an invalid coupon rejected with 400',
       chkBadQuote.status === 400 && chkBadQuote.data.code === 'INVALID_PROMO_CODE'
+    );
+
+    // CHK-15 (#158): A quote that never describes a trip is refused, not priced from the
+    // route's own defaults. Before the fix `{ serviceType }` alone answered 200 with a fare for
+    // a 4 km / 12 min ride the caller never mentioned.
+    const chkNoDistance = await request('POST', '/api/pricing/estimate', {
+      serviceType: '3W', durationMins: 12
+    });
+    assert('CHK-15: Quote with no distance refused 400 MISSING_DISTANCE_KM, with no fare attached',
+      chkNoDistance.status === 400 && chkNoDistance.data.code === 'MISSING_DISTANCE_KM' &&
+      chkNoDistance.data.estimate === undefined
+    );
+
+    // CHK-16 (#158): An honest zero is a refusal, not a reinterpreted four. `Number(0) || 4.0`
+    // is 4.0, so the one length that means exactly what it says was the one the route could not
+    // hear. The booking route already refuses a zero-length trip, so a quote must not offer one.
+    const chkZeroDistance = await request('POST', '/api/pricing/estimate', {
+      ...QUOTE_BODY, distanceKm: 0
+    });
+    const chkZeroDuration = await request('POST', '/api/pricing/estimate', {
+      ...QUOTE_BODY, durationMins: 0
+    });
+    assert('CHK-16: Quote with a zero distance or zero duration refused 400 INVALID_*, not priced as 4 km',
+      chkZeroDistance.status === 400 && chkZeroDistance.data.code === 'INVALID_DISTANCE_KM' &&
+      chkZeroDuration.status === 400 && chkZeroDuration.data.code === 'INVALID_DURATION_MINS'
+    );
+
+    // CHK-17 (#158): The refusal is about the missing length, not the type it arrived in. The
+    // old route accepted numeric strings through `Number()`, and clients may already send one,
+    // so a string that names a real trip must still be quoted exactly as before.
+    const chkStringDistance = await request('POST', '/api/pricing/estimate', {
+      serviceType: '3W', distanceKm: '4', durationMins: '12'
+    });
+    assert('CHK-17: Quote with numeric-string length still prices (no type tightening)',
+      chkStringDistance.status === 200 &&
+      Number(chkStringDistance.data.estimate?.customerCharge) === Number(chkQuoteBase.data.estimate?.customerCharge)
     );
 
     // --- 26. MODULE 24: Geofences, Dynamic Surge & Spatial Pricing Persistence Bridge ---
@@ -3289,7 +3349,8 @@ async function runAllTests() {
     assert('NOTIF-API-14: Authorized admin broadcast succeeds',
       broadcastRes.status === 200 &&
       broadcastRes.data?.success === true &&
-      Boolean(broadcastRes.data?.broadcastId)
+      Boolean(broadcastRes.data?.broadcastId),
+      `status=${broadcastRes.status} body=${JSON.stringify(broadcastRes.data ?? broadcastRes.raw).slice(0, 300)}`
     );
     const sentBroadcastId = broadcastRes.data?.broadcastId;
 
@@ -3302,7 +3363,8 @@ async function runAllTests() {
       bcastAuditRes.status === 200 &&
       Boolean(foundAudit) &&
       foundAudit.action === 'NOTIFICATION_BROADCAST' &&
-      foundAudit.adminName !== undefined
+      foundAudit.adminName !== undefined,
+      `status=${bcastAuditRes.status} looking for=${sentBroadcastId} logs=${bcastAuditRes.data?.logs?.length} first=${JSON.stringify(bcastAuditRes.data?.logs?.[0] ?? null).slice(0, 240)}`
     );
 
     // NOTIF-API-16: Broadcast rate limit is enforced (1 per 15 minutes)
@@ -3314,7 +3376,8 @@ async function runAllTests() {
     assert('NOTIF-API-16: Administrative broadcast rate limit (1 per 15 mins) is strictly enforced with 429',
       rateLimitedRes.status === 429 &&
       rateLimitedRes.data?.code === 'RATE_LIMIT_EXCEEDED' &&
-      rateLimitedRes.data?.retryAfter > 0
+      rateLimitedRes.data?.retryAfter > 0,
+      `status=${rateLimitedRes.status} body=${JSON.stringify(rateLimitedRes.data ?? rateLimitedRes.raw).slice(0, 300)}`
     );
 
     // NOTIF-API-17: Pagination limits are enforced

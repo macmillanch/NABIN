@@ -1,16 +1,34 @@
 import 'package:flutter/material.dart';
-import '../../../../core/network/nabin_api_service.dart';
-import '../../../../core/network/session_manager.dart';
 import 'package:go_router/go_router.dart';
+import 'package:latlong2/latlong.dart';
+import '../../../../core/network/nabin_api_service.dart';
 import '../../../../core/theme/app_theme.dart';
-import '../../../../core/widgets/driver_map_view.dart';
+import '../../../../core/widgets/map_pin_picker.dart';
+import '../../../../core/widgets/place_map_preview.dart';
+import '../../../../core/widgets/place_pin_row.dart';
 import '../../../../core/models/school_model.dart';
 import '../../../../core/models/child_model.dart';
 import '../../../../core/models/passenger_booking_info.dart';
 import '../../../../core/models/school_child_repository.dart';
 
 class RideBookingScreen extends StatefulWidget {
-  const RideBookingScreen({super.key});
+  /// `placePicker` is swappable so a test can place a point without rendering the
+  /// tile-backed map; the shipped default is the map sheet itself.
+  const RideBookingScreen({
+    super.key,
+    this.initialChildId,
+    this.initialSchoolId,
+    this.placePicker = MapPinPickerSheet.show,
+  });
+
+  /// The row the customer tapped to get here. Home's place chips name a saved
+  /// child or school, and a chip that names a place has to book from it — so the
+  /// id travels with the route and this screen selects that row rather than
+  /// whatever the account happens to hold first. An id the account no longer has
+  /// is ignored: the rows are deletable between the tap and this build.
+  final String? initialChildId;
+  final String? initialSchoolId;
+  final PlacePinPicker placePicker;
 
   @override
   State<RideBookingScreen> createState() => _RideBookingScreenState();
@@ -27,107 +45,158 @@ class _RideBookingScreenState extends State<RideBookingScreen> {
   SavedChild? _selectedChild;
   SavedSchool? _selectedSchool;
 
-  // Active Ride Overrides (Defaults populated from selected child/school)
-  String _childName = 'Rahul Chakma';
-  String _schoolName = 'ABC Public School';
-  String _gradeClass = 'Class 5';
-  String? _section = 'Section B'; // Strictly optional
-  String _guardianName = 'Rahul Sharma (Father)';
-  String _guardianPhone = '+91 98765 43210';
-  String _pickupAddress = 'Flat 402, Civil Lines, Delhi';
-  String _destinationAddress = 'ABC Public School, Kamalanagar';
-  String _specialInstructions = 'Please verify with security guard at Gate 2.';
-  
-  // School Timing & Ride Offsets
-  String _schoolTimingSummary = '8:30 AM – 2:30 PM • Mon–Fri';
-  String _morningPickupTime = '07:45 AM';
-  String _schoolArrivalTime = '08:15 AM';
-  final String _afternoonPickupTime = '02:30 PM';
-  final String _homeArrivalTime = '03:00 PM';
+  // The trip details for this booking. Every one of these used to ship as a literal
+  // this screen made up — 'Rahul Chakma', 'Class 5', 'Flat 402, Tuikual, Aizawl',
+  // '07:45 AM', a gate-2 instruction — and all of it rode to a real driver on the
+  // tracking screen. They start empty and are filled only from the customer's own
+  // saved rows, from a place they put on the map, or from what they type.
+  String _childName = '';
+  String _schoolName = '';
+  String _gradeClass = '';
+  String? _section; // Strictly optional
+  String _guardianName = '';
+  String _guardianPhone = '';
+  String _pickupAddress = '';
+  String _destinationAddress = '';
+  String _specialInstructions = '';
 
+  // School Timing & Ride Offsets. The summary is the school row's own; the two times
+  // are only ever what the customer typed for this trip — the platform has no
+  // scheduling column for them, so they stay in the booking's passenger details.
+  String _schoolTimingSummary = '';
+  String _morningPickupTime = '';
+  String _schoolArrivalTime = '';
+
+  /// Where this ride actually starts and ends, in degrees. The platform prices and
+  /// dispatches from these numbers and refuses a booking whose end has none
+  /// (`400 PLACE_REQUIRED`) — there is no geocoder here, so the only honest sources
+  /// are a saved child/school row or a pin the customer placed on the map.
+  LatLng? _pickupPoint;
+  LatLng? _dropPoint;
+
+  /// Set once the first settled read of the account's schools and children has been
+  /// applied, so a later refresh cannot overwrite what the customer chose.
+  bool _defaultsApplied = false;
+
+  bool _submitting = false;
+
+  // The vehicle list carries only what the platform defines: a name, the service
+  // type the fare engine keys on, and a seat count. The fares and the "Nearest:
+  // 360m away • 2 mins ETA" lines this used to show were typed into the screen —
+  // there is no nearby-driver read and no quote this screen asks for. NABIN sets
+  // the fare when the ride is confirmed, and the active-ride screen shows that one.
   final List<Map<String, dynamic>> _vehicles = [
-    {
-      'name': 'Bike',
-      'desc': 'Nearest: 360m away • 2 mins ETA',
-      'capacity': '1 Person',
-      'fare': '₹45.00',
-      'icon': Icons.two_wheeler_rounded,
-      'color': AppTheme.serviceRide,
-    },
-    {
-      'name': 'Auto',
-      'desc': 'Nearest: 310m away • 2 mins ETA',
-      'capacity': '3 Persons',
-      'fare': '₹85.00',
-      'icon': Icons.electric_rickshaw_rounded,
-      'color': AppTheme.serviceRide,
-    },
-    {
-      'name': 'Car',
-      'desc': 'Nearest: 580m away • 4 mins ETA',
-      'capacity': '4 Persons',
-      'fare': '₹160.00',
-      'icon': Icons.local_taxi_rounded,
-      'color': AppTheme.serviceRide,
-    },
+    {'type': '2W', 'name': 'Bike', 'capacity': '1 Person', 'icon': Icons.two_wheeler_rounded},
+    {'type': '3W', 'name': 'Auto', 'capacity': '3 Persons', 'icon': Icons.electric_rickshaw_rounded},
+    {'type': '4W', 'name': 'Car', 'capacity': '4 Persons', 'icon': Icons.local_taxi_rounded},
   ];
 
   @override
   void initState() {
     super.initState();
-    _initDefaults();
+    // A school ride can only be booked for a child this account actually has, so
+    // the screen asks NABIN for the saved rows like every other list it reads.
+    SchoolChildRepository.instance.addListener(_onRepositoryChanged);
+    _applyRepositoryDefaults();
   }
 
-  void _initDefaults() {
+  @override
+  void dispose() {
+    SchoolChildRepository.instance.removeListener(_onRepositoryChanged);
+    super.dispose();
+  }
+
+  void _onRepositoryChanged() {
+    if (!mounted) return;
+    _applyRepositoryDefaults();
+    setState(() {});
+  }
+
+  /// Applies the account's own child and school once, as soon as the read settles.
+  /// A failed read settles too: the customer can still book for themselves and
+  /// place both ends of the trip on the map.
+  void _applyRepositoryDefaults() {
+    if (_defaultsApplied) return;
     final repo = SchoolChildRepository.instance;
-    if (repo.children.isNotEmpty) {
-      _selectedChild = repo.children.first;
-      _childName = _selectedChild!.fullName;
-      _gradeClass = _selectedChild!.gradeClass;
-      _section = _selectedChild!.section;
-      _guardianName = _selectedChild!.guardianName;
-      _guardianPhone = _selectedChild!.guardianPhone;
-      _pickupAddress = _selectedChild!.defaultPickupAddress;
-      _specialInstructions = _selectedChild!.specialInstructions ?? _specialInstructions;
-    }
-    if (repo.schools.isNotEmpty) {
-      _selectedSchool = repo.schools.first;
-      _schoolName = _selectedSchool!.name;
-      _destinationAddress = '${_selectedSchool!.name}, ${_selectedSchool!.address}';
-      _schoolTimingSummary = _selectedSchool!.generalTimingSummary;
-    }
-  }
+    if (repo.status != SchoolChildLoadStatus.ready && repo.status != SchoolChildLoadStatus.failed) return;
+    _defaultsApplied = true;
 
-  void _onSelectChild(SavedChild child) {
-    setState(() {
-      _selectedChild = child;
-      _childName = child.fullName;
-      _gradeClass = child.gradeClass;
-      _section = child.section;
-      _guardianName = child.guardianName;
-      _guardianPhone = child.guardianPhone;
-      _pickupAddress = child.defaultPickupAddress;
-      if (child.specialInstructions != null && child.specialInstructions!.isNotEmpty) {
-        _specialInstructions = child.specialInstructions!;
+    SavedChild? wantedChild;
+    for (final child in repo.children) {
+      if (widget.initialChildId != null && child.id == widget.initialChildId) {
+        wantedChild = child;
       }
+    }
+    SavedSchool? wantedSchool;
+    for (final school in repo.schools) {
+      if (widget.initialSchoolId != null && school.id == widget.initialSchoolId) {
+        wantedSchool = school;
+      }
+    }
 
-      // If child's school is available in repo, auto-select it
-      final repo = SchoolChildRepository.instance;
-      final matchedSchool = repo.schools.firstWhere((s) => s.id == child.schoolId, orElse: () => repo.schools.first);
-      _selectedSchool = matchedSchool;
-      _schoolName = matchedSchool.name;
-      _destinationAddress = '${matchedSchool.name}, ${matchedSchool.address}';
-      _schoolTimingSummary = matchedSchool.generalTimingSummary;
-    });
+    if (wantedChild != null) {
+      _selectChild(wantedChild);
+    } else if (wantedSchool != null) {
+      _selectSchool(wantedSchool);
+    } else if (repo.children.isNotEmpty) {
+      _selectChild(repo.children.first);
+    } else if (repo.schools.isNotEmpty) {
+      _selectSchool(repo.schools.first);
+    }
   }
 
-  void _onSelectSchool(SavedSchool school) {
-    setState(() {
-      _selectedSchool = school;
-      _schoolName = school.name;
-      _destinationAddress = '${school.name}, ${school.address}';
-      _schoolTimingSummary = school.generalTimingSummary;
-    });
+  void _selectChild(SavedChild child) {
+    _selectedChild = child;
+    _childName = child.fullName;
+    _gradeClass = child.gradeClass;
+    _section = child.section;
+    _guardianName = child.guardianName;
+    _guardianPhone = child.guardianPhone;
+    _pickupAddress = child.defaultPickupAddress;
+    _pickupPoint = LatLng(child.pickupLat, child.pickupLng);
+    if (child.specialInstructions != null && child.specialInstructions!.isNotEmpty) {
+      _specialInstructions = child.specialInstructions!;
+    }
+
+    // The school comes from the child's own link. `schoolFor` reads it out of the
+    // rows the account has, so a child whose school was deleted keeps the name that
+    // row carried and no coordinates — the drop then has to be placed before booking.
+    final school = SchoolChildRepository.instance.schoolFor(child);
+    if (school != null) {
+      _selectSchool(school);
+    } else {
+      _selectedSchool = null;
+      _schoolName = child.schoolName ?? '';
+      _destinationAddress = child.schoolName ?? '';
+      _schoolTimingSummary = '';
+      _dropPoint = null;
+    }
+  }
+
+  void _selectSchool(SavedSchool school) {
+    _selectedSchool = school;
+    _schoolName = school.name;
+    _destinationAddress = '${school.name}, ${school.address}';
+    _schoolTimingSummary = school.generalTimingSummary;
+    _dropPoint = LatLng(school.latitude, school.longitude);
+  }
+
+  void _onSelectChild(SavedChild child) => setState(() => _selectChild(child));
+
+  void _onSelectSchool(SavedSchool school) => setState(() => _selectSchool(school));
+
+  /// A stale selection is no selection: the ids come from rows the account can delete
+  /// between visits, and a `DropdownButton` whose value is not in its items throws.
+  String? get _selectedChildId {
+    final id = _selectedChild?.id;
+    if (id == null) return null;
+    return SchoolChildRepository.instance.children.any((c) => c.id == id) ? id : null;
+  }
+
+  String? get _selectedSchoolId {
+    final id = _selectedSchool?.id;
+    if (id == null) return null;
+    return SchoolChildRepository.instance.schools.any((s) => s.id == id) ? id : null;
   }
 
   void _showOverrideDetailsModal(BuildContext context) {
@@ -160,14 +229,24 @@ class _RideBookingScreenState extends State<RideBookingScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Row(
-                      children: [
-                        Icon(Icons.edit_note_rounded, color: AppTheme.primary, size: 24),
-                        SizedBox(width: 8),
-                        Text('Edit Ride Details for this Trip', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 17, color: AppTheme.onSurface)),
-                      ],
+                    // The title gets the width the close button leaves, and scales
+                    // into it — clipped or overflowing, it would hide which of the
+                    // two sheets this is (this one edits only this trip; the saved
+                    // template is edited from Profile).
+                    const Expanded(
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.edit_note_rounded, color: AppTheme.primary, size: 24),
+                            SizedBox(width: 8),
+                            Text('Edit Ride Details for this Trip', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 17, color: AppTheme.onSurface)),
+                          ],
+                        ),
+                      ),
                     ),
                     IconButton(icon: const Icon(Icons.close_rounded), onPressed: () => Navigator.pop(ctx)),
                   ],
@@ -181,6 +260,7 @@ class _RideBookingScreenState extends State<RideBookingScreen> {
                 TextField(
                   controller: nameCtrl,
                   decoration: InputDecoration(
+                    hintText: _selectedChild == null ? "The name on the child's school bag" : null,
                     prefixIcon: const Icon(Icons.person_outline, size: 18),
                     filled: true,
                     fillColor: AppTheme.surfaceContainerLow,
@@ -195,6 +275,7 @@ class _RideBookingScreenState extends State<RideBookingScreen> {
                 TextField(
                   controller: schoolCtrl,
                   decoration: InputDecoration(
+                    hintText: 'The school this ride goes to',
                     prefixIcon: const Icon(Icons.school_outlined, size: 18),
                     filled: true,
                     fillColor: AppTheme.surfaceContainerLow,
@@ -248,17 +329,31 @@ class _RideBookingScreenState extends State<RideBookingScreen> {
                 ),
                 const SizedBox(height: 10),
 
-                // Pickup & Destination
+                // Pickup & Destination. The text field says where in words; the line
+                // under each one names the coordinate that will actually be sent. An
+                // address this app cannot geocode is not a place the platform can drive
+                // to, so retyping an address drops its point until it is placed again.
                 const Text('Pickup Location *', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
                 const SizedBox(height: 4),
                 TextField(
                   controller: pickupCtrl,
+                  onChanged: (_) => setModalState(() {}),
                   decoration: InputDecoration(
-                    prefixIcon: const Icon(Icons.radio_button_checked, color: Color(0xFF00C853), size: 18),
+                    hintText: 'House / flat, lane and locality',
+                    prefixIcon: const Icon(Icons.radio_button_checked, color: AppTheme.success, size: 18),
                     filled: true,
                     fillColor: AppTheme.surfaceContainerLow,
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
                   ),
+                ),
+                const SizedBox(height: 6),
+                PlacePinRow(
+                  missing: 'No pickup place chosen yet',
+                  point: _pickupPoint,
+                  onPick: () async {
+                    final placed = await _applyMapPlace(isPickup: true, controller: pickupCtrl);
+                    if (placed != null) setModalState(() {});
+                  },
                 ),
                 const SizedBox(height: 10),
 
@@ -266,12 +361,23 @@ class _RideBookingScreenState extends State<RideBookingScreen> {
                 const SizedBox(height: 4),
                 TextField(
                   controller: destCtrl,
+                  onChanged: (_) => setModalState(() {}),
                   decoration: InputDecoration(
-                    prefixIcon: const Icon(Icons.location_on_rounded, color: Color(0xFFFF3D00), size: 18),
+                    hintText: 'The school or place the ride ends at',
+                    prefixIcon: const Icon(Icons.location_on_rounded, color: AppTheme.error, size: 18),
                     filled: true,
                     fillColor: AppTheme.surfaceContainerLow,
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
                   ),
+                ),
+                const SizedBox(height: 6),
+                PlacePinRow(
+                  missing: 'No drop place chosen yet',
+                  point: _dropPoint,
+                  onPick: () async {
+                    final placed = await _applyMapPlace(isPickup: false, controller: destCtrl);
+                    if (placed != null) setModalState(() {});
+                  },
                 ),
                 const SizedBox(height: 10),
 
@@ -282,11 +388,12 @@ class _RideBookingScreenState extends State<RideBookingScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text('Home Pickup Time', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                          const Text('Home Pickup Time (note for this trip)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
                           const SizedBox(height: 4),
                           TextField(
                             controller: morningPickupCtrl,
                             decoration: InputDecoration(
+                              hintText: 'e.g. 07:15 AM',
                               filled: true,
                               fillColor: AppTheme.surfaceContainerLow,
                               border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
@@ -300,11 +407,12 @@ class _RideBookingScreenState extends State<RideBookingScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text('School Arrival Time', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                          const Text('School Arrival Time (note)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
                           const SizedBox(height: 4),
                           TextField(
                             controller: schoolArrivalCtrl,
                             decoration: InputDecoration(
+                              hintText: 'e.g. 08:00 AM',
                               filled: true,
                               fillColor: AppTheme.surfaceContainerLow,
                               border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
@@ -373,8 +481,12 @@ class _RideBookingScreenState extends State<RideBookingScreen> {
                       _section = sectionCtrl.text.trim().isNotEmpty ? sectionCtrl.text.trim() : null;
                       _guardianName = guardianCtrl.text.trim();
                       _guardianPhone = phoneCtrl.text.trim();
-                      _pickupAddress = pickupCtrl.text.trim();
-                      _destinationAddress = destCtrl.text.trim();
+                      final newPickup = pickupCtrl.text.trim();
+                      final newDrop = destCtrl.text.trim();
+                      if (newPickup != _pickupAddress) _pickupPoint = null;
+                      if (newDrop != _destinationAddress) _dropPoint = null;
+                      _pickupAddress = newPickup;
+                      _destinationAddress = newDrop;
                       _specialInstructions = noteCtrl.text.trim();
                       _morningPickupTime = morningPickupCtrl.text.trim();
                       _schoolArrivalTime = schoolArrivalCtrl.text.trim();
@@ -400,19 +512,78 @@ class _RideBookingScreenState extends State<RideBookingScreen> {
     );
   }
 
+  void _showNotice(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), duration: const Duration(seconds: 3)),
+    );
+  }
+
+  /// Opens the pin picker and, when the customer places a point, makes it this
+  /// ride's pickup or drop. The typed label travels with it; the coordinate comes
+  /// only from the pin.
+  ///
+  /// `controller` is the field that owns this end's address text, and it is written
+  /// as well as the trip state, because the override sheet copies its text fields
+  /// back over the trip when it applies: a controller that never saw the pin would
+  /// restore the empty field and drop the point the customer just placed. `label` is
+  /// for a caller whose text is not that end's address field — the search sheet's
+  /// query names the place it is filtering by, and must not be overwritten.
+  Future<LatLng?> _applyMapPlace({
+    required bool isPickup,
+    TextEditingController? controller,
+    String? label,
+  }) async {
+    final point = await widget.placePicker(
+      context,
+      initial: isPickup ? _pickupPoint : _dropPoint,
+      title: isPickup ? 'Where should the ride start?' : 'Where should the ride end?',
+      hint: 'Tap the map to drop the pin on the exact point. NABIN prices and sends the ride from here.',
+    );
+    if (point == null || !mounted) return null;
+    final typed = (controller?.text ?? label ?? '').trim();
+    final text = typed.isNotEmpty
+        ? typed
+        : 'Pinned at ${point.latitude.toStringAsFixed(5)}, ${point.longitude.toStringAsFixed(5)}';
+    if (typed.isEmpty && controller != null) controller.text = text;
+    setState(() {
+      if (isPickup) {
+        _pickupAddress = text;
+        _pickupPoint = point;
+      } else {
+        _destinationAddress = text;
+        _dropPoint = point;
+      }
+    });
+    return point;
+  }
+
+  /// The places this sheet can offer are the ones the account actually has: a saved
+  /// child's pickup point and a saved school, each with the coordinates NABIN stores
+  /// for it. The hard-coded landmark list this replaced carried no coordinates at
+  /// all, so picking from it sent a trip whose ends the platform had to guess.
+  /// Anything else goes through the map picker, which is the only other honest
+  /// source of a place.
   void _openLocationSearchSheet({required bool isPickup}) {
-    final List<Map<String, dynamic>> presetLocations = [
-      {'name': 'Flat 402, Civil Lines, Delhi', 'sub': 'Home • North Delhi', 'icon': Icons.home_rounded, 'tag': 'Home'},
-      {'name': 'ABC Public School, Kamalanagar', 'sub': 'Kamalanagar Main Road, Gate 2', 'icon': Icons.school_rounded, 'tag': 'School'},
-      {'name': 'DPS RK Puram, Sector 12', 'sub': 'Kaifi Azmi Marg, New Delhi', 'icon': Icons.school_rounded, 'tag': 'School'},
-      {'name': 'Connaught Place Inner Circle', 'sub': 'Block B, Rajiv Chowk, New Delhi', 'icon': Icons.business_center_rounded, 'tag': 'Transit'},
-      {'name': 'Delhi University (North Campus)', 'sub': 'Vishwavidyalaya Marg, Delhi', 'icon': Icons.account_balance_rounded, 'tag': 'University'},
-      {'name': 'Indira Gandhi Int\'l Airport (T3)', 'sub': 'Departures Forecourt, New Delhi', 'icon': Icons.flight_takeoff_rounded, 'tag': 'Airport'},
-      {'name': 'AIIMS Hospital Ansari Nagar', 'sub': 'Sri Aurobindo Marg, New Delhi', 'icon': Icons.local_hospital_rounded, 'tag': 'Hospital'},
-      {'name': 'Select Citywalk Mall Saket', 'sub': 'A-3 District Centre, Saket', 'icon': Icons.shopping_bag_rounded, 'tag': 'Mall'},
-      {'name': 'Cyber Hub DLF Phase 2', 'sub': 'NH-8, Gurugram, Haryana', 'icon': Icons.apartment_rounded, 'tag': 'Business'},
-      {'name': 'Karol Bagh Metro Station', 'sub': 'Pusa Road, Karol Bagh, Delhi', 'icon': Icons.train_rounded, 'tag': 'Metro'},
-      {'name': 'Chandni Chowk / Red Fort', 'sub': 'Netaji Subhash Marg, Old Delhi', 'icon': Icons.attractions_rounded, 'tag': 'Landmark'},
+    final repo = SchoolChildRepository.instance;
+    final List<Map<String, dynamic>> places = <Map<String, dynamic>>[
+      for (final child in repo.children)
+        if (child.defaultPickupAddress.isNotEmpty)
+          {
+            'name': child.defaultPickupAddress,
+            'sub': 'Pickup for ${child.fullName}',
+            'icon': Icons.home_rounded,
+            'tag': 'Saved',
+            'point': LatLng(child.pickupLat, child.pickupLng),
+          },
+      for (final school in repo.schools)
+        {
+          'name': '${school.name}, ${school.address}',
+          'sub': school.generalTimingSummary,
+          'icon': Icons.school_rounded,
+          'tag': 'School',
+          'point': LatLng(school.latitude, school.longitude),
+        },
     ];
 
     String searchQuery = '';
@@ -423,18 +594,31 @@ class _RideBookingScreenState extends State<RideBookingScreen> {
       backgroundColor: Colors.transparent,
       builder: (ctx) => StatefulBuilder(
         builder: (context, setModalState) {
-          final filtered = presetLocations.where((loc) {
-            final name = loc['name'].toString().toLowerCase();
-            final sub = loc['sub'].toString().toLowerCase();
-            final tag = loc['tag'].toString().toLowerCase();
-            final q = searchQuery.toLowerCase();
-            return name.contains(q) || sub.contains(q) || tag.contains(q);
+          final q = searchQuery.toLowerCase();
+          final filtered = places.where((p) {
+            return (p['name'] as String).toLowerCase().contains(q) ||
+                (p['sub'] as String).toLowerCase().contains(q) ||
+                (p['tag'] as String).toLowerCase().contains(q);
           }).toList();
+
+          void choose(String label, LatLng point) {
+            setState(() {
+              if (isPickup) {
+                _pickupAddress = label;
+                _pickupPoint = point;
+              } else {
+                _destinationAddress = label;
+                _dropPoint = point;
+              }
+            });
+            Navigator.pop(ctx);
+            _showNotice('${isPickup ? "Pickup" : "Drop"} set to: $label');
+          }
 
           return Container(
             height: MediaQuery.of(context).size.height * 0.78,
             decoration: const BoxDecoration(
-              color: Colors.white,
+              color: AppTheme.surfaceContainerLowest,
               borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
             ),
             padding: EdgeInsets.only(
@@ -451,7 +635,7 @@ class _RideBookingScreenState extends State<RideBookingScreen> {
                     width: 44,
                     height: 5,
                     decoration: BoxDecoration(
-                      color: Colors.grey.shade300,
+                      color: AppTheme.outlineVariant,
                       borderRadius: BorderRadius.circular(10),
                     ),
                   ),
@@ -462,19 +646,21 @@ class _RideBookingScreenState extends State<RideBookingScreen> {
                     Container(
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
-                        color: isPickup ? const Color(0xFFE8F5E9) : const Color(0xFFFFEBEE),
+                        color: isPickup ? AppTheme.success.withValues(alpha: 0.10) : AppTheme.error.withValues(alpha: 0.10),
                         shape: BoxShape.circle,
                       ),
                       child: Icon(
                         isPickup ? Icons.radio_button_checked : Icons.location_on_rounded,
-                        color: isPickup ? const Color(0xFF00C853) : const Color(0xFFFF3D00),
+                        color: isPickup ? AppTheme.success : AppTheme.error,
                         size: 20,
                       ),
                     ),
                     const SizedBox(width: 12),
-                    Text(
-                      isPickup ? 'Search Pickup Location' : 'Search Drop Location',
-                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: AppTheme.onSurface),
+                    Flexible(
+                      child: Text(
+                        isPickup ? 'Search Pickup Location' : 'Search Drop Location',
+                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: AppTheme.onSurface),
+                      ),
                     ),
                   ],
                 ),
@@ -483,7 +669,7 @@ class _RideBookingScreenState extends State<RideBookingScreen> {
                   autofocus: true,
                   onChanged: (val) => setModalState(() => searchQuery = val),
                   decoration: InputDecoration(
-                    hintText: isPickup ? 'Enter pickup landmark or address...' : 'Enter destination or landmark...',
+                    hintText: isPickup ? 'Search your saved pickup places...' : 'Search your saved schools...',
                     prefixIcon: const Icon(Icons.search_rounded, color: AppTheme.primary),
                     suffixIcon: searchQuery.isNotEmpty
                         ? IconButton(
@@ -500,34 +686,80 @@ class _RideBookingScreenState extends State<RideBookingScreen> {
                   ),
                 ),
                 const SizedBox(height: 14),
-                const Text('Suggested Landmarks & Recent Places',
-                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppTheme.onSurfaceVariant)),
-                const SizedBox(height: 8),
+                // The map is always available: an address this app cannot geocode is
+                // not a place the platform can drive to until the customer points at it.
+                InkWell(
+                  onTap: () async {
+                    final point = await _applyMapPlace(
+                      isPickup: isPickup,
+                      label: searchQuery.trim().isEmpty ? null : searchQuery.trim(),
+                    );
+                    if (point != null && ctx.mounted) Navigator.pop(ctx);
+                  },
+                  borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: AppTheme.primary.withValues(alpha: 0.06),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppTheme.primary.withValues(alpha: 0.35)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.add_location_alt_rounded, color: AppTheme.primary, size: 20),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text('Choose on the map',
+                                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w900, color: AppTheme.onSurface)),
+                              Text(
+                                searchQuery.trim().isEmpty
+                                    ? 'Drop a pin on the exact point'
+                                    : 'Place "${searchQuery.trim()}" on the map',
+                                style: const TextStyle(fontSize: 11, color: AppTheme.onSurfaceVariant),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
+                          ),
+                        ),
+                        const Icon(Icons.chevron_right_rounded, color: AppTheme.primary, size: 20),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  places.isEmpty ? 'No saved places on this account yet' : 'Saved places on your account',
+                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppTheme.onSurfaceVariant),
+                ),
+                const SizedBox(height: 4),
                 Expanded(
                   child: filtered.isEmpty
                       ? Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              const Icon(Icons.location_off_rounded, size: 40, color: Colors.grey),
-                              const SizedBox(height: 8),
-                              Text('No places found for "$searchQuery"', style: const TextStyle(color: Colors.grey)),
-                              const SizedBox(height: 12),
-                              if (searchQuery.trim().isNotEmpty)
-                                ElevatedButton(
-                                  onPressed: () {
-                                    setState(() {
-                                      if (isPickup) {
-                                        _pickupAddress = searchQuery.trim();
-                                      } else {
-                                        _destinationAddress = searchQuery.trim();
-                                      }
-                                    });
-                                    Navigator.pop(ctx);
-                                  },
-                                  child: Text('Use "$searchQuery"'),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 24),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                const Icon(Icons.location_off_rounded, size: 40, color: AppTheme.onSurfaceVariant),
+                                const SizedBox(height: 8),
+                                Text(
+                                  searchQuery.trim().isEmpty
+                                      ? 'Nothing saved to pick from yet.'
+                                      : 'No saved place matches "$searchQuery"',
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(color: AppTheme.onSurfaceVariant),
                                 ),
-                            ],
+                                const SizedBox(height: 6),
+                                const Text(
+                                  'Use Choose on the map above to place this end of the ride.',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(fontSize: 11.5, color: AppTheme.onSurfaceVariant),
+                                ),
+                              ],
+                            ),
                           ),
                         )
                       : ListView.separated(
@@ -535,41 +767,34 @@ class _RideBookingScreenState extends State<RideBookingScreen> {
                           separatorBuilder: (_, __) => const Divider(height: 1),
                           itemBuilder: (context, i) {
                             final item = filtered[i];
-                            return ListTile(
-                              leading: Container(
-                                padding: const EdgeInsets.all(8),
-                                decoration: BoxDecoration(
-                                  color: AppTheme.surfaceContainerLow,
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                child: Icon(item['icon'] as IconData, color: AppTheme.primary, size: 20),
-                              ),
-                              title: Text(item['name'] as String, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5)),
-                              subtitle: Text(item['sub'] as String, style: const TextStyle(fontSize: 11, color: AppTheme.onSurfaceVariant)),
-                              trailing: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                                decoration: BoxDecoration(
-                                  color: AppTheme.surfaceContainerLow,
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Text(item['tag'] as String, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppTheme.primary)),
-                              ),
-                              onTap: () {
-                                setState(() {
-                                  if (isPickup) {
-                                    _pickupAddress = item['name'] as String;
-                                  } else {
-                                    _destinationAddress = item['name'] as String;
-                                  }
-                                });
-                                Navigator.pop(ctx);
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text('${isPickup ? 'Pickup' : 'Drop'} set to: ${item['name']}'),
-                                    duration: const Duration(seconds: 2),
+                            // Its own Material: the sheet's surface is an opaque
+                            // BoxDecoration, and a ListTile paints its splash on the
+                            // nearest Material *ancestor* — which is behind that
+                            // decoration, so tapping a saved place shows nothing.
+                            return Material(
+                              type: MaterialType.transparency,
+                              child: ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                leading: Container(
+                                  padding: const EdgeInsets.all(8),
+                                  decoration: BoxDecoration(
+                                    color: AppTheme.surfaceContainerLow,
+                                    borderRadius: BorderRadius.circular(10),
                                   ),
-                                );
-                              },
+                                  child: Icon(item['icon'] as IconData, color: AppTheme.primary, size: 20),
+                                ),
+                                title: Text(item['name'] as String, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5)),
+                                subtitle: Text(item['sub'] as String, style: const TextStyle(fontSize: 11, color: AppTheme.onSurfaceVariant)),
+                                trailing: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                  decoration: BoxDecoration(
+                                    color: AppTheme.surfaceContainerLow,
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Text(item['tag'] as String, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppTheme.primary)),
+                                ),
+                                onTap: () => choose(item['name'] as String, item['point'] as LatLng),
+                              ),
                             );
                           },
                         ),
@@ -595,14 +820,16 @@ class _RideBookingScreenState extends State<RideBookingScreen> {
       backgroundColor: AppTheme.background,
       body: Stack(
         children: [
-          // 1. Vector Daylight Map Viewport (Updates with selected pickup & drop)
+          // The places this ride has, where they actually are. Until this screen used
+          // the Driver app's map widget, which draws a Delhi route between pins
+          // hard-coded to Delhi with eight invented drivers around them: whichever
+          // Aizawl places were chosen, the map showed a trip through Delhi.
           Positioned.fill(
-            child: DriverMapView(
-              vehicleType: _selectedVehicleIndex == 0 ? '2W' : (_selectedVehicleIndex == 1 ? '3W' : '4W'),
-              showRoute: true,
-              showNearbyDrivers: true,
-              pickupLabel: _pickupAddress,
-              dropLabel: _destinationAddress,
+            child: PlaceMapPreview(
+              pickup: _pickupPoint,
+              drop: _dropPoint,
+              pickupLabel: _pickupAddress.isEmpty ? null : _pickupAddress,
+              dropLabel: _destinationAddress.isEmpty ? null : _destinationAddress,
             ),
           ),
 
@@ -628,54 +855,63 @@ class _RideBookingScreenState extends State<RideBookingScreen> {
                         ),
                       ),
 
-                      // "Who is riding?" Pill Toggle
-                      Container(
-                        padding: const EdgeInsets.all(4),
-                        decoration: BoxDecoration(
-                          color: AppTheme.surfaceContainerLowest,
-                          borderRadius: BorderRadius.circular(24),
-                          boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 8)],
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            GestureDetector(
-                              onTap: () => setState(() => _bookingType = 'FOR_ME'),
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                                decoration: BoxDecoration(
-                                  color: !isForSomeoneElse ? AppTheme.primary : Colors.transparent,
-                                  borderRadius: BorderRadius.circular(18),
-                                ),
-                                child: Text(
-                                  'For Me',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.bold,
-                                    color: !isForSomeoneElse ? Colors.white : AppTheme.onSurface,
+                      // "Who is riding?" Pill Toggle. Both labels have to stay
+                      // readable, so the toggle takes the remaining width and scales
+                      // down inside it — a phone at 360–393 logical px, or a larger
+                      // text scale, would otherwise clip 'For Someone Else'.
+                      Expanded(
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.centerRight,
+                          child: Container(
+                            padding: const EdgeInsets.all(4),
+                            decoration: BoxDecoration(
+                              color: AppTheme.surfaceContainerLowest,
+                              borderRadius: BorderRadius.circular(24),
+                              boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 8)],
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                GestureDetector(
+                                  onTap: () => setState(() => _bookingType = 'FOR_ME'),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                                    decoration: BoxDecoration(
+                                      color: !isForSomeoneElse ? AppTheme.primary : Colors.transparent,
+                                      borderRadius: BorderRadius.circular(18),
+                                    ),
+                                    child: Text(
+                                      'For Me',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold,
+                                        color: !isForSomeoneElse ? Colors.white : AppTheme.onSurface,
+                                      ),
+                                    ),
                                   ),
                                 ),
-                              ),
-                            ),
-                            GestureDetector(
-                              onTap: () => setState(() => _bookingType = 'FOR_SOMEONE_ELSE'),
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                                decoration: BoxDecoration(
-                                  color: isForSomeoneElse ? const Color(0xFFFF6D00) : Colors.transparent,
-                                  borderRadius: BorderRadius.circular(18),
-                                ),
-                                child: Text(
-                                  'For Someone Else',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.bold,
-                                    color: isForSomeoneElse ? Colors.white : AppTheme.onSurface,
+                                GestureDetector(
+                                  onTap: () => setState(() => _bookingType = 'FOR_SOMEONE_ELSE'),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                                    decoration: BoxDecoration(
+                                      color: isForSomeoneElse ? AppTheme.primary : Colors.transparent,
+                                      borderRadius: BorderRadius.circular(18),
+                                    ),
+                                    child: Text(
+                                      'For Someone Else',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold,
+                                        color: isForSomeoneElse ? Colors.white : AppTheme.onSurface,
+                                      ),
+                                    ),
                                   ),
                                 ),
-                              ),
+                              ],
                             ),
-                          ],
+                          ),
                         ),
                       ),
                     ],
@@ -691,13 +927,19 @@ class _RideBookingScreenState extends State<RideBookingScreen> {
                         borderRadius: BorderRadius.circular(18),
                         boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 8)],
                       ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceAround,
+                      // Four labels in a row is the widest thing on this screen, and
+                      // it cannot be allowed to clip: the category decides which
+                      // passenger details the driver is sent. Wrapping costs a line of
+                      // height; clipping costs the customer a choice.
+                      child: Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        alignment: WrapAlignment.center,
                         children: [
-                          _buildCategoryChip('SCHOOL_CHILD', '🎒 School Child', const Color(0xFFFF6D00)),
+                          _buildCategoryChip('SCHOOL_CHILD', '🎒 School Child', AppTheme.primary),
                           _buildCategoryChip('ADULT', '👤 Adult', AppTheme.primary),
-                          _buildCategoryChip('ELDERLY', '👵 Elderly', const Color(0xFF7B1FA2)),
-                          _buildCategoryChip('OTHER', '📦 Other', const Color(0xFF00796B)),
+                          _buildCategoryChip('ELDERLY', '👵 Elderly', AppTheme.primary),
+                          _buildCategoryChip('OTHER', '📦 Other', AppTheme.primary),
                         ],
                       ),
                     ),
@@ -723,7 +965,7 @@ class _RideBookingScreenState extends State<RideBookingScreen> {
                                 width: 36,
                                 height: 36,
                                 decoration: const BoxDecoration(
-                                  gradient: LinearGradient(colors: [Color(0xFFFF6D00), Color(0xFFFF9E80)]),
+                                  color: AppTheme.primary,
                                   shape: BoxShape.circle,
                                 ),
                                 child: const Center(
@@ -736,14 +978,21 @@ class _RideBookingScreenState extends State<RideBookingScreen> {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(
-                                      '$_childName • $_gradeClass${_section != null && _section!.isNotEmpty ? ' ($_section)' : ''}',
+                                      _childName.isEmpty
+                                          ? (repo.isLoading ? 'Loading your saved children…' : 'No child chosen yet')
+                                          : '$_childName • $_gradeClass${_section != null && _section!.isNotEmpty ? ' ($_section)' : ''}',
                                       style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 13, color: AppTheme.onSurface),
                                     ),
-                                    Text(
-                                      '$_schoolName • $_schoolTimingSummary',
-                                      style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: AppTheme.primary),
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
+                                    // The school line only appears when this account actually has a
+                                    // school row (or a child row that names one) to show.
+                                    if (_schoolName.isNotEmpty)
+                                      Text(
+                                        _schoolTimingSummary.isEmpty
+                                            ? _schoolName
+                                            : '$_schoolName • $_schoolTimingSummary',
+                                        style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: AppTheme.primary),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
                                   ],
                                 ),
                               ),
@@ -755,6 +1004,15 @@ class _RideBookingScreenState extends State<RideBookingScreen> {
                             ],
                           ),
                           const SizedBox(height: 8),
+                          if (repo.status == SchoolChildLoadStatus.failed)
+                            const Padding(
+                              padding: EdgeInsets.only(bottom: 8),
+                              child: Text(
+                                'NABIN could not read your saved children. Place both ends of the ride on the map, or reopen this screen from Profile.',
+                                style: TextStyle(
+                                    fontSize: 11, fontWeight: FontWeight.bold, color: AppTheme.warning),
+                              ),
+                            ),
                           // Quick Selector Row for Saved Child & School
                           Row(
                             children: [
@@ -770,15 +1028,17 @@ class _RideBookingScreenState extends State<RideBookingScreen> {
                                   child: DropdownButtonHideUnderline(
                                     child: DropdownButton<String>(
                                       isExpanded: true,
-                                      value: _selectedChild?.id ?? (children.isNotEmpty ? children.first.id : null),
-                                      hint: const Text('Child', style: TextStyle(fontSize: 11)),
+                                      value: _selectedChildId,
+                                      hint: Text(
+                                          repo.isLoading ? 'Loading children…' : 'Choose child',
+                                          style: const TextStyle(fontSize: 11)),
                                       items: children.map((c) => DropdownMenuItem(value: c.id, child: Text(c.fullName, style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold)))).toList(),
-                                      onChanged: (val) {
-                                        if (val != null) {
-                                          final c = children.firstWhere((element) => element.id == val);
-                                          _onSelectChild(c);
-                                        }
-                                      },
+                                      onChanged: children.isEmpty
+                                          ? null
+                                          : (val) {
+                                              if (val == null) return;
+                                              _onSelectChild(children.firstWhere((c) => c.id == val));
+                                            },
                                     ),
                                   ),
                                 ),
@@ -796,15 +1056,17 @@ class _RideBookingScreenState extends State<RideBookingScreen> {
                                   child: DropdownButtonHideUnderline(
                                     child: DropdownButton<String>(
                                       isExpanded: true,
-                                      value: _selectedSchool?.id ?? (schools.isNotEmpty ? schools.first.id : null),
-                                      hint: const Text('School', style: TextStyle(fontSize: 11)),
+                                      value: _selectedSchoolId,
+                                      hint: Text(
+                                          repo.isLoading ? 'Loading schools…' : 'Choose school',
+                                          style: const TextStyle(fontSize: 11)),
                                       items: schools.map((s) => DropdownMenuItem(value: s.id, child: Text(s.name, style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold)))).toList(),
-                                      onChanged: (val) {
-                                        if (val != null) {
-                                          final s = schools.firstWhere((element) => element.id == val);
-                                          _onSelectSchool(s);
-                                        }
-                                      },
+                                      onChanged: schools.isEmpty
+                                          ? null
+                                          : (val) {
+                                              if (val == null) return;
+                                              _onSelectSchool(schools.firstWhere((s) => s.id == val));
+                                            },
                                     ),
                                   ),
                                 ),
@@ -829,16 +1091,22 @@ class _RideBookingScreenState extends State<RideBookingScreen> {
                             ),
                             child: Row(
                               children: [
-                                const Icon(Icons.radio_button_checked, color: Color(0xFF00C853), size: 16),
+                                const Icon(Icons.radio_button_checked, color: AppTheme.success, size: 16),
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      const Text('PICKUP LOCATION', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w900, color: Color(0xFF00C853), letterSpacing: 0.5)),
+                                      const Text('PICKUP LOCATION', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w900, color: AppTheme.success, letterSpacing: 0.5)),
                                       Text(
-                                        _pickupAddress,
-                                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppTheme.onSurface),
+                                        _pickupAddress.isEmpty ? 'Tap to choose the pickup place' : _pickupAddress,
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 12,
+                                          color: _pickupAddress.isEmpty
+                                              ? AppTheme.onSurfaceVariant
+                                              : AppTheme.onSurface,
+                                        ),
                                         overflow: TextOverflow.ellipsis,
                                       ),
                                     ],
@@ -864,16 +1132,22 @@ class _RideBookingScreenState extends State<RideBookingScreen> {
                             ),
                             child: Row(
                               children: [
-                                const Icon(Icons.location_on_rounded, color: Color(0xFFFF3D00), size: 16),
+                                const Icon(Icons.location_on_rounded, color: AppTheme.error, size: 16),
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      const Text('DROP DESTINATION', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w900, color: Color(0xFFFF3D00), letterSpacing: 0.5)),
+                                      const Text('DROP DESTINATION', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w900, color: AppTheme.error, letterSpacing: 0.5)),
                                       Text(
-                                        _destinationAddress,
-                                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppTheme.onSurface),
+                                        _destinationAddress.isEmpty ? 'Tap to choose the drop place' : _destinationAddress,
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 12,
+                                          color: _destinationAddress.isEmpty
+                                              ? AppTheme.onSurfaceVariant
+                                              : AppTheme.onSurface,
+                                        ),
                                         overflow: TextOverflow.ellipsis,
                                       ),
                                     ],
@@ -884,6 +1158,24 @@ class _RideBookingScreenState extends State<RideBookingScreen> {
                             ),
                           ),
                         ),
+                        const SizedBox(height: 8),
+                        // Both ends need a coordinate before this can be booked, so the
+                        // screen says which one is still missing instead of letting the
+                        // platform substitute a place in another city.
+                        if (_pickupPoint == null || _dropPoint == null)
+                          Row(
+                            children: [
+                              const Icon(Icons.add_location_alt_rounded, size: 14, color: AppTheme.warning),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Text(
+                                  '${_pickupPoint == null ? "Pickup" : "Drop"} still needs a place on the map. Tap it and choose the exact point.',
+                                  style: const TextStyle(
+                                      fontSize: 10.5, fontWeight: FontWeight.bold, color: AppTheme.warning),
+                                ),
+                              ),
+                            ],
+                          ),
                       ],
                     ),
                   ),
@@ -919,13 +1211,24 @@ class _RideBookingScreenState extends State<RideBookingScreen> {
                   ),
                   const SizedBox(height: 10),
                   Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(
-                        isSchoolChild ? 'School Ride • Safe Guardian Mode' : 'Choose a Ride',
-                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: AppTheme.onSurface),
+                      // 'School Ride • Safe Guardian Mode' is the longer of the two
+                      // titles and shares this line with the SafeRide mark, so it
+                      // scales into the space left rather than pushing that mark off
+                      // the edge of a narrow phone.
+                      Expanded(
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            isSchoolChild ? 'School Ride • Safe Guardian Mode' : 'Choose a Ride',
+                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: AppTheme.onSurface),
+                          ),
+                        ),
                       ),
+                      const SizedBox(width: 8),
                       const Row(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
                           Icon(Icons.shield_outlined, size: 14, color: AppTheme.primary),
                           SizedBox(width: 4),
@@ -986,33 +1289,49 @@ class _RideBookingScreenState extends State<RideBookingScreen> {
                                       ),
                                     ],
                                   ),
-                                  const SizedBox(height: 1),
-                                  Text(vehicle['desc'] as String, style: const TextStyle(color: AppTheme.onSurfaceVariant, fontSize: 10.5)),
                                 ],
                               ),
-                            ),
-                            Text(
-                              vehicle['fare'] as String,
-                              style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 15, color: AppTheme.onSurface),
                             ),
                           ],
                         ),
                       ),
                     );
                   }),
-                  const SizedBox(height: 12),
+                  const Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'NABIN sets the fare when it confirms the ride. That is the price the trip screen and the receipt show.',
+                      style: TextStyle(fontSize: 10.5, color: AppTheme.onSurfaceVariant, height: 1.3),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
 
                   // Confirm Button
                   ElevatedButton(
-                    onPressed: () async {
+                    onPressed: _submitting ? null : () async {
+                      final pickup = _pickupPoint;
+                      final drop = _dropPoint;
+                      // This payload is the only place the trip's coordinates come from, and
+                      // the route refuses an end that has none (`400 PLACE_REQUIRED`) —
+                      // so a ride whose ends were only typed is stopped here, not booked.
+                      if (pickup == null || drop == null) {
+                        _showNotice(pickup == null
+                            ? 'Place the pickup on the map first. NABIN prices and dispatches the ride from the place you choose.'
+                            : 'Place the drop on the map first. NABIN prices and dispatches the ride from the place you choose.');
+                        return;
+                      }
+
                       final selected = _vehicles[_selectedVehicleIndex];
-                      final type = _selectedVehicleIndex == 0 ? '2W' : (_selectedVehicleIndex == 1 ? '3W' : '4W');
-                      
+                      final type = selected['type'] as String;
+
                       final passengerInfo = PassengerBookingInfo(
                         bookingType: _bookingType,
                         passengerCategory: _passengerCategory,
-                        passengerName: isSchoolChild ? _childName : (isForSomeoneElse ? 'Marcus T (Adult)' : 'Rahul Sharma'),
-                        passengerPhoto: isSchoolChild ? 'https://images.unsplash.com/photo-1543332164-6e82f355badc?w=200' : null,
+                        // Only what the customer's own saved row or their typing produced.
+                        passengerName: isSchoolChild ? _childName : null,
+                        // No photo: this app has no stored passenger image to show, and a
+                        // stock URL would put a stranger's face on a child's trip.
+                        passengerPhoto: null,
                         schoolName: isSchoolChild ? _schoolName : null,
                         gradeClass: isSchoolChild ? _gradeClass : null,
                         section: isSchoolChild ? _section : null,
@@ -1020,48 +1339,57 @@ class _RideBookingScreenState extends State<RideBookingScreen> {
                         guardianPhone: isSchoolChild ? _guardianPhone : null,
                         pickupAddress: _pickupAddress,
                         dropAddress: _destinationAddress,
-                        specialInstructions: _specialInstructions,
-                        schoolTimingSummary: _schoolTimingSummary,
-                        morningPickupTime: _morningPickupTime,
-                        schoolArrivalTime: _schoolArrivalTime,
-                        afternoonPickupTime: _afternoonPickupTime,
-                        homeArrivalTime: _homeArrivalTime,
-                        startOtp: '7729',
+                        specialInstructions: _specialInstructions.isEmpty ? null : _specialInstructions,
+                        schoolTimingSummary: _schoolTimingSummary.isEmpty ? null : _schoolTimingSummary,
+                        morningPickupTime: _morningPickupTime.isEmpty ? null : _morningPickupTime,
+                        schoolArrivalTime: _schoolArrivalTime.isEmpty ? null : _schoolArrivalTime,
                       );
 
-                      final user = SessionManager.instance.currentUser;
-                      final customerId = user?['id']?.toString() ?? 'cust_active';
-
+                      // No customerId: `POST /api/customer/book-ride` binds the booking to the
+                      // bearer token and rejects a mismatch, so a client-supplied id adds nothing
+                      // — and the 'cust_active' this screen used to send is not an account.
                       final payload = {
-                        'customerId': customerId,
                         'vehicleType': type,
-                        'pickup': {'address': _pickupAddress, 'lat': 28.7041, 'lng': 77.1025},
-                        'drop': {'address': _destinationAddress},
+                        'pickup': {
+                          'address': _pickupAddress,
+                          'lat': pickup.latitude,
+                          'lng': pickup.longitude,
+                        },
+                        'drop': {
+                          'address': _destinationAddress,
+                          'lat': drop.latitude,
+                          'lng': drop.longitude,
+                        },
                         'bookingType': _bookingType,
                         'passengerCategory': _passengerCategory,
                         'passengerInfo': passengerInfo.toJson(),
                       };
 
+                      setState(() => _submitting = true);
                       final res = await NabinApiService.bookRide(payload);
+                      if (!mounted || !context.mounted) return;
+                      setState(() => _submitting = false);
 
-                      if (!context.mounted) return;
-                      
                       if (res != null && res['success'] == true) {
+                        final job = res['job'] is Map
+                            ? Map<String, dynamic>.from(res['job'] as Map)
+                            : const <String, dynamic>{};
                         context.pushReplacement('/active-ride', extra: {
                           'vehicleType': type,
                           'vehicleName': selected['name'],
-                          'fare': selected['fare'],
+                          // The price the platform stored, not the one this screen previewed.
+                          'fare': job['fare'],
                           'passengerInfo': passengerInfo,
-                          'jobId': res['job']?['id'] ?? 'TRIP-772',
+                          // Without an id the tracking screen has nothing to read, so it gets
+                          // the real one rather than the 'TRIP-772' placeholder it used to hand over.
+                          'jobId': job['uuid'] ?? job['id'],
                         });
                       } else {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text(res?['error'] ?? 'Ride booking failed')),
-                        );
+                        _showNotice(res?['error'] ?? 'Ride booking failed');
                       }
                     },
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: isSchoolChild ? const Color(0xFFFF6D00) : AppTheme.primaryContainer,
+                      backgroundColor: AppTheme.primary,
                       foregroundColor: AppTheme.onPrimary,
                       minimumSize: const Size(double.infinity, 54),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -1071,11 +1399,19 @@ class _RideBookingScreenState extends State<RideBookingScreen> {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Text(
-                          isSchoolChild
-                              ? 'Book School Ride • ${_vehicles[_selectedVehicleIndex]['name']}'
-                              : 'Confirm ${_vehicles[_selectedVehicleIndex]['name']}',
-                          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900),
+                        // The label names the vehicle the customer is booking, so it
+                        // shrinks to fit instead of losing the word that says which
+                        // ride this is.
+                        Flexible(
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Text(
+                              isSchoolChild
+                                  ? 'Book School Ride • ${_vehicles[_selectedVehicleIndex]['name']}'
+                                  : 'Confirm ${_vehicles[_selectedVehicleIndex]['name']}',
+                              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900),
+                            ),
+                          ),
                         ),
                         const SizedBox(width: 8),
                         const Icon(Icons.arrow_forward_rounded, size: 18),

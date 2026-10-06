@@ -134,14 +134,31 @@ async function ensureServerRunning() {
   }));
   proc.unref();
 
-  for (let i = 0; i < 40; i++) {
+  // Measured, not guessed: this backend takes ~13s to answer /api/health on an idle machine
+  // (hydrating 1,709 admin accounts and the geo/pricing mirrors), and the old bound of
+  // 40 x 250ms = 10s was therefore SHORTER than the boot it was waiting for. Under the chain
+  // the second backend starts while a shared one is already serving, so it is slower still.
+  // The bound is now a condition-poll with a deadline above the measurement; the deadline is
+  // not a sleep - the suite proceeds the instant health answers.
+  const READY_DEADLINE_MS = 60000;
+  const deadline = Date.now() + READY_DEADLINE_MS;
+  for (let waited = 0; Date.now() < deadline; waited += 250) {
     await sleep(250);
     try {
       const res = await request('GET', '/api/health');
       if (res.status === 200) return proc;
     } catch (e) {}
   }
-  return proc;
+  // The previous version returned here as though the server were ready, and the suite then
+  // died several assertions later with a bare `connect ECONNREFUSED`, which describes the
+  // symptom and not the cause. Say what was actually observed, then stop.
+  const stillThere = (() => { try { return !proc.killed; } catch (e) { return false; } })();
+  throw new Error(
+    `backend on port ${RESTART_PORT} did not become ready within ${READY_DEADLINE_MS / 1000}s ` +
+    `(process ${stillThere ? 'is running but not answering /api/health' : 'exited before answering'}). ` +
+    `Measured boot time on this machine is ~13s; this suite restarts a server it must own, so a ` +
+    `refusal here is a startup/readiness fact, not a flake.`
+  );
 }
 
 async function runRestartTest() {

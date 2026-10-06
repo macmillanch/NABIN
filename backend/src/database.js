@@ -3,6 +3,7 @@ const persistentStore = require('./database/persistentStore');
 const UserRepository = require('./repositories/UserRepository');
 const DriverRepository = require('./repositories/DriverRepository');
 const JobRepository = require('./repositories/JobRepository');
+const { coordinateOrNull } = JobRepository;
 const PaymentRepository = require('./repositories/PaymentRepository');
 const LedgerRepository = require('./repositories/LedgerRepository');
 const SchoolChildRepository = require('./repositories/SchoolChildRepository');
@@ -170,6 +171,15 @@ class NabinDatabase {
     this.adminUsers = [];
 
     // Manual Identity Verification Applications
+    // The demo applicants below typed their identity numbers into the form; nobody ever sent a
+    // document, because there is no upload path. So each row records the numbers it was given,
+    // answers `null` for the files, and carries 'NO_DOCUMENT' in all three document fields — the
+    // same values `submitIdentityApplication` writes for a live submission and the same values a
+    // decision leaves behind, whether the officer approved, rejected or asked for a correction.
+    // The reviewer narrative on APP-9019/APP-9018 used to describe an inspection of documents that
+    // do not exist ("photo is blurry", "verified against national photo ID records" — there is no
+    // such integration). It now describes the only comparison this platform can make: the declared
+    // details against the account record, and the two numbers against their formats.
     this.identityApplications = [
       {
         id: 'APP-9021',
@@ -181,14 +191,14 @@ class NabinDatabase {
         address: 'Flat 402, Civil Lines, North Delhi, 110054',
         aadhaarNumberRaw: '548291034892',
         aadhaarNumberMasked: 'XXXX-XXXX-4892',
-        aadhaarDocUrl: '/docs/mock_aadhaar_rahul.png',
-        aadhaarDocStatus: 'SUBMITTED',
+        aadhaarDocUrl: null,
+        aadhaarDocStatus: 'NO_DOCUMENT',
         voterIdNumberRaw: 'DLH1948201',
         voterIdNumberMasked: 'DLH***201',
-        voterIdDocUrl: '/docs/mock_voter_rahul.png',
-        voterIdDocStatus: 'SUBMITTED',
+        voterIdDocUrl: null,
+        voterIdDocStatus: 'NO_DOCUMENT',
         status: 'IDENTITY_VERIFICATION_PENDING',
-        overallDocumentStatus: 'SUBMITTED',
+        overallDocumentStatus: 'NO_DOCUMENT',
         assignedReviewerId: null,
         assignedReviewerName: null,
         lockedByAdminId: null,
@@ -211,22 +221,22 @@ class NabinDatabase {
         address: 'B-14, Green Park Extension, New Delhi, 110016',
         aadhaarNumberRaw: '992019482910',
         aadhaarNumberMasked: 'XXXX-XXXX-2910',
-        aadhaarDocUrl: '/docs/mock_aadhaar_blurry.png',
-        aadhaarDocStatus: 'RESUBMISSION_REQUIRED',
+        aadhaarDocUrl: null,
+        aadhaarDocStatus: 'NO_DOCUMENT',
         voterIdNumberRaw: 'DEL8849201',
         voterIdNumberMasked: 'DEL***201',
-        voterIdDocUrl: '/docs/mock_voter_valid.png',
-        voterIdDocStatus: 'VALID',
+        voterIdDocUrl: null,
+        voterIdDocStatus: 'NO_DOCUMENT',
         status: 'RESUBMISSION_REQUIRED',
-        overallDocumentStatus: 'PARTIAL_RESUBMISSION',
+        overallDocumentStatus: 'NO_DOCUMENT',
         assignedReviewerId: 'adm_kyc',
         assignedReviewerName: 'Sunil Rao',
         lockedByAdminId: null,
         lockedByAdminName: null,
         lockedAt: null,
-        reviewNotes: 'Aadhaar document photo is blurry and government seal is unreadable.',
+        reviewNotes: 'The name declared on the form does not match the name on the account record. Both supplied numbers are well-formed, so the number comparison passed; the declared-details comparison did not. No document was submitted with this application.',
         rejectionReason: '',
-        resubmissionReason: 'Please upload a sharp, high-resolution photo or color scan of your Aadhaar card with clear text and QR code.',
+        resubmissionReason: 'The name you entered does not match the name on your NABIN account. Confirm your legal name and submit this application again.',
         priority: 'HIGH',
         submissionDate: new Date(Date.now() - 86400000 * 1).toISOString(),
         updatedAt: new Date(Date.now() - 3600000 * 6).toISOString()
@@ -241,20 +251,20 @@ class NabinDatabase {
         address: 'Hostel Block 3, North Campus, Delhi University, 110007',
         aadhaarNumberRaw: '772910483819',
         aadhaarNumberMasked: 'XXXX-XXXX-3819',
-        aadhaarDocUrl: '/docs/mock_aadhaar_priya.png',
-        aadhaarDocStatus: 'VERIFIED',
+        aadhaarDocUrl: null,
+        aadhaarDocStatus: 'NO_DOCUMENT',
         voterIdNumberRaw: 'NDL4819204',
         voterIdNumberMasked: 'NDL***204',
-        voterIdDocUrl: '/docs/mock_voter_priya.png',
-        voterIdDocStatus: 'VERIFIED',
+        voterIdDocUrl: null,
+        voterIdDocStatus: 'NO_DOCUMENT',
         status: 'VERIFIED',
-        overallDocumentStatus: 'VERIFIED',
+        overallDocumentStatus: 'NO_DOCUMENT',
         assignedReviewerId: 'adm_kyc',
         assignedReviewerName: 'Sunil Rao',
         lockedByAdminId: null,
         lockedByAdminName: null,
         lockedAt: null,
-        reviewNotes: 'Information verified against national photo ID records. All checks passed.',
+        reviewNotes: 'Declared details match the account record and both supplied identity numbers are well-formed. Reviewed on the declared details only: NABIN holds no document for this applicant.',
         rejectionReason: '',
         resubmissionReason: '',
         priority: 'NORMAL',
@@ -1030,7 +1040,7 @@ class NabinDatabase {
         targetEntityId: 'APP-9019',
         previousState: 'UNDER_REVIEW',
         newState: 'RESUBMISSION_REQUIRED',
-        reason: 'Aadhaar document photo is blurry and government seal is unreadable.',
+        reason: 'The declared name does not match the name on the account record. Both numbers were well-formed; no document is held for this applicant.',
         ipAddress: '192.168.1.45',
         userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
       },
@@ -1143,7 +1153,8 @@ class NabinDatabase {
         customerId: 'usr_2',
         customerName: 'Priya Saxena',
         customerPhone: '+91 98450 11982',
-        customerRating: 5.0,
+        // No `customerRating`, here or in any other seed job: nothing scores a customer, so a
+        // fixture that prints one teaches every app that reads a job to display a score as fact.
         driverId: null,
         vehicleType: '3W',
         pickup: { address: 'Flat 402, Civil Lines, Delhi', lat: 28.6853, lng: 77.2185 },
@@ -1793,22 +1804,21 @@ class NabinDatabase {
             serviceType: row.service_type,
             customerId: row.metadata?.customerId || (row.customer_id === '00000000-0000-0000-0000-000000000001' ? 'usr_1' : (row.customer_id === '00000000-0000-0000-0000-000000000002' ? 'usr_2' : row.customer_id)),
             customerUuid: row.customer_id,
-            customerName: row.metadata?.customerName || 'Customer',
+            customerName: row.metadata?.customerName || null,
             customerPhone: row.metadata?.customerPhone || null,
-            customerRating: row.metadata?.customerRating || 5.0,
             driverId: row.metadata?.driverId || (row.driver_id === '00000000-0000-0000-0000-000000000101' ? 'DRV-101' : row.driver_id),
             driverUuid: row.driver_id,
             merchantId: row.merchant_id,
             status: row.status,
             pickup: {
               address: row.pickup_address,
-              lat: parseFloat(row.pickup_lat || 28.6139),
-              lng: parseFloat(row.pickup_lng || 77.2090)
+              lat: coordinateOrNull(row.pickup_lat),
+              lng: coordinateOrNull(row.pickup_lng)
             },
             drop: {
               address: row.drop_address,
-              lat: parseFloat(row.drop_lat || 28.6250),
-              lng: parseFloat(row.drop_lng || 77.2150)
+              lat: coordinateOrNull(row.drop_lat),
+              lng: coordinateOrNull(row.drop_lng)
             },
             distance: `${parseFloat(row.distance_km || 0)} km`,
             distanceKm: parseFloat(row.distance_km || 0.0),
@@ -1828,6 +1838,11 @@ class NabinDatabase {
             updatedAt: row.updated_at || new Date().toISOString(),
             ...(row.metadata || {})
           };
+          // Set after the spread, because rows booked while the route still copied
+          // `users.rating` carry a substituted 5.0 in their own metadata. `users.rating` is a
+          // `DEFAULT 5.00` column and no ratings table exists, so no job has a measured
+          // customer score to report — the same answer JobRepository.mapRowToJob gives.
+          mapped.customerRating = null;
           const existingIdx = this.jobs.findIndex(j => j.id === mapped.id || j.jobNumber === mapped.jobNumber || j.uuid === row.id);
           if (existingIdx !== -1) {
             this.jobs[existingIdx] = { ...this.jobs[existingIdx], ...mapped };
@@ -1880,6 +1895,9 @@ class NabinDatabase {
 
       if (!admErr && dbAdmins && dbAdmins.length > 0) {
         const { grantsForRole } = require('./adminPermissions');
+        // OP-1: the store is loaded before the directory is mapped, so an account's additive
+        // grants are part of the copy from the first request the process serves.
+        await this.loadAuthorizationStore();
         for (const adm of dbAdmins) {
           const grants = grantsForRole(adm.role);
           if (!grants) {
@@ -1899,7 +1917,7 @@ class NabinDatabase {
             department: adm.department,
             salt: adm.password_salt,
             passwordHash: adm.password_hash,
-            permissions: grants || [],
+            permissions: this.effectivePermissionsFor(adm.role, adm.id, grants || []),
             status: adm.is_active ? 'ACTIVE' : 'INACTIVE',
             createdAt: adm.created_at
           };
@@ -3457,9 +3475,7 @@ class NabinDatabase {
       dob,
       address,
       aadhaarNumber,
-      aadhaarDocUrl,
       voterIdNumber,
-      voterIdDocUrl,
       isResubmission
     } = payload;
 
@@ -3500,6 +3516,17 @@ class NabinDatabase {
     let appRecord;
     const previousStatus = appIndex !== -1 ? this.identityApplications[appIndex].status : 'DRAFT';
 
+    // No document, at every step. NABIN has no identity-document upload path — no bucket, no scan,
+    // no retention, no deletion — and since task #147 the submit route refuses a document field
+    // outright rather than storing a URL whose only reader would be an examiner's browser. #146
+    // chose 'PENDING' for an absent file while this writer could still accept one; with nothing
+    // accepting a file, 'PENDING' only promised paperwork that can never arrive. So the record
+    // states the absence, and a caller that bypasses the route and hands the writer a URL anyway
+    // still records nothing.
+    const aadhaarDocStatus = 'NO_DOCUMENT';
+    const voterIdDocStatus = 'NO_DOCUMENT';
+    const overallDocumentStatus = 'NO_DOCUMENT';
+
     if (appIndex !== -1) {
       appRecord = {
         ...this.identityApplications[appIndex],
@@ -3510,14 +3537,14 @@ class NabinDatabase {
         address: user.address,
         aadhaarNumberRaw: aadhaarNumber || this.identityApplications[appIndex].aadhaarNumberRaw,
         aadhaarNumberMasked: maskedAadhaar,
-        aadhaarDocUrl: aadhaarDocUrl || this.identityApplications[appIndex].aadhaarDocUrl,
-        aadhaarDocStatus: 'SUBMITTED',
+        aadhaarDocUrl: null,
+        aadhaarDocStatus,
         voterIdNumberRaw: voterIdNumber || this.identityApplications[appIndex].voterIdNumberRaw,
         voterIdNumberMasked: maskedVoter,
-        voterIdDocUrl: voterIdDocUrl || this.identityApplications[appIndex].voterIdDocUrl,
-        voterIdDocStatus: 'SUBMITTED',
+        voterIdDocUrl: null,
+        voterIdDocStatus,
         status: 'IDENTITY_VERIFICATION_PENDING',
-        overallDocumentStatus: 'SUBMITTED',
+        overallDocumentStatus,
         lockedByAdminId: null,
         lockedByAdminName: null,
         lockedAt: null,
@@ -3535,14 +3562,14 @@ class NabinDatabase {
         address: user.address,
         aadhaarNumberRaw: aadhaarNumber,
         aadhaarNumberMasked: maskedAadhaar,
-        aadhaarDocUrl: aadhaarDocUrl || '/docs/mock_aadhaar_user.png',
-        aadhaarDocStatus: 'SUBMITTED',
+        aadhaarDocUrl: null,
+        aadhaarDocStatus,
         voterIdNumberRaw: voterIdNumber,
         voterIdNumberMasked: maskedVoter,
-        voterIdDocUrl: voterIdDocUrl || '/docs/mock_voter_user.png',
-        voterIdDocStatus: 'SUBMITTED',
+        voterIdDocUrl: null,
+        voterIdDocStatus,
         status: 'IDENTITY_VERIFICATION_PENDING',
-        overallDocumentStatus: 'SUBMITTED',
+        overallDocumentStatus,
         assignedReviewerId: null,
         assignedReviewerName: null,
         lockedByAdminId: null,
@@ -3684,18 +3711,33 @@ class NabinDatabase {
     const previousStatus = app.status;
 
     if (decision === 'APPROVE') {
-      if (checklist && (!checklist.infoMatches || !checklist.aadhaarValid || !checklist.voterIdValid)) {
+      // The checklist is what an approval *is* on this endpoint: a statement that a named human
+      // compared the applicant's declared details against the account record and checked both
+      // supplied identity numbers. It used to be enforced only `if (checklist && …)`, so omitting
+      // the field skipped the check entirely - and that same branch still verified the application
+      // and set the account ACTIVE. A guard that applies only when the caller volunteers the
+      // evidence cannot be relied on. Strict `=== true` is required because `'true'`, `1` and
+      // `'yes'` are what a malformed client sends, not verification.
+      const evidence = checklist && typeof checklist === 'object' ? checklist : null;
+      if (!evidence || evidence.infoMatches !== true || evidence.aadhaarValid !== true || evidence.voterIdValid !== true) {
         return {
           success: false,
-          error: 'Cannot approve application without verifying that all documents and personal details match.'
+          code: 'IDENTITY_APPROVAL_CHECKLIST_REQUIRED',
+          error: 'Cannot approve application without confirming that the declared details match and that both supplied identity numbers were checked.'
         };
       }
 
+      // The decision is about the application, never about a file. #146 stopped the writer claiming
+      // a document and #147 made the submit route refuse one outright, so writing 'VERIFIED' into
+      // the three document fields attested that a photograph had been checked when the platform
+      // holds none - and an approval's own record is exactly what an auditor, or later the
+      // applicant, reads back. The identity state below is the officer's decision on the details
+      // and numbers; the document dimension says what it has always said here: there isn't one.
       app.status = 'VERIFIED';
-      app.overallDocumentStatus = 'VERIFIED';
-      app.aadhaarDocStatus = 'VERIFIED';
-      app.voterIdDocStatus = 'VERIFIED';
-      app.reviewNotes = reason || 'Manual verification checks passed. Documents validated.';
+      app.overallDocumentStatus = 'NO_DOCUMENT';
+      app.aadhaarDocStatus = 'NO_DOCUMENT';
+      app.voterIdDocStatus = 'NO_DOCUMENT';
+      app.reviewNotes = reason || 'The declared details and both supplied identity numbers were checked and match. No document is held for this applicant.';
       app.rejectionReason = '';
       app.resubmissionReason = '';
 
@@ -3723,7 +3765,12 @@ class NabinDatabase {
       }
 
       app.status = 'REJECTED';
-      app.overallDocumentStatus = 'REJECTED';
+      // Same rule as APPROVE: a decision about an application cannot speak for a file the platform
+      // never received. 'REJECTED' on a document field reads as "we looked at the photograph and
+      // rejected it"; the rejection below names what was actually compared.
+      app.overallDocumentStatus = 'NO_DOCUMENT';
+      app.aadhaarDocStatus = 'NO_DOCUMENT';
+      app.voterIdDocStatus = 'NO_DOCUMENT';
       app.rejectionReason = reason;
       app.reviewNotes = reason;
 
@@ -3751,7 +3798,11 @@ class NabinDatabase {
       }
 
       app.status = 'RESUBMISSION_REQUIRED';
-      app.overallDocumentStatus = 'RESUBMISSION_REQUIRED';
+      // And a resubmission request asks the customer to correct their details, not to resend a
+      // document — there is no route that could receive one.
+      app.overallDocumentStatus = 'NO_DOCUMENT';
+      app.aadhaarDocStatus = 'NO_DOCUMENT';
+      app.voterIdDocStatus = 'NO_DOCUMENT';
       app.resubmissionReason = reason;
       app.reviewNotes = reason;
 
@@ -3882,6 +3933,83 @@ class NabinDatabase {
     });
 
     return { success: true, restaurant: rest };
+  }
+
+  // --- Restaurant discovery profile (what a customer's card is allowed to claim) ---
+  //
+  // The only writer of `merchants.cuisines`, `merchants.cover_image_url` and
+  // `merchants.standard_delivery_minutes` (migration 034). Those three columns are what
+  // turns the Food card from a fixture into a statement, so they are written here or not
+  // at all: no default, no derivation and no fallback value below.
+  //
+  // PostgreSQL-only by choice. The in-memory `this.restaurants` array is a degraded
+  // display fallback for reads; accepting a merchant's declaration into it would mean
+  // their cuisine list existed until the next process restart, and a 2xx answer to a
+  // write that durable storage refused is the kind of lie a merchant acts on.
+  //
+  // `rating` is deliberately absent from the writable set: no reviews table exists in
+  // this schema, so a rating written here could only be an invented one.
+  async updateMerchantRestaurantProfile(merchantId, body = {}) {
+    const { validateRestaurantProfilePatch } = require('./services/restaurantProfileDomain');
+    const { fields, patch } = validateRestaurantProfilePatch(body);
+    if (fields.length === 0) {
+      const err = new Error('Send at least one of cuisines, coverImageUrl or standardDeliveryMinutes.');
+      err.code = 'NO_PROFILE_FIELDS';
+      err.status = 400;
+      err.statusCode = 400;
+      throw err;
+    }
+
+    const { supabaseAdmin, isLivePostgres } = require('./supabase');
+    if (!isLivePostgres || !supabaseAdmin) {
+      const err = new Error('The restaurant profile lives in PostgreSQL and this server is not connected to it. Nothing was changed.');
+      err.code = 'PROFILE_STORE_UNAVAILABLE';
+      err.status = 503;
+      err.statusCode = 503;
+      throw err;
+    }
+
+    const PROJECTION = 'id, name, merchant_type, cuisines, cover_image_url, standard_delivery_minutes';
+    const { data: existing, error: readError } = await supabaseAdmin
+      .from('merchants')
+      .select(PROJECTION)
+      .eq('id', merchantId)
+      .maybeSingle();
+    if (readError) throw new Error(`Restaurant profile read failed: ${readError.message}`);
+    if (!existing) {
+      const err = new Error('That restaurant was not found.');
+      err.code = 'MERCHANT_NOT_FOUND';
+      err.status = 404;
+      err.statusCode = 404;
+      throw err;
+    }
+    // requireMerchantService('RESTAURANT') checks the caller's own type; this checks the
+    // row being written, so a GROCERY merchant id cannot be dressed up as a restaurant.
+    if (!['RESTAURANT', 'HYBRID_BOTH'].includes(existing.merchant_type)) {
+      const err = new Error('That merchant is not a restaurant, so it has no restaurant profile to declare.');
+      err.code = 'NOT_A_RESTAURANT';
+      err.status = 400;
+      err.statusCode = 400;
+      throw err;
+    }
+
+    const { data: row, error } = await supabaseAdmin
+      .from('merchants')
+      .update(patch)
+      .eq('id', merchantId)
+      .select(PROJECTION)
+      .single();
+    if (error) throw new Error(`Restaurant profile write failed: ${error.message}`);
+
+    return {
+      id: row.id,
+      name: row.name,
+      merchantType: row.merchant_type,
+      cuisines: row.cuisines ?? [],
+      coverImageUrl: row.cover_image_url ?? null,
+      standardDeliveryMinutes: row.standard_delivery_minutes ?? null,
+      updatedFields: fields
+    };
   }
 
   // --- General Helper Methods ---
@@ -4801,7 +4929,14 @@ class NabinDatabase {
   // Merchant grocery inventory. PostgreSQL is authoritative whenever it is live:
   // the in-memory `merchantInventory` fixtures are keyed by legacy store ids, so a
   // UUID merchant would otherwise see an empty shelf and edits would not reach orders.
-  async resolveMasterProductId(ref) {
+  async resolveMasterProductId(ref, { requireActive = false } = {}) {
+    // `requireActive` is opt-in so this stays one resolver with two policies, rather than a second
+    // helper that can drift from the first. Merchant inventory writes pass true: every
+    // merchant-facing catalog/inventory *read* already filters `is_active = true`, so a merchant who
+    // cannot list a delisted product must not be able to price or stock it either. Admin catalogue
+    // management leaves it false on purpose - an operator has to be able to open an inactive product
+    // and reactivate it, and a stricter shared helper would have removed that ability silently.
+    const activeGate = (query) => (requireActive ? query.eq('is_active', true) : query);
     if (!ref) return null;
     const { supabaseAdmin, isLivePostgres } = require('./supabase');
     if (!isLivePostgres || !supabaseAdmin) return ref;
@@ -4813,16 +4948,66 @@ class NabinDatabase {
     };
     const candidate = LEGACY_MASTER_MAP[ref] || ref;
     if (UUID_RE.test(candidate)) {
-      const { data } = await supabaseAdmin.from('master_grocery_catalog').select('id').eq('id', candidate).maybeSingle();
+      const { data } = await activeGate(supabaseAdmin.from('master_grocery_catalog').select('id')).eq('id', candidate).maybeSingle();
       if (data) return data.id;
       return null;
     }
-    const { data: byName } = await supabaseAdmin
-      .from('master_grocery_catalog')
-      .select('id, name')
+    const { data: byName } = await activeGate(
+      supabaseAdmin
+        .from('master_grocery_catalog')
+        .select('id, name'))
       .ilike('name', `%${String(ref).replace(/[%_]/g, '')}%`)
-      .limit(1);
-    return byName && byName[0] ? byName[0].id : null;
+      .limit(2);
+    // DECISION B1 (merchant writes only): a partial reference may match several ACTIVE catalogue rows.
+    // The old `.limit(1)` silently bound a merchant's write to whichever row came back first, so a
+    // reference meant for one product could price or stock another. Merchant callers ask for
+    // 'AMBIGUOUS' and refuse it; admin callers keep the previous single-pick behaviour untouched.
+    if (!byName || !byName.length) return null;
+    if (requireActive && byName.length > 1) return 'AMBIGUOUS';
+    return byName[0].id;
+  }
+
+  // TASK 4N: durable grocery price history read.
+  // `grocery_price_history` is real and IS written by the live merchant price path
+  // (`updateMerchantInventoryItem`), but until now nothing read it: `getGroceryPriceHistory` only
+  // filters the in-memory mirror. This reads the table, never the mirror, so the API cannot present
+  // degraded fixture activity as durable history.
+  // Tenant boundary: RLS on this table only allows admin roles and `service_role`, and this query runs
+  // as `service_role`, so the merchant scope must be applied HERE rather than trusted to policy -
+  // `merchant_id` always comes from the authenticated session and is never taken from the caller.
+  // `changed_by` and other internal actor metadata are deliberately not selected.
+  async getMerchantPriceHistory({ merchantId, productId = null, from = null, to = null, limit = 50, offset = 0 } = {}) {
+    const { supabaseAdmin, isLivePostgres } = require('./supabase');
+    if (!isLivePostgres || !supabaseAdmin) return [];
+
+    // `max_rows` silently truncates PostgREST responses, so page rather than over-fetch, and cap the
+    // page so a caller cannot ask the backend to stream the whole table.
+    const size = Math.min(Math.max(parseInt(limit, 10) || 50, 1), 100);
+    const start = Math.max(parseInt(offset, 10) || 0, 0);
+
+    let query = supabaseAdmin
+      .from('grocery_price_history')
+      .select('id, product_id, previous_price, new_price, unit, created_at')
+      .eq('merchant_id', merchantId)
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false })
+      .range(start, start + size - 1);
+
+    if (productId) query = query.eq('product_id', productId);
+    if (from) query = query.gte('created_at', from);
+    if (to) query = query.lte('created_at', to);
+
+    const { data, error } = await query;
+    if (error) throw new Error(`Price history read failed: ${error.message}`);
+
+    return (data || []).map((row) => ({
+      historyId: row.id,
+      productId: row.product_id,
+      previousPrice: Number(row.previous_price),
+      newPrice: Number(row.new_price),
+      unit: row.unit,
+      createdAt: row.created_at,
+    }));
   }
 
   async getMerchantInventory(merchantId) {
@@ -4886,11 +5071,16 @@ class NabinDatabase {
 
     const { supabaseAdmin, isLivePostgres } = require('./supabase');
     if (isLivePostgres && supabaseAdmin) {
-      const productId = await this.resolveMasterProductId(masterProductId);
+      const productId = await this.resolveMasterProductId(masterProductId, { requireActive: true });
+      if (productId === 'AMBIGUOUS') {
+        const err = new Error('That product reference matches more than one catalogue item. Use the exact product name or id.');
+        err.code = 'PRODUCT_REFERENCE_AMBIGUOUS';
+        throw err;
+      }
       if (!productId) {
         throw new Error('That product is not in the NABIN master grocery catalogue.');
       }
-
+      
       const { data: existing } = await supabaseAdmin
         .from('merchant_grocery_inventory')
         .select('id, store_price')
@@ -4976,11 +5166,16 @@ class NabinDatabase {
   async deleteMerchantInventoryItem({ merchantId, masterProductId }) {
     const { supabaseAdmin, isLivePostgres } = require('./supabase');
     if (isLivePostgres && supabaseAdmin) {
-      const productId = await this.resolveMasterProductId(masterProductId);
+      const productId = await this.resolveMasterProductId(masterProductId, { requireActive: true });
+      if (productId === 'AMBIGUOUS') {
+        const err = new Error('That product reference matches more than one catalogue item. Use the exact product name or id.');
+        err.code = 'PRODUCT_REFERENCE_AMBIGUOUS';
+        throw err;
+      }
       if (!productId) {
         throw new Error('That product is not in the NABIN master grocery catalogue.');
       }
-
+      
       const { data: row, error: readErr } = await supabaseAdmin
         .from('merchant_grocery_inventory')
         .select('id')
@@ -5040,10 +5235,28 @@ class NabinDatabase {
   getGroceryProductById(id) {
     return this.groceryProducts.find(p => p.id === id) || null;
   }
-
-  updateGroceryProductPrice({ productId, newPrice, merchantId, reason = 'Price update', actor = 'Merchant' }) {
+  updateGroceryProductPrice({ productId, newPrice, merchantId, reason = 'Price update', actor = 'Merchant', actorRole = null }) {
+    // `actorRole` is the privilege of the caller, and it is NOT derived from `actor`. Before this,
+    // `actor.startsWith('Admin')` decided whether the audit row said ADM-EXEC / SUPER_ADMIN, while the
+    // merchant bulk route fed `actor` straight from req.body - so any authenticated merchant could
+    // mint a SUPER_ADMIN audit record by sending `"actor": "Admin Finance"` (or simply by being a
+    // store called "Administrative Supplies"). Admin callers keep the old inference by leaving
+    // actorRole null; trusted server contexts pass it explicitly.
     const product = this.getGroceryProductById(productId);
     if (!product) throw new Error('Product not found');
+    // DECISION C1: `groceryProducts` is the degraded in-memory fallback, not a durable store. A price
+    // mutation here used to change process-local state, append `groceryPriceHistory` and persist a real
+    // PRICE_UPDATE `audit_logs` row - so the audit trail could claim a price change that vanished when
+    // the process exited and never reached the catalogue customers actually read. In degraded mode the
+    // mutation is now refused before anything is written, so no state and no audit record are produced.
+    // With PostgreSQL live this guard is inert and existing behaviour is unchanged.
+    const { isLivePostgres: storeIsLive } = require('./supabase');
+    if (!storeIsLive) {
+      const err = new Error('Grocery pricing is read-only while the store is unavailable; the price was not changed.');
+      err.code = 'GROCERY_DEGRADED_READ_ONLY';
+      throw err;
+    }
+
     if (product.priceStatus === 'FROZEN') {
       throw new Error('Price is frozen by Admin. Contact platform support.');
     }
@@ -5078,10 +5291,11 @@ class NabinDatabase {
 
     this.groceryPriceHistory.unshift(historyRecord);
 
+    const privileged = actorRole === null ? actor.startsWith('Admin') : actorRole === 'SUPER_ADMIN';
     this.createAuditLog({
-      adminId: actor.startsWith('Admin') ? 'ADM-EXEC' : 'MERCHANT',
+      adminId: privileged ? 'ADM-EXEC' : 'MERCHANT',
       adminName: actor,
-      role: actor.startsWith('Admin') ? 'SUPER_ADMIN' : 'MERCHANT',
+      role: actorRole || (privileged ? 'SUPER_ADMIN' : 'MERCHANT'),
       action: 'PRICE_UPDATE',
       module: 'GROCERY_PRICING',
       targetEntityType: 'PRODUCT',
@@ -5094,7 +5308,7 @@ class NabinDatabase {
     return product;
   }
 
-  bulkUpdateGroceryPrices({ updates = [], merchantId, actor = 'Merchant' }) {
+  bulkUpdateGroceryPrices({ updates = [], merchantId, actor = 'Merchant', actorRole = null }) {
     const results = [];
     for (const item of updates) {
       try {
@@ -5103,7 +5317,8 @@ class NabinDatabase {
           newPrice: item.newPrice,
           merchantId,
           reason: item.reason || 'Bulk price update',
-          actor
+          actor,
+          actorRole
         });
         results.push({ productId: item.productId, success: true, product: updated });
       } catch (err) {
@@ -5854,6 +6069,8 @@ class NabinDatabase {
         throw refusal;
       }
       const known = this.adminUsers.find(a => a.id === row.id || a.username === row.username);
+      // OP-1: re-read the store so an additive grant written after boot is part of this answer.
+      await this.loadAuthorizationStore();
       return {
         ...(known || {}),
         id: row.id,
@@ -5869,7 +6086,7 @@ class NabinDatabase {
         // fail silently: an administrator present in `admin_accounts` but missing from
         // the boot-time copy signed in successfully and could then do nothing, with
         // nothing in the response to say why.
-        permissions: (known && known.permissions) || [...grants]
+        permissions: this.effectivePermissionsFor(row.role, row.id, (known && known.permissions && known.permissions.length) ? known.permissions : [...grants])
       };
     }
 
@@ -6243,10 +6460,19 @@ class NabinDatabase {
         }
       }
       if (!entity) {
-        if (process.env.NODE_ENV === 'production') {
-          throw new Error('No merchant account is registered for this number.');
-        }
-        entity = this.restaurants[0];
+        // Task 3: an unregistered merchant number is a refusal in EVERY environment.
+        // Non-production used to fall back to `entity = this.restaurants[0]`, which handed a
+        // real store's identity - its dashboard, orders, catalog, inventory and its
+        // RESTAURANT/GROCERY/HYBRID_BOTH entitlements - to any number that could complete an
+        // OTP challenge, with no signal to anyone. That was reachable, not theoretical: an
+        // unregistered phone was issued a MERCHANT session as `rest_1` and read
+        // /api/merchant/services successfully. The ADMIN branch below already shows the
+        // intended convention (its `adminUsers[0]` stand-in was replaced by a typed refusal),
+        // and production already refused here; this makes every environment agree.
+        const refusal = new Error('No merchant account is registered for this number.');
+        refusal.code = 'MERCHANT_PHONE_NOT_ENROLLED';
+        refusal.status = 401;
+        throw refusal;
       }
     } else if (role === 'ADMIN' || role === 'SUPER_ADMIN') {
       // An OTP proves someone holds a phone, not that they run the platform. This
@@ -6738,6 +6964,255 @@ class NabinDatabase {
    * and still hand an operator nothing to sign in with — and revoke has to be named by
    * something stable enough to survive a restart of the process that issued it.
    */
+  /* -------------------------------------------------------------------
+   * OP-1 — the data-driven authorization store.
+   *
+   * `adminPermissions.js` remains the compatibility layer and the single predicate; the 68
+   * `requirePermission` guards are not touched here. What the store adds is the thing a
+   * role-keyed constant cannot express: a grant belonging to one operator instead of a whole
+   * role. Effective set = role grants UNION that operator's additive grants.
+   *
+   * Failure direction: if the store cannot be read COMPLETELY, the index is dropped rather than
+   * partially applied, so every account falls back to exactly the grants the code derived before
+   * OP-1. An operator then loses an additive grant, never gains an unearned one. A permissions
+   * read that fails open is a privilege escalation; one that fails closed is a support ticket.
+   * ------------------------------------------------------------------- */
+  operatorGrantsFor(operatorId) {
+    const idx = this.operatorGrantIndex;
+    if (!idx || !operatorId) return [];
+    const set = idx.get(String(operatorId).toLowerCase());
+    return set ? [...set] : [];
+  }
+
+  effectivePermissionsFor(role, operatorId, baseGrants) {
+    const { grantsForRole } = require('./adminPermissions');
+    const base = baseGrants !== undefined ? baseGrants : grantsForRole(role);
+    const additive = this.operatorGrantsFor(operatorId);
+    if (!Array.isArray(base) || base.length === 0) return [...new Set(additive)].sort();
+    if (additive.length === 0) return base;
+    return [...new Set([...base, ...additive])].sort();
+  }
+
+  async loadAuthorizationStore() {
+    const store = this.liveStore ? this.liveStore() : null;
+    if (!store) {
+      this.operatorGrantIndex = null;
+      this.durableRoleGrants = null;
+      return { loaded: false, complete: false, error: 'NO_DURABLE_STORE' };
+    }
+    try {
+      const reads = await Promise.all([
+        this.readAllRows(store, { table: 'permission_keys', select: 'id,key,is_active' }),
+        this.readAllRows(store, { table: 'operator_roles', select: 'id,role_key,is_active' }),
+        this.readAllRows(store, { table: 'role_grants', select: 'id,role_id,permission_id' }),
+        this.readAllRows(store, { table: 'operator_grants', select: 'id,operator_id,permission_id' })
+      ]);
+      const incomplete = reads.filter(r => !r || r.complete !== true);
+      if (incomplete.length > 0) {
+        // Refuse the partial answer instead of using it: a truncated grant list is not a
+        // smaller permission set, it is an arbitrary one.
+        this.operatorGrantIndex = null;
+        this.durableRoleGrants = null;
+        console.warn(`[auth] authorization store read incomplete (${incomplete.length} of 4 pages); additive grants not applied.`);
+        return { loaded: false, complete: false, error: 'AUTHORIZATION_STORE_TRUNCATED' };
+      }
+      const [pk, or, rg, og] = reads;
+      const keyById = new Map((pk.rows || []).map(r => [String(r.id).toLowerCase(), r.key]));
+      const roleById = new Map((or.rows || []).map(r => [String(r.id).toLowerCase(), r.role_key]));
+      const roleGrants = new Map();
+      for (const g of (rg.rows || [])) {
+        const role = roleById.get(String(g.role_id).toLowerCase());
+        const key = keyById.get(String(g.permission_id).toLowerCase());
+        if (!role || !key) continue;
+        if (!roleGrants.has(role)) roleGrants.set(role, []);
+        roleGrants.get(role).push(key);
+      }
+      const operatorGrants = new Map();
+      for (const g of (og.rows || [])) {
+        const key = keyById.get(String(g.permission_id).toLowerCase());
+        if (!key) continue;
+        const id = String(g.operator_id).toLowerCase();
+        if (!operatorGrants.has(id)) operatorGrants.set(id, []);
+        operatorGrants.get(id).push(key);
+      }
+      this.permissionCatalogue = new Set((pk.rows || []).filter(r => r.is_active !== false).map(r => r.key));
+      this.durableRoleGrants = roleGrants;
+      this.operatorGrantIndex = operatorGrants;
+      return { loaded: true, complete: true, counts: { permissions: this.permissionCatalogue.size, roles: roleGrants.size, operators: operatorGrants.size } };
+    } catch (e) {
+      this.operatorGrantIndex = null;
+      this.durableRoleGrants = null;
+      console.warn(`[auth] authorization store unavailable: ${e.message}`);
+      return { loaded: false, complete: false, error: e.message };
+    }
+  }
+
+  /* The operator is resolved exactly or not at all. `getDriver()` ends in `|| this.drivers[0]`,
+   * which is how F4 came to settle money on the wrong person; a grant is the same shape of
+   * mistake with worse consequences, so there is no fallback row here by construction.
+   * The durable store is consulted when this process holds no copy, for the same reason the
+   * sign-in path consults it: an account created after boot is real, and refusing to see it
+   * would leave the platform unable to revoke something it just granted. */
+  async resolveOperatorAccount(operatorRef) {
+    const wanted = String(operatorRef || '').trim().toLowerCase();
+    if (!wanted) return null;
+    const looksUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(wanted);
+    const collect = (list) => (list || []).filter(Boolean);
+    const mirror = collect([
+      looksUuid ? this.adminUsers.find(a => String(a.id || '').toLowerCase() === wanted) : null,
+      this.adminUsers.find(a => String(a.username || '').toLowerCase() === wanted),
+      this.adminUsers.find(a => String(a.email || '').toLowerCase() === wanted)
+    ]);
+    let candidates = mirror;
+
+    if (candidates.length === 0) {
+      const store = this.liveStore ? this.liveStore() : null;
+      if (store) {
+        const cols = 'id, username, name, email, role, is_active';
+        const reads = [];
+        if (looksUuid) reads.push(await store.from('admin_accounts').select(cols).eq('id', wanted));
+        reads.push(await store.from('admin_accounts').select(cols).eq('username', wanted));
+        reads.push(await store.from('admin_accounts').select(cols).eq('email', wanted));
+        candidates = collect(reads.flatMap(r => (r && r.data) || []));
+      }
+    }
+
+    const distinct = new Map();
+    for (const a of candidates) {
+      // Re-applied on purpose: whichever reader handed the row back, a row whose stored
+      // identifier does not equal the reference must never be the one that is granted.
+      const id = String(a.id || '').toLowerCase();
+      const matches = id === wanted || String(a.username || '').toLowerCase() === wanted || String(a.email || '').toLowerCase() === wanted;
+      if (matches) distinct.set(id, a);
+    }
+    if (distinct.size > 1) {
+      const err = new Error('This identifier matches more than one operator account; the grant is refused until it is disambiguated.');
+      err.code = 'OPERATOR_IDENTITY_AMBIGUOUS';
+      err.status = 409;
+      throw err;
+    }
+    if (distinct.size === 0) return null;
+    const found = [...distinct.values()][0];
+    if (!this.adminUsers.includes(found)) {
+      const known = this.adminUsers.find(a => String(a.id || '').toLowerCase() === String(found.id).toLowerCase());
+      if (known) return known;
+      this.adminUsers.push({ ...found, status: found.is_active === false ? 'INACTIVE' : 'ACTIVE' });
+    }
+    return found;
+  }
+
+  async applyOperatorGrant(operatorRef, permissionKey, actor = null) {
+    return this.mutateOperatorGrant(operatorRef, permissionKey, actor, 'GRANT');
+  }
+
+  async revokeOperatorGrant(operatorRef, permissionKey, actor = null) {
+    return this.mutateOperatorGrant(operatorRef, permissionKey, actor, 'REVOKE');
+  }
+
+  /* The one write path for per-operator grants. Deliberately not reachable over HTTP at OP-1:
+   * the mutation endpoint, its authorization check and its audit row belong to OP-4, and a
+   * half-built API would be a second way to change privileges that nobody audited. */
+  async mutateOperatorGrant(operatorRef, permissionKey, actor, mode) {
+    const key = String(permissionKey || '').trim();
+    const store = this.liveStore ? this.liveStore() : null;
+    if (!store) {
+      const err = new Error('The durable store is unavailable, so authorization cannot be changed.');
+      err.code = 'AUTHORIZATION_STORE_UNAVAILABLE';
+      err.status = 503;
+      throw err;
+    }
+    // Only the database decides whether the permission exists, and no write is attempted
+    // against a key outside the catalogue: an invented key must not become a live permission.
+    const cat = await store.from('permission_keys').select('id,key').eq('key', key).limit(2);
+    if (cat.error) throw cat.error;
+    if (!cat.data || cat.data.length !== 1) {
+      const err = new Error(`'${key}' is not a permission in the catalogue.`);
+      err.code = 'PERMISSION_KEY_UNKNOWN';
+      err.status = 400;
+      throw err;
+    }
+    const permissionId = cat.data[0].id;
+
+    const account = await this.resolveOperatorAccount(operatorRef);
+    if (!account) {
+      const err = new Error('No operator account matches that identifier exactly.');
+      err.code = 'OPERATOR_NOT_FOUND';
+      err.status = 404;
+      throw err;
+    }
+
+    // `granted_by` is an audit reference, not a free-text field: a malformed actor id must not
+    // reach the database as a uuid error (or be silently coerced). It is validated here, and a
+    // caller that cannot name an accountable uuid gets refused, because an unattributable grant
+    // is the one thing an authorization audit must never contain.
+    const actorRef = String((actor && (actor.id || actor)) || '').trim();
+    const grantedBy = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(actorRef) ? actorRef : null;
+    if (actor && !grantedBy) {
+      const err = new Error('The actor must be identified by a durable account id before a grant can be recorded.');
+      err.code = 'AUTHORIZATION_ACTOR_UNRESOLVED';
+      err.status = 400;
+      throw err;
+    }
+
+    if (mode === 'GRANT') {
+      const ins = await store.from('operator_grants')
+        .insert({ operator_id: account.id, permission_id: permissionId, granted_by: grantedBy })
+        .eq('operator_id', account.id).eq('permission_id', permissionId)
+        .select('id').maybeSingle();
+      if (ins.error && !/duplicate|already|unique/i.test(ins.error.message || '')) throw ins.error;
+    } else {
+      const del = await store.from('operator_grants').delete()
+        .eq('operator_id', account.id).eq('permission_id', permissionId);
+      if (del.error) throw del.error;
+    }
+
+    // Durable first, then the in-memory copy, then the response - so a live token is refused or
+    // admitted on its very next request (§19) and no mirror ever says more than the database does.
+    await this.loadAuthorizationStore();
+    const grants = this.effectivePermissionsFor(account.role, account.id);
+    account.permissions = grants;
+    return {
+      operatorId: account.id,
+      username: account.username,
+      role: account.role,
+      permission: key,
+      mode,
+      effectivePermissions: grants,
+      applied: true
+    };
+  }
+
+  /* Sign-in refresh. A grant written after this process booted has to be visible to the account
+   * that earned it, so authentication re-reads the store rather than trusting the boot copy.
+   * Kept as one helper called from the two sign-in paths, so no route re-implements the union
+   * and `adminHoldsPermission` stays the only place a permission question is answered.
+   *
+   * `authoritativeRow` is the durable `admin_accounts` row the login gate already read. It is
+   * not redundant: `createAdminAccount` gives the in-process copy `id: adm_<digits>` while the
+   * table generates a uuid, so for any account created through the API the mirror identity is
+   * not the durable identity. Grants belong to the durable one, so the lookup is keyed on it.
+   * The divergence itself is reported, not papered over — silently rewriting a live object's id
+   * is how sessions and audit rows start pointing at different accounts. */
+  async refreshAuthorizationFor(account, authoritativeRow) {
+    if (!account) return account;
+    await this.loadAuthorizationStore();
+    const operatorId = (authoritativeRow && authoritativeRow.id) || account.id;
+    if (authoritativeRow && String(authoritativeRow.id) !== String(account.id)) {
+      console.warn(`[auth] operator '${account.username}' is held in memory as '${account.id}' but the durable row is '${authoritativeRow.id}'; grants resolved against the durable identity.`);
+    }
+    // The base is the ROLE's grants, never `account.permissions`: that array may already
+    // contain a grant applied by an earlier refresh, and unioning it again would make
+    // revocation impossible - the removed row would be re-added from the stale copy on the
+    // next sign-in. A privilege that cannot be taken away is the failure this whole phase is
+    // meant to prevent, so the effective set is always recomputed from role + current rows.
+    const { grantsForRole } = require('./adminPermissions');
+    const durableRole = this.durableRoleGrants ? this.durableRoleGrants.get(account.role) : null;
+    const base = durableRole && durableRole.length ? [...new Set(durableRole)].sort() : [...(grantsForRole(account.role) || [])].sort();
+    const additive = this.operatorGrantsFor(operatorId);
+    account.permissions = additive.length === 0 ? base : [...new Set([...base, ...additive])].sort();
+    return account;
+  }
+
   listAdminSessions() {
     const now = Date.now();
     const sessions = [];
@@ -7901,9 +8376,15 @@ class NabinDatabase {
     const existing = this.fleetLocations.get(driverId) || {};
     const record = {
       driverId,
-      name: existing.name || 'Rajesh Kumar',
-      phone: existing.phone || '+91 98101 22334',
-      vehicleType: existing.vehicleType || '3W',
+      // No identity is invented here. This record is broadcast to `ride:<jobId>` — the customer's
+      // own channel — and read back by the tracking route, and it used to default a driver the map
+      // had not seen to `'Rajesh Kumar' / '+91 98101 22334'`: a phone number belonging to no driver
+      // row, in a payload an app offers to dial. `drivers.phone` holds the real one
+      // (`+919810122910` for DRV-101), so a record without a stored identity carries `null` and the
+      // consumer reads the driver row instead of being handed a substitute.
+      name: existing.name ?? null,
+      phone: existing.phone ?? null,
+      vehicleType: existing.vehicleType ?? null,
       lat: Number(lat),
       lng: Number(lng),
       heading: Number(heading),

@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import '../../../../core/theme/nabin_tokens.dart';
 import '../models/grocery_product.dart';
 import '../providers/grocery_cart_provider.dart';
-import '../screens/grocery_checkout_screen.dart';
 import '../theme/grocery_theme.dart';
 import 'grocery_state_views.dart';
 import 'grocery_product_tile.dart';
@@ -26,36 +26,44 @@ class GroceryCartBar extends ConsumerWidget {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: NabinSpacing.md, vertical: NabinSpacing.sm + 2),
           decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: <Color>[GroceryTheme.primaryGreenDark, NabinColor.success],
-            ),
+            // The sticky basket bar is page structure, so it carries the brand
+            // band rather than a green gradient wash.
+            color: GroceryTheme.headerBand,
             borderRadius: BorderRadius.circular(16),
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: <Widget>[
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  Text(
-                    '${cart.totalQuantity} item${cart.totalQuantity == 1 ? '' : 's'} in basket',
-                    style: const TextStyle(
-                      fontSize: 10.5,
-                      fontWeight: FontWeight.w900,
-                      color: Colors.white70,
-                      letterSpacing: 0.6,
+              // Expanded: the basket count and subtotal are the two strings that
+              // grow (a nine-figure cart, a long label) and the button has to stay
+              // tappable, so the left side gives way rather than pushing it off.
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    Text(
+                      '${cart.totalQuantity} item${cart.totalQuantity == 1 ? '' : 's'} in basket',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w900,
+                        color: Colors.white70,
+                        letterSpacing: 0.6,
+                      ),
                     ),
-                  ),
-                  Text(
-                    formatRupees(cart.subtotal),
-                    style: const TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.w900,
-                      color: Colors.white,
+                    Text(
+                      formatRupees(cart.subtotal),
+                      maxLines: 1,
+                      style: const TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w900,
+                        color: Colors.white,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
               Row(
                 mainAxisSize: MainAxisSize.min,
@@ -91,18 +99,12 @@ class GroceryCartBar extends ConsumerWidget {
   }
 }
 
-/// Pushes the real checkout with the live basket: line items carry the product
-/// ids, names and server prices the basket actually holds.
+/// Pushes the real checkout with the live basket: the route builder reads the
+/// same `groceryCartProvider`, so the journey runs through the router and the
+/// confirmation exit can navigate like every other screen's.
 void pushGroceryCheckout(BuildContext context, GroceryCartState cart) {
   if (cart.checkoutLines.isEmpty) return;
-  Navigator.of(context).push(
-    MaterialPageRoute<void>(
-      builder: (BuildContext context) => GroceryCheckoutScreen(
-        cartItems: cart.checkoutLines,
-        subtotal: cart.subtotalRupees,
-      ),
-    ),
-  );
+  context.push('/grocery-checkout');
 }
 
 /// Basket sheet over the browsing screens.
@@ -275,7 +277,7 @@ class GroceryCartSheet extends ConsumerWidget {
                         pushGroceryCheckout(context, cart);
                       },
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: GroceryTheme.primaryGreenDark,
+                  backgroundColor: GroceryTheme.primaryAction,
                   foregroundColor: Colors.white,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                 ),

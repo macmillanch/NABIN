@@ -1,13 +1,18 @@
 import 'dart:convert';
 import 'dart:io';
 
+import '../config/nabin_build_env.dart';
+
 class NabinApiService {
   static const String _configuredBaseUrl = String.fromEnvironment('NABIN_API_URL');
   static const String baseUrl = 'http://10.0.2.2:4000/api'; // Android Emulator loopback to Host PC
   static const String webBaseUrl = 'http://localhost:4000/api';
 
   static String get effectiveUrl {
-    if (_configuredBaseUrl.isNotEmpty) return _configuredBaseUrl;
+    if (_configuredBaseUrl.isNotEmpty) {
+      NabinBuildEnv.validate(_configuredBaseUrl, variable: 'NABIN_API_URL');
+      return _configuredBaseUrl;
+    }
     if (const bool.fromEnvironment('dart.vm.product')) {
       throw StateError('NABIN_API_URL must be provided for release builds.');
     }
@@ -119,6 +124,27 @@ class NabinApiService {
     try {
       final client = HttpClient();
       final request = await client.getUrl(Uri.parse('$effectiveUrl/customer/activity'));
+      _attachAuthHeader(request);
+      final response = await request.close();
+      if (response.statusCode != 200) return null;
+      final body = await response.transform(utf8.decoder).join();
+      return jsonDecode(body) as Map<String, dynamic>;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /// One food/Instamart order, by uuid or order number, with its `order_lines`.
+  ///
+  /// The backend resolves either spelling of the id and refuses a row that belongs to
+  /// another customer, so this is the read a tracking screen polls: it is the stored
+  /// `order_state`, not a client-side guess about what the kitchen is doing.
+  static Future<Map<String, dynamic>?> getCustomerOrder(String orderId) async {
+    try {
+      final client = HttpClient();
+      final request = await client.getUrl(
+        Uri.parse('$effectiveUrl/customer/orders/${Uri.encodeComponent(orderId)}'),
+      );
       _attachAuthHeader(request);
       final response = await request.close();
       if (response.statusCode != 200) return null;
@@ -327,6 +353,36 @@ class NabinApiService {
       return jsonDecode(body) as Map<String, dynamic>;
     } catch (e) {
       return null;
+    }
+  }
+
+  /// The caller's own support tickets, read from the live endpoint.
+  ///
+  /// Identity is carried by the bearer token; the path parameter must be the
+  /// signed-in user's own id or the server returns 403. A transport failure and a
+  /// server `success:false` are both returned as a non-success map (never a bare
+  /// null) so the screen can tell "no tickets yet" apart from "couldn't load them".
+  static Future<Map<String, dynamic>> getSupportTickets({
+    required String userId,
+  }) async {
+    try {
+      final client = HttpClient();
+      final request = await client.getUrl(
+        Uri.parse('$effectiveUrl/support/user/$userId'),
+      );
+      _attachAuthHeader(request);
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      final decoded = body.isEmpty ? null : jsonDecode(body);
+      if (response.statusCode == 200 && decoded is Map<String, dynamic>) {
+        return decoded;
+      }
+      if (decoded is Map<String, dynamic>) {
+        return {...decoded, 'statusCode': response.statusCode};
+      }
+      return {'success': false, 'statusCode': response.statusCode};
+    } catch (e) {
+      return {'success': false, 'error': e.toString()};
     }
   }
 
@@ -719,6 +775,45 @@ class NabinApiService {
     }
   }
 
+  /// One job (a ride or a parcel) as the tracking route reports it.
+  ///
+  /// `GET /api/tracking/:jobId` is the only customer-reachable read that carries a driver's
+  /// name and phone, alongside the stored `status`, the pickup/drop pair and the driver's
+  /// last reported location. Polling it means the screen paints the row's stage rather
+  /// than a client-side guess about where the trip has got to.
+  static Future<Map<String, dynamic>?> getJobTracking(String jobId) async {
+    try {
+      final client = HttpClient();
+      final request = await client.getUrl(
+        Uri.parse('$effectiveUrl/tracking/${Uri.encodeComponent(jobId)}'),
+      );
+      _attachAuthHeader(request);
+      final response = await request.close();
+      if (response.statusCode != 200) return null;
+      final body = await response.transform(utf8.decoder).join();
+      return jsonDecode(body) as Map<String, dynamic>;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /// Cancels a ride through the only customer write the platform has for a job.
+  ///
+  /// `POST /api/rides/:id/cancel` runs `cancel_ride_atomic` (migration 016), which settles
+  /// the money in the same transaction and returns the real `cancellationFee`,
+  /// `refundAmount` and `refundStatus`. A caller must paint those returned figures — the
+  /// fee is not something the client is allowed to predict.
+  static Future<Map<String, dynamic>?> cancelRide({
+    required String jobId,
+    String? reason,
+    bool isDelayedOverride = false,
+  }) async {
+    return _postJson('/rides/${Uri.encodeComponent(jobId)}/cancel', {
+      if (reason != null && reason.trim().isNotEmpty) 'reason': reason.trim(),
+      'isDelayedOverride': isDelayedOverride,
+    });
+  }
+
   static Future<Map<String, dynamic>?> bookFood(Map<String, dynamic> payload) async {
     try {
       final client = HttpClient();
@@ -884,6 +979,71 @@ class NabinApiService {
     return _putJson('/notifications/read-all', {});
   }
 
+  /// What a customer is told about, and through which channel, is a row the backend
+  /// owns (`GET /api/notifications/preferences`). The Profile tile rendered three
+  /// invented lines instead of asking for it.
+  static Future<Map<String, dynamic>?> getNotificationPreferences() async {
+    return _getJson('/notifications/preferences');
+  }
+
+  /// Keys are the camelCase names the read returns; the backend snake-cases them and
+  /// drops anything outside its allowlist, so a wrong key is silently ignored rather
+  /// than written.
+  static Future<Map<String, dynamic>?> updateNotificationPreferences(
+    Map<String, dynamic> changes,
+  ) async {
+    return _putJson('/notifications/preferences', changes);
+  }
+
+  // =========================================================================
+  // 7c. SAVED SCHOOLS AND SAVED CHILDREN — `GET/POST/PUT/DELETE /api/schools`
+  // and `/api/children` are authenticated CRUD owned by the backend, which
+  // resolves the owner from the bearer token and rejects a child that names a
+  // school the caller does not own. Nothing here needs an id passed in.
+  // =========================================================================
+
+  static Future<Map<String, dynamic>?> getSavedSchools() async {
+    return _getJson('/schools');
+  }
+
+  static Future<Map<String, dynamic>?> createSavedSchool(
+    Map<String, dynamic> payload,
+  ) async {
+    return _postJson('/schools', payload);
+  }
+
+  static Future<Map<String, dynamic>?> updateSavedSchool(
+    String schoolId,
+    Map<String, dynamic> payload,
+  ) async {
+    return _putJson('/schools/${Uri.encodeComponent(schoolId)}', payload);
+  }
+
+  static Future<Map<String, dynamic>?> deleteSavedSchool(String schoolId) async {
+    return _deleteJson('/schools/${Uri.encodeComponent(schoolId)}');
+  }
+
+  static Future<Map<String, dynamic>?> getSavedChildren() async {
+    return _getJson('/children');
+  }
+
+  static Future<Map<String, dynamic>?> createSavedChild(
+    Map<String, dynamic> payload,
+  ) async {
+    return _postJson('/children', payload);
+  }
+
+  static Future<Map<String, dynamic>?> updateSavedChild(
+    String childId,
+    Map<String, dynamic> payload,
+  ) async {
+    return _putJson('/children/${Uri.encodeComponent(childId)}', payload);
+  }
+
+  static Future<Map<String, dynamic>?> deleteSavedChild(String childId) async {
+    return _deleteJson('/children/${Uri.encodeComponent(childId)}');
+  }
+
   static Future<Map<String, dynamic>?> _putJson(String path, Map<String, dynamic> payload) async {
     try {
       final client = HttpClient();
@@ -891,6 +1051,19 @@ class NabinApiService {
       request.headers.set('content-type', 'application/json');
       _attachAuthHeader(request);
       request.add(utf8.encode(jsonEncode(payload)));
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      return jsonDecode(body) as Map<String, dynamic>;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  static Future<Map<String, dynamic>?> _deleteJson(String path) async {
+    try {
+      final client = HttpClient();
+      final request = await client.deleteUrl(Uri.parse('$effectiveUrl$path'));
+      _attachAuthHeader(request);
       final response = await request.close();
       final body = await response.transform(utf8.decoder).join();
       return jsonDecode(body) as Map<String, dynamic>;

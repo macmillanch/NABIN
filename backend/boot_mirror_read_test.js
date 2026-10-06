@@ -127,11 +127,16 @@ async function main() {
   }
 
   // --- The defect, on the live server, so it stays described in the file that fixes it.
-  const ordersTotal = await headCount('orders');
-  const singleShot = await supabaseModule.supabaseAdmin.from('orders').select('*');
-  check('BM-00', ordersTotal > CAP && singleShot.data.length === CAP,
-    `orders holds ${ordersTotal} rows and a plain read returns ${singleShot.data.length} with no error — the defect, not a test artifact`);
+  // The witness must be a table that is over the cap in any real store. `audit_logs` grows
+  // with every admin action and the local reset never truncates it; a transactional table
+  // is empty on a clean database, where a truncation cannot be demonstrated at all — the
+  // check would read as a product failure when it is only an absence of rows.
+  const witnessTotal = await headCount('audit_logs');
+  const singleShot = await supabaseModule.supabaseAdmin.from('audit_logs').select('*');
+  check('BM-00', witnessTotal > CAP && singleShot.data.length === CAP,
+    `audit_logs holds ${witnessTotal} rows and a plain read returns ${singleShot.data.length} with no error — the defect, not a test artifact`);
 
+  const ordersTotal = await headCount('orders');
   const walked = await db.readAllRows(supabaseModule.supabaseAdmin, { table: 'orders' });
   check('BM-01', walked.complete && walked.rows.length === ordersTotal,
     `readAllRows assembled ${walked.rows.length} of ${ordersTotal} over ${walked.pages} page(s), complete=${walked.complete}`);

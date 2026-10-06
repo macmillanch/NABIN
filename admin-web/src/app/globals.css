@@ -30,27 +30,27 @@
 
 :root {
   /* Brand */
-  --brand: #3c4890;
-  --brand-hover: #2e376e;
-  --brand-bright: #5a69be;
-  --brand-tint: #e0e5ff;
+  --brand: #1a3ba2;
+  --brand-hover: #142e80;
+  --brand-bright: #3e5cc4;
+  --brand-tint: #e9eef9;
   --on-brand: #ffffff;
 
   /* Role accents */
-  --role-customer: #3c4890;
+  --role-customer: #1a3ba2;
   --role-driver: #2563eb;
-  --role-restaurant: #ff9030;
+  --role-restaurant: #e8590c;
   --role-grocery: #22a447;
   --role-admin: #1e3a8a;
   --role-accent: var(--brand);
   --role-tint: var(--brand-tint);
 
   /* Service accents */
-  --food-orange: #ff9030;
-  --grocery-green: #22a447;
-  --ride-blue: #0052cc;
+  --food-orange: #e8590c;
+  --grocery-green: #12a150;
+  --ride-blue: #2d5bdb;
   --parcel-teal: #00897b;
-  --gold: #fbbf24;
+  --gold: #e5a800;
   --telemetry-cyan: #06b6d4;
 
   /* Status */
@@ -1311,7 +1311,7 @@ button.nabin-chip {
   --bg-light: var(--canvas);
   --glass-bg: rgba(255, 255, 255, 0.7);
   --glass-border: rgba(255, 255, 255, 0.5);
-  --shadow-glow: 0 0 20px rgba(60, 72, 144, 0.15);
+  --shadow-glow: 0 0 20px rgba(26, 59, 162, 0.15);
   --radius-pill-legacy: var(--radius-pill);
 }
 
@@ -1375,7 +1375,7 @@ button.nabin-chip {
 .input:focus {
   outline: none;
   border-color: var(--brand);
-  box-shadow: 0 0 0 4px rgba(60, 72, 144, 0.15);
+  box-shadow: 0 0 0 4px rgba(26, 59, 162, 0.15);
 }
 
 .animate-fade-in {

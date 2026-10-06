@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/glass_container.dart';
+import '../../../../core/widgets/nabin_demo_simulator_banner.dart';
 
 class RestaurantAppShell extends StatefulWidget {
   const RestaurantAppShell({super.key});
@@ -359,14 +360,21 @@ class _RestaurantAppShellState extends State<RestaurantAppShell> {
             ],
           ),
         ),
-        body: IndexedStack(
-          index: _currentTab,
+        body: Column(
           children: [
-            _buildDashboardTab(),
-            _buildOrdersTab(),
-            _buildMenuTab(),
-            _buildEarningsTab(),
-            _buildProfileTab(),
+            const NabinDemoSimulatorBanner(surface: 'the Restaurant Partner app'),
+            Expanded(
+              child: IndexedStack(
+                index: _currentTab,
+                children: [
+                  _buildDashboardTab(),
+                  _buildOrdersTab(),
+                  _buildMenuTab(),
+                  _buildEarningsTab(),
+                  _buildProfileTab(),
+                ],
+              ),
+            ),
           ],
         ),
         bottomNavigationBar: Container(

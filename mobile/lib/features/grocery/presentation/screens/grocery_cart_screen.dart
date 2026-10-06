@@ -21,11 +21,6 @@ class GroceryCartScreen extends ConsumerStatefulWidget {
 }
 
 class _GroceryCartScreenState extends ConsumerState<GroceryCartScreen> {
-  // No customer-address read path is exposed to this feature, so the delivery
-  // address stays a local choice until one exists.
-  String _selectedAddress = 'Civil Lines, Delhi • Flat 402';
-  int _selectedTip = 20;
-
   @override
   void initState() {
     super.initState();
@@ -42,14 +37,14 @@ class _GroceryCartScreenState extends ConsumerState<GroceryCartScreen> {
     final GroceryCartState cart = ref.watch(groceryCartProvider);
     final GroceryCartNotifier notifier = ref.read(groceryCartProvider.notifier);
     // No handling/packing charge is exposed to the customer app, so the basket
-    // shows live item prices plus the optional tip; the store confirms the rest.
+    // quotes live item prices only. The store re-reads them at the order, any
+    // platform coupon is checked at checkout, and so is the delivery tip.
     final int subtotal = cart.subtotalRupees;
-    final int total = subtotal + _selectedTip;
 
     return Scaffold(
       backgroundColor: GroceryTheme.bgOffWhite,
       appBar: AppBar(
-        backgroundColor: GroceryTheme.surfaceWhite,
+        backgroundColor: GroceryTheme.headerBand,
         elevation: 0,
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -59,24 +54,30 @@ class _GroceryCartScreenState extends ConsumerState<GroceryCartScreen> {
               style: TextStyle(
                 fontWeight: FontWeight.w900,
                 fontSize: 18,
-                color: GroceryTheme.textDark,
+                color: GroceryTheme.onHeader,
               ),
             ),
             Text(
               cart.isEmpty
                   ? 'Nothing selected yet'
                   : '${cart.totalQuantity} item(s) • ${formatRupees(cart.subtotal)}',
-              style: const TextStyle(fontSize: 11, color: GroceryTheme.textMuted),
+              style: const TextStyle(fontSize: 11, color: Colors.white70),
             ),
           ],
         ),
         actions: <Widget>[
-          if (!cart.isEmpty)
+          if (!cart.isEmpty) ...<Widget>[
+            IconButton(
+              tooltip: 'Re-check prices with the store',
+              icon: const Icon(Icons.refresh_rounded, color: GroceryTheme.onHeader),
+              onPressed: _revalidatePrices,
+            ),
             IconButton(
               tooltip: 'Empty basket',
-              icon: const Icon(Icons.delete_sweep_outlined, color: GroceryTheme.textMuted),
+              icon: const Icon(Icons.delete_sweep_outlined, color: GroceryTheme.onHeader),
               onPressed: notifier.clear,
             ),
+          ],
         ],
       ),
       body: cart.isEmpty
@@ -127,7 +128,10 @@ class _GroceryCartScreenState extends ConsumerState<GroceryCartScreen> {
                       ),
                     ),
 
-                  // Delivery address
+                  // Delivery address. No customer-address read path exists for
+                  // grocery, so the basket names no destination — a sample flat
+                  // here would be an address the store could try to deliver to.
+                  // Checkout is where the customer types it.
                   Container(
                     padding: const EdgeInsets.all(NabinSpacing.md + 2),
                     decoration: BoxDecoration(
@@ -139,7 +143,7 @@ class _GroceryCartScreenState extends ConsumerState<GroceryCartScreen> {
                       children: <Widget>[
                         Container(
                           padding: const EdgeInsets.all(NabinSpacing.xs + 2),
-                          decoration: BoxDecoration(
+                          decoration: const BoxDecoration(
                             color: GroceryTheme.primaryGreenLight,
                             shape: BoxShape.circle,
                           ),
@@ -147,12 +151,12 @@ class _GroceryCartScreenState extends ConsumerState<GroceryCartScreen> {
                               color: GroceryTheme.primaryGreenDark, size: 20),
                         ),
                         const SizedBox(width: NabinSpacing.md),
-                        Expanded(
+                        const Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: <Widget>[
-                              const Text(
-                                'Delivering to',
+                              Text(
+                                'Delivery address',
                                 style: TextStyle(
                                   fontSize: 11,
                                   color: GroceryTheme.textMuted,
@@ -160,21 +164,16 @@ class _GroceryCartScreenState extends ConsumerState<GroceryCartScreen> {
                                 ),
                               ),
                               Text(
-                                _selectedAddress,
-                                style: const TextStyle(
+                                'Typed at checkout — saved addresses are not '
+                                'available for grocery yet.',
+                                style: TextStyle(
                                   fontWeight: FontWeight.w900,
-                                  fontSize: 13.5,
+                                  fontSize: 13,
+                                  height: 1.35,
                                   color: GroceryTheme.textDark,
                                 ),
                               ),
                             ],
-                          ),
-                        ),
-                        TextButton(
-                          onPressed: _showAddressPicker,
-                          child: const Text(
-                            'Change',
-                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
                           ),
                         ),
                       ],
@@ -197,54 +196,6 @@ class _GroceryCartScreenState extends ConsumerState<GroceryCartScreen> {
 
                   const SizedBox(height: NabinSpacing.md),
 
-                  // Delivery partner tip
-                  const Text(
-                    'Delivery partner tip',
-                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: GroceryTheme.textDark),
-                  ),
-                  const SizedBox(height: 4),
-                  const Text(
-                    'Optional, and paid on to the rider with this order',
-                    style: TextStyle(fontSize: 11, color: GroceryTheme.textMuted),
-                  ),
-                  const SizedBox(height: NabinSpacing.sm),
-                  Row(
-                    children: <int>[0, 10, 20, 30, 50].map((int tip) {
-                      final bool selected = _selectedTip == tip;
-                      return Expanded(
-                        child: Padding(
-                          padding: const EdgeInsets.only(right: 6),
-                          child: GestureDetector(
-                            onTap: () => setState(() => _selectedTip = tip),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(vertical: 9),
-                              decoration: BoxDecoration(
-                                color: selected ? GroceryTheme.primaryGreenDark : GroceryTheme.surfaceWhite,
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: selected
-                                      ? GroceryTheme.primaryGreenDark
-                                      : GroceryTheme.borderLight,
-                                ),
-                              ),
-                              child: Center(
-                                child: Text(
-                                  tip == 0 ? 'No tip' : formatRupees(tip.toDouble()),
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 11.5,
-                                    color: selected ? Colors.white : GroceryTheme.textDark,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      );
-                    }).toList(),
-                  ),
-                  const SizedBox(height: NabinSpacing.xl),
-
                   // Bill summary
                   Container(
                     padding: const EdgeInsets.all(NabinSpacing.md),
@@ -264,20 +215,18 @@ class _GroceryCartScreenState extends ConsumerState<GroceryCartScreen> {
                         _billRow('Items subtotal', formatRupees(cart.subtotal)),
                         const SizedBox(height: 6),
                         _billRow('Delivery fee', 'Set by the store'),
-                        if (_selectedTip > 0) ...<Widget>[
-                          const SizedBox(height: 6),
-                          _billRow('Delivery partner tip', formatRupees(_selectedTip.toDouble())),
-                        ],
+                        const SizedBox(height: 6),
+                        _billRow('Platform coupon', 'Checked at checkout'),
                         const Divider(height: NabinSpacing.xl),
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: <Widget>[
                             const Text(
-                              'To pay',
+                              'Estimated to pay',
                               style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16, color: GroceryTheme.textDark),
                             ),
                             Text(
-                              formatRupees(total.toDouble()),
+                              formatRupees(subtotal.toDouble()),
                               style: const TextStyle(
                                 fontWeight: FontWeight.w900,
                                 fontSize: 20,
@@ -288,8 +237,10 @@ class _GroceryCartScreenState extends ConsumerState<GroceryCartScreen> {
                         ),
                         const SizedBox(height: 6),
                         const Text(
-                          'The store confirms the final amount at checkout.',
-                          style: TextStyle(fontSize: 11, color: GroceryTheme.textMuted),
+                          'Menu-price estimate only: the store re-reads every '
+                          'price and stock level when the order lands, and the '
+                          'delivery partner tip is chosen at checkout.',
+                          style: TextStyle(fontSize: 11, color: GroceryTheme.textMuted, height: 1.4),
                         ),
                       ],
                     ),
@@ -301,7 +252,7 @@ class _GroceryCartScreenState extends ConsumerState<GroceryCartScreen> {
                         ? null
                         : () => pushGroceryCheckout(context, cart),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: GroceryTheme.primaryGreenDark,
+                      backgroundColor: GroceryTheme.primaryAction,
                       foregroundColor: Colors.white,
                       minimumSize: const Size(double.infinity, 54),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -309,7 +260,7 @@ class _GroceryCartScreenState extends ConsumerState<GroceryCartScreen> {
                     child: Text(
                       cart.checkoutBlocked
                           ? 'Remove unlisted items to continue'
-                          : '${formatRupees(total.toDouble())} • Place order',
+                          : '${formatRupees(subtotal.toDouble())} • Place order',
                       style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 15),
                     ),
                   ),
@@ -324,64 +275,29 @@ class _GroceryCartScreenState extends ConsumerState<GroceryCartScreen> {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: <Widget>[
-        Text(label, style: const TextStyle(fontSize: 12.5, color: GroceryTheme.textMuted)),
-        Text(
-          value,
-          style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: GroceryTheme.textDark),
+        // Both sides flex. Two bare Texts in a spaceBetween row ran past the
+        // card as soon as the value was a sentence ('Set by the store') rather
+        // than a number.
+        Expanded(
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 12.5, color: GroceryTheme.textMuted),
+          ),
+        ),
+        const SizedBox(width: NabinSpacing.sm),
+        Flexible(
+          child: Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.right,
+            style: const TextStyle(
+                fontSize: 12.5, fontWeight: FontWeight.bold, color: GroceryTheme.textDark),
+          ),
         ),
       ],
-    );
-  }
-
-  void _showAddressPicker() {
-    final List<String> addresses = <String>[
-      'Civil Lines, Delhi • Flat 402',
-      'Connaught Place, Delhi • Block B Office',
-      'Kamla Nagar Market, Delhi • Shop 14',
-    ];
-
-    showModalBottomSheet<void>(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(NabinRadius.xl)),
-      ),
-      builder: (BuildContext ctx) => Padding(
-        padding: const EdgeInsets.all(NabinSpacing.lg),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Row(
-              children: <Widget>[
-                const Expanded(
-                  child: Text(
-                    'Select delivery address',
-                    style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
-                  ),
-                ),
-                TextButton(
-                  onPressed: _revalidatePrices,
-                  child: const Text('Re-check prices', style: TextStyle(fontSize: 12)),
-                ),
-              ],
-            ),
-            const SizedBox(height: NabinSpacing.sm),
-            for (final String address in addresses)
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.location_on_rounded, color: GroceryTheme.primaryGreenDark),
-                title: Text(
-                  address,
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                ),
-                onTap: () {
-                  setState(() => _selectedAddress = address);
-                  Navigator.pop(ctx);
-                },
-              ),
-          ],
-        ),
-      ),
     );
   }
 }

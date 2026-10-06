@@ -2,11 +2,17 @@ const path = require('path');
 require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 const { createClient } = require('@supabase/supabase-js');
 const WebSocket = require('ws');
+const nabinEnv = require('./services/nabinEnv');
 
 // Guarantee WebSocket global for Supabase Realtime compatibility
 if (typeof globalThis.WebSocket === 'undefined') {
   globalThis.WebSocket = WebSocket;
 }
+
+// Hold this process to the one project its environment names before any client exists.
+// Everything below can read and write, so a mismatch has to be fatal here rather than
+// discoverable later as production rows in a test database.
+const envBinding = nabinEnv.assertConfigured();
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
@@ -34,36 +40,59 @@ let supabaseAdmin = null;
 if (isConfigured) {
   try {
     supabase = createClient(supabaseUrl, supabaseAnonKey);
+    // No silent downgrade. Building the "admin" client on the anon key used to mean a
+    // deployment missing its service credential kept starting and then had every
+    // privileged write answered by RLS as `anon` — a half-failed store that looks like a
+    // bug in the query. Against a live Postgres that is a hard misconfiguration, so it is
+    // one now.
+    if (!supabaseServiceKey && isLivePostgres) {
+      const fatalMsg = 'FATAL DATABASE CONFIG: SUPABASE_SERVICE_ROLE_KEY is not set while this '
+        + 'environment uses a live Postgres store. The service-role client would fall back to the '
+        + 'anon key and every privileged write would be answered by RLS as `anon`.';
+      console.error(`🚨 ${fatalMsg}`);
+      throw new Error(fatalMsg);
+    }
     supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey || supabaseAnonKey);
-    console.log('✅ Supabase PostgreSQL Client initialized successfully with URL:', supabaseUrl);
+    const binding = envBinding.view;
+    console.log(
+      `✅ Supabase client initialized — environment: ${binding.env}`
+      + `${binding.declaredRef ? ` (project ${binding.declaredRef})` : ''}`
+      + `, target: ${binding.restLocal ? `local Docker (${binding.restHost})` : supabaseUrl}`
+    );
+    for (const note of envBinding.notes) console.log(`ℹ️ ${note}`);
   } catch (err) {
     console.error('⚠️ Error initializing Supabase client:', err.message);
-    if (process.env.NODE_ENV === 'production') {
+    if (process.env.NODE_ENV === 'production' || isLivePostgres) {
       throw err;
     }
   }
 } else {
-  console.log('ℹ️ Supabase environment variables not configured. Operating in development mode.');
+  console.log(`ℹ️ Supabase environment variables not configured. Operating in development mode (NABIN_ENV=${envBinding.view.env}).`);
 }
 
 /**
  * Authoritative Readiness & DB Health Check
+ *
+ * Carries the environment identity with it, because "which project is this answering
+ * from" is the first question any backend change has to be able to answer, and a health
+ * payload that names the ref is the cheapest place to make it legible.
  */
 async function checkSupabaseConnection() {
+  const asEnv = (extra) => ({ environment: envBinding.view.env, projectRef: envBinding.view.declaredRef, ...extra });
   if (!isConfigured || !supabase) {
     if (process.env.NODE_ENV === 'production') {
-      return { configured: false, connected: false, ready: false, mode: 'PRODUCTION_UNCONFIGURED_ERROR' };
+      return asEnv({ configured: false, connected: false, ready: false, mode: 'PRODUCTION_UNCONFIGURED_ERROR' });
     }
-    return { configured: false, connected: true, ready: true, mode: 'DEVELOPMENT_LOCAL_MODE' };
+    return asEnv({ configured: false, connected: true, ready: true, mode: 'DEVELOPMENT_LOCAL_MODE' });
   }
   try {
     const { data, error } = await supabase.from('users').select('count', { count: 'exact', head: true });
     if (error) {
-      return { configured: true, connected: false, ready: false, error: error.message, mode: 'POSTGRES_DISCONNECTED' };
+      return asEnv({ configured: true, connected: false, ready: false, error: error.message, mode: 'POSTGRES_DISCONNECTED' });
     }
-    return { configured: true, connected: true, ready: true, mode: 'SUPABASE_POSTGRES_LIVE', userCount: data };
+    return asEnv({ configured: true, connected: true, ready: true, mode: 'SUPABASE_POSTGRES_LIVE', userCount: data });
   } catch (e) {
-    return { configured: true, connected: false, ready: false, error: e.message, mode: 'POSTGRES_ERROR' };
+    return asEnv({ configured: true, connected: false, ready: false, error: e.message, mode: 'POSTGRES_ERROR' });
   }
 }
 
@@ -193,6 +222,7 @@ module.exports = {
   supabaseAdmin,
   isConfigured,
   isLivePostgres,
+  nabinEnv: envBinding.view,
   checkSupabaseConnection,
   isStoreUnreachable,
   storeReply

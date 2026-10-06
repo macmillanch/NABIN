@@ -18,6 +18,14 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      # Which Supabase project this service may reach. The backend and the migration
+      # runner both refuse to start when SUPABASE_URL, DATABASE_URL, or a key's own
+      # project claim disagrees with this ref — so production data cannot be reached by
+      # a process that names itself something else, and cannot be reached by accident.
+      - key: NABIN_ENV
+        value: production
+      - key: NABIN_SUPABASE_REF
+        value: ouxvqmhuyueklnegvmxe
       - key: PORT
         value: 4000
       - key: PAYMENT_MODE
@@ -65,6 +73,13 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      # The isolated sandbox tier talks to `nabin-test`, never to the production
+      # project. Same refusal as production, in the other direction: a stale
+      # production key or URL in this service's secrets stops the boot.
+      - key: NABIN_ENV
+        value: testing
+      - key: NABIN_SUPABASE_REF
+        value: ywhxkzmbwppkdemvzlhv
       - key: PORT
         value: 4000
       - key: PAYMENT_MODE

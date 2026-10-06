@@ -33,8 +33,8 @@
             'on-surface-variant': '#434654',
             'outline': '#94a3b8',
             'outline-variant': '#e2e8f0',
-            'primary': '#3C4890',
-            'primary-container': '#3C4890',
+            'primary': '#1A3BA2',
+            'primary-container': '#1A3BA2',
             'on-primary-container': '#f8f7ff',
             'secondary': '#505f76',
             'secondary-container': '#d0e1fb',
@@ -1983,12 +1983,10 @@
           </div>
           <div>
             <div class="flex items-center gap-2">
-              <h3 class="font-headline font-black text-lg text-slate-900" id="modalAppId">APP-9021</h3>
-              <span id="modalAppStatusBadge" class="px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-amber-100 text-amber-800">
-                PENDING_REVIEW
-              </span>
+              <h3 class="font-headline font-black text-lg text-slate-900" id="modalAppId">—</h3>
+              <span id="modalAppStatusBadge" class="px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-amber-100 text-amber-800">—</span>
             </div>
-            <p class="text-xs text-slate-500">Identity Verification Workspace • Aadhaar & Voter ID Compliance</p>
+            <p class="text-xs text-slate-500">Identity review workspace • the declared details and the two supplied numbers</p>
           </div>
         </div>
 
@@ -2007,105 +2005,85 @@
       <div class="flex-1 overflow-y-auto p-6 space-y-6">
         
         <!-- User Personal Information Header Card -->
+        <!-- Every value below is written by `populateReviewModal` from the application that was
+             opened. The markup carries no applicant: a baked-in name, date of birth or address
+             reads as content, and an examiner who saw a plausible-looking date of birth, an age
+             derived from nothing, or a Delhi flat here for a person whose record holds neither
+             was being told numbers the platform never held. -->
         <div class="p-4 rounded-2xl bg-slate-50 border border-slate-200 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
           <div>
             <div class="text-[10px] font-bold text-slate-400 uppercase">Applicant Full Name</div>
-            <div class="text-sm font-bold text-slate-900 mt-0.5" id="modalUserName">Rahul Sharma</div>
-            <div class="text-[11px] text-slate-500 font-mono" id="modalUserId">usr_1</div>
+            <div class="text-sm font-bold text-slate-900 mt-0.5" id="modalUserName">—</div>
+            <div class="text-[11px] text-slate-500 font-mono" id="modalUserId">—</div>
           </div>
 
           <div>
             <div class="text-[10px] font-bold text-slate-400 uppercase">Phone & Email</div>
-            <div class="text-xs font-bold text-slate-900 mt-0.5" id="modalUserPhone">+91 98765 43210</div>
-            <div class="text-[11px] text-slate-500" id="modalUserEmail">rahul.sharma@example.com</div>
+            <div class="text-xs font-bold text-slate-900 mt-0.5" id="modalUserPhone">—</div>
+            <div class="text-[11px] text-slate-500" id="modalUserEmail">—</div>
           </div>
 
           <div>
-            <div class="text-[10px] font-bold text-slate-400 uppercase">Date of Birth</div>
-            <div class="text-xs font-bold text-slate-900 mt-0.5" id="modalUserDob">15/08/1994 (Age 31)</div>
+            <div class="text-[10px] font-bold text-slate-400 uppercase">Date of Birth (as declared)</div>
+            <div class="text-xs font-bold text-slate-900 mt-0.5" id="modalUserDob">—</div>
           </div>
 
           <div>
-            <div class="text-[10px] font-bold text-slate-400 uppercase">Registered Address</div>
-            <div class="text-xs text-slate-700 mt-0.5" id="modalUserAddress">Flat 402, Civil Lines, North Delhi, 110054</div>
+            <div class="text-[10px] font-bold text-slate-400 uppercase">Address (as declared)</div>
+            <div class="text-xs text-slate-700 mt-0.5" id="modalUserAddress">—</div>
           </div>
         </div>
 
         <!-- 2-Column Document Inspection Panel -->
+        <!-- Drawn by `renderDocumentPanels` from the application that is open. The markup used to
+             carry a card frame for both documents, a "SUBMITTED" badge over each, a file format and
+             a byte size nobody had measured, and a zoom button — and every one of those frames opened
+             the same mock file. This platform has no identity-document upload path, so the honest
+             panel is the record's own document state, and the absence of a file stated plainly. -->
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          
-          <!-- Column 1: Aadhaar Document Review -->
+
+          <!-- Column 1: Aadhaar -->
           <div class="p-5 rounded-2xl bg-white border border-slate-200 shadow-sm flex flex-col justify-between">
             <div>
               <div class="flex items-center justify-between pb-3 border-b border-slate-100">
                 <div class="flex items-center gap-2">
                   <span class="material-symbols-outlined text-orange-600">credit_card</span>
-                  <span class="font-headline font-bold text-sm text-slate-900">Aadhaar Card Submission</span>
+                  <span class="font-headline font-bold text-sm text-slate-900">Aadhaar — number and document</span>
                 </div>
-                <span id="modalAadhaarStatusBadge" class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800">
-                  SUBMITTED
-                </span>
+                <span id="modalAadhaarStatusBadge" class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800">—</span>
               </div>
 
               <div class="my-3 flex items-center justify-between bg-slate-50 p-2.5 rounded-xl">
                 <span class="text-xs font-bold text-slate-600">Masked UID:</span>
-                <span class="font-mono font-black text-sm text-orange-700 tracking-wider" id="modalAadhaarMasked">XXXX-XXXX-4892</span>
+                <span class="font-mono font-black text-sm text-orange-700 tracking-wider" id="modalAadhaarMasked">—</span>
               </div>
 
-              <!-- Document Preview Box -->
-              <div class="relative group rounded-xl overflow-hidden border border-slate-200 bg-slate-100 h-52 flex items-center justify-center">
-                <img id="modalAadhaarImg" src="/docs/mock_aadhaar_rahul.png" alt="Aadhaar Document" class="max-h-full max-w-full object-contain">
-                
-                <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center gap-3">
-                  <button onclick="openDocumentViewer('aadhaar')" class="px-3 py-1.5 rounded-xl bg-white text-slate-900 text-xs font-bold shadow-lg flex items-center gap-1">
-                    <span class="material-symbols-outlined text-sm">zoom_in</span>
-                    <span>Zoom & Inspect</span>
-                  </button>
-                </div>
-              </div>
+              <div id="modalAadhaarDocBox" class="rounded-xl overflow-hidden border border-slate-200 bg-slate-100 min-h-[13rem] flex items-center justify-center"></div>
             </div>
 
-            <div class="mt-4 flex items-center justify-between text-xs text-slate-500">
-              <span>Format: SVG Vector • Size: 24 KB</span>
-              <button onclick="openDocumentViewer('aadhaar')" class="text-primary font-bold hover:underline">Full Preview →</button>
-            </div>
+            <div class="mt-4 flex items-center justify-between gap-3 text-xs text-slate-500" id="modalAadhaarDocFooter"></div>
           </div>
 
-          <!-- Column 2: Voter ID (EPIC) Review -->
+          <!-- Column 2: Voter ID (EPIC) -->
           <div class="p-5 rounded-2xl bg-white border border-slate-200 shadow-sm flex flex-col justify-between">
             <div>
               <div class="flex items-center justify-between pb-3 border-b border-slate-100">
                 <div class="flex items-center gap-2">
                   <span class="material-symbols-outlined text-blue-600">how_to_vote</span>
-                  <span class="font-headline font-bold text-sm text-slate-900">Voter ID (EPIC) Submission</span>
+                  <span class="font-headline font-bold text-sm text-slate-900">Voter ID (EPIC) — number and document</span>
                 </div>
-                <span id="modalVoterStatusBadge" class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800">
-                  SUBMITTED
-                </span>
+                <span id="modalVoterStatusBadge" class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800">—</span>
               </div>
 
               <div class="my-3 flex items-center justify-between bg-slate-50 p-2.5 rounded-xl">
                 <span class="text-xs font-bold text-slate-600">Masked EPIC:</span>
-                <span class="font-mono font-black text-sm text-blue-700 tracking-wider" id="modalVoterMasked">DLH***201</span>
+                <span class="font-mono font-black text-sm text-blue-700 tracking-wider" id="modalVoterMasked">—</span>
               </div>
 
-              <!-- Document Preview Box -->
-              <div class="relative group rounded-xl overflow-hidden border border-slate-200 bg-slate-100 h-52 flex items-center justify-center">
-                <img id="modalVoterImg" src="/docs/mock_voter_rahul.png" alt="Voter ID Document" class="max-h-full max-w-full object-contain">
-                
-                <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center gap-3">
-                  <button onclick="openDocumentViewer('voter')" class="px-3 py-1.5 rounded-xl bg-white text-slate-900 text-xs font-bold shadow-lg flex items-center gap-1">
-                    <span class="material-symbols-outlined text-sm">zoom_in</span>
-                    <span>Zoom & Inspect</span>
-                  </button>
-                </div>
-              </div>
+              <div id="modalVoterDocBox" class="rounded-xl overflow-hidden border border-slate-200 bg-slate-100 min-h-[13rem] flex items-center justify-center"></div>
             </div>
 
-            <div class="mt-4 flex items-center justify-between text-xs text-slate-500">
-              <span>Format: SVG Vector • Size: 22 KB</span>
-              <button onclick="openDocumentViewer('voter')" class="text-primary font-bold hover:underline">Full Preview →</button>
-            </div>
+            <div class="mt-4 flex items-center justify-between gap-3 text-xs text-slate-500" id="modalVoterDocFooter"></div>
           </div>
 
         </div>
@@ -2114,39 +2092,51 @@
         <div class="p-5 rounded-2xl bg-slate-50 border border-slate-200">
           <div class="font-headline font-bold text-sm text-slate-900 mb-3 flex items-center gap-2">
             <span class="material-symbols-outlined text-primary text-base">checklist</span>
-            <span>Compliance Officer Verification Checklist</span>
+            <span>Compliance Officer Checklist</span>
+          </div>
+
+          <!-- The four boxes used to ask for attestations about things an examiner cannot see: an
+               image's clarity, an agency seal, a card's printed format, a scan's resolution. No
+               document reaches this platform, so ticking them meant swearing to an observation that
+               had no object — and APPROVE was refused unless the examiner swore. Each box now states
+               the comparison it actually covers, and the note below says what this workspace holds. -->
+          <div class="mb-3 p-3 rounded-xl bg-white border border-slate-200 text-[11px] text-slate-600 leading-relaxed">
+            <span class="font-bold text-slate-800">What this review covers.</span>
+            NABIN holds the details this applicant declared and the two identity numbers they supplied.
+            No document image is held, because this platform has no identity-document upload path.
+            These checks are a comparison of the declared details and numbers — not of a document.
           </div>
 
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
             <label class="flex items-start gap-2.5 p-2.5 bg-white rounded-xl border border-slate-200 cursor-pointer hover:bg-slate-50">
               <input type="checkbox" id="checkInfoMatches" class="rounded border-slate-300 text-primary mt-0.5">
               <div>
-                <div class="font-bold text-slate-900">Name & Details Match</div>
-                <div class="text-[11px] text-slate-500">Applicant legal name matches Aadhaar and Voter ID records exactly.</div>
+                <div class="font-bold text-slate-900">Declared details are consistent</div>
+                <div class="text-[11px] text-slate-500">The name, date of birth and address above match the account record and each other.</div>
               </div>
             </label>
 
             <label class="flex items-start gap-2.5 p-2.5 bg-white rounded-xl border border-slate-200 cursor-pointer hover:bg-slate-50">
               <input type="checkbox" id="checkAadhaarValid" class="rounded border-slate-300 text-primary mt-0.5">
               <div>
-                <div class="font-bold text-slate-900">Aadhaar Card Readable & Valid</div>
-                <div class="text-[11px] text-slate-500">Aadhaar photo is clear, text is unblurred, and UID watermark is present.</div>
+                <div class="font-bold text-slate-900">Aadhaar number is usable</div>
+                <div class="text-[11px] text-slate-500">Twelve digits, which the form already enforces, and the number this applicant claims as their own.</div>
               </div>
             </label>
 
             <label class="flex items-start gap-2.5 p-2.5 bg-white rounded-xl border border-slate-200 cursor-pointer hover:bg-slate-50">
               <input type="checkbox" id="checkVoterValid" class="rounded border-slate-300 text-primary mt-0.5">
               <div>
-                <div class="font-bold text-slate-900">Voter ID / EPIC Card Valid</div>
-                <div class="text-[11px] text-slate-500">Election Commission document format is genuine with no signs of tampering.</div>
+                <div class="font-bold text-slate-900">Voter ID (EPIC) number is usable</div>
+                <div class="text-[11px] text-slate-500">Well-formed, which the form already enforces, and the number this applicant claims as their own.</div>
               </div>
             </label>
 
             <label class="flex items-start gap-2.5 p-2.5 bg-white rounded-xl border border-slate-200 cursor-pointer hover:bg-slate-50">
               <input type="checkbox" id="checkNoTampering" class="rounded border-slate-300 text-primary mt-0.5">
               <div>
-                <div class="font-bold text-slate-900">No Tampering or Discrepancies</div>
-                <div class="text-[11px] text-slate-500">Images are high-resolution without clipping or fraudulent modifications.</div>
+                <div class="font-bold text-slate-900">Nothing else in the record contradicts it</div>
+                <div class="text-[11px] text-slate-500">Optional. Anything the audit trail or the account shows that this comparison does not cover — set it out in the notes.</div>
               </div>
             </label>
           </div>
@@ -2221,7 +2211,11 @@
         </div>
       </div>
       <div class="flex-1 overflow-auto p-6 flex items-center justify-center bg-slate-950 min-h-[400px]">
-        <img id="docViewerImage" src="/docs/mock_aadhaar_rahul.png" alt="Inspection Preview" class="transition-transform duration-200 max-h-[60vh] max-w-full rounded-xl shadow-2xl">
+        <!-- No src. The frame used to be preloaded with one demo applicant's Aadhaar card, so the
+             viewer painted a document before any application had been chosen and any viewer opened
+             for any other applicant showed that same card. It is filled from the application under
+             review, and only when that application actually has a file. -->
+        <img id="docViewerImage" alt="Stored identity document under inspection" class="transition-transform duration-200 max-h-[60vh] max-w-full rounded-xl shadow-2xl">
       </div>
     </div>
   </div>
@@ -2309,10 +2303,12 @@
                 <span class="material-symbols-outlined text-amber-600 text-base">attach_file</span>
                 <span>User Evidence & Attachments</span>
               </div>
-              <div class="rounded-xl border border-slate-200 overflow-hidden bg-slate-100 p-2 text-center text-xs text-slate-500" id="disputeEvidenceBox">
-                <img src="/docs/mock_aadhaar_rahul.png" class="max-h-32 mx-auto rounded object-contain mb-1">
-                <span>Receipt / Screenshot Document</span>
-              </div>
+              <!-- Nothing fills this box. This modal has no opener in the page and
+                  `closeSupportDisputeModal` is not defined anywhere, so it was never a workspace an
+                   examiner or agent could reach — and its evidence pane pointed at a demo Aadhaar
+                   card under the label "Receipt / Screenshot Document". Recorded as its own finding;
+                   the fabricated picture and its claim are removed, the container is left empty. -->
+              <div class="rounded-xl border border-slate-200 overflow-hidden bg-slate-100 p-2 text-center text-xs text-slate-500" id="disputeEvidenceBox"></div>
             </div>
             <div class="mt-4 pt-3 border-t border-slate-100 text-[11px] text-slate-500">
               Assigned Admin: <span class="font-bold text-slate-900" id="disputeModalAssignedAdmin">Devika Singhania</span>
@@ -3241,6 +3237,56 @@
     let docZoom = 1.0;
     let docRotation = 0;
 
+    // The application currently open in the review workspace, as the server returned it. The viewer
+    // reads its document from here instead of from a file baked into the markup, so a viewer opened
+    // for one applicant can only ever show that applicant's own record.
+    let reviewDocuments = { Aadhaar: null, Voter: null };
+
+    // A value the platform does not hold is written as absent, never as a plausible one. Both the
+    // queue and the workspace used to fill a gap with a specific applicant's data — an invented
+    // masked UID, an invented EPIC prefix — which an examiner read as the row's real number.
+    const NOT_SUPPLIED = '<span class="text-slate-400 font-sans font-normal">Not supplied</span>';
+    const notSuppliedText = (value) => value ? String(value) : 'Not supplied';
+    // `NO_DOCUMENT` is the only document status this platform can emit: there is no upload path, and
+    // no decision a reviewer takes can file one. The raw token is what the record carries; the
+    // badge says it in the examiner's language instead of an internal enum.
+    const docStatusText = (value) => value === 'NO_DOCUMENT' ? 'No document on file' : notSuppliedText(value);
+    const setText = (id, value) => {
+      const el = document.getElementById(id);
+      if (el) el.innerText = value;
+    };
+
+    // Every one of these fields is text a customer typed into a form (`name`, `phone`, the two
+    // identity numbers) and the page writes them into an admin's DOM with innerHTML. A value
+    // carrying markup would run in the examiner's session.
+    function escHtml(value) {
+      return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      })[ch]);
+    }
+
+    // escHtml is not enough in two doors. A browser decodes the entities in `onclick="fn('…')"`
+    // before it parses the JavaScript, so an escaped quote there still ends the string literal and
+    // starts code; and `src="…"` takes a *URL*, where escaping does nothing about `javascript:`.
+    // Both doors answer with the shape the field actually has and refuse anything else.
+    const safeId = (value) => {
+      const s = String(value ?? '');
+      return /^[A-Za-z0-9_-]{1,64}$/.test(s) ? s : '';
+    };
+    const safeUrl = (value) => {
+      const s = String(value ?? '').trim();
+      if (!/^https?:\/\/\S+$/i.test(s)) return '';
+      try { return new URL(s).protocol === 'javascript:' ? '' : s; } catch { return ''; }
+    };
+    // A refused id must not reach the network: `openEditAdModal('')` would ask the server about
+    // the whole collection. The refusal is spoken, not silent, and it re-checks the shape rather
+    // than trusting the caller — a handler can also be invoked from code that never passed safeId.
+    const requireId = (id, what) => {
+      if (safeId(id)) return true;
+      alert(`Cannot open this ${what}: its identifier is not in a form this console can act on.`);
+      return false;
+    };
+
     const dummyTrips = [
       { id: 'NAB-9824', service: 'CAB COMFORT', passenger: 'Marcus Chen', driver: 'Rajesh (DL 1RA 4892)', fare: '₹420.00', status: 'IN_TRANSIT', from: 'Connaught Place', to: 'IGI Airport T3' },
       { id: 'NAB-9821', service: 'BIKE TAXI', passenger: 'Ankit Gupta', driver: 'Deepak Auto (DL 2S 9012)', fare: '₹85.00', status: 'ACCEPTED', from: 'Lajpat Nagar', to: 'Saket Metro' },
@@ -3641,32 +3687,32 @@
         if (app.status === 'RESUBMISSION_REQUIRED') statusBadge = 'bg-orange-100 text-orange-900 border border-orange-200';
         if (app.status === 'UNDER_REVIEW') statusBadge = 'bg-blue-100 text-blue-900 border border-blue-200';
 
-        const reviewerText = app.lockedByAdminName 
-          ? `<span class="px-2 py-0.5 rounded bg-blue-50 text-blue-700 text-[10px] font-bold">🔒 ${app.lockedByAdminName}</span>`
-          : (app.assignedReviewerName ? app.assignedReviewerName : '<span class="text-slate-400">Unassigned</span>');
+        const reviewerText = app.lockedByAdminName
+          ? `<span class="px-2 py-0.5 rounded bg-blue-50 text-blue-700 text-[10px] font-bold">🔒 ${escHtml(app.lockedByAdminName)}</span>`
+          : (app.assignedReviewerName ? escHtml(app.assignedReviewerName) : '<span class="text-slate-400">Unassigned</span>');
 
         return `
           <tr class="hover:bg-slate-50/80 transition">
-            <td class="py-3.5 px-4 font-mono font-bold text-primary">${app.id}</td>
+            <td class="py-3.5 px-4 font-mono font-bold text-primary">${escHtml(app.id)}</td>
             <td class="py-3.5 px-4">
-              <div class="font-bold text-slate-900">${app.userName}</div>
-              <div class="text-[11px] text-slate-500">${app.phone} • ${app.email || 'No email'}</div>
+              <div class="font-bold text-slate-900">${escHtml(app.userName)}</div>
+              <div class="text-[11px] text-slate-500">${escHtml(app.phone)} • ${escHtml(notSuppliedText(app.email))}</div>
             </td>
             <td class="py-3.5 px-4 font-mono text-slate-700">
-              <span class="px-2 py-0.5 rounded bg-slate-100 text-[11px] font-bold">${app.aadhaarNumberMasked || 'XXXX-XXXX-4892'}</span>
+              <span class="px-2 py-0.5 rounded bg-slate-100 text-[11px] font-bold">${app.aadhaarNumberMasked ? escHtml(app.aadhaarNumberMasked) : NOT_SUPPLIED}</span>
             </td>
             <td class="py-3.5 px-4 font-mono text-slate-700">
-              <span class="px-2 py-0.5 rounded bg-slate-100 text-[11px] font-bold">${app.voterIdNumberMasked || 'DLH***201'}</span>
+              <span class="px-2 py-0.5 rounded bg-slate-100 text-[11px] font-bold">${app.voterIdNumberMasked ? escHtml(app.voterIdNumberMasked) : NOT_SUPPLIED}</span>
             </td>
             <td class="py-3.5 px-4 text-xs">${reviewerText}</td>
             <td class="py-3.5 px-4">
               <span class="px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase ${statusBadge}">
-                ${app.status.replace(/_/g, ' ')}
+                ${escHtml(app.status.replace(/_/g, ' '))}
               </span>
             </td>
             <td class="py-3.5 px-4 text-slate-500 text-[11px]">${new Date(app.submissionDate).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
             <td class="py-3.5 px-4 text-right">
-              <button onclick="openIdentityReviewModal('${app.id}')" class="px-3 py-1.5 rounded-xl bg-primary hover:bg-primary-container text-white text-xs font-bold shadow-sm transition">
+              <button onclick="openIdentityReviewModal('${safeId(app.id)}')" class="px-3 py-1.5 rounded-xl bg-primary hover:bg-primary-container text-white text-xs font-bold shadow-sm transition">
                 Review
               </button>
             </td>
@@ -3700,6 +3746,7 @@
     // --- IDENTITY REVIEW WORKSPACE MODAL ---
 
     async function openIdentityReviewModal(appId) {
+      if (!requireId(appId, 'identity application')) return;
       selectedAppId = appId;
       try {
         // First lock application for current admin
@@ -3708,7 +3755,7 @@
           headers: { 'Authorization': `Bearer ${currentAdminSession.token}` }
         });
         const lockData = await lockRes.json();
-        
+
         if (!lockData.success) {
           alert(`Conflict Warning: ${lockData.error}`);
         }
@@ -3721,7 +3768,9 @@
 
         if (data.success) {
           const app = data.application;
-          populateReviewModal(app);
+          // The workspace used to print "Locked by <me>" after a failed lock as well as a held one,
+          // so an examiner who opened a file another reviewer already held was told the opposite.
+          populateReviewModal(app, { locked: lockData.success === true, lockError: lockData.error });
           document.getElementById('identityReviewModal').classList.remove('hidden');
         }
       } catch (e) {
@@ -3729,20 +3778,30 @@
       }
     }
 
-    function populateReviewModal(app) {
-      document.getElementById('modalAppId').innerText = app.id;
-      document.getElementById('modalUserName').innerText = app.userName;
-      document.getElementById('modalUserId').innerText = app.userId;
-      document.getElementById('modalUserPhone').innerText = app.phone;
-      document.getElementById('modalUserEmail').innerText = app.email || 'N/A';
-      document.getElementById('modalUserDob').innerText = app.dob ? `${app.dob} (Age 31)` : '15/08/1994';
-      document.getElementById('modalUserAddress').innerText = app.address || 'Flat 402, Civil Lines, Delhi';
-      
-      document.getElementById('modalAadhaarMasked').innerText = app.aadhaarNumberMasked;
-      document.getElementById('modalVoterMasked').innerText = app.voterIdNumberMasked;
+    function populateReviewModal(app, lock = { locked: false, lockError: '' }) {
+      setText('modalAppId', notSuppliedText(app.id));
+      setText('modalUserName', notSuppliedText(app.userName));
+      setText('modalUserId', notSuppliedText(app.userId));
+      setText('modalUserPhone', notSuppliedText(app.phone));
+      setText('modalUserEmail', notSuppliedText(app.email));
+      // The declared date, and nothing derived from it. This line used to print "15/08/1994 (Age 31)"
+      // for every application: the date belonged to one demo applicant, and the age belonged to no
+      // calculation — an examiner who compared an age against a record was comparing a number the
+      // platform had never computed.
+      setText('modalUserDob', notSuppliedText(app.dob));
+      setText('modalUserAddress', notSuppliedText(app.address));
+      setText('modalAppStatusBadge', notSuppliedText(app.status));
+      setText('lockStatusText', lock.locked
+        ? `Locked by ${currentAdminSession.name}`
+        : `Not held by you${lock.lockError ? `: ${lock.lockError}` : ''}. Another reviewer may decide this application while you read it.`);
 
-      document.getElementById('modalAppStatusBadge').innerText = app.status;
-      document.getElementById('lockStatusText').innerText = `Locked by ${currentAdminSession.name}`;
+      reviewDocuments = {
+        Aadhaar: { masked: app.aadhaarNumberMasked, url: app.aadhaarDocUrl, status: app.aadhaarDocStatus },
+        Voter: { masked: app.voterIdNumberMasked, url: app.voterIdDocUrl, status: app.voterIdDocStatus }
+      };
+      renderDocumentPanel('Aadhaar');
+      renderDocumentPanel('Voter');
+
       document.getElementById('modalReviewNotes').value = app.reviewNotes || app.rejectionReason || app.resubmissionReason || '';
 
       // Reset checkboxes
@@ -3752,9 +3811,64 @@
       document.getElementById('checkNoTampering').checked = false;
     }
 
+    // One panel, drawn from the record. Built with createElement/innerText rather than innerHTML,
+    // because every value here was typed by a customer into a form and the reader is an
+    // authenticated admin session.
+    function renderDocumentPanel(key) {
+      const doc = reviewDocuments[key] || {};
+      const prefix = key === 'Aadhaar' ? 'modalAadhaar' : 'modalVoter';
+      setText(`${prefix}StatusBadge`, docStatusText(doc.status));
+      setText(`${prefix}Masked`, notSuppliedText(doc.masked));
+
+      const box = document.getElementById(`${prefix}DocBox`);
+      const footer = document.getElementById(`${prefix}DocFooter`);
+      box.replaceChildren();
+      footer.replaceChildren();
+
+      // Only an absolute http(s) URL may become a request out of an admin's session. The submit
+      // route refuses a document field outright, so no writer puts one in; the check stays because
+      // the column is not validated in the store and a record could hold any string.
+      const url = /^https?:\/\//i.test(doc.url || '') ? doc.url : null;
+
+      if (url) {
+        const img = document.createElement('img');
+        img.src = url;
+        img.alt = `${key} document stored with this application`;
+        img.className = 'max-h-52 w-full object-contain';
+        box.append(img);
+
+        const open = document.createElement('button');
+        open.type = 'button';
+        open.className = 'text-primary font-bold hover:underline text-left';
+        open.innerText = 'Open the stored document →';
+        open.onclick = () => openDocumentViewer(key.toLowerCase());
+        footer.append(open);
+        return;
+      }
+
+      const frame = document.createElement('div');
+      frame.className = 'text-center p-5 space-y-1.5';
+      const heading = document.createElement('div');
+      heading.className = 'font-bold text-slate-600 text-xs';
+      heading.innerText = 'No document on file';
+      const reason = document.createElement('div');
+      reason.className = 'text-[11px] text-slate-500 leading-relaxed';
+      reason.innerText = 'NABIN has no identity-document upload path, so this application has no file to open and nothing here to compare the number above against.';
+      frame.append(heading, reason);
+      box.append(frame);
+
+      const stated = document.createElement('span');
+      stated.innerText = 'This review covers the declared details and the number above only.';
+      footer.append(stated);
+    }
+
     function closeIdentityReviewModal() {
       document.getElementById('identityReviewModal').classList.add('hidden');
       selectedAppId = null;
+      // Dropped with the workspace, so a viewer opened later cannot show this applicant's file.
+      reviewDocuments = { Aadhaar: null, Voter: null };
+      const viewer = document.getElementById('docViewerImage');
+      if (viewer) viewer.removeAttribute('src');
       loadIdentityApplications();
     }
 
@@ -3783,7 +3897,10 @@
 
       if (decision === 'APPROVE') {
         if (!checklist.infoMatches || !checklist.aadhaarValid || !checklist.voterIdValid) {
-          alert('Checklist Incomplete: You must verify that legal name matches, and both Aadhaar & Voter ID documents are valid before approving.');
+          // The old wording told the examiner to verify "both Aadhaar & Voter ID documents". There
+          // is no document to verify; the three required boxes are the declared-details comparison
+          // and the two number checks the workspace actually shows.
+          alert('Checklist Incomplete: You must confirm the declared details are consistent, and that both the Aadhaar and Voter ID (EPIC) numbers are usable, before approving.');
           return;
         }
       }
@@ -3819,6 +3936,17 @@
     // --- DOCUMENT VIEWER (ZOOM & ROTATE) ---
 
     function openDocumentViewer(docType) {
+      const key = docType === 'voter' ? 'Voter' : 'Aadhaar';
+      const stored = (reviewDocuments[key] || {}).url || '';
+
+      // The viewer used to be a fixed pair of paths: 'aadhaar' opened one demo applicant's card and
+      // anything else opened his Voter ID, whichever application the examiner had actually chosen.
+      // It now opens the selected record's own stored document, and refuses when it has none.
+      if (!/^https?:\/\//i.test(stored)) {
+        alert(`${key}: no document is stored for this application, so there is nothing to inspect. This platform has no identity-document upload path.`);
+        return;
+      }
+
       const modal = document.getElementById('documentViewerModal');
       const img = document.getElementById('docViewerImage');
       const title = document.getElementById('docViewerTitle');
@@ -3826,13 +3954,9 @@
       docZoom = 1.0;
       docRotation = 0;
 
-      if (docType === 'aadhaar') {
-        title.innerText = 'Government Aadhaar Card • High Resolution Inspection';
-        img.src = '/docs/mock_aadhaar_rahul.png';
-      } else {
-        title.innerText = 'Election Commission Voter ID (EPIC) • High Resolution Inspection';
-        img.src = '/docs/mock_voter_rahul.png';
-      }
+      // "High Resolution Inspection" was an assessment of a file the page had never measured.
+      title.innerText = `${key === 'Aadhaar' ? 'Government Aadhaar Card' : 'Voter ID (EPIC) card'} • document stored with this application`;
+      img.src = stored;
 
       updateDocTransform();
       modal.classList.remove('hidden');
@@ -3879,11 +4003,11 @@
           const tbody = document.getElementById('auditLogModalTableBody');
           tbody.innerHTML = data.logs.map(l => `
             <tr class="hover:bg-slate-50 transition">
-              <td class="py-2.5 px-3 font-bold text-primary">${l.id}</td>
-              <td class="py-2.5 px-3"><span class="px-2 py-0.5 rounded bg-slate-100 text-slate-800 font-bold">${l.action}</span></td>
-              <td class="py-2.5 px-3 font-bold text-slate-900">${l.adminName || 'System'}</td>
-              <td class="py-2.5 px-3 text-slate-600">${l.previousStatus} → <b>${l.newStatus}</b></td>
-              <td class="py-2.5 px-3 text-slate-700">${l.reason || '—'}</td>
+              <td class="py-2.5 px-3 font-bold text-primary">${escHtml(l.id)}</td>
+              <td class="py-2.5 px-3"><span class="px-2 py-0.5 rounded bg-slate-100 text-slate-800 font-bold">${escHtml(l.action)}</span></td>
+              <td class="py-2.5 px-3 font-bold text-slate-900">${escHtml(l.adminName || 'System')}</td>
+              <td class="py-2.5 px-3 text-slate-600">${escHtml(l.previousStatus)} → <b>${escHtml(l.newStatus)}</b></td>
+              <td class="py-2.5 px-3 text-slate-700">${escHtml(l.reason || '—')}</td>
               <td class="py-2.5 px-3 text-slate-400">${new Date(l.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</td>
             </tr>
           `).join('');
@@ -3910,13 +4034,13 @@
           if (tbody) {
             tbody.innerHTML = data.accounts.map(a => `
               <tr class="hover:bg-slate-50 transition">
-                <td class="py-2.5 px-4 font-mono font-bold text-primary">${a.id}</td>
-                <td class="py-2.5 px-4 font-bold text-slate-900">${a.name}</td>
-                <td class="py-2.5 px-4 font-mono text-slate-600">${a.username}</td>
-                <td class="py-2.5 px-4"><span class="px-2 py-0.5 rounded font-bold text-[10px] ${a.role === 'SUPER_ADMIN' ? 'bg-purple-100 text-purple-800' : 'bg-blue-100 text-blue-800'}">${a.role}</span></td>
-                <td class="py-2.5 px-4 text-slate-600">${a.department || 'Operations'}</td>
-                <td class="py-2.5 px-4 text-slate-600">${a.email}</td>
-                <td class="py-2.5 px-4"><span class="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-bold text-[10px]">● ${a.status}</span></td>
+                <td class="py-2.5 px-4 font-mono font-bold text-primary">${escHtml(a.id)}</td>
+                <td class="py-2.5 px-4 font-bold text-slate-900">${escHtml(a.name)}</td>
+                <td class="py-2.5 px-4 font-mono text-slate-600">${escHtml(a.username)}</td>
+                <td class="py-2.5 px-4"><span class="px-2 py-0.5 rounded font-bold text-[10px] ${a.role === 'SUPER_ADMIN' ? 'bg-purple-100 text-purple-800' : 'bg-blue-100 text-blue-800'}">${escHtml(a.role)}</span></td>
+                <td class="py-2.5 px-4 text-slate-600">${escHtml(a.department || 'Operations')}</td>
+                <td class="py-2.5 px-4 text-slate-600">${escHtml(a.email)}</td>
+                <td class="py-2.5 px-4"><span class="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-bold text-[10px]">● ${escHtml(a.status)}</span></td>
               </tr>
             `).join('');
           }
@@ -3999,13 +4123,13 @@
           if (tbody) {
             tbody.innerHTML = data.logs.map(l => `
               <tr class="hover:bg-slate-50 transition">
-                <td class="py-2.5 px-4 font-bold text-primary">${l.id}</td>
-                <td class="py-2.5 px-4"><span class="px-2 py-0.5 rounded bg-blue-50 text-blue-800 font-bold text-[10px]">${l.module || 'SYSTEM'}</span></td>
-                <td class="py-2.5 px-4"><span class="px-2 py-0.5 rounded bg-slate-100 text-slate-900 font-bold text-[10px]">${l.action}</span></td>
-                <td class="py-2.5 px-4 font-bold text-slate-900">${l.adminName || 'System'}</td>
-                <td class="py-2.5 px-4 text-slate-600">${l.targetEntityType || 'ENTITY'}:${l.targetEntityId || '—'}</td>
-                <td class="py-2.5 px-4 text-slate-600">${l.previousState || '—'} → <span class="font-bold text-slate-900">${l.newState || '—'}</span></td>
-                <td class="py-2.5 px-4 text-slate-700 max-w-xs truncate" title="${l.reason}">${l.reason || '—'}</td>
+                <td class="py-2.5 px-4 font-bold text-primary">${escHtml(l.id)}</td>
+                <td class="py-2.5 px-4"><span class="px-2 py-0.5 rounded bg-blue-50 text-blue-800 font-bold text-[10px]">${escHtml(l.module || 'SYSTEM')}</span></td>
+                <td class="py-2.5 px-4"><span class="px-2 py-0.5 rounded bg-slate-100 text-slate-900 font-bold text-[10px]">${escHtml(l.action)}</span></td>
+                <td class="py-2.5 px-4 font-bold text-slate-900">${escHtml(l.adminName || 'System')}</td>
+                <td class="py-2.5 px-4 text-slate-600">${escHtml(l.targetEntityType || 'ENTITY')}:${escHtml(l.targetEntityId || '—')}</td>
+                <td class="py-2.5 px-4 text-slate-600">${escHtml(l.previousState || '—')} → <span class="font-bold text-slate-900">${escHtml(l.newState || '—')}</span></td>
+                <td class="py-2.5 px-4 text-slate-700 max-w-xs truncate" title="${escHtml(l.reason)}">${escHtml(l.reason || '—')}</td>
                 <td class="py-2.5 px-4 text-slate-400 font-mono text-[10px]">${new Date(l.timestamp).toLocaleString()}</td>
               </tr>
             `).join('');
@@ -4035,16 +4159,16 @@
               <div class="p-5 rounded-2xl bg-white border border-slate-200 shadow-sm flex flex-col justify-between hover:border-primary/40 transition">
                 <div>
                   <div class="flex items-center justify-between mb-2">
-                    <span class="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-black uppercase">${p.eligibleService} PROMO</span>
-                    <span class="text-xs font-bold ${p.status === 'ACTIVE' ? 'text-emerald-600' : 'text-slate-400'}">● ${p.status}</span>
+                    <span class="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-black uppercase">${escHtml(p.eligibleService)} PROMO</span>
+                    <span class="text-xs font-bold ${p.status === 'ACTIVE' ? 'text-emerald-600' : 'text-slate-400'}">● ${escHtml(p.status)}</span>
                   </div>
-                  <div class="font-mono font-black text-xl text-primary mb-1">${p.code}</div>
-                  <h4 class="font-bold text-slate-900 text-sm">${p.name}</h4>
-                  <p class="text-xs text-slate-500 mt-1">${p.description}</p>
+                  <div class="font-mono font-black text-xl text-primary mb-1">${escHtml(p.code)}</div>
+                  <h4 class="font-bold text-slate-900 text-sm">${escHtml(p.name)}</h4>
+                  <p class="text-xs text-slate-500 mt-1">${escHtml(p.description)}</p>
                 </div>
                 <div class="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-mono">
-                  <span class="text-slate-600">Min Order: ₹${p.minOrderAmount}</span>
-                  <span class="font-bold text-slate-900">Used: ${p.usedCount} times</span>
+                  <span class="text-slate-600">Min Order: ₹${escHtml(p.minOrderAmount)}</span>
+                  <span class="font-bold text-slate-900">Used: ${escHtml(p.usedCount)} times</span>
                 </div>
               </div>
             `).join('');
@@ -4083,32 +4207,32 @@
               return `
                 <tr class="hover:bg-slate-50 transition">
                   <td class="py-3 px-4">
-                    <div class="font-bold text-slate-900 text-xs">${ad.brand}</div>
-                    <div class="text-[10px] text-slate-500 max-w-[200px] truncate">${ad.title}</div>
+                    <div class="font-bold text-slate-900 text-xs">${escHtml(ad.brand)}</div>
+                    <div class="text-[10px] text-slate-500 max-w-[200px] truncate">${escHtml(ad.title)}</div>
                     <div class="flex items-center gap-1 mt-0.5">
-                      <span class="px-1.5 py-0.2 rounded ${indClass} text-[9px] font-black uppercase">${ad.industryCategory || 'BRAND'}</span>
-                      <span class="px-1.5 py-0.2 rounded bg-slate-100 text-slate-600 text-[9px] font-bold">${ad.sponsorBadge}</span>
+                      <span class="px-1.5 py-0.2 rounded ${indClass} text-[9px] font-black uppercase">${escHtml(ad.industryCategory || 'BRAND')}</span>
+                      <span class="px-1.5 py-0.2 rounded bg-slate-100 text-slate-600 text-[9px] font-bold">${escHtml(ad.sponsorBadge)}</span>
                     </div>
                   </td>
                   <td class="py-3 px-4">
-                    <span class="px-2 py-0.5 rounded bg-blue-50 text-blue-800 text-[10px] font-bold">${ad.slot}</span>
+                    <span class="px-2 py-0.5 rounded bg-blue-50 text-blue-800 text-[10px] font-bold">${escHtml(ad.slot)}</span>
                   </td>
-                  <td class="py-3 px-4 font-bold text-slate-700">${ad.service}</td>
+                  <td class="py-3 px-4 font-bold text-slate-700">${escHtml(ad.service)}</td>
                   <td class="py-3 px-4 font-mono font-bold text-slate-900">${ad.impressions.toLocaleString()}</td>
                   <td class="py-3 px-4 font-mono font-bold text-blue-600">${ad.clicks.toLocaleString()}</td>
                   <td class="py-3 px-4 font-mono font-black text-emerald-600">${ctr}</td>
                   <td class="py-3 px-4 font-mono font-bold text-slate-700">₹${ad.bidRateCpm.toFixed(2)}</td>
                   <td class="py-3 px-4">
-                    <button onclick="toggleAdStatus('${ad.id}', '${ad.status}')" class="px-2 py-0.5 rounded-full text-[10px] font-bold cursor-pointer transition ${ad.status === 'ACTIVE' ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}">
-                      ● ${ad.status}
+                    <button onclick="toggleAdStatus('${safeId(ad.id)}', '${safeId(ad.status)}')" class="px-2 py-0.5 rounded-full text-[10px] font-bold cursor-pointer transition ${ad.status === 'ACTIVE' ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}">
+                      ● ${escHtml(ad.status)}
                     </button>
                   </td>
                   <td class="py-3 px-4 text-right">
                     <div class="flex items-center justify-end gap-1">
-                      <button onclick="openEditAdModal('${ad.id}')" class="p-1 rounded-lg text-slate-600 hover:text-blue-600 hover:bg-blue-50 transition cursor-pointer" title="Edit Campaign Creative & Settings">
+                      <button onclick="openEditAdModal('${safeId(ad.id)}')" class="p-1 rounded-lg text-slate-600 hover:text-blue-600 hover:bg-blue-50 transition cursor-pointer" title="Edit Campaign Creative & Settings">
                         <span class="material-symbols-outlined text-base">edit</span>
                       </button>
-                      <button onclick="deleteAdCampaign('${ad.id}')" class="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer" title="Archive Ad Campaign">
+                      <button onclick="deleteAdCampaign('${safeId(ad.id)}')" class="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer" title="Archive Ad Campaign">
                         <span class="material-symbols-outlined text-base">delete</span>
                       </button>
                     </div>
@@ -4265,6 +4389,7 @@
     }
 
     async function toggleAdStatus(adId, currentStatus) {
+      if (!requireId(adId, 'ad campaign')) return;
       const nextStatus = currentStatus === 'ACTIVE' ? 'PAUSED' : 'ACTIVE';
       try {
         const res = await fetch(`/api/admin/advertisements/${adId}`, {
@@ -4286,6 +4411,7 @@
     }
 
     async function deleteAdCampaign(adId) {
+      if (!requireId(adId, 'ad campaign')) return;
       if (!confirm(`Are you sure you want to archive Advertisement Campaign [${adId}]?`)) return;
 
       try {
@@ -4306,36 +4432,6 @@
     }
 
     let activeDisputeTicket = null;
-
-    async function loadSupportTickets() {
-      try {
-        const res = await fetch('/api/admin/support', {
-          headers: { 'Authorization': `Bearer ${currentAdminSession.token}` }
-        });
-        const data = await res.json();
-        if (data.success) {
-          const tbody = document.getElementById('supportTicketsTableBody');
-          if (tbody) {
-            tbody.innerHTML = data.tickets.map(t => `
-              <tr class="hover:bg-slate-50 transition cursor-pointer" onclick="openSupportDisputePage('${t.id}')">
-                <td class="py-3 px-4 font-mono font-bold text-primary">${t.id}</td>
-                <td class="py-3 px-4"><span class="px-2 py-0.5 rounded bg-slate-100 font-bold text-[10px] text-slate-800">${t.category}</span></td>
-                <td class="py-3 px-4 font-bold text-slate-900">${t.userName} (${t.userRole})</td>
-                <td class="py-3 px-4 text-slate-700 font-medium">${t.title}</td>
-                <td class="py-3 px-4 font-bold ${t.priority === 'HIGH' ? 'text-rose-600' : 'text-slate-600'}">${t.priority}</td>
-                <td class="py-3 px-4"><span class="px-2 py-0.5 rounded-full font-bold text-[10px] ${t.status === 'RESOLVED' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}">${t.status}</span></td>
-                <td class="py-3 px-4 text-right" onclick="event.stopPropagation()">
-                  <button onclick="openSupportDisputePage('${t.id}')" class="px-3 py-1.5 rounded-xl bg-primary text-white font-bold text-xs hover:bg-primary-dark shadow-sm flex items-center gap-1 ml-auto">
-                    <span class="material-symbols-outlined text-sm">gavel</span>
-                    <span>Resolve / Refund Workspace Page →</span>
-                  </button>
-                </td>
-              </tr>
-            `).join('');
-          }
-        }
-      } catch (e) {}
-    }
 
     let allSupportTickets = [];
     let currentDisputeCategoryFilter = 'ALL';
@@ -4369,22 +4465,22 @@
           case 'SAFETY_INCIDENT': return `<span class="px-2 py-0.5 rounded bg-rose-100 text-rose-900 font-bold text-[10px] flex items-center gap-1 w-fit"><span class="material-symbols-outlined text-xs">shield</span>SAFETY_INCIDENT</span>`;
           case 'DAMAGED_PARCEL': return `<span class="px-2 py-0.5 rounded bg-purple-100 text-purple-900 font-bold text-[10px] flex items-center gap-1 w-fit"><span class="material-symbols-outlined text-xs">inventory_2</span>DAMAGED_PARCEL</span>`;
           case 'CANCELLATION_DISPUTE': return `<span class="px-2 py-0.5 rounded bg-sky-100 text-sky-900 font-bold text-[10px] flex items-center gap-1 w-fit"><span class="material-symbols-outlined text-xs">cancel</span>CANCELLATION</span>`;
-          default: return `<span class="px-2 py-0.5 rounded bg-slate-100 text-slate-800 font-bold text-[10px]">${cat}</span>`;
+          default: return `<span class="px-2 py-0.5 rounded bg-slate-100 text-slate-800 font-bold text-[10px]">${escHtml(cat)}</span>`;
         }
       };
 
       tbody.innerHTML = list.map(t => `
-        <tr class="hover:bg-slate-50 transition cursor-pointer" onclick="openSupportDisputePage('${t.id}')">
-          <td class="py-3 px-4 font-mono font-bold text-primary">${t.id}</td>
+        <tr class="hover:bg-slate-50 transition cursor-pointer" onclick="openSupportDisputePage('${safeId(t.id)}')">
+          <td class="py-3 px-4 font-mono font-bold text-primary">${escHtml(t.id)}</td>
           <td class="py-3 px-4">${getCategoryBadge(t.category)}</td>
-          <td class="py-3 px-4 font-bold text-slate-900">${t.userName} <span class="text-[10px] text-slate-500 font-normal">(${t.userRole})</span></td>
-          <td class="py-3 px-4 text-slate-700 font-medium max-w-xs truncate">${t.title}</td>
+          <td class="py-3 px-4 font-bold text-slate-900">${escHtml(t.userName)} <span class="text-[10px] text-slate-500 font-normal">(${escHtml(t.userRole)})</span></td>
+          <td class="py-3 px-4 text-slate-700 font-medium max-w-xs truncate">${escHtml(t.title)}</td>
           <td class="py-3 px-4 font-bold ${t.priority === 'CRITICAL' || t.priority === 'HIGH' ? 'text-rose-600' : 'text-slate-600'}">
-            ${t.priority === 'CRITICAL' ? '🔥 CRITICAL' : t.priority}
+            ${t.priority === 'CRITICAL' ? '🔥 CRITICAL' : escHtml(t.priority)}
           </td>
-          <td class="py-3 px-4"><span class="px-2 py-0.5 rounded-full font-bold text-[10px] ${t.status === 'RESOLVED' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}">● ${t.status}</span></td>
+          <td class="py-3 px-4"><span class="px-2 py-0.5 rounded-full font-bold text-[10px] ${t.status === 'RESOLVED' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}">● ${escHtml(t.status)}</span></td>
           <td class="py-3 px-4 text-right" onclick="event.stopPropagation()">
-            <button onclick="openSupportDisputePage('${t.id}')" class="px-3 py-1.5 rounded-xl bg-primary text-white font-bold text-xs hover:bg-primary-dark shadow-sm flex items-center gap-1 ml-auto">
+            <button onclick="openSupportDisputePage('${safeId(t.id)}')" class="px-3 py-1.5 rounded-xl bg-primary text-white font-bold text-xs hover:bg-primary-dark shadow-sm flex items-center gap-1 ml-auto">
               <span class="material-symbols-outlined text-sm">handshake</span>
               <span>Open Resolution Workspace →</span>
             </button>
@@ -4440,10 +4536,10 @@
             threadContainer.innerHTML = (ticket.messages || []).map(m => `
               <div class="p-3 rounded-xl ${m.senderRole === 'ADMIN' ? 'bg-blue-50 border border-blue-100 text-blue-950 ml-6 shadow-sm' : 'bg-white border border-slate-200 text-slate-900 mr-6 shadow-sm'}">
                 <div class="flex items-center justify-between text-[10px] text-slate-400 mb-1">
-                  <span class="font-bold text-slate-800">${m.senderName} (${m.senderRole})</span>
+                  <span class="font-bold text-slate-800">${escHtml(m.senderName)} (${escHtml(m.senderRole)})</span>
                   <span>${new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                 </div>
-                <div class="text-xs font-medium">${m.text}</div>
+                <div class="text-xs font-medium">${escHtml(m.text)}</div>
               </div>
             `).join('');
           }
@@ -4479,9 +4575,9 @@
               <span>Lost Item Identification Card</span>
             </div>
             <div class="space-y-2 text-xs">
-              <div class="flex justify-between"><span class="text-slate-500">Reported Item:</span><span class="font-bold text-slate-900">${item.itemName}</span></div>
-              <div class="flex justify-between"><span class="text-slate-500">Estimated Value:</span><span class="font-bold text-amber-800">${item.estimatedValue}</span></div>
-              <div class="flex justify-between"><span class="text-slate-500">Last Seen In:</span><span class="font-bold text-slate-900">${item.seatLocation}</span></div>
+              <div class="flex justify-between"><span class="text-slate-500">Reported Item:</span><span class="font-bold text-slate-900">${escHtml(item.itemName)}</span></div>
+              <div class="flex justify-between"><span class="text-slate-500">Estimated Value:</span><span class="font-bold text-amber-800">${escHtml(item.estimatedValue)}</span></div>
+              <div class="flex justify-between"><span class="text-slate-500">Last Seen In:</span><span class="font-bold text-slate-900">${escHtml(item.seatLocation)}</span></div>
               <div class="flex justify-between"><span class="text-slate-500">Driver Check:</span><span class="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold text-[10px]">● Confirmed Found in Cab</span></div>
             </div>
           </div>
@@ -4510,7 +4606,7 @@
               <span>Vehicle Safety Telemetry</span>
             </div>
             <div class="space-y-2 text-xs">
-              <div class="flex justify-between"><span class="text-slate-500">Max Telemetry Speed:</span><span class="font-bold text-rose-700 font-mono">${s.speedRecordedMax}</span></div>
+              <div class="flex justify-between"><span class="text-slate-500">Max Telemetry Speed:</span><span class="font-bold text-rose-700 font-mono">${escHtml(s.speedRecordedMax)}</span></div>
               <div class="flex justify-between"><span class="text-slate-500">Incident Class:</span><span class="font-bold text-slate-900">High-Speed Detour</span></div>
               <div class="flex justify-between"><span class="text-slate-500">Past Driver Warnings:</span><span class="px-2 py-0.5 rounded bg-rose-100 text-rose-800 font-bold text-[10px]">2 Speed Violations</span></div>
             </div>
@@ -4525,7 +4621,7 @@
               <span>Parcel Goods & Damage Claim</span>
             </div>
             <div class="space-y-2 text-xs">
-              <div class="flex justify-between"><span class="text-slate-500">Contents:</span><span class="font-bold text-slate-900">${p.itemDescription}</span></div>
+              <div class="flex justify-between"><span class="text-slate-500">Contents:</span><span class="font-bold text-slate-900">${escHtml(p.itemDescription)}</span></div>
               <div class="flex justify-between"><span class="text-slate-500">Declared Value:</span><span class="font-bold text-purple-800 font-mono">₹${p.declaredValue.toFixed(2)}</span></div>
               <div class="flex justify-between"><span class="text-slate-500">Damage Level:</span><span class="px-2 py-0.5 rounded bg-rose-100 text-rose-800 font-bold text-[10px]">CRUSHED IN TRANSIT</span></div>
             </div>
@@ -4540,8 +4636,8 @@
               <span>GPS Proximity & Wait Audit</span>
             </div>
             <div class="space-y-2 text-xs">
-              <div class="flex justify-between"><span class="text-slate-500">Driver Distance:</span><span class="font-bold text-rose-700">${c.driverDistanceAtCancel}</span></div>
-              <div class="flex justify-between"><span class="text-slate-500">Wait at Pickup:</span><span class="font-bold text-slate-900">${c.driverWaitTimeRecorded}</span></div>
+              <div class="flex justify-between"><span class="text-slate-500">Driver Distance:</span><span class="font-bold text-rose-700">${escHtml(c.driverDistanceAtCancel)}</span></div>
+              <div class="flex justify-between"><span class="text-slate-500">Wait at Pickup:</span><span class="font-bold text-slate-900">${escHtml(c.driverWaitTimeRecorded)}</span></div>
               <div class="flex justify-between"><span class="text-slate-500">Unfair Fee Deducted:</span><span class="font-black text-rose-600 font-mono">₹${c.cancellationFeeCharged.toFixed(2)}</span></div>
             </div>
           </div>
@@ -4622,7 +4718,7 @@
             <!-- Notes -->
             <div>
               <label class="block text-xs font-bold text-slate-800 mb-1">Compliance Resolution Summary & Inspection Log (Required):</label>
-              <textarea id="pageDisputeNotes" rows="2" placeholder="Driver verified brown wallet in cab. Driver Rajesh dispatched to drop wallet at passenger address. ₹150 bounty credited..." class="w-full bg-white border border-slate-300 rounded-xl p-2.5 text-xs text-slate-900 focus:outline-none focus:border-amber-600">${ticket.resolutionNotes || ''}</textarea>
+              <textarea id="pageDisputeNotes" rows="2" placeholder="Driver verified brown wallet in cab. Driver Rajesh dispatched to drop wallet at passenger address. ₹150 bounty credited..." class="w-full bg-white border border-slate-300 rounded-xl p-2.5 text-xs text-slate-900 focus:outline-none focus:border-amber-600">${escHtml(ticket.resolutionNotes || '')}</textarea>
             </div>
 
             <!-- Footer Actions -->
@@ -4694,8 +4790,8 @@
                   <span class="text-[10px] text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded">Instant User Balance Credit</span>
                 </div>
                 <div class="flex items-center gap-3">
-                  <input type="number" id="pageDisputeRefundAmount" value="${f.disputedAmount || 60}" step="5" class="w-36 font-mono font-black text-blue-700 text-lg border border-slate-300 rounded-lg px-3 py-1 focus:outline-none focus:border-blue-600 text-right">
-                  <span class="text-xs text-slate-600">Refund calculates overcharged difference (₹${f.originalFare} charged → ₹${f.correctFairFare} fair fare).</span>
+                  <input type="number" id="pageDisputeRefundAmount" value="${escHtml(f.disputedAmount || 60)}" step="5" class="w-36 font-mono font-black text-blue-700 text-lg border border-slate-300 rounded-lg px-3 py-1 focus:outline-none focus:border-blue-600 text-right">
+                  <span class="text-xs text-slate-600">Refund calculates overcharged difference (₹${escHtml(f.originalFare)} charged → ₹${escHtml(f.correctFairFare)} fair fare).</span>
                 </div>
               </div>
             </div>
@@ -4703,7 +4799,7 @@
             <!-- Notes -->
             <div>
               <label class="block text-xs font-bold text-slate-800 mb-1">Compliance Resolution Summary (Required):</label>
-              <textarea id="pageDisputeNotes" rows="2" placeholder="Verified duplicate DND Flyway toll fee ₹60. Full refund credited to customer wallet..." class="w-full bg-white border border-slate-300 rounded-xl p-2.5 text-xs text-slate-900 focus:outline-none focus:border-blue-600">${ticket.resolutionNotes || ''}</textarea>
+              <textarea id="pageDisputeNotes" rows="2" placeholder="Verified duplicate DND Flyway toll fee ₹60. Full refund credited to customer wallet..." class="w-full bg-white border border-slate-300 rounded-xl p-2.5 text-xs text-slate-900 focus:outline-none focus:border-blue-600">${escHtml(ticket.resolutionNotes || '')}</textarea>
             </div>
 
             <!-- Footer Actions -->
@@ -4717,7 +4813,7 @@
                 </button>
                 <button onclick="submitSpecializedResolution('FARE_DISPUTE', 'REFUND')" class="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-md flex items-center gap-1.5">
                   <span class="material-symbols-outlined text-sm">payments</span>
-                  <span>Adjust Fare & Issue ₹${f.disputedAmount || 60} Refund</span>
+                  <span>Adjust Fare & Issue ₹${escHtml(f.disputedAmount || 60)} Refund</span>
                 </button>
               </div>
             </div>
@@ -4765,7 +4861,7 @@
             <!-- Notes -->
             <div>
               <label class="block text-xs font-bold text-slate-800 mb-1">Safety Officer Disciplinary Order (Required):</label>
-              <textarea id="pageDisputeNotes" rows="2" placeholder="Driver Vikram Singh exceeded 90 km/h in residential corridor. 48-hr suspension imposed. ₹150 safety credit issued to rider..." class="w-full bg-white border border-slate-300 rounded-xl p-2.5 text-xs text-slate-900 focus:outline-none focus:border-rose-600">${ticket.resolutionNotes || ''}</textarea>
+              <textarea id="pageDisputeNotes" rows="2" placeholder="Driver Vikram Singh exceeded 90 km/h in residential corridor. 48-hr suspension imposed. ₹150 safety credit issued to rider..." class="w-full bg-white border border-slate-300 rounded-xl p-2.5 text-xs text-slate-900 focus:outline-none focus:border-rose-600">${escHtml(ticket.resolutionNotes || '')}</textarea>
             </div>
 
             <!-- Footer Actions -->
@@ -4824,7 +4920,7 @@
             <!-- Notes -->
             <div>
               <label class="block text-xs font-bold text-slate-800 mb-1">Damage Claim Settlement Summary (Required):</label>
-              <textarea id="pageDisputeNotes" rows="2" placeholder="Inspection of customer photo confirms crushed outer box. ₹850 full refund issued to user wallet..." class="w-full bg-white border border-slate-300 rounded-xl p-2.5 text-xs text-slate-900 focus:outline-none focus:border-purple-600">${ticket.resolutionNotes || ''}</textarea>
+              <textarea id="pageDisputeNotes" rows="2" placeholder="Inspection of customer photo confirms crushed outer box. ₹850 full refund issued to user wallet..." class="w-full bg-white border border-slate-300 rounded-xl p-2.5 text-xs text-slate-900 focus:outline-none focus:border-purple-600">${escHtml(ticket.resolutionNotes || '')}</textarea>
             </div>
 
             <!-- Footer Actions -->
@@ -4880,7 +4976,7 @@
             <!-- Notes -->
             <div>
               <label class="block text-xs font-bold text-slate-800 mb-1">Compliance Audit Decision (Required):</label>
-              <textarea id="pageDisputeNotes" rows="2" placeholder="Driver never arrived at pickup location. ₹50 fee waived and credited to customer wallet..." class="w-full bg-white border border-slate-300 rounded-xl p-2.5 text-xs text-slate-900 focus:outline-none focus:border-sky-600">${ticket.resolutionNotes || ''}</textarea>
+              <textarea id="pageDisputeNotes" rows="2" placeholder="Driver never arrived at pickup location. ₹50 fee waived and credited to customer wallet..." class="w-full bg-white border border-slate-300 rounded-xl p-2.5 text-xs text-slate-900 focus:outline-none focus:border-sky-600">${escHtml(ticket.resolutionNotes || '')}</textarea>
             </div>
 
             <!-- Footer Actions -->
@@ -5008,14 +5104,14 @@
           if (tbody) {
             tbody.innerHTML = data.transactions.map(t => `
               <tr class="hover:bg-slate-50 transition">
-                <td class="py-2.5 px-4 font-bold text-primary">${t.id}</td>
-                <td class="py-2.5 px-4"><span class="px-2 py-0.5 rounded bg-slate-100 text-slate-800 font-bold text-[10px]">${t.type}</span></td>
-                <td class="py-2.5 px-4 font-bold text-slate-900">${t.title}</td>
+                <td class="py-2.5 px-4 font-bold text-primary">${escHtml(t.id)}</td>
+                <td class="py-2.5 px-4"><span class="px-2 py-0.5 rounded bg-slate-100 text-slate-800 font-bold text-[10px]">${escHtml(t.type)}</span></td>
+                <td class="py-2.5 px-4 font-bold text-slate-900">${escHtml(t.title)}</td>
                 <td class="py-2.5 px-4 font-bold text-slate-900">₹${Math.abs(t.amount || 0).toFixed(2)}</td>
                 <td class="py-2.5 px-4 text-emerald-600 font-bold">₹${(t.commission || t.platformFee || 0).toFixed(2)}</td>
                 <td class="py-2.5 px-4 font-bold text-blue-600">₹${(t.net || 0).toFixed(2)}</td>
-                <td class="py-2.5 px-4 text-slate-600">${t.paymentMode || 'ONLINE'}</td>
-                <td class="py-2.5 px-4 text-slate-400 font-mono text-[10px]">${t.time || 'Today'}</td>
+                <td class="py-2.5 px-4 text-slate-600">${escHtml(t.paymentMode || 'ONLINE')}</td>
+                <td class="py-2.5 px-4 text-slate-400 font-mono text-[10px]">${escHtml(t.time || 'Today')}</td>
               </tr>
             `).join('');
           }
@@ -5219,8 +5315,8 @@
         if (layer) {
           layer.bindPopup(`
             <div class="p-1 font-sans">
-              <div class="font-bold text-xs text-slate-900">${fence.name}</div>
-              <div class="text-[10px] text-slate-500">${fence.description || 'Geofenced Operational Zone'}</div>
+              <div class="font-bold text-xs text-slate-900">${escHtml(fence.name)}</div>
+              <div class="text-[10px] text-slate-500">${escHtml(fence.description || 'Geofenced Operational Zone')}</div>
               <div class="mt-2 pt-1 border-t border-slate-100 flex items-center justify-between text-[11px] font-mono">
                 <span class="font-bold text-orange-600">Surge: ${(fence.surgeMultiplier || 1.0).toFixed(2)}x</span>
                 <span class="font-bold text-slate-700">Toll: ₹${(fence.surcharge || 0).toFixed(2)}</span>
@@ -5317,7 +5413,7 @@
             if (statusText) {
               statusText.innerHTML = `
                 <span class="text-emerald-400 font-black">✓ INSIDE GEOFENCE:</span>
-                <span>${zone.name}</span>
+                <span>${escHtml(zone.name)}</span>
                 <span class="px-2 py-0.5 rounded-full bg-orange-500 text-white text-[10px] font-black">${data.effectiveSurgeMultiplier.toFixed(2)}x Dynamic Surge</span>
               `;
             }
@@ -5345,7 +5441,7 @@
           // store outage used to look like a fact about the rider's location.
           statusText.innerHTML = `
             <span class="text-rose-400 font-black">● NOT EVALUATED:</span>
-            <span class="text-[11px] text-slate-400">(${data.code || 'the server refused to answer for this point'})</span>
+            <span class="text-[11px] text-slate-400">(${escHtml(data.code || 'the server refused to answer for this point')})</span>
           `;
           if (surgeMultiplierEl) {
             surgeMultiplierEl.innerText = '— (not evaluated)';
@@ -5374,7 +5470,7 @@
         if (data.success && resultEl) {
           if (data.inside && (data.matchedZones || []).length > 0) {
             const zone = data.matchedZones[0];
-            resultEl.innerHTML = `🎯 <b>Coordinate (${lat.toFixed(4)}°, ${lng.toFixed(4)}°):</b> <span class="text-emerald-600 font-bold">INSIDE ${zone.name}</span> • Dynamic Surge: <b class="text-orange-600">${data.effectiveSurgeMultiplier.toFixed(2)}x</b> • Toll: ₹${data.totalSurcharge.toFixed(2)}`;
+            resultEl.innerHTML = `🎯 <b>Coordinate (${lat.toFixed(4)}°, ${lng.toFixed(4)}°):</b> <span class="text-emerald-600 font-bold">INSIDE ${escHtml(zone.name)}</span> • Dynamic Surge: <b class="text-orange-600">${data.effectiveSurgeMultiplier.toFixed(2)}x</b> • Toll: ₹${data.totalSurcharge.toFixed(2)}`;
           } else {
             // The old text here named a zone — "Standard Operational Coverage
             // Area" — for a point that matched nothing, which is the same
@@ -5384,7 +5480,7 @@
               : `🎯 <b>Coordinate (${lat.toFixed(4)}°, ${lng.toFixed(4)}°):</b> <span class="text-slate-600 font-bold">OUTSIDE EVERY BOUNDARY</span> (No geographic modifier applies)`;
           }
         } else if (resultEl) {
-          resultEl.innerHTML = `🎯 <b>Coordinate (${lat.toFixed(4)}°, ${lng.toFixed(4)}°):</b> <span class="text-rose-600 font-bold">NOT EVALUATED</span> (${data.code || 'the server refused to answer'})`;
+          resultEl.innerHTML = `🎯 <b>Coordinate (${lat.toFixed(4)}°, ${lng.toFixed(4)}°):</b> <span class="text-rose-600 font-bold">NOT EVALUATED</span> (${escHtml(data.code || 'the server refused to answer')})`;
         }
       } catch (e) {}
     }
@@ -5472,11 +5568,11 @@
             <div class="p-5 rounded-2xl bg-white border border-slate-200 shadow-sm flex flex-col justify-between hover:border-primary/40 transition">
               <div>
                 <div class="flex items-center justify-between mb-2">
-                  <span class="px-2.5 py-0.5 rounded-full ${g.type === 'AIRPORT' ? 'bg-amber-100 text-amber-800' : 'bg-blue-100 text-blue-800'} text-[10px] font-black uppercase">${g.type || 'POLYGON ZONE'}</span>
+                  <span class="px-2.5 py-0.5 rounded-full ${g.type === 'AIRPORT' ? 'bg-amber-100 text-amber-800' : 'bg-blue-100 text-blue-800'} text-[10px] font-black uppercase">${escHtml(g.type || 'POLYGON ZONE')}</span>
                   <span class="text-xs font-bold text-emerald-600">✓ ACTIVE</span>
                 </div>
-                <h4 class="font-bold text-slate-900 text-base">${g.name}</h4>
-                <p class="text-xs text-slate-500 mt-1">${g.description || 'Geofenced boundary with priority dispatch'}</p>
+                <h4 class="font-bold text-slate-900 text-base">${escHtml(g.name)}</h4>
+                <p class="text-xs text-slate-500 mt-1">${escHtml(g.description || 'Geofenced boundary with priority dispatch')}</p>
               </div>
               <div class="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-mono">
                 <span class="font-bold text-slate-700">Surcharge: ₹${(g.surcharge || 0).toFixed(2)}</span>
@@ -5495,11 +5591,11 @@
                   <span class="px-2.5 py-0.5 rounded-full bg-orange-100 text-orange-900 text-[10px] font-black uppercase">⚡ DYNAMIC SURGE</span>
                   <span class="text-xs font-bold text-orange-600">● LIVE RULE</span>
                 </div>
-                <h4 class="font-bold text-slate-900 text-base">${s.name || s.zoneName}</h4>
-                <p class="text-xs text-slate-600 mt-1">${s.reason || 'High demand surge rule'}</p>
+                <h4 class="font-bold text-slate-900 text-base">${escHtml(s.name || s.zoneName)}</h4>
+                <p class="text-xs text-slate-600 mt-1">${escHtml(s.reason || 'High demand surge rule')}</p>
               </div>
               <div class="mt-4 pt-3 border-t border-orange-200/80 flex items-center justify-between text-xs font-mono">
-                <span class="font-bold text-slate-700">Service: ${s.service || 'ALL'}</span>
+                <span class="font-bold text-slate-700">Service: ${escHtml(s.service || 'ALL')}</span>
                 <span class="font-black text-orange-700 text-sm">${(s.surgeMultiplier || s.multiplier || 1.5).toFixed(1)}x SURGE</span>
               </div>
             </div>
@@ -5747,21 +5843,21 @@
             <div>
               <div class="flex items-start justify-between gap-3 mb-3">
                 <div class="flex items-center gap-3">
-                  <div class="w-12 h-12 rounded-2xl ${isPaused ? 'bg-rose-100 text-rose-700' : colorClasses.bg + ' ' + colorClasses.text} flex items-center justify-center font-black shadow-sm shrink-0">
-                    <span class="material-symbols-outlined text-2xl">${service.icon || 'hub'}</span>
+                  <div class="w-12 h-12 rounded-2xl ${isPaused ? 'bg-rose-100 text-rose-700' : escHtml(colorClasses.bg + ' ' + colorClasses.text)} flex items-center justify-center font-black shadow-sm shrink-0">
+                    <span class="material-symbols-outlined text-2xl">${escHtml(service.icon || 'hub')}</span>
                   </div>
                   <div>
-                    <span class="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider ${isPaused ? 'bg-rose-100 text-rose-800' : colorClasses.bg + ' ' + colorClasses.text}">
-                      ${service.category}
+                    <span class="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider ${isPaused ? 'bg-rose-100 text-rose-800' : escHtml(colorClasses.bg + ' ' + colorClasses.text)}">
+                      ${escHtml(service.category)}
                     </span>
-                    <h4 class="font-headline font-black text-sm text-slate-900 mt-0.5 leading-tight">${service.name}</h4>
+                    <h4 class="font-headline font-black text-sm text-slate-900 mt-0.5 leading-tight">${escHtml(service.name)}</h4>
                   </div>
                 </div>
 
                 <!-- Instant Toggle Switch -->
                 <div class="flex flex-col items-end gap-1">
                   <label class="relative inline-flex items-center cursor-pointer">
-                    <input type="checkbox" class="sr-only peer" ${isPaused ? '' : 'checked'} onchange="toggleServiceDirectSwitch('${service.id}', this.checked)">
+                    <input type="checkbox" class="sr-only peer" ${isPaused ? '' : 'checked'} onchange="toggleServiceDirectSwitch('${safeId(service.id)}', this.checked)">
                     <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
                   </label>
                   <span class="text-[10px] font-extrabold ${isPaused ? 'text-rose-700' : 'text-emerald-700'} uppercase font-mono">
@@ -5770,12 +5866,12 @@
                 </div>
               </div>
 
-              <p class="text-xs text-slate-500 leading-relaxed mb-3">${service.description}</p>
+              <p class="text-xs text-slate-500 leading-relaxed mb-3">${escHtml(service.description)}</p>
 
               <!-- Live Telemetry Strip -->
               <div class="p-2.5 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-between text-[11px] font-medium text-slate-600 mb-3">
-                <span class="truncate pr-2 font-mono">${service.activeVolume || 'Active'}</span>
-                <span class="px-1.5 py-0.5 rounded bg-slate-200/80 text-slate-700 font-mono text-[10px] font-bold shrink-0">${service.latencyMs || 40}ms</span>
+                <span class="truncate pr-2 font-mono">${escHtml(service.activeVolume || 'Active')}</span>
+                <span class="px-1.5 py-0.5 rounded bg-slate-200/80 text-slate-700 font-mono text-[10px] font-bold shrink-0">${escHtml(service.latencyMs || 40)}ms</span>
               </div>
 
               <!-- Paused Details Box (Shown when Paused) -->
@@ -5786,18 +5882,18 @@
                       <span class="material-symbols-outlined text-sm">warning</span>
                       <span>Operational Reason:</span>
                     </span>
-                    <span class="text-[10px] text-rose-700 font-mono">${service.affectedRegions?.join(', ') || 'Global'}</span>
+                    <span class="text-[10px] text-rose-700 font-mono">${escHtml(service.affectedRegions?.join(', ') || 'Global')}</span>
                   </div>
                   <div class="font-bold text-rose-900 bg-white/80 p-2 rounded-lg border border-rose-200 text-xs">
-                    "${service.pausedReason || 'Service suspended by Administrator.'}"
+                    "${escHtml(service.pausedReason || 'Service suspended by Administrator.')}"
                   </div>
                   <div class="text-[11px] text-rose-800 flex items-center justify-between pt-1 border-t border-rose-200">
-                    <span>By: <b>${service.pausedBy || 'Admin'}</b></span>
+                    <span>By: <b>${escHtml(service.pausedBy || 'Admin')}</b></span>
                     <span>${service.resumeAt ? `⏳ Auto-resumes ${new Date(service.resumeAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'Indefinite'}</span>
                   </div>
                   ${service.broadcastNotice ? `
                     <div class="text-[10px] text-rose-700 italic bg-rose-50 p-1.5 rounded border border-rose-200">
-                      📣 Broadcast: "${service.broadcastNotice}"
+                      📣 Broadcast: "${escHtml(service.broadcastNotice)}"
                     </div>
                   ` : ''}
                 </div>
@@ -5811,12 +5907,12 @@
               </div>
 
               ${isPaused ? `
-                <button onclick="resumeService('${service.id}')" class="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm flex items-center gap-1 transition cursor-pointer">
+                <button onclick="resumeService('${safeId(service.id)}')" class="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm flex items-center gap-1 transition cursor-pointer">
                   <span class="material-symbols-outlined text-sm">play_arrow</span>
                   <span>Resume Service</span>
                 </button>
               ` : `
-                <button onclick="openPauseServiceModal('${service.id}')" class="px-3.5 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-xs flex items-center gap-1 transition cursor-pointer">
+                <button onclick="openPauseServiceModal('${safeId(service.id)}')" class="px-3.5 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-xs flex items-center gap-1 transition cursor-pointer">
                   <span class="material-symbols-outlined text-sm">pause</span>
                   <span>Pause Service</span>
                 </button>
@@ -5847,16 +5943,16 @@
         const isCurrent = !item.resumedAt;
         return `
           <tr class="hover:bg-slate-50/80 transition text-xs">
-            <td class="py-3 px-4 font-mono font-bold text-slate-700">${item.id}</td>
-            <td class="py-3 px-4 font-bold text-slate-900">${item.serviceName || item.serviceId}</td>
-            <td class="py-3 px-4 font-mono text-slate-500">${item.region || 'ALL_REGIONS'}</td>
+            <td class="py-3 px-4 font-mono font-bold text-slate-700">${escHtml(item.id)}</td>
+            <td class="py-3 px-4 font-bold text-slate-900">${escHtml(item.serviceName || item.serviceId)}</td>
+            <td class="py-3 px-4 font-mono text-slate-500">${escHtml(item.region || 'ALL_REGIONS')}</td>
             <td class="py-3 px-4">
               <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${isCurrent ? 'bg-rose-100 text-rose-800 border border-rose-200' : 'bg-emerald-100 text-emerald-800'}">
                 ${isCurrent ? '⏸ SUSPENDED' : '✓ RESTORED'}
               </span>
             </td>
-            <td class="py-3 px-4 text-slate-700 max-w-xs truncate" title="${item.reason || ''}">${item.reason || 'Manual suspension'}</td>
-            <td class="py-3 px-4 text-slate-600">${item.pausedBy || 'Super Admin'}</td>
+            <td class="py-3 px-4 text-slate-700 max-w-xs truncate" title="${escHtml(item.reason || '')}">${escHtml(item.reason || 'Manual suspension')}</td>
+            <td class="py-3 px-4 text-slate-600">${escHtml(item.pausedBy || 'Super Admin')}</td>
             <td class="py-3 px-4 text-slate-500 font-mono text-[11px]">${item.pausedAt ? new Date(item.pausedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' }) : '—'}</td>
             <td class="py-3 px-4 text-slate-500 font-mono text-[11px]">${item.resumedAt ? new Date(item.resumedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' }) : '<span class="text-rose-600 font-bold">Active Now</span>'}</td>
             <td class="py-3 px-4 text-right font-mono text-slate-600">${item.durationMinutes ? `${item.durationMinutes} mins` : (item.resumedAt ? 'Resolved' : 'Indefinite')}</td>
@@ -5881,6 +5977,7 @@
     }
 
     function openPauseServiceModal(serviceId = 'ALL') {
+      if (!requireId(serviceId, 'service')) return;
       const modal = document.getElementById('pauseServiceModal');
       const select = document.getElementById('pauseModalServiceSelect');
       if (select) select.value = serviceId;
@@ -5934,6 +6031,7 @@
     }
 
     async function toggleServiceDirectSwitch(serviceId, activate) {
+      if (!requireId(serviceId, 'service')) return;
       if (activate) {
         await resumeService(serviceId);
       } else {
@@ -5980,6 +6078,7 @@
     }
 
     async function resumeService(serviceId) {
+      if (!requireId(serviceId, 'service')) return;
       try {
         const res = await fetch(`${API_BASE}/api/admin/services/resume`, {
           method: 'POST',
@@ -6047,9 +6146,9 @@
             fillOpacity: 0.9
           }).addTo(opsMap).bindPopup(`
             <div class="font-sans text-xs">
-              <b class="text-slate-900">${d.name}</b> (${d.categoryName})<br>
-              <span class="text-slate-600">${d.vehicle}</span><br>
-              <span class="font-bold text-emerald-600">Status: ${d.driverState}</span>
+              <b class="text-slate-900">${escHtml(d.name)}</b> (${escHtml(d.categoryName)})<br>
+              <span class="text-slate-600">${escHtml(d.vehicle)}</span><br>
+              <span class="font-bold text-emerald-600">Status: ${escHtml(d.driverState)}</span>
             </div>
           `);
           opsMarkers.push(marker);
@@ -6108,10 +6207,10 @@
           <div class="flex items-start justify-between">
             <div>
               <div class="flex items-center gap-1.5">
-                <span class="font-bold text-slate-900 text-xs">${d.name}</span>
-                <span class="text-[10px] font-bold text-amber-600">★ ${d.rating}</span>
+                <span class="font-bold text-slate-900 text-xs">${escHtml(d.name)}</span>
+                <span class="text-[10px] font-bold text-amber-600">★ ${escHtml(d.rating)}</span>
               </div>
-              <div class="text-[10px] text-slate-500 font-mono">${d.id} • ${d.vehicle}</div>
+              <div class="text-[10px] text-slate-500 font-mono">${escHtml(d.id)} • ${escHtml(d.vehicle)}</div>
             </div>
             <span class="px-2 py-0.5 rounded-full text-[10px] font-black uppercase ${d.category === '4W' ? 'bg-blue-100 text-blue-800' : (d.category === '2W' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800')}">
               ${d.category === '4W' ? 'CAB' : (d.category === '2W' ? 'BIKE TAXI' : 'AUTO')}
@@ -6119,11 +6218,11 @@
           </div>
 
           <div class="flex items-center justify-between text-[11px] pt-2 border-t border-slate-100">
-            <span class="font-mono text-slate-600">${d.area}</span>
-            <span class="font-bold ${d.isOnline ? 'text-emerald-600' : 'text-slate-400'}">● ${d.driverState}</span>
+            <span class="font-mono text-slate-600">${escHtml(d.area)}</span>
+            <span class="font-bold ${d.isOnline ? 'text-emerald-600' : 'text-slate-400'}">● ${escHtml(d.driverState)}</span>
           </div>
 
-          <button onclick="openDriverActivityPage('${d.id}')" class="w-full py-1.5 rounded-xl bg-slate-50 hover:bg-primary hover:text-white border border-slate-200 text-primary font-bold text-[11px] transition flex items-center justify-center gap-1 cursor-pointer">
+          <button onclick="openDriverActivityPage('${safeId(d.id)}')" class="w-full py-1.5 rounded-xl bg-slate-50 hover:bg-primary hover:text-white border border-slate-200 text-primary font-bold text-[11px] transition flex items-center justify-center gap-1 cursor-pointer">
             <span class="material-symbols-outlined text-xs">manage_search</span>
             <span>View Activities & History →</span>
           </button>
@@ -6150,7 +6249,7 @@
             weight: 2,
             opacity: 1,
             fillOpacity: 0.9
-          }).addTo(adminMap).bindPopup(`<b>${d.name}</b><br>${d.vehicle}`);
+          }).addTo(adminMap).bindPopup(`<b>${escHtml(d.name)}</b><br>${escHtml(d.vehicle)}`);
         });
       }
 
@@ -6172,12 +6271,12 @@
       if (!tbody) return;
       tbody.innerHTML = dummyTrips.map(t => `
         <tr class="hover:bg-slate-50 transition">
-          <td class="py-3 px-4 font-mono font-bold text-primary">${t.id}</td>
-          <td class="py-3 px-4"><span class="px-2 py-0.5 rounded bg-slate-100 font-bold text-[10px]">${t.service}</span></td>
-          <td class="py-3 px-4 font-bold text-slate-900">${t.passenger}</td>
-          <td class="py-3 px-4">${t.driver}</td>
-          <td class="py-3 px-4 font-bold font-mono text-slate-900">${t.fare}</td>
-          <td class="py-3 px-4"><span class="px-2 py-0.5 rounded-full font-bold text-[10px] bg-blue-100 text-blue-800">${t.status}</span></td>
+          <td class="py-3 px-4 font-mono font-bold text-primary">${escHtml(t.id)}</td>
+          <td class="py-3 px-4"><span class="px-2 py-0.5 rounded bg-slate-100 font-bold text-[10px]">${escHtml(t.service)}</span></td>
+          <td class="py-3 px-4 font-bold text-slate-900">${escHtml(t.passenger)}</td>
+          <td class="py-3 px-4">${escHtml(t.driver)}</td>
+          <td class="py-3 px-4 font-bold font-mono text-slate-900">${escHtml(t.fare)}</td>
+          <td class="py-3 px-4"><span class="px-2 py-0.5 rounded-full font-bold text-[10px] bg-blue-100 text-blue-800">${escHtml(t.status)}</span></td>
         </tr>
       `).join('');
     }
@@ -6191,31 +6290,31 @@
         const vehicleName = d.vehicle || d.vehicleName || (d.vehiclePlate ? `Vehicle (${d.vehiclePlate})` : 'Commercial Vehicle');
         const dlNumber = d.dl || d.drivingLicence || 'DL-04201992019';
         return `
-          <tr class="hover:bg-slate-50 transition cursor-pointer" onclick="openDriverActivityPage('${d.id}')">
+          <tr class="hover:bg-slate-50 transition cursor-pointer" onclick="openDriverActivityPage('${safeId(d.id)}')">
             <td class="py-3 px-4">
               <div class="font-bold text-slate-900 flex items-center gap-2">
                 <div class="w-7 h-7 rounded-lg bg-primary/10 text-primary font-bold text-xs flex items-center justify-center">
-                  ${(d.name || 'D').split(' ').map(n => n[0]).join('')}
+                  ${escHtml((d.name || 'D').split(' ').map(n => n[0]).join(''))}
                 </div>
                 <div>
-                  <div>${d.name || 'Driver'}</div>
-                  <div class="text-[10px] font-mono text-slate-400">${d.id} • ${d.phone || '+91 98XXX XXXXX'}</div>
+                  <div>${escHtml(d.name || 'Driver')}</div>
+                  <div class="text-[10px] font-mono text-slate-400">${escHtml(d.id)} • ${escHtml(d.phone || '+91 98XXX XXXXX')}</div>
                 </div>
               </div>
             </td>
             <td class="py-3 px-4">
               <div class="font-bold text-slate-800">${vehicleName}</div>
-              <div class="text-[10px] text-slate-500 font-mono">${d.vehiclePlate || d.vehicleModel || 'Commercial Reg'}</div>
+              <div class="text-[10px] text-slate-500 font-mono">${escHtml(d.vehiclePlate || d.vehicleModel || 'Commercial Reg')}</div>
             </td>
             <td class="py-3 px-4 font-mono text-slate-700">${dlNumber}</td>
-            <td class="py-3 px-4 font-bold text-amber-600">★ ${d.rating || 4.9}</td>
+            <td class="py-3 px-4 font-bold text-amber-600">★ ${escHtml(d.rating || 4.9)}</td>
             <td class="py-3 px-4">
               <span class="px-2 py-0.5 rounded-full font-bold text-[10px] ${d.kycStatus === 'VERIFIED' || d.status === 'VERIFIED' || d.operationalStatus === 'APPROVED' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}">
-                ● ${d.kycStatus || d.status || d.operationalStatus || 'VERIFIED'}
+                ● ${escHtml(d.kycStatus || d.status || d.operationalStatus || 'VERIFIED')}
               </span>
             </td>
             <td class="py-3 px-4 text-right" onclick="event.stopPropagation()">
-              <button onclick="openDriverActivityPage('${d.id}')" class="px-3 py-1.5 rounded-xl bg-primary text-white font-bold text-xs hover:bg-primary-dark shadow-sm flex items-center gap-1 ml-auto cursor-pointer">
+              <button onclick="openDriverActivityPage('${safeId(d.id)}')" class="px-3 py-1.5 rounded-xl bg-primary text-white font-bold text-xs hover:bg-primary-dark shadow-sm flex items-center gap-1 ml-auto cursor-pointer">
                 <span class="material-symbols-outlined text-xs">visibility</span>
                 <span>Activities & History</span>
               </button>
@@ -6228,6 +6327,7 @@
     // --- DEDICATED DRIVER ACTIVITIES & TRIP HISTORY FULL PAGE WORKSPACE ---
 
     async function openDriverActivityPage(driverId) {
+      if (!requireId(driverId, 'driver')) return;
       try {
         let driver = null;
         try {
@@ -6347,14 +6447,14 @@
           actList.innerHTML = activities.map(a => `
             <div class="p-3 rounded-2xl bg-slate-50 border border-slate-200 flex items-start gap-3 text-xs hover:border-primary/40 transition">
               <div class="w-8 h-8 rounded-xl bg-blue-100 text-primary flex items-center justify-center shrink-0 mt-0.5 shadow-sm">
-                <span class="material-symbols-outlined text-base">${a.icon || 'history'}</span>
+                <span class="material-symbols-outlined text-base">${escHtml(a.icon || 'history')}</span>
               </div>
               <div class="flex-1">
                 <div class="flex items-center justify-between">
-                  <span class="font-bold text-slate-900">${a.title}</span>
+                  <span class="font-bold text-slate-900">${escHtml(a.title)}</span>
                   <span class="text-[10px] text-slate-400 font-mono">${new Date(a.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                 </div>
-                <p class="text-slate-600 text-[11px] mt-0.5">${a.detail}</p>
+                <p class="text-slate-600 text-[11px] mt-0.5">${escHtml(a.detail)}</p>
               </div>
             </div>
           `).join('');
@@ -6371,18 +6471,18 @@
 
           tripBody.innerHTML = trips.map(t => `
             <tr class="hover:bg-slate-50 transition">
-              <td class="py-3 px-4 font-mono font-bold text-primary">${t.id}</td>
-              <td class="py-3 px-4"><span class="px-2 py-0.5 rounded bg-slate-100 font-bold text-[10px]">${t.service}</span></td>
+              <td class="py-3 px-4 font-mono font-bold text-primary">${escHtml(t.id)}</td>
+              <td class="py-3 px-4"><span class="px-2 py-0.5 rounded bg-slate-100 font-bold text-[10px]">${escHtml(t.service)}</span></td>
               <td class="py-3 px-4">
-                <div class="font-bold text-slate-900">${t.passenger}</div>
-                <div class="text-[10px] text-slate-400 font-medium">${t.from} → ${t.to}</div>
+                <div class="font-bold text-slate-900">${escHtml(t.passenger)}</div>
+                <div class="text-[10px] text-slate-400 font-medium">${escHtml(t.from)} → ${escHtml(t.to)}</div>
               </td>
               <td class="py-3 px-4 font-mono">
                 <div class="font-bold text-slate-900">₹${t.fare.toFixed(2)}</div>
                 <div class="text-[10px] text-emerald-700 font-bold">Net Payout: ₹${(t.netEarnings || t.fare * 0.85).toFixed(2)}</div>
               </td>
-              <td class="py-3 px-4 font-bold text-amber-600">★ ${t.rating || 5.0}</td>
-              <td class="py-3 px-4"><span class="px-2.5 py-0.5 rounded-full font-bold text-[10px] bg-emerald-100 text-emerald-800">● ${t.status}</span></td>
+              <td class="py-3 px-4 font-bold text-amber-600">★ ${escHtml(t.rating || 5.0)}</td>
+              <td class="py-3 px-4"><span class="px-2.5 py-0.5 rounded-full font-bold text-[10px] bg-emerald-100 text-emerald-800">● ${escHtml(t.status)}</span></td>
             </tr>
           `).join('');
         }
@@ -6425,10 +6525,6 @@
     // Modal fallback alias
     function openDriverActivityModal(driverId) {
       openDriverActivityPage(driverId);
-    }
-
-    function closeDriverActivityModal() {
-      switchTab('operations');
     }
 
     function switchDriverModalTab(tabName) {
@@ -6486,13 +6582,13 @@
       if (!tbody) return;
       tbody.innerHTML = dummyTrips.concat(dummyTrips).map((t, idx) => `
         <tr class="hover:bg-slate-50 transition">
-          <td class="py-3 px-4 font-mono font-bold text-primary">${t.id}-${idx+1}</td>
-          <td class="py-3 px-4"><span class="px-2 py-0.5 rounded bg-slate-100 font-bold text-[10px]">${t.service}</span></td>
-          <td class="py-3 px-4 text-slate-600">${t.from} → ${t.to}</td>
-          <td class="py-3 px-4 font-bold text-slate-900">${t.passenger}</td>
-          <td class="py-3 px-4">${t.driver}</td>
-          <td class="py-3 px-4 font-bold font-mono text-slate-900">${t.fare}</td>
-          <td class="py-3 px-4"><span class="px-2 py-0.5 rounded-full font-bold text-[10px] bg-blue-100 text-blue-800">${t.status}</span></td>
+          <td class="py-3 px-4 font-mono font-bold text-primary">${escHtml(t.id)}-${idx+1}</td>
+          <td class="py-3 px-4"><span class="px-2 py-0.5 rounded bg-slate-100 font-bold text-[10px]">${escHtml(t.service)}</span></td>
+          <td class="py-3 px-4 text-slate-600">${escHtml(t.from)} → ${escHtml(t.to)}</td>
+          <td class="py-3 px-4 font-bold text-slate-900">${escHtml(t.passenger)}</td>
+          <td class="py-3 px-4">${escHtml(t.driver)}</td>
+          <td class="py-3 px-4 font-bold font-mono text-slate-900">${escHtml(t.fare)}</td>
+          <td class="py-3 px-4"><span class="px-2 py-0.5 rounded-full font-bold text-[10px] bg-blue-100 text-blue-800">${escHtml(t.status)}</span></td>
         </tr>
       `).join('');
     }
@@ -6557,15 +6653,15 @@
           <tr class="hover:bg-slate-50 transition">
             <td class="py-3 px-4">
               <div class="font-bold text-slate-900 flex items-center gap-2">
-                <span class="text-xl">${p.emoji || '📦'}</span>
+                <span class="text-xl">${escHtml(p.emoji || '📦')}</span>
                 <div>
-                  <div class="font-bold">${p.name}</div>
-                  <div class="text-[10px] font-mono text-slate-400">${p.id} • ${p.brand || 'NABIN'} • ${p.packSize || p.unit}</div>
+                  <div class="font-bold">${escHtml(p.name)}</div>
+                  <div class="text-[10px] font-mono text-slate-400">${escHtml(p.id)} • ${escHtml(p.brand || 'NABIN')} • ${escHtml(p.packSize || p.unit)}</div>
                 </div>
               </div>
             </td>
             <td class="py-3 px-4">
-              <span class="px-2 py-0.5 rounded-lg bg-slate-100 font-bold text-[10px] text-slate-700">${p.category}</span>
+              <span class="px-2 py-0.5 rounded-lg bg-slate-100 font-bold text-[10px] text-slate-700">${escHtml(p.category)}</span>
             </td>
             <td class="py-3 px-4 font-mono font-bold text-slate-500">
               ₹${(p.mrp || p.currentPrice).toFixed(2)}
@@ -6574,7 +6670,7 @@
               <div class="font-black text-sm text-slate-900">₹${p.currentPrice.toFixed(2)}</div>
               ${p.previousPrice && p.previousPrice !== p.currentPrice ? `
                 <div class="text-[10px] font-bold ${pctChange > 0 ? 'text-amber-600' : 'text-emerald-600'}">
-                  ${pctChange > 0 ? '+' : ''}${pctChange}% vs Prev (₹${p.previousPrice})
+                  ${pctChange > 0 ? '+' : ''}${pctChange}% vs Prev (₹${escHtml(p.previousPrice)})
                 </div>
               ` : '<div class="text-[10px] text-slate-400">Standard Rate</div>'}
             </td>
@@ -6584,10 +6680,10 @@
               </span>
             </td>
             <td class="py-3 px-4 text-right space-x-1">
-              <button onclick="openEditGroceryPriceModal('${p.id}')" class="px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-bold transition cursor-pointer">
+              <button onclick="openEditGroceryPriceModal('${safeId(p.id)}')" class="px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-bold transition cursor-pointer">
                 Edit Price
               </button>
-              <button onclick="openPriceHistoryModal('${p.id}')" class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition cursor-pointer">
+              <button onclick="openPriceHistoryModal('${safeId(p.id)}')" class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition cursor-pointer">
                 History
               </button>
             </td>
@@ -6633,15 +6729,15 @@
         feed.innerHTML = history.map(h => `
           <div class="p-3 rounded-2xl bg-slate-50 border border-slate-200 text-xs flex flex-col gap-1">
             <div class="flex items-center justify-between">
-              <span class="font-bold text-slate-900">${h.productName || 'Grocery Item'}</span>
-              <span class="font-mono text-emerald-700 font-bold">₹${h.newPrice}</span>
+              <span class="font-bold text-slate-900">${escHtml(h.productName || 'Grocery Item')}</span>
+              <span class="font-mono text-emerald-700 font-bold">₹${escHtml(h.newPrice)}</span>
             </div>
             <div class="text-[10px] text-slate-500 flex justify-between">
-              <span>Prev: ₹${h.previousPrice} / ${h.unit || 'unit'}</span>
+              <span>Prev: ₹${escHtml(h.previousPrice)} / ${escHtml(h.unit || 'unit')}</span>
               <span class="font-mono">${new Date(h.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
             </div>
             <div class="text-[10px] text-slate-600 font-medium mt-0.5 bg-white p-1.5 rounded-lg border border-slate-100">
-              ⚡ ${h.reason} • <span class="font-bold">${h.changedBy}</span>
+              ⚡ ${escHtml(h.reason)} • <span class="font-bold">${escHtml(h.changedBy)}</span>
             </div>
           </div>
         `).join('');
@@ -6651,6 +6747,7 @@
     }
 
     function openEditGroceryPriceModal(productId) {
+      if (!requireId(productId, 'product')) return;
       const modal = document.getElementById('editGroceryPriceModal');
       const prod = groceryCatalogList.find(p => p.id === productId) || groceryCatalogList[0];
       if (!prod) return;
@@ -6697,6 +6794,7 @@
     }
 
     async function openPriceHistoryModal(productId) {
+      if (!requireId(productId, 'product')) return;
       const modal = document.getElementById('priceHistoryModal');
       const list = document.getElementById('priceHistoryList');
       const title = document.getElementById('histModalTitle');
@@ -6716,13 +6814,13 @@
           list.innerHTML = data.history.map(h => `
             <div class="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-between">
               <div>
-                <div class="font-bold text-xs text-slate-900">${h.productName}</div>
-                <div class="text-[10px] text-slate-500">Changed by: <span class="font-bold text-slate-700">${h.changedBy}</span> • ${new Date(h.timestamp).toLocaleString()}</div>
-                <div class="text-[11px] text-slate-600 mt-1 font-mono">Reason: ${h.reason}</div>
+                <div class="font-bold text-xs text-slate-900">${escHtml(h.productName)}</div>
+                <div class="text-[10px] text-slate-500">Changed by: <span class="font-bold text-slate-700">${escHtml(h.changedBy)}</span> • ${new Date(h.timestamp).toLocaleString()}</div>
+                <div class="text-[11px] text-slate-600 mt-1 font-mono">Reason: ${escHtml(h.reason)}</div>
               </div>
               <div class="text-right font-mono">
-                <div class="font-bold text-sm text-emerald-600">₹${h.newPrice} / ${h.unit}</div>
-                <div class="text-[10px] text-slate-400 line-through">Prev: ₹${h.previousPrice}</div>
+                <div class="font-bold text-sm text-emerald-600">₹${escHtml(h.newPrice)} / ${escHtml(h.unit)}</div>
+                <div class="text-[10px] text-slate-400 line-through">Prev: ₹${escHtml(h.previousPrice)}</div>
               </div>
             </div>
           `).join('');
@@ -6799,29 +6897,29 @@
           <td class="py-3 px-4">
             <div class="flex items-center gap-2.5">
               <div class="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center shrink-0 overflow-hidden border border-slate-200">
-                ${item.imageUrl ? `<img src="${item.imageUrl}" class="w-full h-full object-cover" onError="this.parentElement.innerHTML='${item.emoji || '📦'}';">` : `<span class="text-xl">${item.emoji || '📦'}</span>`}
+                ${safeUrl(item.imageUrl) ? `<img src="${safeUrl(item.imageUrl)}" class="w-full h-full object-cover" onError="this.remove();">` : `<span class="text-xl">${escHtml(item.emoji || '📦')}</span>`}
               </div>
               <div>
-                <span class="font-mono font-bold text-indigo-700 text-xs">${item.sku}</span>
-                <div class="text-[10px] text-slate-400">ID: ${item.id}</div>
+                <span class="font-mono font-bold text-indigo-700 text-xs">${escHtml(item.sku)}</span>
+                <div class="text-[10px] text-slate-400">ID: ${escHtml(item.id)}</div>
               </div>
             </div>
           </td>
           <td class="py-3 px-4">
-            <div class="font-bold text-slate-900">${item.masterName}</div>
-            <div class="text-[10px] text-slate-500 font-bold">${item.brand || 'NABIN Select'}</div>
+            <div class="font-bold text-slate-900">${escHtml(item.masterName)}</div>
+            <div class="text-[10px] text-slate-500 font-bold">${escHtml(item.brand || 'NABIN Select')}</div>
           </td>
           <td class="py-3 px-4">
-            <span class="px-2 py-0.5 rounded-lg bg-indigo-50 text-indigo-700 font-bold text-[10px]">${item.category}</span>
+            <span class="px-2 py-0.5 rounded-lg bg-indigo-50 text-indigo-700 font-bold text-[10px]">${escHtml(item.category)}</span>
           </td>
           <td class="py-3 px-4 font-mono text-xs text-slate-700">
-            ${item.barcode || '8901030' + Math.floor(100000 + Math.random() * 900000)}
+            ${escHtml(item.barcode || '8901030' + Math.floor(100000 + Math.random() * 900000))}
           </td>
           <td class="py-3 px-4 font-mono font-bold text-slate-900">
             ₹${(item.mrp || 65.0).toFixed(2)}
           </td>
           <td class="py-3 px-4 text-xs font-mono text-slate-600">
-            ${item.packSize || item.unit || '1 unit'}
+            ${escHtml(item.packSize || item.unit || '1 unit')}
           </td>
           <td class="py-3 px-4">
             <span class="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">
@@ -6829,10 +6927,10 @@
             </span>
           </td>
           <td class="py-3 px-4 text-right space-x-1">
-            <button onclick="openEditMasterProductModal('${item.id}')" class="px-2.5 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold transition cursor-pointer">
+            <button onclick="openEditMasterProductModal('${safeId(item.id)}')" class="px-2.5 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold transition cursor-pointer">
               Edit SKU
             </button>
-            <button onclick="deleteMasterSku('${item.id}', '${item.sku}')" class="px-2.5 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold transition cursor-pointer">
+            <button onclick="deleteMasterSku('${safeId(item.id)}', '${safeId(item.sku)}')" class="px-2.5 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold transition cursor-pointer">
               Archive
             </button>
           </td>
@@ -6854,6 +6952,7 @@
     }
 
     function openEditMasterProductModal(id) {
+      if (!requireId(id, 'master SKU')) return;
       const item = masterCatalogList.find(p => p.id === id);
       if (!item) return;
 
@@ -6930,23 +7029,8 @@
       }
     }
 
-    async function deleteMasterSku(id, sku) {
-      if (!confirm(`Are you sure you want to archive Master SKU ${sku}?`)) return;
-      try {
-        const res = await fetch(`${API_BASE}/api/admin/master-catalog/${id}`, {
-          method: 'DELETE'
-        });
-        const data = await res.json();
-        if (data.success) {
-          alert(`✅ Master SKU ${sku} archived.`);
-          fetchMasterCatalog();
-        }
-      } catch (e) {
-        alert('Server error archiving master SKU.');
-      }
-    }
-
     async function openStoreMatrixModal(masterId, sku, masterName) {
+      if (!requireId(masterId, 'master SKU')) return;
       const modal = document.getElementById('storeMatrixModal');
       const title = document.getElementById('matrixModalTitle');
       const skuEl = document.getElementById('matrixModalSku');
@@ -6968,16 +7052,16 @@
           list.innerHTML = data.stores.map(store => `
             <div class="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-between">
               <div>
-                <div class="font-black text-xs text-slate-900">${store.merchantName}</div>
-                <div class="text-[10px] text-slate-500 font-mono">${store.merchantAddress}</div>
+                <div class="font-black text-xs text-slate-900">${escHtml(store.merchantName)}</div>
+                <div class="text-[10px] text-slate-500 font-mono">${escHtml(store.merchantAddress)}</div>
                 <div class="mt-1 flex items-center gap-2">
-                  <span class="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-bold">Stock: ${store.stockQty} units</span>
+                  <span class="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-bold">Stock: ${escHtml(store.stockQty)} units</span>
                   <span class="px-2 py-0.5 rounded ${store.isAvailable ? 'bg-indigo-100 text-indigo-800' : 'bg-rose-100 text-rose-800'} text-[10px] font-bold">${store.isAvailable ? 'In Stock' : 'Out of Stock'}</span>
                 </div>
               </div>
               <div class="text-right">
-                <div class="font-mono font-black text-sm text-emerald-600">₹${store.currentPrice}</div>
-                <div class="font-mono text-[10px] text-slate-400 line-through">MRP: ₹${store.mrp}</div>
+                <div class="font-mono font-black text-sm text-emerald-600">₹${escHtml(store.currentPrice)}</div>
+                <div class="font-mono text-[10px] text-slate-400 line-through">MRP: ₹${escHtml(store.mrp)}</div>
               </div>
             </div>
           `).join('');
@@ -6992,6 +7076,7 @@
     }
 
     async function deleteMasterSku(masterId, sku) {
+      if (!requireId(masterId, 'master SKU')) return;
       if (!confirm(`Are you sure you want to delete Master SKU "${sku}" from the global catalog?`)) return;
       try {
         const res = await fetch(`/api/admin/master-catalog/${masterId}`, { method: 'DELETE' });

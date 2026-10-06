@@ -53,16 +53,63 @@ function couponServiceOf(pricingServiceType) {
   return t === 'PARCEL' ? 'PARCEL' : 'RIDE';
 }
 
-// A booking's location, or the platform's own central-Delhi default when the
-// caller sent no location at all. Sending one half of a pair is not "no
-// location" and is not a location either, so it reaches the engine as the
-// nonsense it is rather than being completed from a default.
-function bookingPickup(pickup, fallback) {
-  const lat = pickup?.lat;
-  const lng = pickup?.lng;
-  const neither = (lat === undefined || lat === null) && (lng === undefined || lng === null);
-  if (neither) return { pickupLat: fallback.lat, pickupLng: fallback.lng };
-  return { pickupLat: lat === undefined ? null : lat, pickupLng: lng === undefined ? null : lng };
+// Both ends of a booking have to be places the customer actually chose. This used
+// to be a default: a ride with no pickup got central-Delhi coordinates, and the
+// fare was then computed for a journey nobody described. NABIN has no geocoder and
+// no route service, so a pin the customer placed is the only honest source of a
+// place — the typed text beside it is a label, not a location.
+//
+// A coordinate pair validated here, or a refusal naming the field that failed.
+// Nothing is completed from a default and one half of a pair is not a location.
+function placedEnd(value, field) {
+  // Absent, or a pin-less label with only coordinates missing from it, is the
+  // "go place it" case — the customer can only act on that instruction. A pin that
+  // is present and garbled is a different fault and keeps the validator's own code.
+  const unplaced = !value || typeof value !== 'object' ||
+    [value.lat, value.lng].some((v) => v === undefined || v === null || v === '');
+  if (unplaced) {
+    return { ok: false, code: 'PLACE_REQUIRED', field, message: `Place the ${field} on the map first. NABIN prices and dispatches from the place you choose.` };
+  }
+  // Numeric strings stay accepted because this transport published that contract
+  // before; the pair itself is decided by the same validator every other
+  // geographic surface uses.
+  const coords = geoPolicy.validateCoordinatePair(value.lat, value.lng, { numericStrings: true });
+  if (!coords.ok) {
+    return { ok: false, code: coords.code, field, message: coords.message };
+  }
+  const address = typeof value.address === 'string' ? value.address.trim() : '';
+  return { ok: true, value: { address: address || null, lat: coords.value.lat, lng: coords.value.lng } };
+}
+
+// A trip's length is measured from the two placed ends, never quoted from a
+// literal, and an unmeasurable trip is refused before it reaches a fare.
+function tripDistanceKm(from, to) {
+  const km = geoPolicy.distanceKmBetween(from, to);
+  if (km === null || !(km > 0)) return null;
+  return Math.round(km * 100) / 100;
+}
+
+// The one speed model the platform uses, in one place. The booking routes priced
+// 11 minutes for a "3.8 km" ride and 18 for a "6.1 km" parcel — both about 20
+// km/h, so this makes the hidden assumption explicit rather than changing it. It
+// is an estimate of a city trip in Mizoram, not a measurement of this one, and no
+// screen is allowed to call it an arrival time.
+const AVERAGE_CITY_SPEED_KMPH = 20;
+function tripDurationMins(distanceKm) {
+  return Math.max(3, Math.round((distanceKm / AVERAGE_CITY_SPEED_KMPH) * 60));
+}
+
+// The refusal every booking route gives for a place it was never told about: the
+// same shape as every other API failure, with the field that needs placing.
+function replyPlaceRefusal(res, req, refusal) {
+  res.status(400).json({
+    success: false,
+    code: refusal.code,
+    field: refusal.field,
+    error: refusal.message,
+    requestId: req.id
+  });
+  return true;
 }
 
 // One translation of the engine's refusal into the shape every other API failure
@@ -608,7 +655,8 @@ wss.on('connection', (ws, req) => {
           channel: channelName,
           jobId,
           driverId,
-          location: locationRecord
+          // Position only — this is the customer's live feed. See projectLocationForCustomer.
+          location: projectLocationForCustomer(locationRecord)
         });
       }
 
@@ -661,6 +709,40 @@ function broadcastToCustomer(customerId, payload) {
       ws.send(msg);
     }
   }
+}
+
+// The customer's view of a fleet record: position and how old it is, nothing else. Used by both
+// the tracking read and the trip-channel broadcast, because they answer the same question and a
+// second hand-rolled copy of that answer is how a fleet default reached a customer before.
+// `driverId`, `isOnline`, `status`, `serviceType` and the store's name/phone are the admin's and
+// the driver's own state, not facts about where their vehicle is.
+function projectLocationForCustomer(record) {
+  if (!record) return null;
+  return {
+    lat: record.lat ?? null,
+    lng: record.lng ?? null,
+    heading: record.heading ?? null,
+    speed: record.speed ?? null,
+    accuracy: record.accuracy ?? null,
+    receivedAt: record.receivedAt ?? null,
+    updatedAt: record.updatedAt ?? null
+  };
+}
+
+// A customer reading their own account, minus `rating`. `users.rating NUMERIC(3,2) DEFAULT 5.00`
+// (001_central_schema.sql:22) and there is no reviews or ratings table in this schema, so the
+// score every account carries is the column default — the same ruling migration 034 made for
+// `merchants.rating` and #138 made for `drivers.rating`. The hydrator makes it worse than the
+// DDL: `parseFloat(row.rating || 5.0)` (database.js:1704) turns a NULL into 5.0 before any route
+// sees it, so an account with no rating at all reads as a perfect one.
+//
+// This is a projection, not a store change: the driver and admin reads that still answer with
+// `users.rating` are their own slices to adjudicate, and the Driver app's star comes from
+// `buildDriverHomePayload`, not from here.
+function projectUserForSelf(entity) {
+  if (!entity) return entity;
+  const { rating, ...rest } = entity;
+  return rest;
 }
 
 function broadcastToMerchant(merchantId, payload) {
@@ -1192,7 +1274,9 @@ app.get('/api/auth/me', async (req, res) => {
   res.json({
     success: true,
     role: session.role,
-    user: session.entity,
+    // The caller's own record — and for a customer that record's `rating` is a schema default,
+    // not a measurement, so it is not handed to them as a score about themselves.
+    user: session.role === 'CUSTOMER' ? projectUserForSelf(session.entity) : session.entity,
     // Echo the caller's own credential: restored sessions are keyed by token hash,
     // so session.token is not something the client can present again.
     token,
@@ -1242,7 +1326,16 @@ app.post('/api/auth/refresh-token', async (req, res) => {
     });
   }
 
-  res.json({ success: true, valid: true, session: { ...session, token } });
+  // Same ruling as the profile read above: this route echoes the whole session, entity
+  // included, so a customer session goes through the same projection.
+  res.json({
+    success: true,
+    valid: true,
+    session: Object.assign({}, session, {
+      token,
+      entity: session.role === 'CUSTOMER' ? projectUserForSelf(session.entity) : session.entity
+    })
+  });
 });
 
 // -------------------------------------------------------------
@@ -1568,6 +1661,11 @@ app.post('/api/admin/login', async (req, res) => {
   }
 
   const admin = authResult.admin;
+  // OP-1: effective permission = role grants UNION this operator's additive grants, and the
+  // answer is taken from the durable store at authentication rather than from the copy this
+  // process made when it booted. `admin` is the live mirror entry, so refreshing it here also
+  // corrects what an already-issued token of this process will be checked against.
+  await db.refreshAuthorizationFor(admin, gate.account);
   // Bearer credential: must come from a CSPRNG, not Date.now()+Math.random().
   const token = `adm_token_${require('crypto').randomBytes(32).toString('base64url')}`;
   // What the session carries is *who* is signed in. `admin` is the record the credential
@@ -2701,10 +2799,48 @@ app.get('/api/advertisements', async (req, res) => {
   }
 });
 
+// F-2: this route is public on purpose - a click-through comes from a visitor, not a session - but with no
+// throttle a single requester could raise `clicks` without bound, and `clicks` is the metric campaigns are
+// reported and valued on. Owner-selected product rule: 3 clicks per 10 minutes per advertisement + requester.
+// Process-local by design and by approval: it resets on backend restart and applies per instance. It is NOT
+// a distributed anti-abuse mechanism; that would need Redis or a limit table, both explicitly out of scope.
+// The pattern is the one this repository already uses for the same purpose (`bootstrapAttempts` above and
+// `database.js` rateLimitRecords) - an in-memory Map, a rolling window, and `req.ip` as the requester
+// identity. Client-supplied identity headers are never trusted here, so a forged X-Forwarded-For cannot buy
+// a fresh bucket.
+const adClickBuckets = new Map();
+const AD_CLICK_LIMIT = 3;
+const AD_CLICK_WINDOW_MS = 10 * 60 * 1000;
+
 app.post('/api/advertisements/:id/click', async (req, res) => {
   try {
+    const ip = req.ip || req.connection?.remoteAddress || 'unknown';
+    const bucketKey = `${req.params.id}:${ip}`;
+    const now = Date.now();
+    const bucket = adClickBuckets.get(bucketKey) || { count: 0, windowStart: now };
+    if (now - bucket.windowStart > AD_CLICK_WINDOW_MS) {
+      bucket.count = 0;
+      bucket.windowStart = now;
+    }
+    if (bucket.count >= AD_CLICK_LIMIT) {
+      // Rejected before reaching the store, so a throttled click cannot move the durable counter.
+      return res.status(429).json({
+        success: false,
+        code: 'AD_CLICK_RATE_LIMITED',
+        error: 'Too many click reports for this advertisement. Please try again later.',
+        limit: AD_CLICK_LIMIT,
+        windowMs: AD_CLICK_WINDOW_MS,
+        retryAfterMs: AD_CLICK_WINDOW_MS - (now - bucket.windowStart)
+      });
+    }
+    bucket.count += 1;
+    adClickBuckets.set(bucketKey, bucket);
     const result = await db.recordAdClick(req.params.id);
     if (!result.advertisement) {
+      // Unknown advertisement keeps its existing 404 semantics, and must not spend the requester's budget -
+      // guessing ids would otherwise be a way to block a legitimate reader.
+      bucket.count -= 1;
+      adClickBuckets.set(bucketKey, bucket);
       return res.status(404).json({ success: false, error: 'Advertisement not found' });
     }
     res.json({
@@ -3210,7 +3346,13 @@ app.post('/api/geofence/evaluate', (req, res) => {
   });
 });
 
-// Centralized Reverse-Geocoding Locality Resolver
+// Coordinate → place name. NABIN has no geocoder, so what this route used to do was
+// keep a compiled-in list of Delhi neighbourhoods and answer with the nearest one:
+// a point in Aizawl came back as "Delhi NCR Operational Hub", and a caller had no
+// way to tell a resolved place from a guess. The invented gazetteer is gone. The
+// route still validates the coordinate — that part was real — and now says plainly
+// that nothing named it. A real lookup would be a new external integration and is
+// the owner's call, not a hardening pass's.
 app.post('/api/geofence/reverse-geocode', (req, res) => {
   const { lat, lng } = req.body;
   if (lat === undefined || lng === undefined) {
@@ -3226,51 +3368,18 @@ app.post('/api/geofence/reverse-geocode', (req, res) => {
   if (!coords.ok) {
     return res.status(400).json({ success: false, code: coords.code, error: coords.message });
   }
-  const numLat = coords.value.lat;
-  const numLng = coords.value.lng;
-
-  let locality = 'Live GPS Location';
-  let landmark = 'Delhi NCR Operational Hub';
-  let city = 'Delhi NCR';
-
-  // Spatial landmark resolution
-  if (numLat >= 28.620 && numLat <= 28.640 && numLng >= 28.205 && numLng <= 28.235 || (Math.abs(numLat - 28.6300) < 0.015 && Math.abs(numLng - 77.2200) < 0.015)) {
-    locality = 'Connaught Place & Central Secretariat';
-    landmark = 'Inner Circle, Rajiv Chowk, New Delhi';
-    city = 'New Delhi';
-  } else if (Math.abs(numLat - 28.6812) < 0.02 && Math.abs(numLng - 77.2226) < 0.02) {
-    locality = 'Civil Lines, North Delhi';
-    landmark = 'Near Civil Lines Metro & University Enclave';
-    city = 'North Delhi';
-  } else if (Math.abs(numLat - 28.5562) < 0.035 && Math.abs(numLng - 77.1000) < 0.035) {
-    locality = 'IGI Airport Terminal 3';
-    landmark = 'Terminal 3 Arrivals & Aerocity Hospitality Hub';
-    city = 'South West Delhi';
-  } else if (Math.abs(numLat - 28.4900) < 0.025 && Math.abs(numLng - 77.0850) < 0.025) {
-    locality = 'DLF CyberCity & Phase 2';
-    landmark = 'Building 10 / Cyber Hub, DLF Phase 2';
-    city = 'Gurugram';
-  } else if (Math.abs(numLat - 28.5494) < 0.02 && Math.abs(numLng - 77.2001) < 0.02) {
-    locality = 'Hauz Khas & Green Park';
-    landmark = 'Aurobindo Marg, South Delhi';
-    city = 'South Delhi';
-  } else if (Math.abs(numLat - 28.6507) < 0.02 && Math.abs(numLng - 77.2334) < 0.02) {
-    locality = 'Chandni Chowk Heritage Quarter';
-    landmark = 'Red Fort & Old Delhi Railway Hub';
-    city = 'Central Delhi';
-  } else {
-    locality = `Live Location (${numLat.toFixed(3)}° N, ${numLng.toFixed(3)}° E)`;
-    landmark = 'Operational Coverage Area';
-    city = 'Delhi NCR';
-  }
 
   res.json({
     success: true,
-    locality,
-    landmark,
-    city,
-    formattedAddress: `${locality}, ${landmark}, ${city}`,
-    coordinates: { lat: numLat, lng: numLng }
+    // `resolved` is the field a caller must branch on. Every name below is null
+    // because the platform does not know what this point is called.
+    resolved: false,
+    locality: null,
+    landmark: null,
+    city: null,
+    formattedAddress: null,
+    reason: 'NO_GEOCODER',
+    coordinates: { lat: coords.value.lat, lng: coords.value.lng }
   });
 });
 
@@ -3282,10 +3391,39 @@ app.post('/api/geofence/reverse-geocode', (req, res) => {
 app.post('/api/pricing/estimate', async (req, res) => {
   try {
     const { serviceType, distanceKm, durationMins, pickupLat, pickupLng, promoCode } = req.body;
+    // #158. `Number(distanceKm) || 4.0` was two defects in one expression: a caller that said
+    // nothing got a confident fare for a 4 km / 12 min trip it never described, and a caller
+    // that said `0` was treated as if it had said nothing (`Number('0') || 4.0` is 4.0). A quote
+    // is the platform offering to take money, so the length has to come from the caller:
+    // missing, unparseable or non-positive is a refusal, never a default. Non-positive is the
+    // same rule the booking route already states — a zero-length trip has no trip to price
+    // (`PLACE_REQUIRED`, from the `tripKm === null` guard in `book-ride` below), so a quote can
+    // never offer a fare no booking will accept. The engine still carries its own defaults
+    // (`calculateFareEstimate` in `database.js`) and its own `distanceKm || 1`; nothing reachable
+    // from these routes can feed it a missing or zero length now, and the engine is next to clean.
+    const requiredLength = (raw, field) => {
+      const missing = raw === undefined || raw === null || (typeof raw === 'string' && raw.trim() === '');
+      const value = missing ? NaN : Number(raw);
+      const name = field.toLowerCase();
+      if (missing) return { code: `MISSING_${field}`, error: `${name} is required; a quote cannot price a trip nobody described.` };
+      if (!Number.isFinite(value)) return { code: `INVALID_${field}`, error: `${name} must be a finite number.` };
+      if (value <= 0) return { code: `INVALID_${field}`, error: `${name} must be greater than zero; there is no trip to price without one.` };
+      return { value };
+    };
+    const distance = requiredLength(distanceKm, 'DISTANCE_KM');
+    const duration = requiredLength(durationMins, 'DURATION_MINS');
+    const badLength = [distance, duration].find(c => c.code);
+    if (badLength) {
+      return res.status(400).json({
+        success: false, code: badLength.code, error: badLength.error,
+        pricingAvailable: false, requestId: req.id
+      });
+    }
+
     const pricingInput = {
       serviceType: serviceType || '3W',
-      distanceKm: Number(distanceKm) || 4.0,
-      durationMins: Number(durationMins) || 12,
+      distanceKm: distance.value,
+      durationMins: duration.value,
       // Passed through unparsed on purpose: `Number('')` is 0 and `Number(null)`
       // is 0, and latitude 0 is the Gulf of Guinea, which is a place. A missing
       // coordinate must stay missing for the engine to tell it apart from a
@@ -3392,6 +3530,19 @@ app.post('/api/identity/submit', authenticateUser, (req, res) => {
     return res.status(400).json({ success: false, error: 'A valid Voter ID (EPIC) number is required.' });
   }
 
+  // NABIN has no identity-document upload path: no bucket, no scan, no retention rule. Until it
+  // has one, a submission that claims to carry a document is refused rather than stored. Passing
+  // the string through was never harmless — the only reader of that column is an examiner's
+  // browser, so every value a customer sent became a URL the admin dashboard was asked to load,
+  // and the record read as though NABIN held paperwork it had never received.
+  if (aadhaarDocUrl || voterIdDocUrl) {
+    return res.status(400).json({
+      success: false,
+      code: 'IDENTITY_DOCUMENT_UPLOAD_UNSUPPORTED',
+      error: 'Forbidden: identity documents cannot be submitted with this application yet. Submit the two identity numbers and the declared details only.'
+    });
+  }
+
   const result = db.submitIdentityApplication({
     userId: effectiveUserId,
     name: name || req.user.name,
@@ -3400,9 +3551,11 @@ app.post('/api/identity/submit', authenticateUser, (req, res) => {
     dob,
     address,
     aadhaarNumber: aadhaarNumber.toString().trim(),
-    aadhaarDocUrl: aadhaarDocUrl || '/docs/mock_aadhaar_user.png',
+    // No document fields at all. This used to pass `/docs/mock_aadhaar_user.png` and, after #146,
+    // an explicit null; the route above now refuses any submission that claims a document, and the
+    // writer no longer reads those fields even when a caller reaches it directly, so there is
+    // nothing left to pass.
     voterIdNumber: voterIdNumber.toString().trim().toUpperCase(),
-    voterIdDocUrl: voterIdDocUrl || '/docs/mock_voter_user.png',
     isResubmission: Boolean(isResubmission)
   });
 
@@ -3415,7 +3568,10 @@ app.post('/api/identity/submit', authenticateUser, (req, res) => {
 
   res.json({
     success: true,
-    message: 'Your identity documents have been submitted for manual admin verification.',
+    // The customer sent numbers and declared details, not paperwork. Telling them "your identity
+    // documents have been submitted" made the receipt claim a delivery that never happened — and a
+    // customer who believed it would wait for a review of a document NABIN never received.
+    message: 'Your identity details and numbers have been submitted for manual review. No documents were uploaded: NABIN does not accept identity document uploads yet.',
     application: {
       id: result.application.id,
       userId: result.application.userId,
@@ -3678,14 +3834,30 @@ app.post('/api/customer/book-ride', authenticateUser, async (req, res) => {
     });
   }
 
-  // Server-Side Authoritative Pricing Calculation (Zero Trust of client-supplied fare)
-  const { pickupLat, pickupLng } = bookingPickup(pickup, { lat: 28.6853, lng: 77.2185 });
+  // Server-Side Authoritative Pricing Calculation (Zero Trust of client-supplied fare).
+  // Both ends must be places the customer chose, because the fare is a function of
+  // the distance between them: an unplaced end used to be filled in with central
+  // Delhi and priced from that.
+  const placedPickup = placedEnd(pickup, 'pickup');
+  if (!placedPickup.ok) return replyPlaceRefusal(res, req, placedPickup);
+  const placedDrop = placedEnd(drop, 'drop');
+  if (!placedDrop.ok) return replyPlaceRefusal(res, req, placedDrop);
+
+  const tripKm = tripDistanceKm(placedPickup.value, placedDrop.value);
+  if (tripKm === null) {
+    return replyPlaceRefusal(res, req, {
+      code: 'PLACE_REQUIRED',
+      field: 'drop',
+      message: 'The pickup and the drop are the same point, so there is no trip to price. Choose a different drop.'
+    });
+  }
+
   const pricingInput = {
     serviceType: vehicleType || '3W',
-    distanceKm: 3.8,
-    durationMins: 11,
-    pickupLat,
-    pickupLng,
+    distanceKm: tripKm,
+    durationMins: tripDurationMins(tripKm),
+    pickupLat: placedPickup.value.lat,
+    pickupLng: placedPickup.value.lng,
     requestedZoneId: req.body.zoneId === undefined ? null : req.body.zoneId
   };
   const basePricing = db.calculateFareEstimate(pricingInput);
@@ -3733,12 +3905,17 @@ app.post('/api/customer/book-ride', authenticateUser, async (req, res) => {
     customerId: user.id,
     customerName: user.name,
     customerPhone: user.phone,
-    customerRating: user.rating,
+    // No `customerRating`: `users.rating` is a `DEFAULT 5.00` column with no ratings table
+    // behind it, so copying it booked a column default as a score the passenger never got.
     vehicleType: vehicleType || '3W',
-    pickup: pickup || { address: isSchoolChild ? 'Flat 402, Civil Lines, Delhi' : 'Civil Lines Metro Gate 2, Delhi', lat: pickupLat, lng: pickupLng },
-    drop: drop || { address: isSchoolChild ? 'ABC Public School, Kamalanagar' : 'Connaught Place Inner Circle, Block B', lat: 28.6328, lng: 77.2197 },
-    distance: isSchoolChild ? '3.8 km' : '4.2 km',
-    duration: isSchoolChild ? '11 mins' : '14 mins',
+    pickup: { ...pickup, ...placedPickup.value },
+    drop: { ...drop, ...placedDrop.value },
+    distance: `${tripKm} km`,
+    // The measured trip, in the column that exists for it. This used to stop at a
+    // display string, so every ride row carried `distance_km = 0` next to a
+    // "4.2 km" label and the two could not be reconciled.
+    distanceKm: tripKm,
+    duration: `${pricingInput.durationMins} mins`,
     fare: finalFare,
     discountAmount: pricing.discount,
     driverEarnings: pricing.driverEarnings,
@@ -3779,7 +3956,11 @@ app.post('/api/customer/book-ride', authenticateUser, async (req, res) => {
       drop: job.drop.address,
       fare: `₹${job.fare.toFixed(2)}`,
       distance: `${job.distance} (${job.duration})`,
-      customer: isSchoolChild ? `${passengerInfo?.guardianName || 'Rahul Sharma (Guardian)'}` : `${job.customerName} (${job.customerRating} ★)`,
+      // Only names the booking actually carries. This used to print `(5 ★)` after the
+      // passenger's name — a score read off a `DEFAULT 5.00` column — and to answer a school
+      // ride with no guardian name as 'Rahul Sharma', a person the platform invented for
+      // somebody else's child. An unknown name is sent as null, not filled in.
+      customer: isSchoolChild ? (passengerInfo?.guardianName || null) : (job.customerName || null),
       customerPhone: passengerInfo?.guardianPhone || job.customerPhone,
       // Phase 10: the trip-start code is NOT broadcast with the open dispatch
       // offer. Broadcasting it to every connected driver disclosed the pickup
@@ -3837,7 +4018,7 @@ app.post('/api/customer/book-parcel', authenticateUser, async (req, res) => {
     return res.status(500).json({ success: false, error: error.message });
   }
 
-  const { customerId, senderDetails, recipientDetails, promoCode } = req.body;
+  const { customerId, senderDetails, recipientDetails, promoCode, weightTier } = req.body;
   const idempotencyKey = req.headers['idempotency-key'] || req.headers['x-idempotency-key'] || req.body.idempotencyKey;
   if (idempotencyKey) {
     const existing = db.jobs.find(j => j.idempotencyKey === idempotencyKey);
@@ -3866,11 +4047,28 @@ app.post('/api/customer/book-parcel', authenticateUser, async (req, res) => {
 
   const user = req.user;
 
-  // Authoritative server-side pricing
+  // Authoritative server-side pricing. A parcel moves between two places, and the
+  // fare is a function of how far apart they are — so both ends must be placed.
+  // This route used to price every parcel as a 6.1 km, 18 minute trip between two
+  // Delhi markets it named itself, whatever the customer had typed.
+  const placedSender = placedEnd(senderDetails, 'sender');
+  if (!placedSender.ok) return replyPlaceRefusal(res, req, placedSender);
+  const placedRecipient = placedEnd(recipientDetails, 'recipient');
+  if (!placedRecipient.ok) return replyPlaceRefusal(res, req, placedRecipient);
+
+  const parcelKm = tripDistanceKm(placedSender.value, placedRecipient.value);
+  if (parcelKm === null) {
+    return replyPlaceRefusal(res, req, {
+      code: 'PLACE_REQUIRED',
+      field: 'recipient',
+      message: 'The pickup and drop-off points are the same place, so there is no parcel trip to price. Choose a different drop-off point.'
+    });
+  }
+
   const parcelPricingInput = {
     serviceType: 'PARCEL',
-    distanceKm: 6.1,
-    durationMins: 18
+    distanceKm: parcelKm,
+    durationMins: tripDurationMins(parcelKm)
   };
   const basePricing = db.calculateFareEstimate(parcelPricingInput);
 
@@ -3907,15 +4105,23 @@ app.post('/api/customer/book-parcel', authenticateUser, async (req, res) => {
     customerId: user.id,
     customerName: user.name,
     customerPhone: user.phone,
-    pickup: senderDetails || { address: 'Kamla Nagar Market, Block C, Delhi' },
-    drop: recipientDetails || { address: 'Karol Bagh Electronics Hub, Delhi' },
-    distance: '6.1 km',
-    duration: '18 mins',
+    pickup: { ...senderDetails, ...placedSender.value },
+    drop: { ...recipientDetails, ...placedRecipient.value },
+    distance: `${parcelKm} km`,
+    distanceKm: parcelKm,
+    duration: `${parcelPricingInput.durationMins} mins`,
     fare: pricing.customerCharge,
     discountAmount: pricing.discount,
     driverEarnings: pricing.driverEarnings,
     platformFee: pricing.platformFee,
     appliedPromo,
+    // What the customer declared about the parcel, or nothing. This used to be a
+    // line the platform wrote for them — "Electronics Box (1.4 kg, Fragile)" —
+    // which a courier then read as instructions about somebody else's box.
+    packageDetails: typeof req.body.packageDetails === 'string' && req.body.packageDetails.trim()
+      ? req.body.packageDetails.trim()
+      : null,
+    weightTier: typeof weightTier === 'string' && weightTier.trim() ? weightTier.trim() : null,
     deliveryOtp: Math.floor(1000 + Math.random() * 9000).toString()
   });
 
@@ -3945,13 +4151,13 @@ app.post('/api/customer/book-parcel', authenticateUser, async (req, res) => {
       pickup: job.pickup.address,
       drop: job.drop.address,
       fare: `₹${job.fare.toFixed(2)}`,
-      distance: '6.1 km (18 mins)',
+      distance: `${job.distance} (${job.duration})`,
       customer: `${user.name} (Sender)`,
       customerPhone: job.customerPhone,
+      packageDetails: job.packageDetails,
       // Phase 10: parcel OTPs are NOT broadcast with the open dispatch offer.
       // The delivery OTP in particular is the proof-of-delivery control; sending
       // it to every connected driver before assignment nullified it.
-      packageDetails: 'Electronics Box (1.4 kg, Fragile)'
     }
   });
 
@@ -4009,6 +4215,23 @@ app.post('/api/customer/book-food', authenticateUser, async (req, res) => {
         requestId: req.id
       });
     }
+  }
+
+  // The address the meal is driven to. Absent, this used to be written as
+  // "North Campus Girls Hostel, Delhi" on the merchant's order card — an order to
+  // a place that was never given. After the identity gate, because an authorization
+  // failure must not turn into a form-validation hint, and before the coupon is
+  // redeemed, because a refusal that arrives after `redeem_promotion_atomic` has
+  // spent the customer's one redemption is a worse bug than the invented address.
+  const foodDeliveryAddress = typeof deliveryAddress === 'string' ? deliveryAddress.trim() : '';
+  if (!foodDeliveryAddress) {
+    return res.status(400).json({
+      success: false,
+      code: 'PLACE_REQUIRED',
+      field: 'deliveryAddress',
+      error: 'Add a delivery address before ordering. NABIN writes the address you give; it does not fill one in.',
+      requestId: req.id
+    });
   }
 
   // 2. Resolve merchant
@@ -4100,7 +4323,7 @@ app.post('/api/customer/book-food', authenticateUser, async (req, res) => {
 
   // 5. Metadata
   const metadata = {
-    deliveryAddress: deliveryAddress || 'North Campus Girls Hostel, Delhi',
+    deliveryAddress: foodDeliveryAddress,
     customerName: req.user.name || 'Customer',
     customerPhone: req.user.phone || null,
     source: 'web_or_mobile',
@@ -4350,7 +4573,11 @@ app.get('/api/merchant/:restaurantId/dashboard', authenticateMerchant, requireMe
 
     if (req.params.restaurantId) {
       const requestedMerchant = await db.orderRepo.resolveMerchant(req.params.restaurantId);
-      if (requestedMerchant && requestedMerchant.id !== merchant.id) {
+      // DECISION A1: an unknown :restaurantId used to fall through and serve the caller's own
+      // dashboard with 200, because only a KNOWN other merchant was refused. The sibling
+      // /api/merchant/:restaurantId/orders route refuses both cases, so this now matches that
+      // stricter convention: no match at all is an authorization failure, not a silent success.
+      if (!requestedMerchant || requestedMerchant.id !== merchant.id) {
         return res.status(403).json({
           success: false,
           error: 'Forbidden: Cannot access another merchant\'s restaurant dashboard.',
@@ -4552,6 +4779,55 @@ app.post('/api/merchant/:restaurantId/menu/:itemId/toggle', authenticateMerchant
     if (supabaseHelper.isStoreUnreachable(err)) return replyStoreError(res, req, err, 'menu item availability');
     console.error('[merchant/menu/toggle] failed:', err);
     return res.status(err.status || 500).json({ success: false, code: err.code || 'MENU_TOGGLE_FAILED', error: err.message, requestId: req.id });
+  }
+});
+
+// -----------------------------------------------------------------------------
+// MERCHANT RESTAURANT PROFILE (cuisines / cover image / delivery window)
+//
+// This is the write half of migration 034, and the reason those columns exist at
+// all. `GET /api/restaurants` shows a customer three claims about a kitchen — what
+// it cooks, what it looks like, how long it takes — and until this route nothing in
+// the codebase could put a value behind any of them, which meant the only content
+// those fields ever had was the in-memory fixture. A merchant states them here;
+// nothing else fills them and no client guesses them.
+//
+// Three guards, in the order the menu-toggle route uses them: merchant session,
+// tenant binding, RESTAURANT entitlement. Ownership of the *named* restaurant is
+// then proven by resolving both ids, because `requireMerchantService` checks the
+// caller's type while the path parameter names a different row. The database write
+// itself lives in `db.updateMerchantRestaurantProfile`, which refuses to pretend on
+// a non-PostgreSQL boot; `rating` is not accepted anywhere in this body.
+// -----------------------------------------------------------------------------
+app.patch('/api/merchant/:restaurantId/profile', authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+  try {
+    const [callerMerchant, requestedMerchant] = await Promise.all([
+      db.orderRepo.resolveMerchant(req.merchant.id),
+      db.orderRepo.resolveMerchant(req.params.restaurantId),
+    ]);
+    if (!callerMerchant || !requestedMerchant || String(requestedMerchant.id) !== String(callerMerchant.id)) {
+      return res.status(403).json({
+        success: false,
+        code: 'MERCHANT_MISMATCH',
+        error: "Forbidden: Cannot edit another merchant's restaurant profile.",
+        requestId: req.id
+      });
+    }
+
+    const restaurant = await db.updateMerchantRestaurantProfile(req.params.restaurantId, req.body);
+    res.json({ success: true, restaurant, dataSource: 'postgres' });
+  } catch (err) {
+    if (supabaseHelper.isStoreUnreachable(err)) return replyStoreError(res, req, err, 'restaurant profile');
+    // The db layer answers with a status of its own: 400 for a value outside the
+    // domain, 404 for a restaurant that is not there, and 503 for a server that is
+    // not connected to the store the profile lives in. All of them are the merchant's
+    // answer, so they must not be flattened into a 500.
+    const status = Number.isInteger(err.status) ? err.status : Number.isInteger(err.statusCode) ? err.statusCode : 0;
+    if (status >= 400 && status < 600) {
+      return res.status(status).json({ success: false, code: err.code, error: err.message, requestId: req.id });
+    }
+    console.error('[merchant/profile] failed:', err);
+    return res.status(500).json({ success: false, code: err.code || 'PROFILE_UPDATE_FAILED', error: err.message, requestId: req.id });
   }
 });
 
@@ -5025,10 +5301,13 @@ app.post('/api/driver/offers/:offerId/accept', authenticateDriver, async (req, r
       broadcastToCustomer(job.customerId, {
         type: 'DRIVER_ASSIGNED',
         jobId: job.id,
+        // `rating` is not projected. `drivers.rating NUMERIC(3,2) DEFAULT 5.00` (001:58) is a
+        // column, not a measurement — no reviews or ratings table exists in this schema, so the
+        // best case a customer could be shown here is the DDL default stamped as a score. Same
+        // ruling migration 034 made for `merchants.rating`; the driver's own reads keep the column.
         driver: {
           name: driver.name,
           vehiclePlate: driver.vehiclePlate,
-          rating: driver.rating,
           startOtp: job.startOtp
         }
       });
@@ -5160,11 +5439,12 @@ app.post('/api/driver/accept-job', authenticateDriver, async (req, res) => {
     broadcastToCustomer(job.customerId, {
       type: 'DRIVER_ASSIGNED',
       jobId: job.id,
+      // See the accept-offer broadcast above: `driver.rating` is a schema default, not a
+      // measurement, so the customer is not handed one here either.
       driver: {
         name: driver.name,
         vehicleName: driver.vehicleName,
         vehiclePlate: driver.vehiclePlate,
-        rating: driver.rating,
         startOtp: job.startOtp
       }
     });
@@ -6088,36 +6368,23 @@ app.get('/api/admin/metrics', authenticateAdmin, (req, res) => {
 app.get('/api/admin/jobs', authenticateAdmin, (req, res) => res.json({ success: true, jobs: db.jobs }));
 app.get('/api/admin/restaurants', authenticateAdmin, (req, res) => res.json({ success: true, restaurants: db.restaurants }));
 
-// Document previews. What this serves today is a hard-coded SVG mock — the name, date of
-// birth and address in it are the fixture's, not anyone's — so the gate protects nothing
-// that exists yet. It is here because the seed rows hand this path out as
-// `aadhaarDocUrl`/`voterIdDocUrl`, and the day one of those fields names a real upload, an
-// ungated preview turns into a document leak on the exact permission the examiners'
-// queue already uses. `identity_documents.view` is that name; no client renders these URLs,
-// which is why gating an `<img>` source is safe here.
+// Document previews. The gate is the point: `identity_documents.view` is the permission the
+// examiners' queue already runs on, and the day one of these paths names a real upload, an ungated
+// preview is a document leak. What sits behind it is deliberately *nothing* — this schema has no
+// document storage and no upload path, so the honest preview of a document NABIN does not hold is a
+// card that says so. It used to render a convincing fake: "RAHUL SHARMA", a date of birth, a Delhi
+// address, `XXXX XXXX 4892` / `EPIC NO: DLH1948201`, under a government heading and a
+// "✓ GOVERNMENT WATERMARK" line. An examiner approving a real applicant against that image was
+// reading a forged identity document the platform printed itself. No identity field, no agency name,
+// no number, and the requested filename is never echoed back into the markup.
 app.get('/docs/:filename', authenticateAdmin, requirePermission('identity_documents.view'), (req, res) => {
-  const filename = req.params.filename || '';
-  const isAadhaar = filename.includes('aadhaar');
-  const isBlurry = filename.includes('blurry');
-
   const svgContent = `
-    <svg width="600" height="380" xmlns="http://www.w3.org/2000/svg" style="font-family: Arial, sans-serif; background: #fafafa;">
-      <rect width="596" height="376" x="2" y="2" rx="16" fill="${isAadhaar ? '#fff8eb' : '#edf6ff'}" stroke="${isAadhaar ? '#ea580c' : '#2563eb'}" stroke-width="3"/>
-      <rect width="596" height="50" fill="${isAadhaar ? '#ea580c' : '#1e40af'}" rx="14"/>
-      <text x="30" y="32" fill="#ffffff" font-size="18" font-weight="bold">${isAadhaar ? 'GOVERNMENT OF INDIA • UNIQUE IDENTIFICATION AUTHORITY' : 'ELECTION COMMISSION OF INDIA • VOTER ID CARD'}</text>
-      <rect x="35" y="75" width="130" height="155" fill="#e2e8f0" stroke="#94a3b8" rx="8"/>
-      <circle cx="100" cy="130" r="35" fill="#cbd5e1"/>
-      <ellipse cx="100" cy="190" rx="45" ry="30" fill="#94a3b8"/>
-      <text x="75" y="245" font-size="12" fill="#64748b" font-weight="bold">PHOTO</text>
-      <text x="190" y="95" font-size="14" fill="#334155" font-weight="bold">Name / Name:</text>
-      <text x="190" y="118" font-size="17" fill="#0f172a" font-weight="bold">RAHUL SHARMA</text>
-      <text x="190" y="150" font-size="13" fill="#334155" font-weight="bold">DOB / Date of Birth: <tspan fill="#0f172a" font-weight="normal">15/08/1994</tspan></text>
-      <text x="190" y="175" font-size="13" fill="#334155" font-weight="bold">Gender: <tspan fill="#0f172a" font-weight="normal">Male / MALE</tspan></text>
-      <text x="190" y="200" font-size="13" fill="#334155" font-weight="bold">Address: <tspan fill="#0f172a" font-weight="normal">Flat 402, Civil Lines, North Delhi - 110054</tspan></text>
-      <rect x="35" y="275" width="530" height="60" fill="#ffffff" stroke="#cbd5e1" rx="8"/>
-      <text x="50" y="312" font-size="22" font-weight="bold" fill="${isAadhaar ? '#c2410c' : '#1e3a8a'}" letter-spacing="3">${isAadhaar ? 'XXXX  XXXX  4892' : 'EPIC NO: DLH1948201'}</text>
-      <text x="380" y="312" font-size="12" fill="#16a34a" font-weight="bold">✓ GOVERNMENT WATERMARK</text>
-      ${isBlurry ? '<filter id="blur"><feGaussianBlur stdDeviation="5"/></filter><rect width="600" height="380" fill="white" fill-opacity="0.3" filter="url(#blur)"/>' : ''}
+    <svg width="600" height="380" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="No document on file" style="font-family: Arial, sans-serif; background: #ffffff;">
+      <rect width="596" height="376" x="2" y="2" rx="16" fill="#ffffff" stroke="#1A3BA2" stroke-width="2" stroke-dasharray="10 7"/>
+      <text x="300" y="150" fill="#1A3BA2" font-size="26" font-weight="bold" text-anchor="middle">NO DOCUMENT ON FILE</text>
+      <text x="300" y="196" fill="#334155" font-size="15" text-anchor="middle">NABIN has not received an uploaded document here.</text>
+      <text x="300" y="222" fill="#64748b" font-size="14" text-anchor="middle">This platform has no identity-document upload or storage path yet,</text>
+      <text x="300" y="244" fill="#64748b" font-size="14" text-anchor="middle">so there is nothing to show and no document to verify.</text>
     </svg>
   `;
   res.setHeader('Content-Type', 'image/svg+xml');
@@ -6237,10 +6504,42 @@ app.get('/api/grocery/products', async (req, res) => {
   }
 });
 
-// Get Specific Product Price History Audit Trail
-app.get('/api/grocery/products/:id/history', (req, res) => {
-  const history = db.getGroceryPriceHistory(req.params.id);
-  res.json({ success: true, productId: req.params.id, history });
+// F-1 (Task 4N follow-up, owner decision): the former public route
+// `GET /api/grocery/products/:id/history` has been REMOVED. It required no authentication, applied no
+// tenant scope, and returned the process-local `groceryPriceHistory` fixture while presenting it as real
+// product price history - including internal actor text (`changedBy`), `storeId` and legacy ids - so it
+// both leaked audit metadata and made a durability claim the data could not support. It had no caller in
+// any NABIN app and appeared in no API contract document.
+// Durable, authenticated, tenant-scoped price history is served by the route below, and that boundary is
+// guarded in-chain by `grocery_price_history_read_test.js` (chain link 45).
+
+// TASK 4N: the merchant's own durable grocery price history. READ ONLY - it never writes prices,
+// history, inventory, catalogue rows or audit records.
+// Identity comes from the token only. A `merchantId` in the query string is ignored on purpose, in the
+// same way `POST /api/merchant/inventory` re-asserts `merchantId: req.merchant.id` after the body
+// spread: a caller cannot retarget somebody else's history. A foreign `productId` simply yields no rows,
+// because the durable query is already scoped to this merchant.
+// Degraded mode returns the same `degraded: true` shape the neighbouring master-catalogue read uses,
+// with an empty list, rather than replaying in-memory fixture history as if it were durable.
+app.get('/api/merchant/grocery/price-history', authenticateMerchant, requireMerchantTenant, requireMerchantService('GROCERY'), async (req, res) => {
+  try {
+    const { isLivePostgres } = require('./supabase');
+    const merchantId = req.merchant.id;
+    if (!isLivePostgres) {
+      return res.json({ success: true, merchantId, count: 0, history: [], degraded: true });
+    }
+    const history = await db.getMerchantPriceHistory({
+      merchantId,
+      productId: req.query.productId || null,
+      from: req.query.from || null,
+      to: req.query.to || null,
+      limit: req.query.limit,
+      offset: req.query.offset,
+    });
+    res.json({ success: true, merchantId, count: history.length, history });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
 });
 
 // Single Merchant Price Update
@@ -6274,8 +6573,38 @@ const RESTAURANT_TYPES = ['RESTAURANT', 'HYBRID_BOTH'];
 // A `%` or `_` typed into the search box would otherwise act as a wildcard.
 const likePattern = (value) => `%${String(value).replace(/[%,_]/g, ' ').trim()}%`;
 
+// A cuisine label must reach Postgres as an array literal whose elements are
+// quoted. postgrest-js builds one for an array argument as `cs.{${value.join(',')}}`
+// — unquoted — so the label `North Indian, Mughlai` would arrive as the
+// two-element array {North Indian, Mughlai} and `@>` would then demand that a
+// restaurant declare BOTH: one filter silently becomes a different, narrower one
+// and the customer sees an empty list. `contains()` passes a *string* argument
+// through verbatim, so the literal is composed here — element quoted, and
+// backslash/quote escaped the way PostgreSQL's array input expects.
+const pgTextArrayLiteral = (values) =>
+  `{${values.map((v) => `"${String(v).replace(/[\\"]/g, '\\$&')}"`).join(',')}}`;
+
 // Accepts both PostgreSQL (snake_case) rows and legacy fixture (camelCase) rows so
 // the degraded path cannot diverge from the live one. `phone` is never projected.
+//
+// `rating` is NOT projected at all, and that is not an oversight. `merchants.rating`
+// was created in 001 as `NUMERIC(3,2) DEFAULT 4.80` and this schema has no reviews
+// table, no ratings table and no order-feedback column, so every stored score is the
+// column default rather than a measurement. Showing it put a fabricated 4.8 on every
+// restaurant card in the Customer app and in customer-web. Migration 034 removed the
+// default so new rows are born NULL; this projection stops reading the column so no
+// row — default or otherwise — reaches a customer. A real rating needs a real source.
+//
+// `deliveryMinutes` is the merchant's declared kitchen-to-door window
+// (`standard_delivery_minutes`, 034) as a number, never a string: '25-35 mins' cannot
+// be compared or rendered honestly, so each client formats it. The fixture row's
+// `deliveryTime` string is not projected, which means a degraded read shows no ETA.
+const positiveIntOrNull = (value) => {
+  if (value === null || value === undefined || value === '') return null;
+  const n = Number(value);
+  return Number.isInteger(n) && n > 0 ? n : null;
+};
+
 const projectRestaurantForCustomer = (row) => {
   const lat = row.lat ?? row.location?.lat;
   const lng = row.lng ?? row.location?.lng;
@@ -6284,15 +6613,22 @@ const projectRestaurantForCustomer = (row) => {
     name: row.name,
     merchantType: row.merchant_type ?? row.merchantType ?? null,
     address: row.address ?? null,
-    cuisines: row.cuisines ?? [],
-    rating: row.rating === null || row.rating === undefined ? null : Number(row.rating),
-    deliveryTime: row.deliveryTime ?? null,
+    // `merchants.cuisines` (034). An empty array means the restaurant has declared
+    // nothing, and the card and the cuisine wheel both render nothing for it.
+    cuisines: Array.isArray(row.cuisines) ? row.cuisines : [],
+    coverImageUrl: row.cover_image_url ?? row.coverImageUrl ?? null,
+    deliveryMinutes: positiveIntOrNull(row.standard_delivery_minutes ?? row.standardDeliveryMinutes),
     isOpen: (row.is_open ?? row.isOpen) === true,
     location: lat === undefined || lat === null || lng === undefined || lng === null
       ? null
       : { lat: Number(lat), lng: Number(lng) }
   };
 };
+
+// The columns a customer may be shown about a restaurant. Kept as one list so the
+// browse route and the detail route cannot drift apart on which fields exist.
+const CUSTOMER_RESTAURANT_COLUMNS =
+  'id, name, merchant_type, address, lat, lng, is_open, cuisines, cover_image_url, standard_delivery_minutes';
 
 // `in_stock_quantity` of -1 means "not tracked", so it must not surface as 0.
 const projectMenuItemForCustomer = (item) => {
@@ -6321,6 +6657,7 @@ const projectMenuItemForCustomer = (item) => {
 
 app.get('/api/restaurants', async (req, res) => {
   const search = (req.query.search || '').toString().trim();
+  const cuisine = (req.query.cuisine || '').toString().trim();
   const openOnly = req.query.openNow === 'true' || req.query.openNow === '1';
   const { supabaseAdmin, isLivePostgres } = require('./supabase');
 
@@ -6328,6 +6665,12 @@ app.get('/api/restaurants', async (req, res) => {
     const fixtures = db.restaurants
       .filter((r) => (openOnly ? r.isOpen === true : true))
       .filter((r) => (search ? r.name.toLowerCase().includes(search.toLowerCase()) : true))
+      // Element match, not substring: the live path below asks Postgres whether the
+      // array CONTAINS the label, and a fixture path that matched 'North' to
+      // 'North Indian' would make the same URL mean two different things.
+      .filter((r) => (cuisine
+        ? (Array.isArray(r.cuisines) ? r.cuisines : []).some((c) => String(c).trim().toLowerCase() === cuisine.toLowerCase())
+        : true))
       .map(projectRestaurantForCustomer);
     return res.json({ success: true, count: fixtures.length, restaurants: fixtures, degraded: true });
   }
@@ -6335,13 +6678,18 @@ app.get('/api/restaurants', async (req, res) => {
   try {
     let query = supabaseAdmin
       .from('merchants')
-      .select('id, name, merchant_type, address, lat, lng, is_open, rating')
+      .select(CUSTOMER_RESTAURANT_COLUMNS)
       .in('merchant_type', RESTAURANT_TYPES)
-      .order('rating', { ascending: false })
+      // `name ASC`, where the old query sorted `rating DESC` first. That ordering was
+      // only ever meaningful while someone believed the rating column: with
+      // DEFAULT 4.80 on every row it sorted a constant, and the Customer app turned
+      // around and labelled the list "Top rated restaurants" (034 removes the default;
+      // see projectRestaurantForCustomer for why rating is not projected at all).
       .order('name', { ascending: true });
 
     if (openOnly) query = query.eq('is_open', true);
     if (search) query = query.ilike('name', likePattern(search));
+    if (cuisine) query = query.contains('cuisines', pgTextArrayLiteral([cuisine]));
 
     const { data, error } = await query;
     if (error) return replyStoreError(res, req, error, 'restaurant list');
@@ -6367,7 +6715,7 @@ app.get('/api/restaurants/:id', async (req, res) => {
 
   const { data, error } = await supabaseAdmin
     .from('merchants')
-    .select('id, name, merchant_type, address, lat, lng, is_open, rating')
+    .select(CUSTOMER_RESTAURANT_COLUMNS)
     .eq('id', req.params.id)
     .in('merchant_type', RESTAURANT_TYPES)
     .maybeSingle();
@@ -6590,9 +6938,13 @@ app.get('/api/merchant/master-catalog', authenticateMerchant, requireMerchantTen
 // Bulk Merchant Price Update
 app.post('/api/grocery/products/bulk-price-update', authenticateMerchant, requireMerchantTenant, requireMerchantService('GROCERY'), (req, res) => {
   try {
-    const { updates, actor } = req.body;
+    // Bulk path only. `req.body.actor` is deliberately ignored: this route is merchant-authenticated,
+    // so the audit actor and role come from the session (same `req.merchant.name || 'Merchant'`
+    // convention used elsewhere) and a merchant can no longer write "Admin ..." into the price audit.
+    const { updates } = req.body;
     const merchantId = req.merchant.id;
-    const results = db.bulkUpdateGroceryPrices({ updates, merchantId, actor });
+    const actor = req.merchant.name || 'Merchant';
+    const results = db.bulkUpdateGroceryPrices({ updates, merchantId, actor, actorRole: 'MERCHANT' });
     broadcastToAdmins({ type: 'GROCERY_BULK_PRICE_UPDATED', results });
     res.json({ success: true, count: results.length, results });
   } catch (err) {
@@ -7533,7 +7885,8 @@ app.post(['/api/v1/driver/location', '/api/driver/location'], authenticateDriver
       channel: channelName,
       jobId: targetJobId,
       driverId: effectiveDriverId,
-      location: locationRecord
+      // Position only — this is the customer's live feed. See projectLocationForCustomer.
+      location: projectLocationForCustomer(locationRecord)
     });
   }
 
@@ -7610,15 +7963,29 @@ app.get(['/api/v1/tracking/:jobId', '/api/tracking/:jobId'], async (req, res) =>
     }
 
     const effectiveDriverId = job.driverId || null;
-    const driverLocation = effectiveDriverId ? (db.getDriverLocation(effectiveDriverId) || {
-      driverId: effectiveDriverId,
-      lat: 28.6853,
-      lng: 77.2185,
-      heading: 90.0,
-      speed: 28.5
-    }) : null;
+    const driverObj = effectiveDriverId ? (db.getDriver(effectiveDriverId) || null) : null;
 
-    const driverObj = effectiveDriverId ? (db.getDriver(effectiveDriverId) || { id: effectiveDriverId, name: job.driverName || 'Rajesh Kumar', phone: '+91 98101 22334' }) : null;
+    // Neither of these may be invented. A customer reading this route can see a position and a
+    // name, so a fallback here is a fact the platform never measured: `lat 28.6853, lng 77.2185`
+    // is a Delhi coordinate in a Mizoram app, and `'Rajesh Kumar' / '+91 98101 22334'` is a
+    // phone number the app offers to dial. Live telemetry lives only in the in-memory fleet map
+    // (never in PostgreSQL, see the note at the fleet route), so "this driver has not reported
+    // since the process started" is a real and common state — the honest answer is `null`, and
+    // `active_ride_screen.dart` already renders an absence rather than a placeholder.
+    //
+    // The second lookup is not decoration. `POST /api/driver/location` keys the map by the
+    // authenticated driver's own id, while `jobs.driver_id` is a uuid, so a customer's read used
+    // to miss every report and land on the fabricated pin — which is the only reason nobody
+    // noticed. Resolved through the driver row this route already loads, a reported position is
+    // found under either spelling, and a driver who has not reported still answers `null`.
+    const driverLocation = effectiveDriverId
+      ? (db.getDriverLocation(effectiveDriverId)
+        || (driverObj && driverObj.id ? db.getDriverLocation(driverObj.id) : null)
+        || null)
+      : null;
+
+    // A position, not a fleet record — see projectLocationForCustomer.
+    const customerLocation = projectLocationForCustomer(driverLocation);
 
     res.json({
       success: true,
@@ -7626,8 +7993,10 @@ app.get(['/api/v1/tracking/:jobId', '/api/tracking/:jobId'], async (req, res) =>
       status: job.status,
       type: job.type || job.serviceType,
       channel: (job.type || job.serviceType) === 'RIDE' ? `ride:${job.id}` : `delivery:${job.id}`,
-      driver: driverObj ? { id: driverObj.id || effectiveDriverId, name: driverObj.name || 'Rajesh Kumar', phone: driverObj.phone || '+91 98101 22334' } : null,
-      location: driverLocation,
+      driver: driverObj
+        ? { id: driverObj.id || effectiveDriverId, name: driverObj.name ?? null, phone: driverObj.phone ?? null }
+        : null,
+      location: customerLocation,
       pickup: job.pickup,
       drop: job.drop
     });

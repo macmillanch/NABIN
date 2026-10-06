@@ -3,16 +3,32 @@
 // =========================================================================
 const http = require('http');
 const crypto = require('crypto');
-const { spawn, execSync } = require('child_process');
+const { spawn } = require('child_process');
 const path = require('path');
+// Two harness-boundary rules, both shared with the chain runner: reap the backend this run
+// started (scripts/spawned_server.js), and never evict a port owner by pid alone —
+// releasePrivatePort kills only a NABIN `src/server.js` and reports anything foreign untouched.
+const { trackServer } = require('./scripts/spawned_server');
+const { releasePrivatePort } = require('./scripts/port_release');
 const { Client } = require('pg');
 process.env.PAYMENT_WEBHOOK_SECRET ||= 'test_webhook_secret_not_for_deployment';
 process.env.PAYMENT_KEY_SECRET ||= 'test_key_secret_not_for_deployment';
 process.env.NABIN_TEST_MODE = 'true';
 const { supabaseAdmin, isLivePostgres } = require('./src/supabase');
 
-const BASE_URL = 'http://127.0.0.1:4000';
+// F-3(b): this suite owns a backend - it terminates whatever holds its port and cold-starts its own, which
+// is safe only when the port is exclusively its own. `NABIN_RESTART_PORT` is the same convention the chain
+// uses for `restart_test.js` and for isolated links, so an allocated private port is bound, probed, and
+// cleaned up here instead of evicting the shared harness on 4000. With no env set, behaviour is unchanged.
+const TEST_PORT = Number(process.env.NABIN_RESTART_PORT || process.env.NABIN_TEST_PORT || 4000);
+const BASE_URL = `http://127.0.0.1:${TEST_PORT}`;
 const PG_CONN_STRING = process.env.DATABASE_URL || 'postgresql://postgres:postgres@127.0.0.1:54322/postgres';
+
+// A food order must carry the address the customer gave. `book-food` refuses one that
+// does not (`PLACE_REQUIRED`) instead of writing an address it invented, so every
+// fixture below places one explicitly — and a fixture that wants to prove a *different*
+// refusal has to satisfy this one first.
+const FOOD_ADDRESS = 'Flat 402, Civil Lines Hub, North Delhi';
 
 function createPgClient() {
   return new Client({ connectionString: PG_CONN_STRING });
@@ -79,27 +95,38 @@ async function ensureServerRunning() {
     if (res.status === 200) return null;
   } catch (e) {}
 
-  try {
-    execSync('powershell -Command "Get-NetTCPConnection -LocalPort 4000 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }"');
-  } catch (e) {}
+  const released = releasePrivatePort(TEST_PORT);
+  if (/skipped:foreign/.test(released)) {
+    console.warn(`  ⚠️  port ${TEST_PORT} is held by a process that is not a NABIN backend — it is being left running, so this suite may fail to bind`);
+  }
   await sleep(1500);
 
-  const proc = spawn(process.execPath, [path.join(__dirname, 'src/server.js')], {
+  const proc = trackServer(spawn(process.execPath, [path.join(__dirname, 'src/server.js')], {
     cwd: __dirname,
+    // Explicit, so an inherited PORT cannot make the backend bind somewhere this suite is not probing.
+    env: Object.assign({}, process.env, { PORT: String(TEST_PORT) }),
     stdio: 'ignore',
     detached: true,
     windowsHide: true
-  });
+  }));
   proc.unref();
 
-  for (let i = 0; i < 40; i++) {
-    await sleep(250);
+  // Cold boot here measures 7-21s, so 40 x 250ms = 10s was a race that only stayed hidden while a backend
+  // was already answering on the port. Poll to a deadline and say how long it took.
+  const bootFrom = Date.now();
+  for (;;) {
+    await sleep(500);
     try {
       const res = await request('GET', '/api/health');
-      if (res.status === 200) return proc;
+      if (res.status === 200) {
+        console.log(`  backend online on port ${TEST_PORT} after ${Date.now() - bootFrom}ms`);
+        return proc;
+      }
     } catch (e) {}
+    if (Date.now() - bootFrom > 90000) {
+      throw new Error(`backend never answered /api/health on port ${TEST_PORT} within 90s (harness/environment failure, not a product assertion failure)`);
+    }
   }
-  return proc;
 }
 
 async function runPhase4Tests() {
@@ -145,6 +172,7 @@ async function runPhase4Tests() {
     // 1. Authenticated creation
     const foodIdempKey1 = 'food_idemp_' + crypto.randomUUID();
     const foodBookingRes = await request('POST', '/api/customer/book-food', {
+      deliveryAddress: FOOD_ADDRESS,
       restaurantId: 'rest_1',
       items: ['1x Special Dum Biryani (Chicken)', '2x Garlic Butter Naan']
     }, {
@@ -166,6 +194,7 @@ async function runPhase4Tests() {
 
     // 2. Unauthenticated rejection
     const unauthFoodRes = await request('POST', '/api/customer/book-food', {
+      deliveryAddress: FOOD_ADDRESS,
       restaurantId: 'rest_1',
       items: ['1x Special Dum Biryani (Chicken)']
     });
@@ -173,6 +202,7 @@ async function runPhase4Tests() {
 
     // 3. Customer identity binding - cannot forge another user
     const forgedFoodRes = await request('POST', '/api/customer/book-food', {
+      deliveryAddress: FOOD_ADDRESS,
       customerId: '00000000-0000-0000-0000-000000000001', // Attacker trying to place order on usr_1 account
       restaurantId: 'rest_1',
       items: ['1x Special Dum Biryani (Chicken)']
@@ -183,6 +213,7 @@ async function runPhase4Tests() {
 
     // 4. Merchant validation - non-existent merchant rejected
     const badMchtRes = await request('POST', '/api/customer/book-food', {
+      deliveryAddress: FOOD_ADDRESS,
       restaurantId: 'rest_non_existent_9999',
       items: ['1x Special Dum Biryani (Chicken)']
     }, { 'Authorization': `Bearer ${customerToken}` });
@@ -190,6 +221,7 @@ async function runPhase4Tests() {
 
     // 5. Cross-merchant / invalid product rejection
     const invalidProdRes = await request('POST', '/api/customer/book-food', {
+      deliveryAddress: FOOD_ADDRESS,
       restaurantId: 'rest_1',
       items: ['1x Pizza Hut Extravaganza Supreme']
     }, { 'Authorization': `Bearer ${customerToken}` });
@@ -199,6 +231,7 @@ async function runPhase4Tests() {
 
     // 6. Idempotent retry returns same order
     const replayFoodRes = await request('POST', '/api/customer/book-food', {
+      deliveryAddress: FOOD_ADDRESS,
       restaurantId: 'rest_1',
       items: ['1x Special Dum Biryani (Chicken)', '2x Garlic Butter Naan']
     }, {
@@ -214,6 +247,7 @@ async function runPhase4Tests() {
 
     // 7. Conflicting idempotency key rejected
     const conflictFoodRes = await request('POST', '/api/customer/book-food', {
+      deliveryAddress: FOOD_ADDRESS,
       restaurantId: 'rest_1',
       items: ['1x Special Dum Biryani (Chicken)'] // Different payload
     }, {
@@ -432,6 +466,7 @@ async function runPhase4Tests() {
     // Create fresh order to test rejection
     const foodToRejectKey = 'food_reject_' + crypto.randomUUID();
     const foodToRejectRes = await request('POST', '/api/customer/book-food', {
+      deliveryAddress: FOOD_ADDRESS,
       restaurantId: 'rest_1',
       items: ['1x Special Dum Biryani (Chicken)']
     }, {
@@ -483,6 +518,7 @@ async function runPhase4Tests() {
     // Create fresh order in RECEIVED state
     const timeoutOrderKey = 'order_timeout_' + crypto.randomUUID();
     const timeoutOrderRes = await request('POST', '/api/customer/book-food', {
+      deliveryAddress: FOOD_ADDRESS,
       restaurantId: 'rest_1',
       items: ['1x Special Dum Biryani (Chicken)']
     }, {
@@ -678,6 +714,7 @@ async function runPhase4Tests() {
     // Create pre-restart Food & Grocery orders to verify cold restart survival
     const preRestartFoodKey = 'pre_restart_food_' + crypto.randomUUID();
     const preFoodRes = await request('POST', '/api/customer/book-food', {
+      deliveryAddress: FOOD_ADDRESS,
       restaurantId: 'rest_1',
       items: ['2x Garlic Butter Naan']
     }, {
@@ -697,23 +734,39 @@ async function runPhase4Tests() {
     const preGrocOrderId = preGrocRes.data.order.id;
     const preGrocCheckoutId = preGrocRes.data.order.checkoutId;
 
-    console.log('🛑 Terminating backend process listening on port 4000...');
-    try {
-      execSync('powershell -Command "Get-NetTCPConnection -LocalPort 4000 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }"');
-    } catch (e) {}
+    console.log(`🛑 Terminating backend process listening on port ${TEST_PORT}...`);
+    const releasedForRestart = releasePrivatePort(TEST_PORT);
+    if (/skipped:foreign/.test(releasedForRestart)) {
+      console.warn(`  ⚠️  port ${TEST_PORT} is held by a process that is not a NABIN backend — it is being left running, so the cold restart below cannot bind`);
+    }
 
     await sleep(2000);
 
     console.log('🚀 Spawning fresh backend process from cold start...');
-    const serverProcess = spawn(process.execPath, [path.join(__dirname, 'src/server.js')], {
+    const serverProcess = trackServer(spawn(process.execPath, [path.join(__dirname, 'src/server.js')], {
       cwd: path.join(__dirname),
+      env: Object.assign({}, process.env, { PORT: String(TEST_PORT) }),
       detached: true,
       stdio: 'ignore',
       windowsHide: true
-    });
+    }));
     serverProcess.unref();
 
-    await sleep(3500);
+    // This backend needs roughly 7-21s to boot in this environment (session restore + hydration), so a
+    // fixed 3.5s wait made the cold-restart section race the process and die with ECONNREFUSED before the
+    // suite could assert anything about durability. Poll until it actually answers, and if it never does,
+    // fail with the elapsed time instead of silently continuing.
+    const bootWaitFrom = Date.now();
+    let postRestartBooted = false;
+    for (;;) {
+      await sleep(500);
+      try {
+        const probe = await request('GET', '/api/health');
+        if (probe.status === 200) { postRestartBooted = true; break; }
+      } catch (e) { /* still starting */ }
+      if (Date.now() - bootWaitFrom > 90000) break;
+    }
+    console.log(`  post-restart backend ${postRestartBooted ? `answered /api/health after ${Date.now() - bootWaitFrom}ms` : 'NEVER became ready within 90s'}`);
 
     // Verify server is back online
     const postHealth = await request('GET', '/api/health');

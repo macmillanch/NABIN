@@ -45,6 +45,26 @@ class RestaurantTheme {
   static TextStyle get orderNumberStyle => NabinType.numeric(fontSize: 28);
   static TextStyle get orderNumberLarge => NabinType.numeric(fontSize: 36, weight: FontWeight.w900);
 
+  /// Brand chrome roles (Customer Food sub-flow). ADDITIVE: the values above
+  /// stay exactly as the Restaurant Merchant app reads them.
+  ///
+  /// Structure (app-bar band, the one main action per view, selected filter,
+  /// soft section fills, active nav) is NABIN brand; `neonOrange` is demoted to
+  /// service identity — icon badges, status chips, row-level ADD controls, price
+  /// emphasis.
+  static const Color headerBand = NabinColor.brand;
+  static const Color headerBandDeep = NabinColor.brandHover;
+  static const Color onHeader = NabinColor.onBrand;
+  static const Color primaryAction = NabinColor.brand;
+  static const Color onPrimaryAction = NabinColor.onBrand;
+  static const Color secondaryAction = NabinColor.surface;
+  static const Color onSecondaryAction = NabinColor.brand;
+  static const Color chipSelected = NabinColor.brand;
+  static const Color onChipSelected = NabinColor.onBrand;
+  static const Color chipUnselected = NabinColor.surface;
+  static const Color sectionFill = NabinColor.brandTint;
+  static const Color serviceAccent = neonOrange;
+
   static ThemeData lightTheme({NabinPalette? palette}) =>
       NabinTheme.light(role: NabinRole.restaurantMerchant, palette: palette);
 }

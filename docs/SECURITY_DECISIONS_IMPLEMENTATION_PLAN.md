@@ -437,7 +437,7 @@ provided the dashboard calls are reverted in the same commit, or the console's m
   the order forbids making it. Two sub-cases: gate on `geofence.view` (admin, matches every existing
   consumer, zero app-flow risk), or issue a customer/driver session requirement (which no caller in the
   repository satisfies today, so it would break nothing but would serve nobody either).
-- **BLOCKED ON OWNER CLARIFICATION — `POST /api/pricing/estimate` is anonymous** (`server.js:3077`, no
+- **BLOCKED ON OWNER CLARIFICATION — `POST /api/pricing/estimate` is anonymous** (`server.js:3391`, no
   middleware) and returns the full `estimate`, which includes the geo surcharge for whatever
   `pickupLat/pickupLng` the body carries. Splitting `evaluate` while leaving `estimate` anonymous does not
   remove a pricing oracle; it removes one of two doors. The owner decided nothing about `estimate` — it
@@ -503,7 +503,7 @@ against the code, they are not four of one kind:
 
 | Named critical operation | Does it consult geo policy today? | Where |
 | --- | --- | --- |
-| Fare calculation | **Yes** | `POST /api/pricing/estimate` `server.js:3077` → `db.calculateFareEstimate` → `database.js:2400-2416` → `geoPolicy.evaluate` `:2407` with `operation:'QUOTE'` |
+| Fare calculation | **Yes** | `POST /api/pricing/estimate` `server.js:3391` → `db.calculateFareEstimate` → `database.js:2400-2416` → `geoPolicy.evaluate` `:2407` with `operation:'QUOTE'` |
 | Booking creation (ride) | **Yes, and it refuses** | `server.js:3411`, coords at `:3477`, refusal at `:3486-3487` via `replyGeoRefusal` `:68-78` |
 | Booking creation (parcel) | Consults, but receives **no coordinates** | `server.js:3614`, input built at `:3665-3669` ⇒ `geoStatus:'NOT_PROVIDED'`, no refusal (`database.js:2457-2471`) |
 | Booking creation (food) | **No** | `server.js:3756` — no geo call at all; uses `featureControlService.requireFeature` with an `X-Location-Id` header string (`:3770-3771`) |
@@ -806,7 +806,7 @@ consumers.
 | Consumer | Current query | Expected semantics | Strategy | Ordering / keyset |
 | --- | --- | --- | --- | --- |
 | `SupportTicketRepository.getTicketsAdmin` `:441` | unbounded `select('*')`, `created_at DESC`, no limit/range/count | a page, plus a truthful total | server-side limit + offset today, keyset when the index lands | needs `(created_at DESC, id)`; **that composite index does not exist** — the table has separate indexes on `status`, `category`, `job_id`, `user_id` (×2) and `created_at DESC` |
-| Route `GET /api/admin/support` `server.js:1781`, gated `support.view` | returns `total: tickets.length` `:1790` | `total` = whole-store count, not page length | accept `limit`/`offset`/`status`/`category`/`priority`/`search`; report `total` from `count:'exact'`, and an explicit `dataSource` / completeness marker | — |
+| Route `GET /api/admin/support` `server.js:1991`, gated `support.view` | returns `total: tickets.length` `:1790` | `total` = whole-store count, not page length | accept `limit`/`offset`/`status`/`category`/`priority`/`search`; report `total` from `count:'exact'`, and an explicit `dataSource` / completeness marker | — |
 | `getTicketsByUser` `:350` | unbounded per-user | bounded per user | same | `user_id` is already indexed |
 | Boot hydration `database.js:1905-1909` | `.limit(200)` of 767 rows into the memory mirror | must stop pretending 200 is the set | keep the mirror bounded but label it, or retire it — see the invariant below | — |
 | Offline `getSupportTickets` `database.js:2663-2687` | sorts `updatedAt`, searches broader fields | must match the live ordering | align on `created_at, id` so a page means the same thing in both modes | — |

@@ -18,6 +18,24 @@ class GroceryTheme {
   static const Color textMuted = NabinColor.onSurfaceMuted;
   static const Color borderLight = NabinColor.divider;
 
+  /// Brand chrome roles (Customer Grocery sub-flow). ADDITIVE: the constants
+  /// above stay exactly as the Grocery Merchant app reads them.
+  ///
+  /// Structure (app-bar band, the one main action per view, selected aisle,
+  /// soft section fills, active nav) is NABIN brand; the greens are demoted to
+  /// service identity — artwork tints, stock and discount chips, price
+  /// emphasis, row-level ADD controls.
+  static const Color headerBand = NabinColor.brand;
+  static const Color onHeader = NabinColor.onBrand;
+  static const Color primaryAction = NabinColor.brand;
+  static const Color onPrimaryAction = NabinColor.onBrand;
+  static const Color secondaryAction = NabinColor.surface;
+  static const Color onSecondaryAction = NabinColor.brand;
+  static const Color chipSelected = NabinColor.brand;
+  static const Color onChipSelected = NabinColor.onBrand;
+  static const Color sectionFill = NabinColor.brandTint;
+  static const Color serviceAccent = NabinColor.groceryGreen;
+
   static ThemeData theme({NabinPalette? palette}) =>
       NabinTheme.light(role: NabinRole.groceryMerchant, palette: palette);
 }

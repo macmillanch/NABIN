@@ -147,7 +147,96 @@ const LINKS = [
   // DS-2 closure: the admin dark-store HTTP surface (authentication, merchant.manage
   // permission, lifecycle, ownership and id-substitution rejection) plus RLS behaviour observed
   // through the real anon / authenticated / service_role database roles.
-  { file: 'dark_store_routes_rls_test.js' }
+  { file: 'dark_store_routes_rls_test.js' },
+  // OP-1: the data-driven operator authorization store. This link is the privilege gate - it
+  // proves every existing admin account keeps exactly the effective permission set it had before
+  // the store existed, so it belongs with the authorization suites and not with a feature.
+  { file: 'operator_permissions_migration_test.js' },
+  // TASK 4G: the KYC approval-evidence gate. Repository-level on purpose - it drives
+  // reviewIdentityApplication against a synthetic application, so it asserts the contract
+  // (APPROVE with no checklist, or with truthy non-booleans, must be refused and must leave the
+  // application untouched) without mutating any applicant or depending on seeded KYC rows.
+  { file: 'kyc_approve_checklist_test.js' },
+  // TASK 3 (merchant authentication) and TASK 4J registration: an unregistered merchant phone must
+  // never inherit another merchant's identity. It was only being run by hand, which is how a
+  // fail-closed guarantee quietly regresses - so it is now a normal link beside the other
+  // authentication gates.
+  { file: 'merchant_auth_failclosed_test.js' },
+  // Grocery catalog authority and price-audit privilege (TASK 4M). Locks in two proven defects: a
+  // merchant must not write an inactive master_grocery_catalog row (while admin edit/reactivate still
+  // works), and a merchant-supplied actor string must not mint ADM-EXEC / SUPER_ADMIN audit authority.
+  // Asserts on durable rows, and fails when an expected audit row is absent rather than passing
+  // vacuously.
+  { file: 'grocery_catalog_audit_integrity_test.js' },
+  // DECISION D1: merchant tenant isolation was only ever run by hand, which is how a boundary
+  // guarantee quietly regresses. It consumes the shared harness backend via NABIN_TEST_BASE and does
+  // not start its own server. Registered after A1 made MTI-25 reject an unknown :restaurantId.
+  { file: 'merchant_tenant_isolation_test.js' },
+  // TASK 4N: durable grocery price-history read. Proves merchant scoping comes from the token, that the
+  // read returns only merchant-appropriate fields from `grocery_price_history`, that paging and date
+  // filters behave, that a read mutates nothing and writes no audit row, and that degraded mode does
+  // not fabricate durable history.
+  { file: 'grocery_price_history_read_test.js' },
+  // TASK F1: Food discovery and real menu ordering. Pins the contracts the rewritten customer Food page
+  // depends on - durable restaurant discovery, catalogue menus with server prices and UUID product ids,
+  // and checkout that requires a customer session while refusing another merchant's product and any
+  // invented dish name. Every checkout assertion is a refusal path, so it places no orders.
+  { file: 'food_discovery_ordering_contract_test.js' },
+  // TASK F3: Phase-8 forensic security. DB-only - it speaks to PostgreSQL through the `pg`
+  // client and never starts or kills the shared harness on :4000, so it is safe anywhere in the
+  // chain without a private port. Its three audit_logs append-only probes insert inside
+  // transactions that are rolled back, so they leave no residue on the durable append-only
+  // table (measured: the phase8-test row count is unchanged across a run).
+  { file: 'test_phase8_security.js' },
+  // TASK F3: Phase-5 payment security & capture integrity (cross-customer payment IDOR, webhook replay,
+  // fail-closed SESSION_NOT_PAYABLE). Marked `isolated` because its append-only ledger/payment rows cannot
+  // be deleted, so running it against `public` would grow the exact money data FIN15B-20 and
+  // IDENT-09/IDENT-10 measure. For this link only, the runner provisions the disposable chain_scratch
+  // clone, snapshots protected public counts, hands it the isolated SUPABASE_URL + DATABASE_URL, then
+  // verifies zero drift and tears the clone down; any drift or teardown failure marks the link FAILED.
+  // It also gets a private port so its own restart logic cannot evict the shared harness on :4000.
+  { file: 'test_phase5_payments.js', isolated: true },
+  // F-3(b): Phase-4 food & grocery Postgres order suite (66 assertions), proven isolated standalone first:
+  // 66 PASSED / 0 FAILED against the clone with the hard public guard CLEAN (10 protected tables unmoved),
+  // including its cold-restart durability checks. It was adapted the same way Phase 5 was - it binds,
+  // probes and cleans up NABIN_RESTART_PORT instead of killing whatever owns :4000 - because it owns a
+  // backend, and an isolated link must never evict the shared harness. Its boot was measured at 26.5s,
+  // so the old fixed 10s wait was a latent race, now a deadline poll.
+  { file: 'test_phase4_orders.js', isolated: true },
+  // F-3(b): Phase 11 is a B-class suite - zero pg connections and zero `public.` references, so all its
+  // effects already travel through the backend and follow SUPABASE_URL into the clone. It needed only the
+  // narrow private-port adaptation (own port, scoped sweep, explicit PORT for the child), then passed the
+  // fail-fast standalone proof in scratch/p11_isolated_proof.js: exit 0, 25 [PASS] / 0 [FAIL], flag state
+  // restored, guard CLEAN (10 protected public tables unchanged), full teardown. Placed last so the proven
+  // links 48/49 keep their numbers.
+  // Own subtotal (`Count: N`) is authoritative here; see the per-link rule in scanOutput.
+  { file: 'test_phase11_feature_control.js', isolated: true, subtotalPattern: /^Count:\s*(\d+)\s*$/m },   // 50
+  // F-2: the ad-click throttle is proven against the real PostgreSQL path, so it is isolated (its permitted
+  // clicks would otherwise durably inflate `public.advertisements.clicks` on every chain run) and it runs in
+  // strict live mode: `NABIN_F2_REQUIRE_LIVE` makes the suite refuse fixture data and read the durable row
+  // with SQL instead of trusting the response body.
+  { file: 'ad_click_rate_limit_test.js', isolated: true, env: { NABIN_F2_REQUIRE_LIVE: '1' } },           // 51
+  // #138: the two writes a customer's active-ride card is built from must answer with a real
+  // value or null — never a `DEFAULT 5.00` rating, a made-up driver name and phone, or a Delhi
+  // pin standing in for telemetry that was never reported.
+  { file: 'customer_ride_projection_test.js' },                                                          // 52
+  // #139: the docs cite `server.js:N` for route facts, and an insert near the top of that file
+  // silently invalidates every number below it. This derives them from the registrations and fails
+  // while any derivable citation has drifted — including a fixture probe, so a scanner that stops
+  // finding registrations cannot report a clean sweep.
+  { file: 'doc_citation_guard_test.js' },                                                                // 53
+  // #32a/#143: the platform may not complete a place, a trip length or a parcel description from
+  // its own defaults. This pins the halves `geo_adversarial_test.js` group A2 cannot see — the
+  // refusal never pre-empting auth, IDOR or a coupon redemption, the address the order row and the
+  // customer's own read actually hold, and a coordinate-free job reading back coordinate-free.
+  { file: 'place_substitution_test.js' },                                                                 // 54
+  // #155: the admin console renders every queue by assigning a template literal to innerHTML, and
+  // the fields it prints were typed by a customer, driver, merchant or operator. This asserts the
+  // class over the whole shipped file — every interpolated value escaped, every inline-handler and
+  // src slot shape-checked where escaping cannot protect it, the helpers executed against hostile
+  // payloads, and no guard added to a copy the browser never runs. Row names and templates are read
+  // off the file, so a queue added tomorrow is covered by the same rule.
+  { file: 'admin_console_xss_test.js' }                                                                   // 55
 ];
 
 // ---------------------------------------------------------------- environment gate
@@ -233,7 +322,41 @@ async function findFreePort(start) {
 let harnessProc = null;
 let stoppingHarness = false;
 
+// The harness child used to be spawned with `stdio: 'ignore'`, which threw away the only evidence of why a
+// boot failed: seven chain runs aborted on "harness never answered /api/health" with nothing to inspect.
+// Its output now goes here, and is echoed (masked) when readiness fails.
+const HARNESS_BOOT_LOG = path.join(BACKEND, 'scratch', 'harness-boot.log');
+
+function bootLogTail(chars = 1800) {
+  try {
+    const raw = fs.readFileSync(HARNESS_BOOT_LOG, 'utf8');
+    // Credentials are masked before anything is printed: scheme://user:password@host -> scheme://***:***@host
+    return raw.replace(/(\w+:\/\/)[^:\/@\s]+:[^@\s]+@/g, '$1***:***@').slice(-chars);
+  } catch (e) {
+    return `(no boot log yet: ${e.message})`;
+  }
+}
+
 async function startHarness(env) {
+  // Isolation environment must never reach the baseline chain. A previous proof loaded `.chain-scratch/link.env`
+  // into a reused PowerShell session and every later run inherited `SUPABASE_URL` pointing at the scratch proxy
+  // and a `search_path=chain_scratch` `DATABASE_URL`, so the harness booted against a dead proxy and the whole
+  // chain silently tested nothing. Refusing is cheaper than a green-looking run against the wrong database.
+  const leakedProxy = /:54331\b/.test(process.env.SUPABASE_URL || '');
+  const leakedSchema = /search_path=chain_scratch/i.test(decodeURIComponent(process.env.DATABASE_URL || ''));
+  if (leakedProxy || leakedSchema) {
+    const reasons = [];
+    if (leakedProxy) reasons.push('SUPABASE_URL points at the scratch proxy :54331');
+    if (leakedSchema) reasons.push('DATABASE_URL carries search_path=chain_scratch');
+    throw new Error(
+      'refusing to start the harness: isolation (chain_scratch) environment has leaked into the parent '
+      + `process (${reasons.join(' and ')})`
+      + '. This chain must run against the normal local backend on the `public` schema; with chain_scratch '
+      + 'inherited, every link - especially the ones that assert public contamination - would be meaningless. '
+      + 'Clear SUPABASE_URL and DATABASE_URL (or open a fresh shell) and re-run.'
+    );
+  }
+
   if (await portInUse(HARNESS_PORT)) {
     // Reusing a server we did not start is the exact contamination this runner exists to
     // remove: its env, its in-memory rate-limit counters, and its lifetime are unknown here.
@@ -245,26 +368,53 @@ async function startHarness(env) {
 
   harnessProc = spawn(process.execPath, [path.join(BACKEND, 'src/server.js')], {
     cwd: BACKEND,
-    stdio: 'ignore',
+    stdio: ['ignore', fs.openSync(HARNESS_BOOT_LOG, 'w'), fs.openSync(HARNESS_BOOT_LOG, 'a')],
     windowsHide: true,
     env: { ...env, PORT: String(HARNESS_PORT) }
+  });
+  harnessProc.on('error', (err) => {
+    // Without this listener a spawn failure is an unhandled 'error' event, and the run dies with no clue.
+    if (!stoppingHarness) console.error(`! harness process failed to start: ${err.code || ''} ${err.message}`);
   });
   harnessProc.on('exit', (code, signal) => {
     // Only an *unintended* exit is news. The teardown below kills this process on purpose, and
     // reporting that as a crash would make a clean run look broken.
     if (!stoppingHarness) {
       console.error(`! harness process exited early (code=${code} signal=${signal})`);
+      console.error(`--- ${HARNESS_BOOT_LOG} (masked) ---\n${bootLogTail(1200)}`);
     }
   });
 
-  for (let i = 0; i < 60; i++) {
-    await sleep(250);
+  // Measured rather than assumed. Booting this backend takes roughly 7-21s locally - it hydrates a
+  // ~1,700-account directory and the geo/pricing stores - so the old fixed 60 x 250ms = 15s window
+  // could expire against a perfectly healthy process and abort the entire chain before a single
+  // link ran, which reads as `-1/N links, 0 checks`: a harness failure wearing a test failure's
+  // clothes. Same class of defect already fixed in restart_test.js. The condition is still polled
+  // and the loop returns the instant it is satisfied; no fixed sleep has been substituted.
+  const READY_DEADLINE_MS = 90000;
+  const readyWaitedFrom = Date.now();
+  let lastHealthAnswer = 'no attempt yet';
+  for (;;) {
+    await sleep(500);
     try {
       const health = await getJson('/api/health');
-      if (health.status === 200) return;
-    } catch (e) { /* still binding */ }
+      if (health.status === 200) {
+        console.log(`harness ready on :${HARNESS_PORT} after ${Date.now() - readyWaitedFrom}ms`);
+        return;
+      }
+      lastHealthAnswer = `HTTP ${health.status}`;
+    } catch (err) {
+      lastHealthAnswer = err.message;
+    }
+    if (Date.now() - readyWaitedFrom > READY_DEADLINE_MS) {
+      throw new Error(
+        `harness never answered GET /api/health on :${HARNESS_PORT} within ${READY_DEADLINE_MS / 1000}s ` +
+        `(last observed: ${lastHealthAnswer}; measured local boot time is 7-21s). No link executed, so this `
+        + `is a harness/environment failure and must not be read as a test failure.\n`
+        + `--- ${HARNESS_BOOT_LOG} (masked, last 1800 chars) ---\n${bootLogTail()}`
+      );
+    }
   }
-  throw new Error(`harness never answered GET /api/health on :${HARNESS_PORT} within 15s`);
 }
 
 async function stopHarness() {
@@ -291,13 +441,18 @@ async function stopHarness() {
 
 // ---------------------------------------------------------------- link execution
 
-function scanOutput(text) {
-  // Advisory only: exit code decides. `[FAIL]` is the marker every suite in this chain uses,
-  // `Failed:` is the focused suites' summary line, `not ok` is TAP.
-  const failLines = text.split('\n').filter((line) => /\[FAIL\]|^Failed:|^not ok |WEBHOOK_NOT_CONFIGURED/.test(line));
+function scanOutput(text, subtotalPattern) {
+  // Advisory only: exit code decides. `[FAIL]` is the marker most suites in this chain use,
+  // `Failed:` is the focused suites' summary line, `not ok` is TAP, and `^❌` is what the geo
+  // suites print (`❌ [MTX-R04] FAIL  …`) - the closing bracket sits before the word there, so
+  // `[FAIL]` never matched it and a link reporting five failures printed "0 failure mark(s)".
+  // Anchored to the line start because a green suite's own summary also says FAILED ("0 FAILED").
+  const failLines = text.split('\n').filter((line) => /\[FAIL\]|^Failed:|^not ok |^❌|WEBHOOK_NOT_CONFIGURED/.test(line));
   // A suite can exit 0 while having skipped the checks that mattered. Count them so "green"
-  // and "ran everything" stay separate claims.
-  const skipLines = text.split('\n').filter((line) => /\[SKIP\]|^SKIP:|self-skip/i.test(line));
+  // and "ran everything" stay separate claims. `NOT MEASURED` is the audit suites' vocabulary
+  // for a claim this database cannot carry, and a summary line like `1 not measured` is
+  // deliberately not matched again — the marker line is the one that counts.
+  const skipLines = text.split('\n').filter((line) => /\[SKIP\]|^SKIP:|self-skip|^NOT MEASURED/i.test(line));
   // Advisory count only: the exit code decides whether a link passed.
   // Suites report in two different shapes, and three earlier versions of this
   // counter each got one of them wrong. A pattern that let `\s+` span newlines
@@ -310,16 +465,58 @@ function scanOutput(text) {
   const lines = text.split('\n');
   const markerCount = lines.filter((line) => {
     const t = line.trim();
+    // NOTE (F-3(b) count reconciliation): phase 11 prints one `✅ [PASS] n.` line per check, which this
+    // pattern does not match (`✅` is not `✔`, and the trimmed line does not start with `[PASS]`), so that
+    // link reports `exit 0, 1 passed` while its own summary says `Count: 24`. Adding `✅` here is NOT the
+    // fix - scratch/p11_count_regression.js measured it against the real per-link logs and it changes the
+    // advisory count of 43 links (admin_authorization 0->115 vs its reported 35, test_suite 0->447), because
+    // many suites print far more `✅` lines than they count as checks and the total takes max(markers,
+    // summary). The count is advisory and the exit code still decides, so the correct narrow fix is to read
+    // phase 11's own `Count: N` subtotal for this link only - an owner decision, not a global pattern change.
     return /^(PASSED\b|\[PASS\]|✔|PASS[:\s])/.test(t);
   }).length;
   const summaryCount = lines.reduce((sum, line) => {
-    const m = line.match(/(\d+)\s+(?:checks\s+)?PASSED\b/i) || line.match(/\bpassed[=: ]+(\d+)/i);
+    // `64/64 assertions passed` is that suite's own summary form; without this branch the link
+    // reports `exit 0, 0 passed` and looks like it ran nothing. Advisory only - the exit code
+    // still decides whether a link passed - and the pattern is specific enough that no other
+    // suite's counting changes.
+    const m = line.match(/(\d+)\s+(?:checks\s+)?PASSED\b/i) || line.match(/\bpassed[=: ]+(\d+)/i)
+      || line.match(/(\d+)\/\d+\s+assertions?\s+passed/i);
     return m ? sum + Number(m[1]) : sum;
   }, 0);
-  const passed = Math.max(markerCount, summaryCount);
+  // Per-link subtotal rule (F-3(b)): a suite that maintains its own check subtotal is the authority on how
+  // many checks it ran, so a link may declare a pattern for it. This is opt-in per link - `subtotalPattern`
+  // is undefined for every other link, and those keep the max(marker, summary) behaviour byte-for-byte. It
+  // exists because phase 11 prints `✅ [PASS] n.` lines the generic marker pattern cannot match (and making
+  // it match `✅` globally would inflate 43 other links), while its own `Count: 24` line is exact.
+  // Advisory only, as before: the exit code still decides whether the link passed.
+  let passed = Math.max(markerCount, summaryCount);
+  if (subtotalPattern) {
+    const sub = text.match(subtotalPattern);
+    if (sub) passed = Number(sub[1]);
+  }
   const otpThrottled = /Too many OTP requests|OTP_DISPATCH_FAILED|try again in/i.test(text);
   return { failLines, skipLines, passed, otpThrottled };
 }
+
+// ---------------------------------------------------------------- isolated links (F-3)
+// An `isolated: true` link runs against the disposable `chain_scratch` clone instead of `public`, so a
+// write-heavy suite cannot grow the money/audit data that FIN15B-20 and IDENT-09/IDENT-10 measure.
+// Scope is strictly that one link: it is provisioned, snapshotted, handed both isolated URLs, verified for
+// contamination, and torn down around a single run. Every other link keeps the shared environment exactly
+// as before. The contamination check is authoritative: drift marks the link FAILED, it never warns.
+const SCRATCH_SCRIPT = path.join(BACKEND, 'scripts', 'chain_scratch.js');
+
+function scratchCli(cmd) {
+  return spawnSync(process.execPath, [SCRATCH_SCRIPT, cmd], {
+    cwd: BACKEND, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024,
+    env: Object.assign({}, process.env, { NODE_ENV: process.env.NODE_ENV || 'local' })
+  });
+}
+
+// Both helpers live in scripts/port_release.js so the runner and its regression checks share one
+// implementation - test_chain.js cannot be imported without starting a chain.
+const { readLinkEnv, releasePrivatePort } = require('./port_release');
 
 function runLink(link, env) {
   const startedAt = Date.now();
@@ -332,7 +529,7 @@ function runLink(link, env) {
   });
   const stdout = `${res.stdout || ''}${res.stderr || ''}`;
   fs.writeFileSync(path.join(LOG_DIR, `${link.file.replace(/\.js$/, '')}.log`), stdout, 'utf8');
-  const scan = scanOutput(stdout);
+  const scan = scanOutput(stdout, link.subtotalPattern);
   return {
     file: link.file,
     exit: res.status,
@@ -396,8 +593,86 @@ function runLink(link, env) {
       };
       if (link.privatePort) env.NABIN_RESTART_PORT = String(restartPort);
 
+      // Opt-in isolation, per link. See the helpers above.
+      let isolationError = null;
+      let isolationPort = null;
+      if (link.isolated) {
+        // Order matters, and every step is checked: provision (clone + throwaway PostgREST + proxy) ->
+        // link-env (write the isolated env file) -> snapshot (protected public counts) -> read the file.
+        // The first in-chain attempt died here because `link-env` was never invoked, so readLinkEnv()
+        // threw ENOENT and that throw escaped into the harness-level catch, aborting the whole chain.
+        const prov = scratchCli('provision');
+        const le = prov.status === 0 ? scratchCli('link-env') : prov;
+        const snap = le.status === 0 ? scratchCli('snapshot') : le;
+        if (snap.status !== 0) {
+          isolationError = `isolation setup failed: ${String(snap.stderr || snap.stdout || snap.error || '').slice(-300)}`;
+        } else {
+          try {
+            Object.assign(env, readLinkEnv());
+          } catch (e) {
+            isolationError = `link.env unreadable after setup: ${e.message}`;
+          }
+        }
+        if (!isolationError) {
+          // A suite that spawns its own backend must not evict the shared harness on 4000.
+          if (!env.NABIN_RESTART_PORT) {
+            isolationPort = String(await findFreePort(restartPort + 1));
+            env.NABIN_RESTART_PORT = isolationPort;
+          } else {
+            isolationPort = env.NABIN_RESTART_PORT;
+          }
+        }
+      } else {
+        // F-3(a): attribution baseline for an ordinary link. Nothing is enforced with it - the diff is
+        // reported after the link runs. Snapshotting per link (rather than reusing an old file) is what
+        // makes the attribution defensible: exactly one link executes between the two counts, and the
+        // shared harness performs no write of its own in between.
+        scratchCli('snapshot');
+      }
+
       process.stdout.write(`[${index + 1}/${LINKS.length}] ${link.file} ... `);
       const result = runLink(link, env);
+      if (isolationError) {
+        result.exit = result.exit || 1;
+        result.failLines = result.failLines.concat([`ISOLATION UNAVAILABLE: ${isolationError}`]);
+        // Setup failed part-way, so a clone/proxy may already exist. Clean it up anyway: leaking the
+        // throwaway schema and a bound :54331 across the rest of the chain would be worse than the
+        // single failed link, and the isolated link itself is already marked failed.
+        scratchCli('teardown');
+        releasePrivatePort(isolationPort);
+      } else if (link.isolated) {
+        const ver = scratchCli('verify');
+        if (ver.status !== 0) {
+          const lines = `${ver.stdout || ''}${ver.stderr || ''}`.split(/\r?\n/).filter((l) => /DRIFT|CONTAMINATION/.test(l));
+          result.exit = result.exit || 1;
+          result.contamination = true;
+          result.failLines = result.failLines.concat(lines.length ? lines : ['PUBLIC CONTAMINATION: guard exited non-zero without detail']);
+        }
+        const td = scratchCli('teardown');
+        if (td.status !== 0) {
+          result.exit = result.exit || 1;
+          result.failLines = result.failLines.concat([`TEARDOWN FAILED: ${String(td.stderr || td.stdout || '').slice(-240)}`]);
+        }
+        if (!isolationError && !result.contamination) result.drift = ['DRIFT public: CLEAN (hard guard enforced)'];
+        // The isolated link may have left its own backend running on the port we allocated (measured in
+        // Checkpoint #50). Reap it here, and treat a foreign owner as a hard failure rather than killing it.
+        const released = releasePrivatePort(isolationPort);
+        result.isolationPort = isolationPort;
+        if (/skipped:foreign/.test(released)) {
+          result.exit = result.exit || 1;
+          result.failLines = result.failLines.concat([
+            `PORT ${isolationPort} HELD BY A FOREIGN PROCESS - not killed, link failed so the runner cannot evict unrelated services`
+          ]);
+        } else if (/released:/.test(released)) {
+          console.log(`(reaped stranded backend on :${isolationPort}) `);
+        }
+      } else {
+        // Report drift for ordinary links, without ever changing their verdict: a non-isolated link is
+        // allowed to write public state, and a count moving is not evidence by itself that it should not.
+        const diff = scratchCli('diff');
+        result.drift = `${diff.stdout || ''}`.split(/\r?\n/).filter((l) => l.startsWith('DRIFT'));
+        if (!result.drift.length) result.drift = ['DRIFT public: UNAVAILABLE (attribution failed, link status unaffected)'];
+      }
       results.push(result);
       skipped += result.skipLines.length;
       const skipNote = result.skipLines.length ? `, ${result.skipLines.length} skipped` : '';
@@ -414,6 +689,9 @@ function runLink(link, env) {
         for (const line of result.failLines.slice(0, 12)) console.log(`      ${line.trim().slice(0, 160)}`);
         if (result.failLines.length > 12) console.log(`      … ${result.failLines.length - 12} more`);
       }
+      // Attribution output: printed after the verdict so it cannot influence pass/fail counting.
+      for (const line of (result.drift || []).slice(0, 6)) console.log(`      ${line.trim().slice(0, 150)}`);
+      if ((result.drift || []).length > 6) console.log(`      … ${result.drift.length - 6} more drift line(s)`);
     }
   } catch (err) {
     failures++;

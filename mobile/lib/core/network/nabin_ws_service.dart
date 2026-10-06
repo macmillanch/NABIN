@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import '../config/nabin_build_env.dart';
 import 'session_manager.dart';
 import 'nabin_api_service.dart';
 
@@ -21,7 +22,10 @@ class NabinWsService {
   static const String androidWsUrl = 'ws://10.0.2.2:4000';
 
   static String get effectiveWsUrl {
-    if (_configuredWsUrl.isNotEmpty) return _configuredWsUrl;
+    if (_configuredWsUrl.isNotEmpty) {
+      NabinBuildEnv.validate(_configuredWsUrl, variable: 'NABIN_WS_URL');
+      return _configuredWsUrl;
+    }
     if (const bool.fromEnvironment('dart.vm.product')) {
       throw StateError('NABIN_WS_URL must be provided for release builds.');
     }
@@ -119,6 +123,13 @@ class NabinWsService {
         case 'DRIVER_LOCATION_UPDATE':
           _driverLocationController.add(msg);
           break;
+        case 'DRIVER_ASSIGNED':
+        // The only payload that carries a driver's plate and trip-start code to the
+        // customer. No HTTP read returns those two, so a tracking screen that wants them
+        // has to listen for this rather than invent them. It carries no rating: the
+        // server refuses to project `drivers.rating`, a DEFAULT 5.00 column with no
+        // reviews table behind it.
+        case 'DRIVER_ARRIVED':
         case 'TRIP_STARTED':
         case 'TRIP_COMPLETED':
         case 'STAGE_UPDATE':

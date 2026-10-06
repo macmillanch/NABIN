@@ -46,6 +46,13 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
+// A server this suite spawned is this suite's responsibility. `ensureServerRunning` only spawns when
+// nothing answers yet, so whatever the reaper holds was started by this process — a server the operator
+// started by hand is never in that list, and never killed. The reap is registered on `exit` rather than
+// at the end of `main()` because this file aborts on ~seven scattered `process.exit(1)` calls, and every
+// one of them used to leave a detached backend bound to :4000. The next chain run then refused to start,
+// and the leak was only visible as that refusal.
+const { trackServer, reapAndWait, spawnedServers } = require('./scripts/spawned_server');
 
 process.env.PAYMENT_WEBHOOK_SECRET ||= 'test_webhook_secret_not_for_deployment';
 process.env.PAYMENT_KEY_SECRET ||= 'test_key_secret_not_for_deployment';
@@ -117,16 +124,16 @@ async function serverIsUp() {
 }
 
 async function ensureServerRunning() {
-  if (await serverIsUp()) return { up: true };
-  const proc = spawn(process.execPath, [path.join(__dirname, 'src/server.js')], {
+  if (await serverIsUp()) return { up: true, startedHere: false };
+  const proc = trackServer(spawn(process.execPath, [path.join(__dirname, 'src/server.js')], {
     cwd: __dirname, stdio: 'ignore', detached: true, windowsHide: true
-  });
+  }));
   proc.unref();
   for (let i = 0; i < 60; i++) {
-    if (await serverIsUp()) return { up: true };
+    if (await serverIsUp()) return { up: true, startedHere: true };
     await new Promise(r => setTimeout(r, 500));
   }
-  return { up: false };
+  return { up: false, startedHere: true };
 }
 
 // A stand-in `res` for the direct middleware calls in section 3. These gates answer in
@@ -183,7 +190,7 @@ async function main() {
   console.log('🪪 NABIN KYC QUEUE & FLEET STATUS — PHASE D AREAS 5 AND 6');
   console.log('=======================================================================\n');
 
-  const { up } = await ensureServerRunning();
+  const { up, startedHere } = await ensureServerRunning();
   check('IG-PRE-01', up, `a local backend answers on ${BASE_URL} ${up ? '' : '— nothing is listening, so nothing below means anything'}`);
   if (!up) process.exit(1);
 
@@ -297,7 +304,7 @@ async function main() {
 
   const docKyc = await request('GET', docPath, null, bearer(tokens.KYC_SPECIALIST));
   check('DOC-04', docKyc.status === 200 && /<svg/.test(docKyc.raw),
-    `KYC_SPECIALIST holds identity_documents.view and is answered (${docKyc.status}, ${docKyc.raw.length} bytes of the hard-coded mock)`);
+    `KYC_SPECIALIST holds identity_documents.view and is answered (${docKyc.status}, ${docKyc.raw.length} bytes of the placeholder)`);
 
   const docSuper = await request('GET', docPath, null, bearer(superToken));
   check('DOC-05', docSuper.status === 200,
@@ -306,6 +313,92 @@ async function main() {
   const docRouteLine = routeLineOf("app.get('/docs/:filename'");
   check('DOC-06', docRouteLine.includes('authenticateAdmin') && docRouteLine.includes("requirePermission('identity_documents.view')"),
     `the gate sits in the route chain rather than inside the handler: ${docRouteLine.slice(0, 92)}…`);
+
+  // -------------------------------------------------------------------
+  // 1b. What the gate protects is nothing (task #146)
+  // -------------------------------------------------------------------
+  //
+  // The preview used to render a convincing Indian identity document — an applicant's name, a date
+  // of birth, a Delhi address, `XXXX XXXX 4892` / `EPIC NO: DLH1948201` — under a government
+  // heading and a "✓ GOVERNMENT WATERMARK" line, for every filename anyone asked for. Gating it was
+  // half the fix; the other half is that an examiner's "view document" can no longer put a forged
+  // ID card on screen, because a document the platform never received has exactly one honest
+  // preview. Checked on the served bytes, not the source: this is what a human being reads.
+  const FORGED = ['RAHUL', 'SHARMA', 'GOVERNMENT OF INDIA', 'ELECTION COMMISSION', 'EPIC NO',
+    '15/08/1994', '110054', '4892', 'WATERMARK', 'PHOTO', 'DOB', 'Gender'];
+  const survives = FORGED.filter((s) => docKyc.raw.toUpperCase().includes(s));
+  check('DOC-07', docKyc.status === 200 && survives.length === 0,
+    survives.length ? `the preview still prints identity fields nobody filed: ${survives.join(', ')}`
+      : 'the authorised preview shows a card with no name, no date of birth, no address, no document number and no agency name');
+  check('DOC-08', /NO DOCUMENT ON FILE/i.test(docKyc.raw),
+    `and says plainly what it is (${docKyc.raw.replace(/\s+/g, ' ').slice(0, 120)}…)`);
+
+  // The requested filename must never come back out of the markup: the route keys on two
+  // substrings, and echoing `req.params.filename` into an SVG an admin renders is an injection
+  // surface for no benefit.
+  check('DOC-09', !docKyc.raw.includes('preview_aadhaar'),
+    'the path the caller asked for is not echoed into the document');
+
+  // -------------------------------------------------------------------
+  // 1c. What the examiner's own screen says (task #147)
+  // -------------------------------------------------------------------
+  //
+  // Gating the preview and cleaning the writer left the third party untouched: the Admin dashboard,
+  // which is what a human actually reads. Its review workspace carried one demo applicant's card in
+  // the markup for both document frames, a "SUBMITTED" badge over each, a file format and a byte
+  // size nobody had measured, a zoom viewer preloaded with his Aadhaar, an age that was never
+  // computed, and masked-number fallbacks that filled an absent number with a specific applicant's.
+  // Every one of those was shown for *every* application. Read from disk rather than the served
+  // bytes, because the dashboard is a static file an examiner may open from anywhere.
+  const dashSource = fs.readFileSync(path.join(__dirname, '..', 'admin_dashboard.html'), 'utf8');
+  const dash = codeOnly(dashSource);
+
+  // The retired per-applicant literals. They may survive in an HTML comment that names what it
+  // replaced — that is what a comment is for — so the text read here has the `//`-style narration
+  // removed; HTML comments are deliberately not quoted here either, which is why none of them
+  // appears in the markup.
+  const BAKED = ['(Age 31)', '15/08/1994', 'Flat 402, Civil Lines, Delhi', 'XXXX-XXXX-4892',
+    'DLH***201', '/docs/mock', 'High Resolution Inspection'];
+  const stillBaked = BAKED.filter((s) => dash.includes(s));
+  check('EXAM-01', stillBaked.length === 0,
+    stillBaked.length ? `the examiner's screen still hard-codes one applicant's data: ${stillBaked.join(', ')}`
+      : 'no applicant-specific value, mock document path or unmeasured resolution claim is baked into the dashboard any more');
+
+  // The viewer is filled by the code, from the application under review. A `src` in the markup means
+  // a document is on screen before any application has been chosen.
+  const viewerTag = (dash.match(/<img[^>]*id="docViewerImage"[^>]*>/) || [''])[0];
+  check('EXAM-02', viewerTag !== '' && !/\bsrc=/.test(viewerTag),
+    `the inspection frame ships with no document of its own (${viewerTag.slice(0, 70) || 'no such element'}…)`);
+
+  const viewerFn = (dash.split('function openDocumentViewer(')[1] || '').split('\n    }')[0];
+  check('EXAM-03', viewerFn.includes('reviewDocuments') && /no document is stored/i.test(viewerFn),
+    'and opening it reads the selected application\'s own record and says so when the record holds nothing');
+
+  // An absent value is written as absent. Both the queue cell and the workspace answer with
+  // "Not supplied" rather than a plausible number.
+  const queueFn = (dash.split('function renderIdentityQueueTable(')[1] || '').split('\n    }')[0];
+  check('EXAM-04', /NOT_SUPPLIED/.test(queueFn) && !/\|\| 'XXXX|\|\| 'DLH/.test(queueFn),
+    'a queue row with no masked number prints that it was not supplied, not somebody else\'s number');
+
+  // The checklist is the examiner's attestation. Three of its boxes used to require a statement
+  // about a photo's clarity, a watermark and an image's resolution before APPROVE would run, and
+  // there is no image to observe.
+  const checklist = (dash.split('Compliance Officer Checklist')[1] || '').split('Reviewer Notes')[0];
+  const OBSERVES = ['watermark', 'unblurred', 'Aadhaar photo is clear', 'high-resolution', 'clipping'];
+  const stillObserves = OBSERVES.filter((s) => checklist.toLowerCase().includes(s.toLowerCase()));
+  check('EXAM-05', checklist !== '' && stillObserves.length === 0,
+    stillObserves.length ? `the approval checklist still demands sight of a document: ${stillObserves.join(', ')}`
+      : 'and the checklist now asks only for comparisons this workspace can actually make');
+
+  // What the queue serves: an application with a document URL is a record the panel would try to
+  // render, so the number of them is the number of documents NABIN holds.
+  const queueForDocs = await request('GET', '/api/admin/identity-verifications?limit=50', null, bearer(tokens.KYC_SPECIALIST));
+  const servedDocUrls = (queueForDocs.data.applications || [])
+    .filter((a) => a.aadhaarDocUrl || a.voterIdDocUrl)
+    .map((a) => `${a.id}=${a.aadhaarDocUrl || a.voterIdDocUrl}`);
+  check('EXAM-06', queueForDocs.status === 200 && servedDocUrls.length === 0,
+    servedDocUrls.length ? `the queue hands out ${servedDocUrls.length} document reference(s) the panel would load: ${servedDocUrls.join(', ')}`
+      : 'and no application in the served queue carries a document reference at all, which is what the panel says on screen');
 
   // -------------------------------------------------------------------
   // 2. Area 6, part two: the unmasked identity numbers give one answer
@@ -547,6 +640,19 @@ async function main() {
   const gone = await supabaseAdmin.from('drivers').select('id').eq('id', fixtureUuid).maybeSingle();
   check('IG-END-2', !gone.data,
     `and the fixture driver row is gone from the fleet directory (${gone.data ? 'still present' : 'deleted'}), while its ${actions.length} audit record(s) stay`);
+
+  // The boundary this run opened, it closes. A standalone run that left a detached backend
+  // on :4000 made the next chain run refuse to start, so the leak was paid for by an
+  // unrelated suite. When the chain's shared server was already up, this run started
+  // nothing and therefore releases nothing — touching that server is the harness's call.
+  if (startedHere) {
+    const freed = await reapAndWait(serverIsUp);
+    check('IG-END-3', freed,
+      `the backend this run spawned on ${BASE_URL} is gone and the port is free for the next suite`);
+  } else {
+    check('IG-END-3', spawnedServers.length === 0,
+      `a server was already answering on ${BASE_URL} before this run, so this run spawned nothing (tracked: ${spawnedServers.length}) and reaps nothing`);
+  }
 
   const failed = results.filter(r => !r.ok);
   console.log('\n=======================================================================');

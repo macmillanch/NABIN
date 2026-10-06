@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import '../theme/grocery_theme.dart';
 import '../models/grocery_product.dart' show formatRupees;
+import '../providers/grocery_cart_provider.dart';
 import '../../../../core/network/nabin_api_service.dart';
 import '../../../../core/network/session_manager.dart';
 /// Grocery checkout: confirms the live basket lines, applies a server-checked
 /// coupon and posts the order through `validateGroceryCheckout`.
-class GroceryCheckoutScreen extends StatefulWidget {
+class GroceryCheckoutScreen extends ConsumerStatefulWidget {
   final List<Map<String, dynamic>> cartItems;
   final int subtotal;
   final int deliveryFee;
@@ -22,15 +25,15 @@ class GroceryCheckoutScreen extends StatefulWidget {
   });
 
   @override
-  State<GroceryCheckoutScreen> createState() => _GroceryCheckoutScreenState();
+  ConsumerState<GroceryCheckoutScreen> createState() =>
+      _GroceryCheckoutScreenState();
 }
 
-class _GroceryCheckoutScreenState extends State<GroceryCheckoutScreen> {
+class _GroceryCheckoutScreenState extends ConsumerState<GroceryCheckoutScreen> {
   // Address & Contact State. There is no customer-address read path exposed to
-  // this feature, so the address stays a purely local choice (same three
-  // options as the basket screen) until the backend serves saved addresses.
-  String _selectedAddressLabel = 'Home';
-  String _selectedAddressDetails = 'Civil Lines, Delhi • Flat 402';
+  // this feature, so the address for this order has to be typed: the app has
+  // nothing honest to pre-select.
+  final TextEditingController _addressController = TextEditingController();
   final TextEditingController _deliveryNoteController = TextEditingController();
 
   // Coupon State
@@ -40,18 +43,22 @@ class _GroceryCheckoutScreenState extends State<GroceryCheckoutScreen> {
   String? _couponError;
   bool _couponApplying = false;
 
-  // Delivery Partner Tip State — starts at zero; tipping is the customer's
-  // choice, so nothing is pre-selected.
+  // Delivery Partner Tip — starts at zero; tipping is the customer's choice, so
+  // nothing is pre-selected. It is a stated intention, not a recorded amount:
+  // the order RPC totals the resolved lines minus the coupon and never reads
+  // `tip`, so it stays out of the payable below (see _payable).
   int _selectedTip = 0;
 
-  // Payment Method State (see _buildPaymentMethodSection for the ids)
-  String _selectedPaymentMethod = 'UPI';
+  /// The order exactly as `POST /api/grocery/checkout/validate` returned it.
+  /// The confirmation terminal renders from this and nothing else.
+  Map<String, dynamic>? _placedOrder;
 
   // Order Processing State
   bool _isSubmitting = false;
 
   @override
   void dispose() {
+    _addressController.dispose();
     _deliveryNoteController.dispose();
     _couponController.dispose();
     super.dispose();
@@ -124,10 +131,22 @@ class _GroceryCheckoutScreenState extends State<GroceryCheckoutScreen> {
     });
   }
 
-  int get _finalTotal {
-    final total = widget.subtotal + widget.deliveryFee + widget.handlingFee + _selectedTip - _discountAmount;
+  /// The estimate this screen can honestly state, on the same basis the platform
+  /// uses: the basket plus any fee a caller actually supplied, minus the
+  /// server-checked coupon. The tip is deliberately absent — the order record
+  /// carries no tip field and its RPC totals the resolved lines against the
+  /// coupon, so including it would show a total the store never receives.
+  int get _payable {
+    final total =
+        widget.subtotal + widget.deliveryFee + widget.handlingFee - _discountAmount;
     return total > 0 ? total : 0;
   }
+
+  /// Where this order should be dropped. Typed by the customer, because no
+  /// saved-address read path exists for grocery.
+  String get _deliveryAddress => _addressController.text.trim();
+
+  bool get _canPlace => _deliveryAddress.isNotEmpty;
 
   /// Who the basket is for — straight from the session, never a hard-coded
   /// demo name. Falls back to a prompt when the profile is incomplete.
@@ -176,9 +195,12 @@ class _GroceryCheckoutScreenState extends State<GroceryCheckoutScreen> {
       'merchantId': stores.first,
       if (customerName != null) 'customerName': customerName,
       if (customerPhone != null) 'customerPhone': customerPhone,
-      'deliveryAddress': '$_selectedAddressLabel: $_selectedAddressDetails',
+      'deliveryAddress': _deliveryAddress,
       'deliveryInstructions': _deliveryNoteController.text.trim(),
-      'paymentMethod': _selectedPaymentMethod,
+      // The platform's checkout row distinguishes one settlement from the other:
+      // anything that is not literally CASH is stored as WALLET, which would be
+      // a false record for a payment this app never takes.
+      'paymentMethod': 'CASH',
       'cartItems': widget.cartItems.map((item) => {
         'productId': item['id'],
         'productName': item['name'],
@@ -187,12 +209,11 @@ class _GroceryCheckoutScreenState extends State<GroceryCheckoutScreen> {
         'unit': item['unit'],
         'requestedQtyKg': (item['quantity'] as num).toDouble(),
       }).toList(),
-      'subtotal': widget.subtotal,
-      'discount': _discountAmount,
-      'deliveryFee': widget.deliveryFee,
-      'handlingFee': widget.handlingFee,
-      'tip': _selectedTip,
-      'finalTotal': _finalTotal,
+      // The code, never the amount. `redeemCoupon` re-reads the cart total from
+      // the store and decides the discount; the client's own `discount` and
+      // `finalTotal` fields are ignored by the route (server.js:6862), so sending
+      // them would let the basket show a saving the order never carried.
+      if (_appliedCoupon != null) 'couponCode': _appliedCoupon,
     };
 
     try {
@@ -202,11 +223,13 @@ class _GroceryCheckoutScreenState extends State<GroceryCheckoutScreen> {
 
       if (mounted && data?['success'] == true) {
         final Object? order = data?['order'];
-        final Object? id = order is Map
-            ? (order['id'] ?? order['order_id'] ?? order['order_number'])
-            : null;
-        // Only an id the backend actually returned is shown.
-        _showOrderConfirmationModal(orderId: id?.toString());
+        // The confirmation renders from the order the platform wrote back, and
+        // the basket clears so the same lines cannot be placed a second time.
+        setState(() {
+          _placedOrder = order is Map ? Map<String, dynamic>.from(order) : null;
+        });
+        ref.read(groceryCartProvider.notifier).clear();
+        _showOrderConfirmationModal();
       } else if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(data?['error']?.toString() ?? 'Checkout could not be completed. Please try again.')),
@@ -222,9 +245,26 @@ class _GroceryCheckoutScreenState extends State<GroceryCheckoutScreen> {
     }
   }
 
-  /// The backend returns `{success, order}` only — no delivery ETA and no
-  /// assigned partner — so this sheet states just what actually happened.
-  void _showOrderConfirmationModal({String? orderId}) {
+  /// Every line below renders from the order the platform wrote back, not from
+  /// the basket this screen displayed: the store's own re-read of stock and
+  /// prices is what the order record carries.
+  void _showOrderConfirmationModal() {
+    final Map<String, dynamic> order =
+        _placedOrder ?? const <String, dynamic>{};
+    final String? number = _textOf(order['order_number'] ?? order['orderNumber']);
+    final String? stage = _textOf(order['status'] ?? order['order_state']);
+    final num? recorded = order['finalTotal'] is num
+        ? order['finalTotal'] as num
+        : num.tryParse(order['finalTotal']?.toString() ?? '');
+    final num discount = order['discount'] is num
+        ? order['discount'] as num
+        : (num.tryParse(order['discount']?.toString() ?? '') ?? 0);
+    final String? couponCode = order['appliedPromo'] is Map
+        ? _textOf((order['appliedPromo'] as Map)['code'])
+        : null;
+    final List<dynamic> lines =
+        order['items'] is List ? List<dynamic>.from(order['items'] as List) : const [];
+
     showModalBottomSheet(
       context: context,
       isDismissible: false,
@@ -238,98 +278,236 @@ class _GroceryCheckoutScreenState extends State<GroceryCheckoutScreen> {
         child: SafeArea(
           child: Column(
             mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: const BoxDecoration(
-                color: GroceryTheme.primaryGreenLight,
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(
-                Icons.check_circle_rounded,
-                size: 64,
-                color: GroceryTheme.primaryGreenDark,
-              ),
-            ),
-            const SizedBox(height: 20),
-            const Text(
-              'Order Confirmed!',
-              style: TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.w900,
-                color: GroceryTheme.textDark,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              orderId == null
-                  ? 'The store has received your basket.'
-                  : 'Order ID: $orderId',
-              style: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-                color: GroceryTheme.textMuted,
-              ),
-            ),
-            const SizedBox(height: 20),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: GroceryTheme.surfaceElevated,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: GroceryTheme.borderLight),
-              ),
-              child: const Row(
-                children: [
-                  Icon(
-                    Icons.storefront_rounded,
-                    color: GroceryTheme.primaryGreenDark,
-                    size: 22,
+              const SizedBox(height: 12),
+              Center(
+                child: Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: const BoxDecoration(
+                    color: GroceryTheme.primaryGreenLight,
+                    shape: BoxShape.circle,
                   ),
-                  SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      'The grocery merchant confirms the final amount and the '
-                      'delivery time with you directly.',
-                      style: TextStyle(
+                  child: const Icon(
+                    Icons.check_circle_rounded,
+                    size: 64,
+                    color: GroceryTheme.primaryGreenDark,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+              Center(
+                child: Text(
+                  number == null
+                      ? 'The store has your order'
+                      : 'Order $number is with the store',
+                  style: const TextStyle(
+                    fontSize: 21,
+                    fontWeight: FontWeight.w900,
+                    color: GroceryTheme.textDark,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 6),
+              Center(
+                child: Text(
+                  stage == null
+                      ? 'The record came back without a stage.'
+                      : 'Recorded stage: $stage',
+                  style: const TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w700,
+                    color: GroceryTheme.textMuted,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+              if (lines.isNotEmpty) ...[
+                const Text(
+                  'Lines the store recorded',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
+                    color: GroceryTheme.textDark,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                ...lines.map(_buildRecordedLine),
+                const SizedBox(height: 8),
+              ],
+              if (recorded != null)
+                _confirmRow('Total on the order', formatRupees(recorded.toDouble())),
+              if (discount > 0)
+                _confirmRow(
+                  couponCode == null
+                      ? 'Coupon saving'
+                      : 'Coupon $couponCode',
+                  '-${formatRupees(discount.toDouble())}',
+                ),
+              if (lines.isEmpty)
+                const Text(
+                  'The order lines are not in this read yet.',
+                  style: TextStyle(fontSize: 12, color: GroceryTheme.textMuted),
+                ),
+              const SizedBox(height: 16),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: GroceryTheme.surfaceElevated,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: GroceryTheme.borderLight),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Row(
+                      children: [
+                        Icon(
+                          Icons.storefront_rounded,
+                          color: GroceryTheme.primaryGreenDark,
+                          size: 22,
+                        ),
+                        SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            'The store confirms the final amount and the delivery '
+                            'time with you directly.',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: GroceryTheme.textMuted,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      _selectedTip > 0
+                          ? 'Nothing was paid here — the store collects at delivery. '
+                              'Your ₹$_selectedTip tip is not on this order record, so '
+                              'hand it to the partner at the door.'
+                          : 'Nothing was paid here — the store collects at delivery.',
+                      style: const TextStyle(
                         fontSize: 12,
+                        height: 1.4,
                         color: GroceryTheme.textMuted,
                       ),
                     ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 24),
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.of(ctx).pop();
+                  // The order row is what Activity reads back, so this is the real
+                  // way to keep following it.
+                  context.go('/activity');
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: GroceryTheme.primaryAction,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
                   ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 28),
-            ElevatedButton(
-              onPressed: () {
-                Navigator.of(ctx).pop();
-                Navigator.of(context).pop();
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: GroceryTheme.primaryGreenDark,
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: const Text(
+                  'View in Activity',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
               ),
-              child: const Text(
-                'Done',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w800,
+              const SizedBox(height: 8),
+              TextButton(
+                onPressed: () {
+                  Navigator.of(ctx).pop();
+                  context.go('/grocery-home');
+                },
+                child: const Text(
+                  'Back to grocery',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: GroceryTheme.textMuted,
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 12),
-          ],
+            ],
+          ),
         ),
       ),
-    ),
-  );
-}
+    );
+  }
+
+  Widget _buildRecordedLine(dynamic raw) {
+    final Map<String, dynamic> line =
+        raw is Map ? Map<String, dynamic>.from(raw) : const <String, dynamic>{};
+    final String name = _textOf(line['productName']) ?? 'Item';
+    final num qty = line['quantity'] is num
+        ? line['quantity'] as num
+        : (num.tryParse(line['quantity']?.toString() ?? '') ?? 0);
+    final num amount = line['finalItemAmount'] is num
+        ? line['finalItemAmount'] as num
+        : (num.tryParse(line['finalItemAmount']?.toString() ?? '') ?? 0);
+    final String unit = _textOf(line['unit']) ?? '';
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Expanded(
+            child: Text(
+              unit.isEmpty ? '$name • Qty ${_qtyText(qty)}' : '$name • ${_qtyText(qty)} $unit',
+              style: const TextStyle(fontSize: 12.5, color: GroceryTheme.textDark),
+            ),
+          ),
+          Text(
+            formatRupees(amount.toDouble()),
+            style: const TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w800,
+              color: GroceryTheme.textDark,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _confirmRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(fontSize: 12.5, color: GroceryTheme.textMuted),
+          ),
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 13.5,
+              fontWeight: FontWeight.w900,
+              color: GroceryTheme.textDark,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static String? _textOf(Object? raw) {
+    final String value = raw?.toString().trim() ?? '';
+    return value.isEmpty ? null : value;
+  }
+
+  /// Grocery quantities are NUMERIC(10,3) because units are weights; a whole
+  /// number prints without the trailing zeros rather than as "1.000".
+  static String _qtyText(num value) =>
+      value == value.roundToDouble() ? value.round().toString() : value.toString();
 
   @override
   Widget build(BuildContext context) {
@@ -398,7 +576,7 @@ class _GroceryCheckoutScreenState extends State<GroceryCheckoutScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    formatRupees(_finalTotal.toDouble()),
+                    formatRupees(_payable.toDouble()),
                     style: const TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.w900,
@@ -406,7 +584,7 @@ class _GroceryCheckoutScreenState extends State<GroceryCheckoutScreen> {
                     ),
                   ),
                   const Text(
-                    'PAYABLE AMOUNT',
+                    'ESTIMATED TOTAL',
                     style: TextStyle(
                       fontSize: 10,
                       fontWeight: FontWeight.w800,
@@ -418,9 +596,10 @@ class _GroceryCheckoutScreenState extends State<GroceryCheckoutScreen> {
               const SizedBox(width: 16),
               Expanded(
                 child: ElevatedButton(
-                  onPressed: _isSubmitting ? null : _processCheckoutOrder,
+                  onPressed:
+                      _isSubmitting || !_canPlace ? null : _processCheckoutOrder,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: GroceryTheme.primaryGreenDark,
+                    backgroundColor: GroceryTheme.primaryAction,
                     padding: const EdgeInsets.symmetric(vertical: 16),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16),
@@ -435,17 +614,13 @@ class _GroceryCheckoutScreenState extends State<GroceryCheckoutScreen> {
                             color: Colors.white,
                           ),
                         )
-                      : const Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text(
-                              'Place order',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                          ],
+                      : Text(
+                          _canPlace ? 'Place order' : 'Type the address first',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                          ),
                         ),
                 ),
               ),
@@ -468,97 +643,71 @@ class _GroceryCheckoutScreenState extends State<GroceryCheckoutScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: GroceryTheme.primaryGreen.withValues(alpha: 0.12),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.location_on_rounded,
-                      color: GroceryTheme.primaryGreenDark,
-                      size: 20,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  const Text(
-                    'Delivery Address',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w900,
-                      fontSize: 15,
-                      color: GroceryTheme.textDark,
-                    ),
-                  ),
-                ],
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: GroceryTheme.primaryGreen.withValues(alpha: 0.12),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.location_on_rounded,
+                  color: GroceryTheme.primaryGreenDark,
+                  size: 20,
+                ),
               ),
-              TextButton(
-                onPressed: _showAddressPickerModal,
-                child: const Text(
-                  'Change',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 13,
-                    color: GroceryTheme.primaryGreenDark,
-                  ),
+              const SizedBox(width: 10),
+              const Text(
+                'Delivery Address',
+                style: TextStyle(
+                  fontWeight: FontWeight.w900,
+                  fontSize: 15,
+                  color: GroceryTheme.textDark,
                 ),
               ),
             ],
           ),
+          const SizedBox(height: 6),
+          const Text(
+            'Saved addresses are not available for grocery yet, so type where this '
+            'order should be delivered.',
+            style: TextStyle(fontSize: 11, color: GroceryTheme.textMuted),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _addressController,
+            maxLines: 2,
+            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+            decoration: InputDecoration(
+              hintText: 'House / flat, street or area, Aizawl',
+              hintStyle: const TextStyle(
+                  fontSize: 12, color: GroceryTheme.textMuted),
+              filled: true,
+              fillColor: GroceryTheme.surfaceElevated,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide.none,
+              ),
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            ),
+            onChanged: (_) => setState(() {}),
+          ),
           const SizedBox(height: 8),
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: GroceryTheme.surfaceElevated,
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: GroceryTheme.primaryGreenDark,
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Text(
-                        _selectedAddressLabel.toUpperCase(),
-                        style: const TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w900,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Flexible(
-                      child: Text(
-                        _customerLabel,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: GroceryTheme.textDark,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  _selectedAddressDetails,
+          Row(
+            children: [
+              const Icon(Icons.person_outline_rounded,
+                  size: 15, color: GroceryTheme.textMuted),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  _customerLabel,
+                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
-                    fontSize: 13,
-                    color: GroceryTheme.textMuted,
-                  ),
+                      fontSize: 12, color: GroceryTheme.textMuted),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
           const SizedBox(height: 12),
           TextFormField(
@@ -596,12 +745,14 @@ class _GroceryCheckoutScreenState extends State<GroceryCheckoutScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text(
-                'Basket Items Preview',
-                style: TextStyle(
-                  fontWeight: FontWeight.w900,
-                  fontSize: 15,
-                  color: GroceryTheme.textDark,
+              const Flexible(
+                child: Text(
+                  'Basket Items Preview',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w900,
+                    fontSize: 15,
+                    color: GroceryTheme.textDark,
+                  ),
                 ),
               ),
               Text(
@@ -778,7 +929,7 @@ class _GroceryCheckoutScreenState extends State<GroceryCheckoutScreen> {
                 ElevatedButton(
                   onPressed: _couponApplying ? null : _applyCoupon,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: GroceryTheme.primaryGreenDark,
+                    backgroundColor: GroceryTheme.primaryAction,
                     padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                   ),
@@ -822,38 +973,42 @@ class _GroceryCheckoutScreenState extends State<GroceryCheckoutScreen> {
             children: [
               Icon(Icons.volunteer_activism_rounded, color: GroceryTheme.primaryGreen, size: 20),
               SizedBox(width: 8),
-              Text(
-                'Tip Delivery Partner',
-                style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15, color: GroceryTheme.textDark),
+              Flexible(
+                child: Text(
+                  'Tip Delivery Partner',
+                  style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15, color: GroceryTheme.textDark),
+                ),
               ),
             ],
           ),
           const SizedBox(height: 4),
           const Text(
-            'Optional — the full tip reaches the delivery partner',
+            'Optional. The order record has no tip field, so this stays a '
+            'promise to hand it to the partner at the door.',
             style: TextStyle(fontSize: 11, color: GroceryTheme.textMuted),
           ),
           const SizedBox(height: 12),
-          Row(
+          // Wrap, not Row: five tip chips do not fit a narrow phone at large
+          // text scale, and a clipped tip is a choice the customer can't see.
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
             children: [0, 10, 20, 30, 50].map((tipVal) {
               final isSelected = _selectedTip == tipVal;
-              return Padding(
-                padding: const EdgeInsets.only(right: 10),
-                child: FilterChip(
-                  label: Text(tipVal == 0 ? 'No tip' : '₹$tipVal'),
-                  selected: isSelected,
-                  selectedColor: GroceryTheme.primaryGreenDark,
-                  labelStyle: TextStyle(
-                    fontWeight: FontWeight.w800,
-                    color: isSelected ? Colors.white : GroceryTheme.textDark,
-                  ),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  onSelected: (selected) {
-                    setState(() {
-                      _selectedTip = selected ? tipVal : 0;
-                    });
-                  },
+              return FilterChip(
+                label: Text(tipVal == 0 ? 'No tip' : '₹$tipVal'),
+                selected: isSelected,
+                selectedColor: GroceryTheme.primaryGreenDark,
+                labelStyle: TextStyle(
+                  fontWeight: FontWeight.w800,
+                  color: isSelected ? Colors.white : GroceryTheme.textDark,
                 ),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                onSelected: (selected) {
+                  setState(() {
+                    _selectedTip = selected ? tipVal : 0;
+                  });
+                },
               );
             }).toList(),
           ),
@@ -862,15 +1017,11 @@ class _GroceryCheckoutScreenState extends State<GroceryCheckoutScreen> {
     );
   }
 
+  /// The platform's checkout row records one of two settlements: the literal
+  /// string CASH, or WALLET for anything else. Nothing in this app charges a
+  /// wallet, a UPI ID or a card, so a choice between those would be stored as a
+  /// payment that never happened. The honest card states the one that does.
   Widget _buildPaymentMethodSection() {
-    // Neutral method labels — the backend stores this string and the merchant
-    // collects the payment, so no specific wallet app is promised here.
-    final options = [
-      {'id': 'UPI', 'name': 'UPI', 'icon': Icons.qr_code_scanner_rounded, 'subtitle': 'Pay from any UPI app'},
-      {'id': 'CARD', 'name': 'Credit / Debit Card', 'icon': Icons.credit_card_rounded, 'subtitle': 'Card on the NABIN wallet'},
-      {'id': 'COD', 'name': 'Pay on Delivery', 'icon': Icons.payments_rounded, 'subtitle': 'Cash or UPI at the door'},
-    ];
-
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -878,53 +1029,34 @@ class _GroceryCheckoutScreenState extends State<GroceryCheckoutScreen> {
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: GroceryTheme.borderLight),
       ),
-      child: Column(
+      child: const Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Select Payment Method',
-            style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15, color: GroceryTheme.textDark),
+          Row(
+            children: [
+              Icon(
+                Icons.payments_rounded,
+                color: GroceryTheme.primaryGreenDark,
+                size: 20,
+              ),
+              SizedBox(width: 10),
+              Text(
+                'Payment',
+                style: TextStyle(
+                    fontWeight: FontWeight.w900,
+                    fontSize: 15,
+                    color: GroceryTheme.textDark),
+              ),
+            ],
           ),
-          const SizedBox(height: 12),
-          ...options.map((opt) {
-            final isSelected = _selectedPaymentMethod == opt['id'];
-            return Container(
-              margin: const EdgeInsets.only(bottom: 8),
-              decoration: BoxDecoration(
-                color: isSelected ? GroceryTheme.primaryGreenLight : GroceryTheme.bgOffWhite,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(
-                  color: isSelected ? GroceryTheme.primaryGreenDark : GroceryTheme.borderLight,
-                  width: isSelected ? 1.5 : 1.0,
-                ),
-              ),
-              child: ListTile(
-                leading: Icon(
-                  opt['icon'] as IconData,
-                  color: isSelected ? GroceryTheme.primaryGreenDark : GroceryTheme.textMuted,
-                ),
-                title: Text(
-                  opt['name'] as String,
-                  style: TextStyle(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 13,
-                    color: isSelected ? GroceryTheme.primaryGreenDark : GroceryTheme.textDark,
-                  ),
-                ),
-                subtitle: Text(
-                  opt['subtitle'] as String,
-                  style: const TextStyle(fontSize: 11, color: GroceryTheme.textMuted),
-                ),
-                trailing: Icon(
-                  isSelected ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded,
-                  color: isSelected ? GroceryTheme.primaryGreenDark : GroceryTheme.textMuted,
-                ),
-                onTap: () {
-                  setState(() => _selectedPaymentMethod = opt['id'] as String);
-                },
-              ),
-            );
-          }),
+          SizedBox(height: 8),
+          Text(
+            'Pay the store when it delivers — cash, or however you and the store '
+            'settle it. The order is recorded as payment collected at delivery. '
+            'NABIN takes no payment in this app yet, so no UPI request, card '
+            'charge or wallet debit happens when you place the order.',
+            style: TextStyle(fontSize: 12, height: 1.45, color: GroceryTheme.textMuted),
+          ),
         ],
       ),
     );
@@ -955,20 +1087,25 @@ class _GroceryCheckoutScreenState extends State<GroceryCheckoutScreen> {
             const SizedBox(height: 6),
             _buildRow('Handling fee', formatRupees(widget.handlingFee.toDouble())),
           ],
-          if (_selectedTip > 0) ...[
-            const SizedBox(height: 6),
-            _buildRow('Delivery partner tip', formatRupees(_selectedTip.toDouble())),
-          ],
           if (_discountAmount > 0) ...[
             const SizedBox(height: 6),
             _buildRow('Coupon savings', '-${formatRupees(_discountAmount.toDouble())}', isGreen: true),
           ],
+          if (_selectedTip > 0) ...[
+            const SizedBox(height: 6),
+            _buildRow(
+                'Tip for the partner (not on the order)',
+                formatRupees(_selectedTip.toDouble())),
+          ],
           const Divider(height: 20, color: GroceryTheme.borderLight),
-          _buildRow('To pay', formatRupees(_finalTotal.toDouble()), isBold: true),
+          _buildRow('Estimated to pay', formatRupees(_payable.toDouble()),
+              isBold: true),
           const SizedBox(height: 6),
           const Text(
-            'Delivery fee, handling fee and the delivery time are set by the '
-            'store and confirmed with you before payment.',
+            'The store re-reads every price and stock level when the order '
+            'lands, then confirms the final amount and the delivery time with '
+            'you. Delivery fee, handling fee and tax are the store\'s to set; '
+            'this app does not add them, and it takes no payment.',
             style: TextStyle(fontSize: 11, color: GroceryTheme.textMuted),
           ),
         ],
@@ -980,14 +1117,20 @@ class _GroceryCheckoutScreenState extends State<GroceryCheckoutScreen> {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: isBold ? 14 : 12.5,
-            fontWeight: isBold ? FontWeight.w900 : FontWeight.normal,
-            color: isBold ? GroceryTheme.textDark : GroceryTheme.textMuted,
+        // The longest label ('Tip for the partner (not on the order)') plus its
+        // amount is wider than a phone at large text scale, and a bill row whose
+        // amount is clipped states a total the customer cannot read.
+        Flexible(
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: isBold ? 14 : 12.5,
+              fontWeight: isBold ? FontWeight.w900 : FontWeight.normal,
+              color: isBold ? GroceryTheme.textDark : GroceryTheme.textMuted,
+            ),
           ),
         ),
+        const SizedBox(width: 8),
         Text(
           val,
           style: TextStyle(
@@ -998,61 +1141,5 @@ class _GroceryCheckoutScreenState extends State<GroceryCheckoutScreen> {
         ),
       ],
     );
-  }
-
-  /// Same three local choices the basket screen offers. The customer API exposes
-  /// no saved-address read path for this feature, so these cannot come from the
-  /// backend yet.
-  static const List<Map<String, String>> _addressChoices = <Map<String, String>>[
-    <String, String>{'label': 'Home', 'icon': 'home', 'detail': 'Civil Lines, Delhi • Flat 402'},
-    <String, String>{'label': 'Work', 'icon': 'work', 'detail': 'Connaught Place, Delhi • Block B Office'},
-    <String, String>{'label': 'Other', 'icon': 'place', 'detail': 'Kamla Nagar, Delhi • Market Road'},
-  ];
-
-  void _showAddressPickerModal() {
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-      builder: (ctx) => Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Select delivery location', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
-            const SizedBox(height: 4),
-            const Text(
-              'Saved addresses are not available for grocery yet — pick one for this order.',
-              style: TextStyle(fontSize: 11, color: GroceryTheme.textMuted),
-            ),
-            const SizedBox(height: 12),
-            for (final Map<String, String> choice in _addressChoices)
-              ListTile(
-                leading: Icon(_addressIcon(choice['icon']!), color: GroceryTheme.primaryGreenDark),
-                title: Text('${choice['label']} — ${choice['detail']}',
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                onTap: () {
-                  setState(() {
-                    _selectedAddressLabel = choice['label']!;
-                    _selectedAddressDetails = choice['detail']!;
-                  });
-                  Navigator.pop(ctx);
-                },
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  static IconData _addressIcon(String key) {
-    switch (key) {
-      case 'work':
-        return Icons.work_rounded;
-      case 'place':
-        return Icons.place_rounded;
-      default:
-        return Icons.home_rounded;
-    }
   }
 }

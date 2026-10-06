@@ -116,36 +116,42 @@ const norm = (p) => { const d = String(p || '').replace(/\D/g, ''); return d.len
   check('MTI-09', 'and B cannot read A\'s dashboard the same way (symmetry)',
     dashB_ofA.status === 403, { status: dashB_ofA.status, code: dashB_ofA.data.code });
 
-  // ---- C: order isolation. Find a RESTAURANT merchant that really owns orders and whose phone
-  // is unambiguous, authenticate as it, and take the order through its own authenticated read.
-  // B itself may own nothing, so the attacker/owner pair is discovered rather than assumed.
-  const ownerRows = await many(`SELECT m.id::text mid, m.phone, m.merchant_type, count(o.id)::text n
-      FROM merchants m JOIN orders o ON o.merchant_id = m.id
-      GROUP BY m.id, m.phone, m.merchant_type HAVING count(o.id) > 0 ORDER BY 4 DESC LIMIT 8`);
-  const owner = ownerRows.map(r => ({ ...r, rows: rowsByPhone.get(norm(r.phone)) || [] }))
-    .find(r => r.rows.length === 1);
-  const foreign = ownerRows.map(r => ({ ...r, rows: rowsByPhone.get(norm(r.phone)) || [] }))
-    .find(r => r.rows.length === 1 && r.mid !== (owner && owner.mid));
-  check('MTI-10', 'a legitimate owner/attacker merchant pair with real orders and unambiguous phones exists',
-    !!owner && !!foreign,
-    { owner: owner && `${owner.merchant_type}/${owner.n} orders`, attacker: foreign && `${foreign.merchant_type}/${foreign.n} orders` });
-
-  let bOrderId = null, tokOwner = null, tokAtk = null;
-  if (owner && foreign) {
-    const vo = await api('POST', '/api/auth/verify-otp', { phone: owner.phone, otp: OTP, role: 'MERCHANT' });
-    const va = await api('POST', '/api/auth/verify-otp', { phone: foreign.phone, otp: OTP, role: 'MERCHANT' });
-    tokOwner = vo.data && vo.data.token; tokAtk = va.data && va.data.token;
-    check('MTI-10B', 'both order-bearing merchants authenticate with the test OTP',
-      vo.status === 200 && va.status === 200 && !!tokOwner && !!tokAtk, { owner: vo.status, atk: va.status });
-    const ownOrders = await api('GET', `/api/merchant/${owner.mid}/orders`, undefined, tokOwner);
-    const list = (ownOrders.data && (ownOrders.data.orders || ownOrders.data.data)) || [];
-    bOrderId = list[0] && (list[0].id || list[0].orderId);
-    check('MTI-10C', "the owner's own authenticated read reveals a real order id (nothing invented)",
-      ownOrders.status === 200 && !!bOrderId, { status: ownOrders.status, count: list.length, bOrderId });
-  } else {
-    check('MTI-10B', 'owner/attacker merchant sessions', false, { note: 'no eligible pair' });
-    check('MTI-10C', 'a real order id was discovered', false, { note: 'no eligible pair' });
-  }
+  // ---- C: order isolation, on an order this suite created ----
+  //
+  // This group used to DISCOVER two merchants that happened to own orders, and then attack one
+  // of them. On a store that had just been cleared of transactional residue a single merchant
+  // owned any orders at all, so no pair existed and six checks went red because the database was
+  // tidy - not because one tenant could reach another. The order is now minted here through the
+  // application's own checkout route against a merchant this suite authenticated above, the
+  // item comes from that merchant's own catalogue, and the attacker is its sibling tenant B.
+  const CUSTOMER_PHONE = '9845011982';   // the seeded KYC-verified customer checkout is booked as
+  const ownerProd = await one(`SELECT id::text id, name FROM products WHERE merchant_id = $1::uuid
+      AND (is_available IS DISTINCT FROM false) ORDER BY created_at LIMIT 1`, [A.id]);
+  const cust = await api('POST', '/api/auth/verify-otp', { phone: CUSTOMER_PHONE, otp: OTP, role: 'CUSTOMER' });
+  const custTok = cust.data && cust.data.token;
+  const booked = (ownerProd && custTok)
+    ? await api('POST', '/api/customer/book-food',
+      { merchantId: A.id, deliveryAddress: 'Flat 402, Civil Lines Hub, North Delhi',
+        items: [{ productId: ownerProd.id, quantity: 1 }] }, custTok)
+    : { status: 0, data: { error: ownerProd ? 'no customer session' : 'tenant A owns no orderable product' } };
+  const fxOrderId = (booked.data.order || booked.data.job || {}).id || null;
+  check('MTI-10', 'this suite created one real order for tenant A through the checkout route',
+    booked.status === 200 && !!fxOrderId,
+    { status: booked.status, code: booked.data.code, err: String(booked.data.error || '').slice(0, 80),
+      product: ownerProd && ownerProd.name, customer: custTok ? 'session' : cust.status });
+  const ownOrders = await api('GET', `/api/merchant/${A.id}/orders`, undefined, tok.A);
+  const ownList = (ownOrders.data && (ownOrders.data.orders || ownOrders.data.data)) || [];
+  const bOrderId = ownList.find((o) => String(o.id || o.orderId) === String(fxOrderId))
+    ? fxOrderId : (ownList[0] && (ownList[0].id || ownList[0].orderId)) || null;
+  check('MTI-10B', "A's own authenticated read serves the order it was minted (nothing invented)",
+    ownOrders.status === 200 && !!bOrderId,
+    { status: ownOrders.status, count: ownList.length, bOrderId });
+  const atkOrders = await api('GET', `/api/merchant/${B.id}/orders`, undefined, tok.B);
+  const atkList = (atkOrders.data && (atkOrders.data.orders || atkOrders.data.data)) || [];
+  check('MTI-10C', 'the attacker tenant B is served no part of A\'s order',
+    atkOrders.status === 200 && !atkList.some((o) => String(o.id || o.orderId) === String(bOrderId)),
+    { status: atkOrders.status, bSees: atkList.length, target: bOrderId });
+  const tokAtk = tok.B;
 
   // column discovery, because guessing an orders column name has burned this programme before;
   // the durability proof itself compares the WHOLE row, which needs no name knowledge at all.
@@ -169,11 +175,11 @@ const norm = (p) => { const d = String(p || '').replace(/\D/g, ''); return d.len
       !!before && !!after && before.row === after.row,
       { changed: before && after ? before.row !== after.row : 'no row' });
     const ownRow = after ? JSON.parse(after.row) : {};
-    check('MTI-14', 'and the order still belongs to its original merchant',
-      String(ownRow[merchantCol]) === String(owner.mid), { owner: String(ownRow[merchantCol]).slice(0, 13) });
+    check('MTI-14', 'and the order still belongs to the merchant it was minted for',
+      String(ownRow[merchantCol]) === String(A.id), { owner: String(ownRow[merchantCol]).slice(0, 13) });
   } else {
     check('MTI-12', 'cross-tenant order mutation was attempted and denied', false,
-      { note: bOrderId ? 'no attacker token' : 'no order discovered for any eligible merchant' });
+      { note: bOrderId ? 'no attacker token' : 'MTI-10 minted no order to attack' });
     check('MTI-13', 'durable order row unchanged', false, { note: 'not executed' });
     check('MTI-14', 'order ownership unchanged', false, { note: 'not executed' });
   }

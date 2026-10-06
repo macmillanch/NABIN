@@ -186,18 +186,18 @@ class _GroceryMerchantOrderDetailScreenState extends ConsumerState<GroceryMercha
       builder: (context) => StatefulBuilder(
         builder: (context, setState) => AlertDialog(
           title: const Text('Reject Order'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: kGroceryRejectionReasons.map((reason) {
-              return RadioListTile<String>(
-                title: Text(groceryRejectionReasonLabel(reason)),
-                value: reason,
-                groupValue: selectedReason,
-                onChanged: (value) {
-                  setState(() => selectedReason = value);
-                },
-              );
-            }).toList(),
+          content: RadioGroup<String>(
+            groupValue: selectedReason,
+            onChanged: (value) => setState(() => selectedReason = value),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: kGroceryRejectionReasons.map((reason) {
+                return RadioListTile<String>(
+                  title: Text(groceryRejectionReasonLabel(reason)),
+                  value: reason,
+                );
+              }).toList(),
+            ),
           ),
           actions: [
             TextButton(

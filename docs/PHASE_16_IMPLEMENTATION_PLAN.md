@@ -158,7 +158,7 @@ Inspection of `backend/src/server.js` identifies the exact location where `drive
   4. `POST /api/driver/complete-trip` (Driver cannot complete trips)
   5. `POST /api/driver/payout` (Driver cannot request payouts)
   6. `GET /api/driver/:driverId/earnings` (Driver cannot view earnings)
-- **Secondary Dispatch Enforcement**: In `POST /api/driver/accept-job` (`server.js:2447`), an explicit check verifies `driver.user_id IS NOT NULL` and `driver.operationalStatus === 'AVAILABLE'`.
+- **Secondary Dispatch Enforcement**: In `POST /api/driver/accept-job` (`server.js:5368`), an explicit check verifies `driver.user_id IS NOT NULL` and `driver.operationalStatus === 'AVAILABLE'`.
 - **Behavior of Existing Driver Sessions**: Sessions associated with an unlinked driver token will receive an immediate `HTTP 403 Forbidden` (`code: UNLINKED_DRIVER_ACCOUNT`) and fail closed.
 
 ---

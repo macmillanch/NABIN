@@ -3,9 +3,10 @@ import 'package:flutter/material.dart';
 import '../../../../core/theme/nabin_tokens.dart';
 import '../../../../core/theme/restaurant_theme.dart';
 
-/// The restaurants and menu-item payloads carry no image column, so every food
-/// thumbnail is the initial-letter treatment on a deterministic NABIN token
-/// gradient — no broken network images, no competitor artwork.
+/// Dishes carry an `imageUrl` and restaurants a projected `coverImageUrl`. A row
+/// that declares neither gets the initial-letter treatment on a deterministic
+/// NABIN token gradient — never a broken network image or a competitor's
+/// artwork.
 class FoodLetterTile extends StatelessWidget {
   const FoodLetterTile({
     super.key,
@@ -13,14 +14,23 @@ class FoodLetterTile extends StatelessWidget {
     required this.seed,
     this.size = 74,
     this.radius = 14,
+    this.width,
+    this.height,
     this.icon,
     this.imageUrl,
   });
 
   final String letter;
   final String seed;
+
+  /// Drives the glyph scale. The box itself defaults to a square of this size.
   final double size;
   final double radius;
+
+  /// Override either edge, so a card can stretch the plate into a banner band
+  /// without a second copy of the gradient logic.
+  final double? width;
+  final double? height;
   final IconData? icon;
 
   /// Real artwork from the catalogue row. The letter tile stays underneath, so a
@@ -46,8 +56,8 @@ class FoodLetterTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final Widget tile = Container(
-      width: size,
-      height: size,
+      width: width ?? size,
+      height: height ?? size,
       alignment: Alignment.center,
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -72,14 +82,19 @@ class FoodLetterTile extends StatelessWidget {
     if (imageUrl == null) return tile;
     return ClipRRect(
       borderRadius: BorderRadius.circular(radius),
+      // The tile is the only sizing child, so the plate's own width/height drive
+      // the frame and the picture is pinned to it. `StackFit.expand` would instead
+      // hand both children the parent's max height, which is unbounded inside a
+      // lazily built list column, and the band would throw rather than render.
       child: Stack(
-        fit: StackFit.expand,
         children: <Widget>[
           tile,
-          Image.network(
-            imageUrl!,
-            fit: BoxFit.cover,
-            errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
+          Positioned.fill(
+            child: Image.network(
+              imageUrl!,
+              fit: BoxFit.cover,
+              errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
+            ),
           ),
         ],
       ),
@@ -119,8 +134,15 @@ class FoodMessageCard extends StatelessWidget {
       ),
       child: Column(
         children: <Widget>[
-          Icon(icon, size: 44, color: RestaurantTheme.neonOrange),
-          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: const BoxDecoration(
+              color: RestaurantTheme.sectionFill,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, size: 30, color: RestaurantTheme.headerBand),
+          ),
+          const SizedBox(height: 12),
           Text(
             title,
             textAlign: TextAlign.center,
@@ -143,8 +165,8 @@ class FoodMessageCard extends StatelessWidget {
               icon: const Icon(Icons.refresh_rounded, size: 18),
               label: Text(actionLabel!),
               style: OutlinedButton.styleFrom(
-                foregroundColor: RestaurantTheme.neonOrangeDark,
-                side: const BorderSide(color: RestaurantTheme.neonOrange),
+                foregroundColor: RestaurantTheme.onSecondaryAction,
+                side: const BorderSide(color: RestaurantTheme.headerBand),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               ),
             ),
@@ -156,11 +178,15 @@ class FoodMessageCard extends StatelessWidget {
 }
 
 /// Placeholder rows that hold the vertical rhythm of the real list.
+///
+/// `band: true` mirrors the photo-band restaurant card (band on top, text
+/// below) instead of the square-thumb row the menu lists use.
 class FoodListSkeleton extends StatelessWidget {
-  const FoodListSkeleton({super.key, this.itemCount = 3, this.rowHeight = 102});
+  const FoodListSkeleton({super.key, this.itemCount = 3, this.rowHeight = 102, this.band = false});
 
   final int itemCount;
   final double rowHeight;
+  final bool band;
 
   @override
   Widget build(BuildContext context) {
@@ -170,37 +196,60 @@ class FoodListSkeleton extends StatelessWidget {
         (index) => Container(
           height: rowHeight,
           margin: const EdgeInsets.only(bottom: 14),
+          clipBehavior: Clip.antiAlias,
           decoration: BoxDecoration(
             color: RestaurantTheme.white,
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(20),
             border: Border.all(color: RestaurantTheme.border),
           ),
-          child: Row(
-            children: <Widget>[
-              Container(
-                width: rowHeight - 28,
-                height: rowHeight - 28,
-                margin: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: RestaurantTheme.borderLight,
-                  borderRadius: BorderRadius.circular(14),
-                ),
-              ),
-              const Expanded(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
+          child: band
+              ? Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
-                    _Bar(width: 150, color: RestaurantTheme.borderLight),
-                    SizedBox(height: 8),
-                    _Bar(width: 210, color: RestaurantTheme.borderLight),
-                    SizedBox(height: 8),
-                    _Bar(width: 90, color: RestaurantTheme.borderLight),
+                    Container(
+                      height: rowHeight * 0.48,
+                      width: double.infinity,
+                      color: RestaurantTheme.sectionFill,
+                    ),
+                    const Padding(
+                      padding: EdgeInsets.fromLTRB(14, 14, 14, 0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          _Bar(width: 170, color: RestaurantTheme.sectionFill),
+                          SizedBox(height: 8),
+                          _Bar(width: 110, color: RestaurantTheme.sectionFill),
+                        ],
+                      ),
+                    ),
+                  ],
+                )
+              : Row(
+                  children: <Widget>[
+                    Container(
+                      width: rowHeight - 28,
+                      height: rowHeight - 28,
+                      margin: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: RestaurantTheme.sectionFill,
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                    const Expanded(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          _Bar(width: 150, color: RestaurantTheme.sectionFill),
+                          SizedBox(height: 8),
+                          _Bar(width: 210, color: RestaurantTheme.sectionFill),
+                          SizedBox(height: 8),
+                          _Bar(width: 90, color: RestaurantTheme.sectionFill),
+                        ],
+                      ),
+                    ),
                   ],
                 ),
-              ),
-            ],
-          ),
         ),
       ),
     );
@@ -250,18 +299,13 @@ class FoodFilterPill extends StatelessWidget {
         margin: const EdgeInsets.only(right: 8),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         decoration: BoxDecoration(
-          color: selected ? RestaurantTheme.neonOrange : RestaurantTheme.white,
+          // Selected filter is brand structure; the service orange stays on
+          // identity surfaces (FOOD badge, ADD controls, price emphasis).
+          color: selected ? RestaurantTheme.chipSelected : RestaurantTheme.sectionFill,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: selected ? RestaurantTheme.neonOrange : RestaurantTheme.border),
-          boxShadow: selected
-              ? <BoxShadow>[
-                  BoxShadow(
-                    color: RestaurantTheme.neonOrange.withValues(alpha: 0.3),
-                    blurRadius: 6,
-                    offset: const Offset(0, 2),
-                  ),
-                ]
-              : const <BoxShadow>[],
+          border: Border.all(
+            color: selected ? RestaurantTheme.chipSelected : Colors.transparent,
+          ),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,

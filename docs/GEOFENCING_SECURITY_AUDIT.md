@@ -66,7 +66,7 @@ Live local store, measured this session (not read from the migration files):
 
 | Operation | Route | Enforces a geo-fence? |
 |---|---|---|
-| Create a ride | `POST /api/customer/book-ride` (`server.js:3309`) | **No** — reads `pickup`/`drop`, defaults them, prices, persists |
+| Create a ride | `POST /api/customer/book-ride` (`server.js:3772`) | **No** — reads `pickup`/`drop`, defaults them, prices, persists |
 | Create a parcel order | `POST /api/customer/book-parcel` (`:3512`) | **No** — the pricing input carries no coordinates at all |
 | Create a food order | `POST /api/customer/book-food` (`:3654`) | **No** — the handler never reads a `lat`/`lng`; an address string is enough |
 | Assign a driver | dispatch loop | **No** — offers go to every driver whose `operationalStatus !== 'SUSPENDED'`; `distance_to_pickup`/`rank_score` exist in migration 014 and are never written |
@@ -92,7 +92,7 @@ Measured, not inferred: bookings submitted from `19.076, 72.8777` (Mumbai), from
 
 ## 4. Driver location
 
-The strong half of the audit lives here, and it is worth saying plainly because it was not always so: `POST /api/driver/location` (`server.js:6293`) and the WebSocket frame now share one validator (`services/TelemetryValidator.js`), and all eight rejection cases behaved when probed — missing, `NaN`, non-numeric, `lat` out of ±90, `lng` out of ±180, speed > 300 km/h, accuracy > 5000 m, timestamp more than 2 min ahead or more than 6 h behind. `receivedAt` is stamped by the server's clock, so a driver cannot age their own position by lying about it. Impersonation is refused: a `driverId` in the body that is not the session's driver is a 403 (`:6318`).
+The strong half of the audit lives here, and it is worth saying plainly because it was not always so: `POST /api/driver/location` (`server.js:7774`) and the WebSocket frame now share one validator (`services/TelemetryValidator.js`), and all eight rejection cases behaved when probed — missing, `NaN`, non-numeric, `lat` out of ±90, `lng` out of ±180, speed > 300 km/h, accuracy > 5000 m, timestamp more than 2 min ahead or more than 6 h behind. `receivedAt` is stamped by the server's clock, so a driver cannot age their own position by lying about it. Impersonation is refused: a `driverId` in the body that is not the session's driver is a 403 (`:6318`).
 
 What is missing for this audit: **no fence is ever tested against a driver position.** `updateDriverLocation` (`database.js:6980`) stores lat/lng into the fleet store; `getFleetLocations` reads it back. Crossing into or out of a zone changes nothing — no arrival is verified geographically, no "arrived" transition can be refused for a driver 40 km away, and `POST /api/driver/.../arrived` accepts the claim on trust. The order's test — *client-supplied coordinates cannot bypass server-side geo-fence checks* — is **vacuously true**: there are no server-side geo-fence checks to bypass. One related gate is weak rather than absent: `GET /api/fleet/locations` (`:6389`) requires `authenticateAdmin` and **no permission name**, so any authenticated administrator, including one whose grants are `geofence.view`-only, reads every live driver position; `:6459` will additionally synthesise a tracking position when it has none.
 
@@ -127,7 +127,7 @@ Inactive and expired zones: **no** inactive or non-ACTIVE surge row exists in th
 | `zoneId` in the booking/estimate body | **The bypass the order predicted exists.** `database.js:2344-2352`: when the client's coordinates are unusable, an `else if (zoneId)` branch looks the name up in the fence cache and applies *that fence's* surcharge and multiplier. Measured on a real job: garbage coordinates + the airport zone ⇒ `fare 105 → 255`, `driverEarnings 89 → 217`. The client does not have to be anywhere near the airport; it has to name it. |
 | Same trick on a healthy instance, with `zoneId=zone_airport` | **Refused — accidentally.** `zone_airport` is a seed-array id, so once the cache has been hydrated from the table that id is gone and the request prices at ₹565. The *no-store* instance, whose cache is still the seed array, honoured the same request and returned ₹573 with `matchedGeofence="IGI Airport Terminal 3 Zone"`. Whether a client can buy an airport surcharge depends on the process's boot history. |
 | `geoFenceId` / `serviceAreaId` / `surgeZoneId` | No such fields are read anywhere. The only client-named geographic input the server acts on is `zoneId`, above. |
-| Unauthenticated enumeration | `POST /api/geofence/evaluate` has **no middleware** (`server.js:2912`): 200 for a tokenless request. It echoes back the matched zone names, geometry-derived surcharges and the effective multiplier, so it is a boundary-probing oracle. Alongside it, the RLS policy that works as designed lets any holder of the anon key read **all 420 fences (269,198 bytes) and 418 surge rules (195,005 bytes)** directly from PostgREST — with `coordinates` included. The fence catalogue is public. |
+| Unauthenticated enumeration | `POST /api/geofence/evaluate` has **no middleware** (`server.js:3316`): 200 for a tokenless request. It echoes back the matched zone names, geometry-derived surcharges and the effective multiplier, so it is a boundary-probing oracle. Alongside it, the RLS policy that works as designed lets any holder of the anon key read **all 420 fences (269,198 bytes) and 418 surge rules (195,005 bytes)** directly from PostgREST — with `coordinates` included. The fence catalogue is public. |
 
 The order's requirement — *the server must calculate/verify geographic eligibility* — is unmet, because eligibility is not a concept the server implements. Where a position *is* verified (driver telemetry), the verification is honest.
 
@@ -297,7 +297,7 @@ it is an open decision), **OPEN** (unchanged, with the reason).
 | `PricingRepository.js` | geometry is validated and stored as drawn or not at all; `geoFailure`/`geoStoreFailure` give a refusal a code and an honest status (a duplicate zone code is `409`, not a `503` outage); every geo write re-hydrates the copy the process prices from |
 | `server.js` | the evaluate and reverse-geocode routes consume the engine; the quote and ride-booking routes refuse an unvalidated coordinate with a reason code and translate the engine's refusal through one helper; the five admin geo routes keep their permission gates and gained `replyGeoAdminError` plus an inventory the operator can read |
 | `TelemetryValidator.js` | the strict coordinate entry point shared by telemetry and by geo decisions, with the numeric-string contract on telemetry kept as a documented exception |
-| two suites | 112 geo checks, listed above, registered in `test_suite.js` so the full chain runs them |
+| three suites | 151 geo and place checks measured on 2026-10-05 — `geo_policy_test.js` 59/0, `geo_adversarial_test.js` 73/0, `place_substitution_test.js` 19/0 plus 1 gap recorded as `NOT MEASURED` — each registered as a link in `backend/scripts/test_chain.js` (links 4, 5 and 54) so the full chain runs them. The dated pass tables above are snapshots of the passes they describe, not these totals |
 
 ## R1. Per-area results
 
@@ -330,25 +330,25 @@ it is an open decision), **OPEN** (unchanged, with the reason).
 
 - **BEFORE:** three quote doors and one booking door all consulted a fence only to add money, and a client `zoneId` moved a real job ₹105 → ₹255.
 - **CHANGE:** the ride quote and both booking routes take the engine's verdict through the same helper, so a booking cannot invent its own idea of what an unvalidated location is worth.
-- **AFTER:** inside `200 booked ₹144` with `m=1.4` from `Connaught Place CBD Boundary`; outside/Mumbai/New York `200 booked ₹105`; nonsense `400` and no job; a forged or a real `zoneId` on the same outside point prices exactly as standing there unnamed (₹105/₹105); during a store outage no door books at all (`GEO-E06`).
-- **TEST:** MTX-R01…R10, INV-05, INV-07, GEO-E06, GEO-E07.
+- **AFTER:** inside `200 booked ₹144` with `m=1.4` from `Connaught Place CBD Boundary`; outside/Mumbai/New York `200 booked ₹105`; nonsense `400` and no job; a forged or a real `zoneId` on the same outside point prices exactly as standing there unnamed (₹105/₹105); during a store outage no door books at all (`GEO-E06`). A booking now also has to say *where*: an absent end, or a label with no pin on it, is `400 PLACE_REQUIRED` naming the `field`, and two identical pins are refused as a trip that does not exist — the ride that used to depart from the platform's own central-Delhi default no longer departs at all.
+- **TEST:** MTX-R01…R10, MTX-RIDE-PLACE-01…03, INV-05, INV-07, GEO-E06, GEO-E07, GEO-A06…A09.
 - **VERDICT:** CLOSED for pricing authority and coordinate validity; the area-refusal half is §14-1.
 
 ### 5. FOOD — was FAIL / NOT IMPLEMENTED
 
-- **BEFORE:** food quotes and bookings ignored geography entirely while the audit assumed a fence might apply.
-- **CHANGE:** none to the route's inputs — and that is the finding, stated honestly rather than improved on.
-- **AFTER:** the food route reads no coordinate at all: six different inputs, nonsense included, produce one fare (₹220), and no geographic refusal can arise on it (`GEO-E08`: food does not reach the engine).
-- **TEST:** MTX-FOOD-NO-GEO, GEO-E08.
-- **VERDICT:** OPEN — measured and recorded. A food service area is §14-1 (and §14-6 for `allowed_services`); adding a gate the order forbids deciding would be worse than the gap.
+- **BEFORE:** food quotes and bookings ignored geography entirely while the audit assumed a fence might apply. The route also wrote a delivery address the customer had never given — "North Campus Girls Hostel, Delhi" — onto the merchant's order card, so a restaurant could read an order as being driven to a place nobody chose.
+- **CHANGE:** nothing that reaches the price. The route still reads no coordinate, and adding one would put a service-area decision in a test rather than in front of the owner (§14-1). What changed is the address: the order must now carry the one the customer typed, refused before the coupon is redeemed so a refusal cannot spend a customer's one redemption.
+- **AFTER:** the food route reads no coordinate at all: six different inputs, nonsense included, produce one fare (₹220), and no geographic refusal can arise on it (`GEO-E08`: food does not reach the engine). An order with no `deliveryAddress` is `400 PLACE_REQUIRED` with `field: 'deliveryAddress'` and no order row (`MTX-FOOD-PLACE`).
+- **TEST:** MTX-FOOD-NO-GEO, MTX-FOOD-PLACE, GEO-E08.
+- **VERDICT:** OPEN for the service area — measured and recorded. A food service area is §14-1 (and §14-6 for `allowed_services`); adding a gate the order forbids deciding would be worse than the gap. CLOSED for the invented address: the platform writes the address it was given or refuses.
 
 ### 6. PARCEL — was FAIL / NOT IMPLEMENTED
 
-- **BEFORE:** as FOOD; the audit's parcel rows priced identically from any continent.
-- **CHANGE:** the parcel pricing *input* is now built without any client coordinate, so it cannot be moved by one, and the route goes through the engine for whatever the engine can say.
-- **AFTER:** six coordinates, one fare (₹129); `GEO-E08` proves the parcel input carries no `lat`/`lng` field at all.
-- **TEST:** MTX-PARCEL-NO-GEO, GEO-E08.
-- **VERDICT:** OPEN for the service area, §14-1. CLOSED for the possibility of a client moving a parcel price with a coordinate.
+- **BEFORE:** as FOOD; the audit's parcel rows priced identically from any continent. Every parcel was booked as a 6.1 km, 18-minute trip between two Delhi markets the route named itself, whatever the customer had typed — Civil Lines→Connaught measured 5.84 km/18 min against that same pair of points, which is close enough to the invented literal that the bug survived every fare check in the repository. The job also carried a `packageDetails` line the platform wrote for the courier ("Electronics Box (1.4 kg, Fragile)").
+- **CHANGE:** both ends go through the same `placedEnd` gate the ride uses, the trip length is measured between them by the one haversine the platform has, and the duration comes from the one city-speed model (`tripDurationMins`). A customer's declared `packageDetails`/`weightTier` is stored, or stays `null`. The pricing *input* still carries no raw client coordinate — it carries a distance the server derived from two points it validated first, which is the distinction the old `GEO-E08` was unable to make.
+- **AFTER:** an unplaced or half-placed parcel is `400 PLACE_REQUIRED` naming the missing end (`MTX-PARCEL-PLACE-01/02`); two identical pins are refused (`-03`); and a parcel placed 2, 6 and 14 km apart prices as three different fares whose stored `distance` matches what was placed within 0.05 km, equal to the same `/api/pricing/estimate` fed the job's own distance and duration (`MTX-PARCEL-GEOM`, `MTX-PARCEL-GEOM-STORED`). No boundary or area rule reaches a parcel price yet, so an outside parcel still books — that half is §14-1, and `MTX-PARCEL-NO-GEO` now asserts exactly that and nothing stronger.
+- **TEST:** MTX-PARCEL-NO-GEO, MTX-PARCEL-PLACE-01…03, MTX-PARCEL-GEOM, MTX-PARCEL-GEOM-STORED, GEO-E08, GEO-A06…A09.
+- **VERDICT:** CLOSED for the platform choosing a parcel's places, its length, or its contents. OPEN for the service area, §14-1. A client can still move a parcel price no more than before: the distance is computed, not read from the body.
 
 ### 7. DRIVER — was FAIL (telemetry PASS, containment absent) / PARTIALLY IMPLEMENTED
 
@@ -443,9 +443,10 @@ engine's verdict on the *server's* read of the coordinate, never a claim from th
 | RIDE | quote (`/api/pricing/estimate`) | `VALIDATED_INSIDE` / `VALIDATED_OUTSIDE` / `NOT_PROVIDED` | 200, geography-free fare ₹105, `matchedFences: []`, `activeZoneName: null` (§14-1 open) | `503 GEO_STORE_UNAVAILABLE`, no fare (GEO-E01) |
 | RIDE | book (`/api/customer/book-ride`) | same helper as the quote | 200 booked at ₹105, fare taken from the server quote (MTX-R04, INV-07) | no job row written, refusal translated by the same helper (GEO-E06, GEO-E07) |
 | RIDE | invalid coordinate (`999`, `"abc"`) | refused before geography | `400 GEO_COORDINATES_OUT_OF_RANGE` / `GEO_INVALID_COORDINATES`, no quote and no job (MTX-R01, MTX-R10) | the coordinate refusal wins: a `400` about the input, not a `503` about the store (GEO-E04) |
-| RIDE | missing coordinate | `NOT_PROVIDED` | 200 booked from the platform's central-Delhi default; §14-1 left open (MTX-R08, MTX-R09) | `503` — the door is shut whichever way the point looks (GEO-E01) |
-| PARCEL | book | none available: the route's pricing input carries no coordinate (GEO-E08) | 200 at ₹129 from any of six coordinates — **no geographic modifier is possible, and no area refusal either** (MTX-PARCEL-NO-GEO) | unaffected: no geographic call to fail |
-| FOOD | book | none: the route does not reach the engine (GEO-E08) | 200 at ₹220 from any of six coordinates (MTX-FOOD-NO-GEO) | unaffected: no geographic call to fail |
+| RIDE | book without a placed end (absent, or a label with no pin) | refused before the engine is asked | `400 PLACE_REQUIRED` naming the missing `field`, no quote and no job — the platform no longer drives a customer from a place it chose itself (MTX-R08, MTX-R09, MTX-RIDE-PLACE-01/02) | `503` — the store is read before the door opens either way (GEO-E01) |
+| RIDE | the two placed ends are the same point | measured, then refused | `400 PLACE_REQUIRED` on `field: 'drop'`: there is no trip to price (MTX-RIDE-PLACE-03) | n/a |
+| PARCEL | book | both ends through `placedEnd`, then the engine prices the measured distance | 200, and the fare **moves with the trip the customer placed** (₹ for 2 / 6 / 14 km each differ) — but no boundary or area rule reaches a parcel price, so an outside parcel still books (§14-1 open) (MTX-PARCEL-GEOM, MTX-PARCEL-GEOM-STORED, MTX-PARCEL-PLACE, MTX-PARCEL-NO-GEO) | the `packageDetails`/`weightTier` the customer declared are stored, and an omitted one stays null; the outage proof on this file is the ride route's (GEO-E06), not parcel's |
+| FOOD | book | none: the route does not reach the engine (GEO-E08) | 200 at ₹220 from any of six coordinates (MTX-FOOD-NO-GEO); an order with **no delivery address** is refused `400 PLACE_REQUIRED` on `field: 'deliveryAddress'` before the coupon is redeemed (MTX-FOOD-PLACE) | unaffected: no geographic call to fail |
 | DRIVER | go online / accept offer / accept job / arrived / complete | none, and none trusted: the handlers read no geographic field (DRV-01) | not reached — these operations take no coordinate | unaffected for the geographic half; the auth fail-closed path is unchanged |
 | DRIVER | store position (`/api/driver/location`) | telemetry validity only, then stored (DRV-02) | stored, no zone named, identical field set to an inside driver (DRV-03) | nothing stored, no position lost silently (GEO-E09) |
 | DISPATCH | offer fan-out | none (§14-1) | offers still reach every non-suspended driver | unchanged |
@@ -553,6 +554,8 @@ correction, not a regression:
 8. An unreadable geo store is a `503` on booking-critical calls where it used to be a silent `200` priced from compiled-in seeds.
 9. The admin fence list gained an `inventory` block; the tokenless evaluate route lost its vertices.
 10. `admin_authorization_test.js`'s route parser now reads statements, so three ungated routes it could not see are counted: `GET /api/admin/features`, `POST /api/v1/admin/features`, `GET /api/v1/fleet/locations`. The CAT-04 ceiling moved 14 → 17 **with those three named**, none of them gated here (features is the admin spec's flag-family decision; the fleet alias is §14-9).
+11. A booking whose ends are not placed is refused (`400 PLACE_REQUIRED`, with the `field` that is missing) instead of booked at `200` from a place the platform chose. This applies to a ride's `pickup`/`drop`, a parcel's `sender`/`recipient`, and a food order's `deliveryAddress`, and it fires before any coupon is redeemed — a refusal that arrived after `redeem_promotion_atomic` would have spent the customer's one redemption for an order that was never created. Two identical pins are refused for the same reason: there is no trip to price.
+12. A parcel's `distance`, `duration` and fare are now measured between the two points the customer placed, from one haversine and one city-speed model. Every parcel used to be a 6.1 km / 18-minute trip between two markets the route named itself. `packageDetails` and `weightTier` are what the customer declared, or `null` — the platform no longer writes a description of somebody else's box for the courier to read.
 
 New reason codes, all in `GeoPolicyService.REASON`, all client-safe (no stack text, no internal
 detail, no secret or token in any of them): `GEO_INVALID_COORDINATES`, `GEO_COORDINATES_OUT_OF_RANGE`,
@@ -560,6 +563,9 @@ detail, no secret or token in any of them): `GEO_INVALID_COORDINATES`, `GEO_COOR
 `GEO_MULTIPLIER_INVALID`, `GEO_ZONE_CODE_TAKEN`, `GEO_ZONE_CODE_INVALID`, plus the window labels
 `GEO_RULE_EXPIRED` and `GEO_RULE_NOT_YET_ACTIVE` and the telemetry codes
 `TELEMETRY_STALE` / `TIMESTAMP_IN_FUTURE` the driver path already used.
+`PLACE_REQUIRED` deliberately lives beside them in `server.js` rather than inside `REASON`: it is not
+a verdict about a coordinate, it is the absence of one. A pin that is present and garbled keeps the
+policy's own code; a pin that was never placed gets the instruction the customer can act on.
 
 ## R8. REMAINING DECISIONS
 
@@ -571,7 +577,7 @@ test that asserted an answer would be that answer chosen by whoever wrote the te
 
 | §14 | Decision | What this pass left it with |
 |---|---|---|
-| 1 | Does "outside the service area" refuse, reprice, or mean nothing? | Unanswered. RIDE repriced-to-nothing and booked; FOOD and PARCEL read no coordinate; DRIVER and DISPATCH ask no question of geography. Every one of those is now *labelled*, so answering this is a change in one place |
+| 1 | Does "outside the service area" refuse, reprice, or mean nothing? | Unanswered. RIDE repriced-to-nothing and booked; PARCEL now prices from the distance the customer placed but no boundary reaches it, so an outside parcel still books; FOOD reads no coordinate at all. DRIVER and DISPATCH ask no question of geography. Every one of those is now *labelled*, so answering this is a change in one place |
 | 2 | Is client-supplied `zoneId` a feature or a hole? | **Answered by the order itself (Phase 3: it must go) and implemented.** Recorded here so the removal traces to an instruction, not to judgement |
 | 3 | Overlapping fences: additive, max, or highest-`priority`? | Unanswered. Duplicate *shapes* are excluded as arithmetic; distinct overlaps still sum surcharge and take the max multiplier (`PH6-O`), which is the platform's existing rule now made visible |
 | 4 | Must a surge rule have containment and a date? | Unanswered. `EXPIRED` and `NOT_YET_ACTIVE` are measured and reported, and the rule is applied anyway; `basis=STATUS_ONLY` names the door |

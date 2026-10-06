@@ -6,7 +6,8 @@
 // that had not answered at all. This file is the evidence that those three doors
 // are shut, in the order an auditor asks about them:
 //
-//   A. the coordinate validator       — what is refused before geography is read
+//   A. the coordinate validator       — what is refused before geography is read,
+//                                      and what the surviving pair actually measures
 //   B. geometry at the write          — a boundary is stored as drawn or not at all
 //   C. the engine over a synthetic    — containment, duplicates, inactive rows, and
 //      store                          the one case a live store cannot show honestly:
@@ -130,6 +131,42 @@ function groupA() {
   const telemetryStrings = geoPolicy.validateCoordinatePair('28.5562', '77.1000', { numericStrings: true });
   check('GEO-A05', telemetryStrings.ok === true && telemetryStrings.value.lat === 28.5562,
     'a numeric string is accepted only where a published contract allows one, and parses exactly');
+
+  // The trip length itself. Every booking route now derives `distance` from the two
+  // points the customer placed, and the adversarial harness places a pair of an exact
+  // length by adding km/KM_PER_DEG_LAT to the latitude — a shortcut that is only sound
+  // while one degree of latitude really is ~111.19 km on the sphere the platform uses.
+  // If the radius or the formula moves, the harness stops placing what it claims to.
+  const KM_PER_DEG_LAT = 111.1949;
+  const AIZAWL = { lat: 23.7660, lng: 92.7240 };
+  const degLat = geoPolicy.distanceKmBetween(AIZAWL, { lat: AIZAWL.lat + 1, lng: AIZAWL.lng });
+  check('GEO-A06', Math.abs(degLat - KM_PER_DEG_LAT) < 0.01,
+    `one degree of latitude measures ${degLat.toFixed(4)} km, the constant a harness relies on to place a trip of an exact length`);
+
+  const placed = [2, 6, 14].map((km) => ({
+    km,
+    measured: geoPolicy.distanceKmBetween(AIZAWL, { lat: AIZAWL.lat + km / KM_PER_DEG_LAT, lng: AIZAWL.lng })
+  }));
+  check('GEO-A07', placed.every((p) => Math.abs(p.measured - p.km) < 0.005) &&
+    placed[0].measured < placed[1].measured && placed[1].measured < placed[2].measured,
+    `a placed span comes back the length it was placed at, and increasing (${placed.map(p => `${p.km}->${p.measured.toFixed(4)}`).join(' ')})`);
+
+  check('GEO-A08',
+    geoPolicy.distanceKmBetween(AIZAWL, { lat: AIZAWL.lat + 6 / KM_PER_DEG_LAT, lng: AIZAWL.lng }) ===
+    geoPolicy.distanceKmBetween({ lat: AIZAWL.lat + 6 / KM_PER_DEG_LAT, lng: AIZAWL.lng }, AIZAWL) &&
+    geoPolicy.distanceKmBetween(AIZAWL, AIZAWL) === 0,
+    'the length does not depend on which end was picked up first, and one point has no trip');
+
+  // The sharp edge, recorded rather than papered over. `Number(null) === 0`, so an
+  // absent coordinate is not absent to this helper — it is latitude 0, the Gulf of
+  // Guinea. A missing *point* is refused; a point with a null coordinate is not.
+  // That is why no route may call this helper on a raw request body, and why every
+  // booking route puts `validateCoordinatePair` in front of it via `placedEnd`.
+  check('GEO-A09',
+    geoPolicy.distanceKmBetween({ lat: null, lng: 0 }, { lat: 0, lng: 0 }) === 0 &&
+    geoPolicy.distanceKmBetween(undefined, AIZAWL) === null &&
+    geoPolicy.distanceKmBetween({}, AIZAWL) === null,
+    'a null coordinate silently reads as the equator while an absent point returns null — the reason geometry is only ever measured after validation');
 }
 
 // ---------------------------------------------------------------------------
@@ -646,17 +683,25 @@ async function groupE() {
   check('GEO-E07', ride.includes('replyGeoRefusal(res, req, basePricing.geoValidation.refusal)'),
     'the ride route translates the engine refusal with the same helper the quote uses, so a booking ' +
     'cannot invent its own idea of what an unvalidated location is worth');
-  // Recorded gap, not a passing guarantee. Parcel prices from a three-field input
-  // with no coordinate in it; food never reaches the fare engine at all. Neither
-  // can produce a geographic refusal today, which is what makes the gap provable
-  // rather than a matter of reading a request body and hoping. Whether either
-  // route must be inside a service area is §14 decision 1 and is NOT DECIDED here.
-  const parcelInput = /const parcelPricingInput = \{([\s\S]*?)\}/.exec(parcel);
-  check('GEO-E08', parcel.includes('db.calculateFareEstimate(parcelPricingInput)') &&
-    !!parcelInput && !/[Ll]at|[Ll]ng/.test(parcelInput[1]) &&
+  // Parcel used to price from a three-field input carrying no coordinate at all, and
+  // food never reached the fare engine, so neither route *could* produce a geographic
+  // refusal — that was the recorded gap. Parcel has closed it: both ends now pass
+  // through the same `placedEnd` gate before a metre is measured, so the distance the
+  // engine prices is the distance between two validated points, and a garbled parcel
+  // pin is refused with the policy's own code instead of priced from a place the
+  // platform chose. Food still never reaches the engine; it refuses an order with no
+  // address before one is created, which is the same doctrine where food can express
+  // it. Whether either route must lie inside a service area is §14 decision 1 and is
+  // still NOT DECIDED here.
+  const parcelGate = parcel.includes("placedEnd(senderDetails, 'sender')") &&
+    parcel.includes("placedEnd(recipientDetails, 'recipient')") &&
+    /const parcelPricingInput = \{[\s\S]*?distanceKm: parcelKm/.test(parcel);
+  check('GEO-E08', parcelGate &&
+    /function placedEnd[\s\S]*?geoPolicy\.validateCoordinatePair/.test(source) &&
+    parcel.includes('db.calculateFareEstimate(parcelPricingInput)') &&
     !food.includes('calculateFareEstimate'),
-    'parcel prices through the engine from an input carrying no coordinate, and food does not reach the ' +
-    'engine at all, so no geographic refusal can arise on either route (recorded, not fixed)');
+    'parcel reaches the engine only through a distance measured between two placed, validated ends, ' +
+    'and food still never reaches it (it refuses an order with no address instead)');
 
   // Phase 11's outage row, same shape as GEO-E06: the driver's position route is
   // the only geo-adjacent door on that path, and an unreachable store closes it

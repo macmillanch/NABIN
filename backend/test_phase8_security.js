@@ -36,50 +36,72 @@ async function runTests() {
   // ───────────────────────────────────────────────────────────────────────────
   console.log('GROUP 1: audit_logs Append-Only Enforcement');
 
-  let auditRowId;
-
   await test('audit_logs: INSERT succeeds (append is permitted)', async () => {
-    const res = await client.query(
-      `INSERT INTO public.audit_logs
-         (admin_id, admin_name, role, action, module, target_entity_type, target_entity_id)
-       VALUES ('TEST_AGENT', 'Test Agent', 'SYSTEM', 'TEST_INSERT', 'TESTING', 'TEST', 'phase8-test')
-       RETURNING id`
-    );
-    auditRowId = res.rows[0].id;
-    assert.ok(auditRowId, 'Expected inserted row ID');
+    await client.query('BEGIN');
+    try {
+      const res = await client.query(
+        `INSERT INTO public.audit_logs
+           (admin_id, admin_name, role, action, module, target_entity_type, target_entity_id)
+         VALUES ('TEST_AGENT', 'Test Agent', 'SYSTEM', 'TEST_INSERT', 'TESTING', 'TEST', 'phase8-test')
+         RETURNING id`
+      );
+      assert.ok(res.rows[0].id, 'Expected inserted row ID');
+    } finally {
+      await client.query('ROLLBACK');
+    }
   });
 
   await test('audit_logs: UPDATE is blocked by trigger (append-only)', async () => {
-    if (!auditRowId) throw new Error('No audit row to test against');
+    // The append-only trigger refuses UPDATE and DELETE for every role, including the
+    // superuser this suite connects as, so a committed probe row could never be cleaned up
+    // again. The probe therefore inserts inside its own transaction and rolls it back, which
+    // proves the same contract while leaving the durable audit log exactly as it was found.
+    await client.query('BEGIN');
     try {
+      const probe = await client.query(
+        `INSERT INTO public.audit_logs
+           (admin_id, admin_name, role, action, module, target_entity_type, target_entity_id)
+         VALUES ('TEST_AGENT', 'Test Agent', 'SYSTEM', 'TEST_INSERT', 'TESTING', 'TEST', 'phase8-test')
+         RETURNING id`
+      );
       await client.query(
         `UPDATE public.audit_logs SET action = 'TAMPERED' WHERE id = $1`,
-        [auditRowId]
+        [probe.rows[0].id]
       );
       throw new Error('UPDATE should have been blocked but was not');
     } catch (err) {
       if (err.message.includes('audit_logs is append-only')) {
-        // Expected — trigger fired correctly
+        // Expected - trigger fired correctly
         return;
       }
       throw err;
+    } finally {
+      await client.query('ROLLBACK');
     }
   });
 
   await test('audit_logs: DELETE is blocked by trigger (append-only)', async () => {
-    if (!auditRowId) throw new Error('No audit row to test against');
+    await client.query('BEGIN');
     try {
+      const probe = await client.query(
+        `INSERT INTO public.audit_logs
+           (admin_id, admin_name, role, action, module, target_entity_type, target_entity_id)
+         VALUES ('TEST_AGENT', 'Test Agent', 'SYSTEM', 'TEST_INSERT', 'TESTING', 'TEST', 'phase8-test')
+         RETURNING id`
+      );
       await client.query(
         `DELETE FROM public.audit_logs WHERE id = $1`,
-        [auditRowId]
+        [probe.rows[0].id]
       );
       throw new Error('DELETE should have been blocked but was not');
     } catch (err) {
       if (err.message.includes('audit_logs is append-only')) {
-        // Expected — trigger fired correctly
+        // Expected - trigger fired correctly
         return;
       }
       throw err;
+    } finally {
+      await client.query('ROLLBACK');
     }
   });
 
@@ -265,9 +287,9 @@ async function runTests() {
     assert.strictEqual(res.rows.length, 0, `Tables without RLS: ${res.rows.map(r => r.tablename).join(', ')}`);
   });
 
-  // Clean up test row from audit_logs (note: row was inserted, but we cannot delete it now due to our trigger)
-  // This is expected behavior — the trigger correctly prevents cleanup.
-  // The test INSERT will remain as a permanent record.
+  // The three audit_logs probes above each ran inside a transaction that was rolled back, so the
+  // append-only trigger (which correctly refuses to clean up a committed row) is never asked to
+  // delete anything, and no probe row is left behind on the durable audit log.
 
   await client.end();
 

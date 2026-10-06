@@ -12,10 +12,10 @@ import 'nabin_palette.dart';
 /// `customer-web`/`admin-web` `globals.css` mirrors this file verbatim, so a
 /// colour or spacing change must be applied in both places.
 class NabinColor {
-  static const Color brand = Color(0xFF3C4890);
-  static const Color brandHover = Color(0xFF2E376E);
-  static const Color brandBright = Color(0xFF5A69BE);
-  static const Color brandTint = Color(0xFFE0E5FF);
+  static const Color brand = Color(0xFF1A3BA2); // NABIN master signature blue (owner replaced #1A1265 and the brief #4D5BBD, 2026-10-03)
+  static const Color brandHover = Color(0xFF142E80);
+  static const Color brandBright = Color(0xFF3E5CC4);
+  static const Color brandTint = Color(0xFFE9EEF9);
 
   static const Color success = Color(0xFF22A447);
   static const Color successDark = Color(0xFF1B8238);
@@ -30,11 +30,17 @@ class NabinColor {
   static const Color dangerDark = Color(0xFFB91C1C);
   static const Color info = Color(0xFF0284C7);
 
-  static const Color foodOrange = Color(0xFFFF9030);
-  static const Color groceryGreen = Color(0xFF22A447);
-  static const Color rideBlue = Color(0xFF0052CC);
+  /// Service accents. Ride and Parcel complete the four-service palette alongside
+  /// foodOrange / groceryGreen, so a service screen can paint its accent from a
+  /// token instead of a hardcoded colour (master brand stays `brand`).
+  // (Ride/Parcel service accents are defined with the shared accents below.)
+
+  static const Color foodOrange = Color(0xFFE8590C); // NABIN Food accent
+  static const Color groceryGreen = Color(0xFF12A150); // NABIN Grocery accent
+  static const Color rideBlue = Color(0xFF2D5BDB); // NABIN Ride accent
   static const Color parcelTeal = Color(0xFF00897B);
-  static const Color gold = Color(0xFFFBBF24);
+  static const Color gold =
+      Color(0xFFE5A800); // NABIN Parcel accent (amber/gold)
   static const Color telemetryCyan = Color(0xFF06B6D4);
 
   // Role accents are duplicated as plain colours because Dart does not allow
@@ -76,9 +82,11 @@ class NabinSpacing {
   static const double xxl = 32;
   static const double xxxl = 48;
 
-  static const EdgeInsets page = EdgeInsets.symmetric(horizontal: md, vertical: xs);
+  static const EdgeInsets page =
+      EdgeInsets.symmetric(horizontal: md, vertical: xs);
   static const EdgeInsets card = EdgeInsets.all(md);
-  static const EdgeInsets listTile = EdgeInsets.symmetric(horizontal: sm, vertical: xs);
+  static const EdgeInsets listTile =
+      EdgeInsets.symmetric(horizontal: sm, vertical: xs);
 }
 
 class NabinRadius {
@@ -90,7 +98,8 @@ class NabinRadius {
 
   static final BorderRadius card = BorderRadius.circular(lg);
   static final BorderRadius control = BorderRadius.circular(md);
-  static final BorderRadius sheet = BorderRadius.vertical(top: Radius.circular(xl));
+  static const BorderRadius sheet =
+      BorderRadius.vertical(top: const Radius.circular(xl));
 }
 
 class NabinElevation {
@@ -138,9 +147,10 @@ class NabinRole {
   final Color tint;
   final String label;
 
-  static const NabinRole customer = NabinRole._(NabinColor.brand, NabinColor.brandTint, 'Customer');
-  static const NabinRole driver =
-      NabinRole._(NabinColor.driverAccent, NabinColor.driverAccentTint, 'Driver');
+  static const NabinRole customer =
+      NabinRole._(NabinColor.brand, NabinColor.brandTint, 'Customer');
+  static const NabinRole driver = NabinRole._(
+      NabinColor.driverAccent, NabinColor.driverAccentTint, 'Driver');
   static const NabinRole restaurantMerchant =
       NabinRole._(NabinColor.foodOrange, NabinColor.warningTint, 'Restaurant');
   static const NabinRole groceryMerchant =
@@ -158,37 +168,76 @@ class NabinType {
     final NabinPalette p = palette ?? NabinPalette.defaults();
     final Color primary =
         brightness == Brightness.dark ? NabinColor.onDarkSurface : p.onSurface;
-    final Color secondary =
-        brightness == Brightness.dark ? NabinColor.onDarkSurfaceMuted : p.onSurfaceMuted;
+    final Color secondary = brightness == Brightness.dark
+        ? NabinColor.onDarkSurfaceMuted
+        : p.onSurfaceMuted;
 
     return GoogleFonts.interTextTheme(
       TextTheme(
         displayLarge: TextStyle(
-            fontSize: 32, fontWeight: FontWeight.w900, color: primary, letterSpacing: -0.5),
+            fontSize: 32,
+            fontWeight: FontWeight.w900,
+            color: primary,
+            letterSpacing: -0.5),
         displayMedium: TextStyle(
-            fontSize: 28, fontWeight: FontWeight.w800, color: primary, letterSpacing: -0.4),
+            fontSize: 28,
+            fontWeight: FontWeight.w800,
+            color: primary,
+            letterSpacing: -0.4),
         headlineLarge: TextStyle(
-            fontSize: 24, fontWeight: FontWeight.w800, color: primary, letterSpacing: -0.3),
-        headlineMedium: TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: primary),
-        headlineSmall: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: primary),
-        titleLarge: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: primary),
-        titleMedium: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: primary),
-        titleSmall: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: secondary),
-        bodyLarge: TextStyle(fontSize: 16, fontWeight: FontWeight.w400, color: primary, height: 1.5),
-        bodyMedium: TextStyle(fontSize: 14, fontWeight: FontWeight.w400, color: secondary, height: 1.5),
-        bodySmall: TextStyle(fontSize: 12, fontWeight: FontWeight.w400, color: secondary, height: 1.45),
+            fontSize: 24,
+            fontWeight: FontWeight.w800,
+            color: primary,
+            letterSpacing: -0.3),
+        headlineMedium: TextStyle(
+            fontSize: 20, fontWeight: FontWeight.w700, color: primary),
+        headlineSmall: TextStyle(
+            fontSize: 18, fontWeight: FontWeight.w700, color: primary),
+        titleLarge: TextStyle(
+            fontSize: 18, fontWeight: FontWeight.w700, color: primary),
+        titleMedium: TextStyle(
+            fontSize: 16, fontWeight: FontWeight.w600, color: primary),
+        titleSmall: TextStyle(
+            fontSize: 14, fontWeight: FontWeight.w600, color: secondary),
+        bodyLarge: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w400,
+            color: primary,
+            height: 1.5),
+        bodyMedium: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w400,
+            color: secondary,
+            height: 1.5),
+        bodySmall: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w400,
+            color: secondary,
+            height: 1.45),
         labelLarge: TextStyle(
-            fontSize: 15, fontWeight: FontWeight.w800, color: primary, letterSpacing: 0.2),
+            fontSize: 15,
+            fontWeight: FontWeight.w800,
+            color: primary,
+            letterSpacing: 0.2),
         labelMedium: TextStyle(
-            fontSize: 13, fontWeight: FontWeight.w700, color: secondary, letterSpacing: 0.3),
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            color: secondary,
+            letterSpacing: 0.3),
         labelSmall: TextStyle(
-            fontSize: 11, fontWeight: FontWeight.w700, color: secondary, letterSpacing: 0.6),
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+            color: secondary,
+            letterSpacing: 0.6),
       ),
     );
   }
 
   /// Tabular figures keep money, ETA and distance columns from jittering.
-  static TextStyle numeric({double fontSize = 16, FontWeight weight = FontWeight.w700, Color? color}) =>
+  static TextStyle numeric(
+          {double fontSize = 16,
+          FontWeight weight = FontWeight.w700,
+          Color? color}) =>
       GoogleFonts.inter(
         fontSize: fontSize,
         fontWeight: weight,
@@ -235,6 +284,7 @@ class NabinTheme {
       final double dark = ink.computeLuminance();
       return (math.max(light, dark) + 0.05) / (math.min(light, dark) + 0.05);
     }
+
     return ratio(p.onBrand) >= ratio(p.onSurface) ? p.onBrand : p.onSurface;
   }
 
@@ -265,7 +315,8 @@ class NabinTheme {
       onError: p.onBrand,
       outlineVariant: p.divider,
     );
-    return _compose(scheme, p.canvas, NabinType.textTheme(Brightness.light, p), role, p);
+    return _compose(
+        scheme, p.canvas, NabinType.textTheme(Brightness.light, p), role, p);
   }
 
   /// High-contrast night ramp for in-vehicle driver screens.
@@ -339,6 +390,8 @@ class NabinTheme {
         ),
         filledButtonTheme: FilledButtonThemeData(
           style: FilledButton.styleFrom(
+            backgroundColor: scheme.primary,
+            foregroundColor: scheme.onPrimary,
             minimumSize: NabinTarget.button,
             shape: RoundedRectangleBorder(borderRadius: NabinRadius.control),
             textStyle: text.labelLarge,
@@ -356,6 +409,7 @@ class NabinTheme {
         ),
         outlinedButtonTheme: OutlinedButtonThemeData(
           style: OutlinedButton.styleFrom(
+            foregroundColor: scheme.primary,
             minimumSize: NabinTarget.button,
             side: BorderSide(color: scheme.outlineVariant),
             shape: RoundedRectangleBorder(borderRadius: NabinRadius.control),

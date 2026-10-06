@@ -43,22 +43,22 @@ class GroceryDealsScreen extends ConsumerWidget {
     return Scaffold(
       backgroundColor: GroceryTheme.bgOffWhite,
       appBar: AppBar(
-        backgroundColor: GroceryTheme.surfaceWhite,
+        backgroundColor: GroceryTheme.headerBand,
         elevation: 0,
-        title: Column(
+        title: const Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          children: const <Widget>[
+          children: <Widget>[
             Text(
               'Daily price drops',
               style: TextStyle(
                 fontWeight: FontWeight.w900,
                 fontSize: 18,
-                color: GroceryTheme.textDark,
+                color: GroceryTheme.onHeader,
               ),
             ),
             Text(
               'Listed price below MRP right now',
-              style: TextStyle(fontSize: 11, color: GroceryTheme.textMuted),
+              style: TextStyle(fontSize: 11, color: Colors.white70),
             ),
           ],
         ),

@@ -328,6 +328,17 @@ A strict boundary is maintained between transient session authentication and per
 3. **Mock Document Previews:**
    - In development and test environments, document URLs point to `/docs/:filename` (e.g. `/docs/mock_aadhaar_rahul.png`).
    - `server.js` renders safe, non-PII watermarked SVG preview cards on demand.
+
+   **Corrected 2026-10-06 (task #146).** Both bullets above were wrong when written and neither is
+   true now. The SVG was not non-PII in any sense that matters: it rendered a name, a date of birth,
+   an address, an Aadhaar-shaped number and an EPIC number under a "GOVERNMENT WATERMARK" line, and
+   calling fabricated identifying data "safe" is how it reached an examiner's queue. Since #146 the
+   route answers a fixed "NO DOCUMENT ON FILE" placeholder behind
+   `authenticateAdmin` + `requirePermission('identity_documents.view')`, no `/docs/mock_*` path is
+   handed out by the submit route or the seed rows any more (both store `null`), and there is still
+   **no document persisted anywhere** — the `identity_documents` table has no writer in `backend/src`.
+   Current contract: `docs/CUSTOMER_SCREEN_CONTRACT_AUDIT.md` §3.
+
 4. **Preservation Directive:**
    - In compliance with Phase 10 guidelines, media storage architecture is maintained without premature redesign. Document URIs are safely persisted in PostgreSQL.
 

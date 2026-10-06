@@ -1,130 +1,194 @@
 import 'package:flutter/foundation.dart';
+import '../network/nabin_api_service.dart';
 import 'school_model.dart';
 import 'child_model.dart';
 
+enum SchoolChildLoadStatus { idle, loading, ready, failed }
+
+/// Saved schools and saved children, read from and written to the platform.
+///
+/// This used to be an in-memory list seeded with one sample child and two
+/// schools whose lat/long were Delhi coordinates labelled with Aizawl names, and
+/// every "Save" in Profile only mutated this process. The backend has real
+/// authenticated CRUD for both (`GET/POST/PUT/DELETE /api/schools`,
+/// `/api/children`), so nothing is stored here that the server did not return.
 class SchoolChildRepository extends ChangeNotifier {
   static final SchoolChildRepository instance = SchoolChildRepository._internal();
 
-  SchoolChildRepository._internal() {
-    _initSeeds();
-  }
+  SchoolChildRepository._internal();
 
-  final List<SavedSchool> _schools = [];
-  final List<SavedChild> _children = [];
+  List<SavedSchool> _schools = <SavedSchool>[];
+  List<SavedChild> _children = <SavedChild>[];
+  SchoolChildLoadStatus _status = SchoolChildLoadStatus.idle;
+  String? _error;
+  int _loadToken = 0;
 
   List<SavedSchool> get schools => List.unmodifiable(_schools);
   List<SavedChild> get children => List.unmodifiable(_children);
+  SchoolChildLoadStatus get status => _status;
+  String? get error => _error;
 
-  void _initSeeds() {
-    // Seed Sample Schools
-    _schools.addAll([
-      const SavedSchool(
-        id: 'sch_1',
-        name: 'ABC Public School',
-        address: 'Kamalanagar, Main Road',
-        latitude: 28.6912,
-        longitude: 77.2114,
-        isFavorite: true,
-        generalTimingSummary: '8:30 AM – 2:30 PM • Mon–Fri',
-        instructions: 'Gate 2 pickup zone near security guard cabin',
-        customDayTimings: [
-          SchoolTimingDay(dayName: 'Monday', isOpen: true, startTime: '08:30 AM', endTime: '02:30 PM'),
-          SchoolTimingDay(dayName: 'Tuesday', isOpen: true, startTime: '08:30 AM', endTime: '02:30 PM'),
-          SchoolTimingDay(dayName: 'Wednesday', isOpen: true, startTime: '08:30 AM', endTime: '02:30 PM'),
-          SchoolTimingDay(dayName: 'Thursday', isOpen: true, startTime: '08:30 AM', endTime: '02:30 PM'),
-          SchoolTimingDay(dayName: 'Friday', isOpen: true, startTime: '08:30 AM', endTime: '02:30 PM'),
-          SchoolTimingDay(dayName: 'Saturday', isOpen: true, startTime: '08:30 AM', endTime: '12:30 PM'),
-          SchoolTimingDay(dayName: 'Sunday', isOpen: false, startTime: '', endTime: ''),
-        ],
-      ),
-      const SavedSchool(
-        id: 'sch_2',
-        name: 'Government High School',
-        address: 'Chawngte, Sector 4',
-        latitude: 28.6740,
-        longitude: 77.2280,
-        isFavorite: false,
-        generalTimingSummary: '9:00 AM – 3:00 PM • Mon–Fri',
-        instructions: 'Main school bus turnaround area',
-        customDayTimings: [
-          SchoolTimingDay(dayName: 'Monday', isOpen: true, startTime: '09:00 AM', endTime: '03:00 PM'),
-          SchoolTimingDay(dayName: 'Tuesday', isOpen: true, startTime: '09:00 AM', endTime: '03:00 PM'),
-          SchoolTimingDay(dayName: 'Wednesday', isOpen: true, startTime: '09:00 AM', endTime: '03:00 PM'),
-          SchoolTimingDay(dayName: 'Thursday', isOpen: true, startTime: '09:00 AM', endTime: '03:00 PM'),
-          SchoolTimingDay(dayName: 'Friday', isOpen: true, startTime: '09:00 AM', endTime: '03:00 PM'),
-          SchoolTimingDay(dayName: 'Saturday', isOpen: false, startTime: '', endTime: ''),
-          SchoolTimingDay(dayName: 'Sunday', isOpen: false, startTime: '', endTime: ''),
-        ],
-      ),
+  bool get isLoading => _status == SchoolChildLoadStatus.loading;
+
+  /// The school a child is tied to, or null when the child has no saved school.
+  /// The child row stores only `schoolId`/`schoolName`, so the address and the
+  /// coordinates always come from the school row it belongs to.
+  SavedSchool? schoolFor(SavedChild child) {
+    final id = child.schoolId;
+    if (id == null) return null;
+    for (final school in _schools) {
+      if (school.id == id) return school;
+    }
+    return null;
+  }
+
+  SavedSchool? schoolById(String? id) {
+    if (id == null) return null;
+    for (final school in _schools) {
+      if (school.id == id) return school;
+    }
+    return null;
+  }
+
+  /// Reads both lists from the platform. Called on the screens that show them;
+  /// a second call while one is in flight is ignored so a rebuild cannot stamp
+  /// duplicate requests.
+  Future<void> load({bool force = false}) async {
+    if (!force &&
+        (_status == SchoolChildLoadStatus.loading ||
+            _status == SchoolChildLoadStatus.ready)) {
+      return;
+    }
+    final token = ++_loadToken;
+    _status = SchoolChildLoadStatus.loading;
+    _error = null;
+    notifyListeners();
+
+    final results = await Future.wait(<Future<Map<String, dynamic>?>>[
+      NabinApiService.getSavedSchools(),
+      NabinApiService.getSavedChildren(),
     ]);
 
-    // Seed Sample Child Profile
-    _children.addAll([
-      const SavedChild(
-        id: 'ch_1',
-        fullName: 'Rahul Chakma',
-        photoUrl: 'https://images.unsplash.com/photo-1543332164-6e82f355badc?w=200',
-        schoolId: 'sch_1',
-        schoolName: 'ABC Public School',
-        schoolAddress: 'Kamalanagar, Main Road',
-        schoolLat: 28.6912,
-        schoolLng: 77.2114,
-        gradeClass: 'Class 5',
-        section: 'Section B',
-        guardianName: 'Rahul Sharma (Father)',
-        guardianPhone: '+91 98765 43210',
-        defaultPickupAddress: 'Flat 402, Civil Lines, Delhi',
-        pickupLat: 28.6853,
-        pickupLng: 77.2185,
-        specialInstructions: 'Please wait until security officer walks him to vehicle.',
-      ),
-    ]);
-  }
+    // A newer load (or a logout) already replaced this one.
+    if (token != _loadToken) return;
 
-  // School CRUD
-  void addSchool(SavedSchool school) {
-    _schools.add(school);
+    final schoolsRes = results[0];
+    final childrenRes = results[1];
+
+    if (schoolsRes?['success'] != true || childrenRes?['success'] != true) {
+      _status = SchoolChildLoadStatus.failed;
+      _error = schoolsRes?['error']?.toString() ??
+          childrenRes?['error']?.toString() ??
+          'Could not reach NABIN.';
+      notifyListeners();
+      return;
+    }
+
+    try {
+      _schools = _rows(schoolsRes?['schools']).map(SavedSchool.fromJson).toList();
+      _children = _rows(childrenRes?['children']).map(SavedChild.fromJson).toList();
+    } catch (_) {
+      // A row that does not match the contract is reported, not skied over with
+      // a made-up value. `Object` rather than `Exception` on purpose: the models
+      // read their coordinates with `as num`, and a missing column throws a
+      // TypeError, which is an Error — so the narrow catch let a malformed row
+      // escape into the calling screen instead of reaching this failure state.
+      _status = SchoolChildLoadStatus.failed;
+      _error = 'NABIN returned a saved school or child this app cannot read.';
+      notifyListeners();
+      return;
+    }
+
+    _status = SchoolChildLoadStatus.ready;
+    _error = null;
     notifyListeners();
   }
 
-  void updateSchool(SavedSchool school) {
-    final idx = _schools.indexWhere((s) => s.id == school.id);
-    if (idx != -1) {
-      _schools[idx] = school;
-      notifyListeners();
-    }
-  }
+  List<Map<String, dynamic>> _rows(Object? raw) => raw is List
+      ? raw.whereType<Map<String, dynamic>>().toList()
+      : const <Map<String, dynamic>>[];
 
-  void deleteSchool(String schoolId) {
-    _schools.removeWhere((s) => s.id == schoolId);
+  /// Writes a school. A draft with an empty id is created; anything else updates
+  /// that row. Returns null on success, or the message to show the customer —
+  /// including when the platform refused the write.
+  Future<String?> saveSchool(SavedSchool draft) async {
+    final res = draft.id.isEmpty
+        ? await NabinApiService.createSavedSchool(draft.toJson())
+        : await NabinApiService.updateSavedSchool(draft.id, draft.toJson());
+
+    if (res?['success'] != true || res?['school'] is! Map<String, dynamic>) {
+      return _failure(res, 'NABIN did not save the school.');
+    }
+    final saved = SavedSchool.fromJson(res!['school'] as Map<String, dynamic>);
+    _schools = <SavedSchool>[
+      for (final s in _schools)
+        if (s.id == saved.id) saved else s,
+      if (!_schools.any((s) => s.id == saved.id)) saved,
+    ];
     notifyListeners();
+    return null;
   }
 
-  void toggleFavoriteSchool(String schoolId) {
-    final idx = _schools.indexWhere((s) => s.id == schoolId);
-    if (idx != -1) {
-      final s = _schools[idx];
-      _schools[idx] = s.copyWith(isFavorite: !s.isFavorite);
-      notifyListeners();
+  Future<String?> removeSchool(String schoolId) async {
+    final res = await NabinApiService.deleteSavedSchool(schoolId);
+    if (res?['success'] != true) {
+      return _failure(res, 'NABIN did not remove the school.');
     }
-  }
-
-  // Child CRUD
-  void addChild(SavedChild child) {
-    _children.add(child);
+    _schools = _schools.where((s) => s.id != schoolId).toList();
     notifyListeners();
+    return null;
   }
 
-  void updateChild(SavedChild child) {
-    final idx = _children.indexWhere((c) => c.id == child.id);
-    if (idx != -1) {
-      _children[idx] = child;
-      notifyListeners();
+  /// The favourite flag is a column on the school row, so toggling it is a write
+  /// like any other — an offline toggle would be lost on the next read.
+  Future<String?> toggleFavoriteSchool(String schoolId) async {
+    final current = schoolById(schoolId);
+    if (current == null) return 'That school is no longer in your list.';
+    return saveSchool(current.copyWith(isFavorite: !current.isFavorite));
+  }
+
+  Future<String?> saveChild(SavedChild draft) async {
+    final res = draft.id.isEmpty
+        ? await NabinApiService.createSavedChild(draft.toJson())
+        : await NabinApiService.updateSavedChild(draft.id, draft.toJson());
+
+    if (res?['success'] != true || res?['child'] is! Map<String, dynamic>) {
+      return _failure(res, 'NABIN did not save the child.');
     }
+    final saved = SavedChild.fromJson(res!['child'] as Map<String, dynamic>);
+    _children = <SavedChild>[
+      for (final c in _children)
+        if (c.id == saved.id) saved else c,
+      if (!_children.any((c) => c.id == saved.id)) saved,
+    ];
+    notifyListeners();
+    return null;
   }
 
-  void deleteChild(String childId) {
-    _children.removeWhere((c) => c.id == childId);
+  Future<String?> removeChild(String childId) async {
+    final res = await NabinApiService.deleteSavedChild(childId);
+    if (res?['success'] != true) {
+      return _failure(res, 'NABIN did not remove the child.');
+    }
+    _children = _children.where((c) => c.id != childId).toList();
+    notifyListeners();
+    return null;
+  }
+
+  String? _failure(Map<String, dynamic>? res, String fallback) {
+    final message = res?['error']?.toString();
+    _error = message;
+    return (message == null || message.isEmpty) ? fallback : message;
+  }
+
+  /// Called when the session ends: the next customer must not see this one's
+  /// schools and children.
+  void clear() {
+    _loadToken++;
+    _schools = <SavedSchool>[];
+    _children = <SavedChild>[];
+    _status = SchoolChildLoadStatus.idle;
+    _error = null;
     notifyListeners();
   }
 }

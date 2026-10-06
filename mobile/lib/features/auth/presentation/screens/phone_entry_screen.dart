@@ -5,6 +5,7 @@ import '../../../../core/widgets/nabin_text_field.dart';
 import '../../../../core/widgets/nabin_button.dart';
 
 import '../../../../core/network/nabin_api_service.dart';
+import '../../../../core/config/nabin_build_env.dart';
 
 class PhoneEntryScreen extends StatefulWidget {
   const PhoneEntryScreen({super.key});
@@ -14,7 +15,9 @@ class PhoneEntryScreen extends StatefulWidget {
 }
 
 class _PhoneEntryScreenState extends State<PhoneEntryScreen> {
-  final TextEditingController _phoneController = TextEditingController(text: '9876543210');
+  final TextEditingController _phoneController = TextEditingController(
+    text: NabinBuildEnv.allowsDemoConvenience ? '9876543210' : '',
+  );
   bool _isLoading = false;
 
   Future<void> _submit() async {
@@ -42,13 +45,20 @@ class _PhoneEntryScreenState extends State<PhoneEntryScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(errorMsg), backgroundColor: Colors.red.shade700),
         );
-        // In local development or fallback, permit progression with warning
-        context.push('/otp-verification', extra: phone);
+        // This used to push on to the code screen anyway "with warning". A code-entry
+        // form for a code NABIN never dispatched is not a warned-about state, it is a
+        // second fiction the customer is asked to take part in, so the refusal keeps
+        // them here, where the number can be corrected or retried.
       }
     } catch (e) {
       if (!mounted) return;
       setState(() => _isLoading = false);
-      context.push('/otp-verification', extra: phone);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Could not reach NABIN to send a code: $e'),
+          backgroundColor: Colors.red.shade700,
+        ),
+      );
     }
   }
 
@@ -128,22 +138,23 @@ class _PhoneEntryScreenState extends State<PhoneEntryScreen> {
                       const SizedBox(height: 16),
 
                       // Quick Fill Pill
-                      Row(
-                        children: [
-                          const Text('Demo Numbers: ', style: TextStyle(fontSize: 12, color: AppTheme.onSurfaceVariant, fontWeight: FontWeight.w600)),
-                          GestureDetector(
-                            onTap: () => setState(() => _phoneController.text = '9876543210'),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: AppTheme.primary.withValues(alpha: 0.08),
-                                borderRadius: BorderRadius.circular(8),
+                      if (NabinBuildEnv.allowsDemoConvenience)
+                        Row(
+                          children: [
+                            const Text('Demo Numbers: ', style: TextStyle(fontSize: 12, color: AppTheme.onSurfaceVariant, fontWeight: FontWeight.w600)),
+                            GestureDetector(
+                              onTap: () => setState(() => _phoneController.text = '9876543210'),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: AppTheme.primary.withValues(alpha: 0.08),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: const Text('9876543210', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppTheme.primary)),
                               ),
-                              child: const Text('9876543210', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppTheme.primary)),
                             ),
-                          ),
-                        ],
-                      ),
+                          ],
+                        ),
 
                       const Spacer(),
                       const SizedBox(height: 24),

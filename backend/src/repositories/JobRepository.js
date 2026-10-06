@@ -36,6 +36,15 @@ function normalizeServiceType(type) {
   return 'RIDE';
 }
 
+// NUMERIC arrives as a string, `null` as nothing, and an empty text is not a
+// coordinate either way. Anything that cannot be read as a finite number is
+// reported as absent rather than replaced.
+function coordinateOrNull(raw) {
+  if (raw === null || raw === undefined || raw === '') return null;
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : null;
+}
+
 function mapRowToJob(row) {
   if (!row) return null;
   const meta = row.metadata || {};
@@ -48,22 +57,30 @@ function mapRowToJob(row) {
     serviceType: row.service_type,
     customerId: row.customer_id || meta.customerId,
     customerUuid: row.customer_id,
-    customerName: meta.customerName || 'Customer',
+    customerName: meta.customerName || null,
     customerPhone: meta.customerPhone || null,
-    customerRating: meta.customerRating || 5.0,
+    // No customer rating is measured anywhere: `users.rating` is a `DEFAULT 5.00` column and
+    // the schema has no ratings or reviews table behind it, so 5.0 was a column default
+    // travelling through the job as a score. Declared, not inherited from `...meta`, because
+    // rows booked before this fix carry the substituted 5.0 in their own metadata.
+    customerRating: null,
     driverId: row.driver_id || meta.driverId || null,
     driverUuid: row.driver_id,
     merchantId: row.merchant_id,
     status: row.status,
+    // A row with no coordinate reads as having no coordinate. Until now this filled
+    // in Connaught Place for any job stored without one, so a place the platform
+    // never knew about came back to the customer, the driver and the admin as a
+    // latitude and longitude that looked like a fact about their trip.
     pickup: {
       address: row.pickup_address,
-      lat: parseFloat(row.pickup_lat || 28.6139),
-      lng: parseFloat(row.pickup_lng || 77.2090)
+      lat: coordinateOrNull(row.pickup_lat),
+      lng: coordinateOrNull(row.pickup_lng)
     },
     drop: {
       address: row.drop_address,
-      lat: parseFloat(row.drop_lat || 28.6250),
-      lng: parseFloat(row.drop_lng || 77.2150)
+      lat: coordinateOrNull(row.drop_lat),
+      lng: coordinateOrNull(row.drop_lng)
     },
     distanceKm: parseFloat(row.distance_km || 0.0),
     fare: parseFloat(row.final_total || 0.0),
@@ -76,6 +93,11 @@ function mapRowToJob(row) {
     startOtp: row.start_otp,
     pickupOtp: row.pickup_otp,
     deliveryOtp: row.delivery_otp,
+    // These two are the server's own decision, not a projection of something it measured:
+    // a ride has no cash path at all (the booking route accepts no payment field), so the
+    // route settles every ride through the wallet and labels it 'Online UPI'. Pinned from
+    // the other side by backend/cash_ride_audit_test.js CR-02/CR-06 — a client cannot turn a
+    // ride into a cash ride by sending `paymentMethod`.
     paymentMethod: row.payment_method || 'WALLET',
     paymentStatus: row.payment_status || 'PENDING',
     paymentMode: meta.paymentMode || 'Online UPI',
@@ -227,7 +249,8 @@ class JobRepository {
       customerId: jobData.customerId,
       customerName: jobData.customerName,
       customerPhone: jobData.customerPhone,
-      customerRating: jobData.customerRating,
+      // Not `customerRating`: nothing scores a customer, and writing `users.rating` here
+      // stored that column's DEFAULT 5.00 as a fact about the passenger on every ride.
       driverId: jobData.driverId,
       paymentMode: jobData.paymentMode || 'Online UPI',
       items: jobData.items || [],
@@ -235,6 +258,14 @@ class JobRepository {
       restaurantName: jobData.restaurantName || null,
       vehicleType: jobData.vehicleType || null,
       notes: jobData.notes || null,
+      // The trip's own facts. `distance` and `duration` were already written by the
+      // booking routes but were not in this allowlist, so a job re-read from
+      // PostgreSQL came back without the length of its own trip while the
+      // in-memory copy still had it — two answers to one question.
+      distance: jobData.distance ?? null,
+      duration: jobData.duration ?? null,
+      packageDetails: jobData.packageDetails ?? null,
+      weightTier: jobData.weightTier ?? null,
       ...jobData.metadata
     };
 
@@ -244,12 +275,15 @@ class JobRepository {
       customer_id: customerUuid,
       driver_id: driverUuid,
       status,
-      pickup_address: jobData.pickup?.address || 'Pickup Locality',
-      drop_address: jobData.drop?.address || 'Drop Locality',
-      pickup_lat: jobData.pickup?.lat || 28.6139,
-      pickup_lng: jobData.pickup?.lng || 77.2090,
-      drop_lat: jobData.drop?.lat || 28.6250,
-      drop_lng: jobData.drop?.lng || 77.2150,
+      pickup_address: jobData.pickup?.address ?? null,
+      drop_address: jobData.drop?.address ?? null,
+      // Null, not Connaught Place. These defaults used to fire whenever a job was
+      // created without coordinates, and the read path then reported them as the
+      // trip's own geography — a place invented twice looked like a place known.
+      pickup_lat: coordinateOrNull(jobData.pickup?.lat),
+      pickup_lng: coordinateOrNull(jobData.pickup?.lng),
+      drop_lat: coordinateOrNull(jobData.drop?.lat),
+      drop_lng: coordinateOrNull(jobData.drop?.lng),
       distance_km: Number(jobData.distanceKm || 0.0),
       fare_subtotal: fareSubtotal,
       discount_amount: discountAmount,
@@ -478,3 +512,6 @@ class JobRepository {
 
 module.exports = JobRepository;
 module.exports.mapRowToJob = mapRowToJob;
+// Exported because the boot hydrator in database.js projects the same `jobs` rows and must
+// answer an absent coordinate with the same `null`, not with a second copy of this rule.
+module.exports.coordinateOrNull = coordinateOrNull;

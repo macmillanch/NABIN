@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/config/nabin_build_env.dart';
 import '../../../../core/widgets/nabin_button.dart';
 import '../../../../core/network/nabin_api_service.dart';
 import '../../../../core/network/session_manager.dart';
@@ -55,12 +56,28 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
       setState(() => _isLoading = false);
 
       if (res != null && res['success'] == true) {
-        final token = res['token'] as String? ?? 'usr_session_${DateTime.now().millisecondsSinceEpoch}';
-        final user = res['user'] as Map<String, dynamic>? ?? {
-          'id': 'usr_cust_${widget.phoneNumber}',
-          'phone': widget.phoneNumber,
-          'role': 'CUSTOMER',
-        };
+        final token = res['token']?.toString();
+        final user = res['user'] is Map
+            ? Map<String, dynamic>.from(res['user'] as Map)
+            : null;
+        // A verified code is not a session. This used to mint its own credential
+        // (`usr_session_<clock>`) and its own user id (`usr_cust_<phone>`) when the
+        // response omitted either, and the app then walked on believing it was signed
+        // in: every call that authenticates would come back refused, and the id the
+        // wallet, bookings and identity application are keyed by was a string this
+        // device invented. A success without a token is a broken contract, so it is
+        // reported as one instead of being filled in.
+        if (token == null || token.isEmpty || user == null || user['id'] == null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'NABIN verified the code but did not hand this device a session. '
+                'Ask it for a new code and try again.',
+              ),
+            ),
+          );
+          return;
+        }
         SessionManager.instance.saveSession(token: token, user: user);
         context.push('/personalization');
       } else {
@@ -76,6 +93,34 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
         SnackBar(content: Text('Connection error: $e'), backgroundColor: Colors.red.shade700),
       );
     }
+  }
+
+  Future<void> _resendOtp() async {
+    final res = await NabinApiService.sendOtp(
+      phone: widget.phoneNumber,
+      role: 'CUSTOMER',
+      purpose: 'LOGIN',
+    );
+    if (!mounted) return;
+    final bool sent = res != null && res['success'] == true;
+    String message;
+    if (!sent) {
+      final Object? apiError = res == null ? null : res['error'];
+      message = apiError as String? ??
+          'The code could not be resent. Try again in a moment.';
+    } else {
+      final Object? testOtp =
+          NabinBuildEnv.allowsDemoConvenience ? res['testOtp'] : null;
+      message = testOtp == null
+          ? 'A new verification code is on its way.'
+          : 'A new verification code is on its way. Development code: $testOtp.';
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: sent ? AppTheme.primary : Colors.red.shade700,
+      ),
+    );
   }
 
   @override
@@ -176,13 +221,9 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                             const Text("Didn't receive the code?", style: TextStyle(color: AppTheme.onSurfaceVariant, fontSize: 13)),
                             const SizedBox(height: 4),
                             TextButton.icon(
-                              onPressed: () {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(content: Text('New demo OTP sent: 7729')),
-                                );
-                              },
+                              onPressed: _resendOtp,
                               icon: const Icon(Icons.replay_rounded, size: 16, color: AppTheme.primary),
-                              label: const Text('Resend Demo OTP (7729)', style: TextStyle(color: AppTheme.primary, fontWeight: FontWeight.bold, fontSize: 13)),
+                              label: const Text('Resend code', style: TextStyle(color: AppTheme.primary, fontWeight: FontWeight.bold, fontSize: 13)),
                             ),
                           ],
                         ),

@@ -35,6 +35,18 @@ export const servicesApi = {
   getStatus: () => api.get('/services/status'),
 };
 
+// Restaurant discovery API Wrappers (PostgreSQL-backed reads)
+// Shapes come from the server's own projections, not invented here:
+//   GET /api/restaurants        -> { success, count, restaurants[], dataSource | degraded }
+//   GET /api/restaurants/:id    -> { success, restaurant, dataSource | degraded }
+//   GET /api/restaurants/:id/menu -> { success, restaurantId, count, items[], dataSource | degraded }
+export const discoveryApi = {
+  restaurants: (params?: { search?: string; openNow?: boolean }) => api.get('/restaurants', { params }),
+  restaurant: (id: string) => api.get(`/restaurants/${encodeURIComponent(id)}`),
+  menu: (id: string, params?: { category?: string }) =>
+    api.get(`/restaurants/${encodeURIComponent(id)}/menu`, { params }),
+};
+
 // Customer Booking API Wrappers
 export const bookingApi = {
   bookRide: (data: Record<string, unknown>) => api.post('/customer/book-ride', data),

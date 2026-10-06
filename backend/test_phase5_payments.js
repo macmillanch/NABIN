@@ -3,8 +3,13 @@
 // =========================================================================
 const http = require('http');
 const crypto = require('crypto');
-const { spawn, execSync } = require('child_process');
+const { spawn } = require('child_process');
 const path = require('path');
+// Two harness-boundary rules, both shared with the chain runner: reap the backend this run
+// started (scripts/spawned_server.js), and never evict a port owner by pid alone —
+// releasePrivatePort kills only a NABIN `src/server.js` and reports anything foreign untouched.
+const { trackServer } = require('./scripts/spawned_server');
+const { releasePrivatePort } = require('./scripts/port_release');
 const { Client } = require('pg');
 
 // Phase 9 note: aligned with the webhook secret used by test_suite.js,
@@ -14,7 +19,13 @@ process.env.PAYMENT_WEBHOOK_SECRET ||= 'test_webhook_secret_not_for_deployment';
 process.env.PAYMENT_KEY_SECRET ||= 'test_key_secret_not_for_deployment';
 process.env.NABIN_TEST_MODE = 'true';
 
-const BASE_URL = 'http://127.0.0.1:4000';
+// This suite owns a backend: it spawns one and terminates whatever holds its port to guarantee a cold
+// start. That is safe only when the port is exclusively its own. `NABIN_RESTART_PORT` is the same
+// convention the chain already uses for `restart_test.js` (`privatePort: true`), so when the harness
+// allocates a private port this suite binds, probes and cleans up ONLY that port and can never touch the
+// shared backend on 4000. With no env set it behaves exactly as before, so hand runs are unaffected.
+const TEST_PORT = Number(process.env.NABIN_RESTART_PORT || process.env.NABIN_TEST_PORT || 4000);
+const BASE_URL = `http://127.0.0.1:${TEST_PORT}`;
 const PG_CONN_STRING = process.env.DATABASE_URL || 'postgresql://postgres:postgres@127.0.0.1:54322/postgres';
 const WEBHOOK_SECRET = process.env.PAYMENT_WEBHOOK_SECRET;
 const KEY_SECRET = process.env.PAYMENT_KEY_SECRET;
@@ -92,56 +103,77 @@ async function ensureServerRunning() {
     if (res.status === 200) return null;
   } catch (e) {}
 
-  try {
-    execSync('powershell -Command "Get-NetTCPConnection -LocalPort 4000 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }"');
-  } catch (e) {}
-  await sleep(1500);
-
-  const proc = spawn(process.execPath, [path.join(__dirname, 'src/server.js')], {
-    cwd: __dirname,
-    stdio: 'ignore',
-    detached: true,
-    windowsHide: true
-  });
-  proc.unref();
-
-  for (let i = 0; i < 40; i++) {
-    await sleep(250);
-    try {
-      const res = await request('GET', '/api/health');
-      if (res.status === 200) return proc;
-    } catch (e) {}
+  const released = releasePrivatePort(TEST_PORT);
+  if (/skipped:foreign/.test(released)) {
+    console.warn(`  ⚠️  port ${TEST_PORT} is held by a process that is not a NABIN backend — it is being left running, so this suite may fail to bind`);
   }
-  return proc;
-}
-
-async function restartServer() {
-  console.log('\n🛑 Terminating backend process listening on port 4000...');
-  try {
-    execSync('powershell -Command "Get-NetTCPConnection -LocalPort 4000 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }"');
-  } catch (e) {}
   await sleep(1500);
 
-  console.log('🚀 Spawning fresh backend process from cold start...');
-  const proc = spawn(process.execPath, [path.join(__dirname, 'src/server.js')], {
+  const proc = trackServer(spawn(process.execPath, [path.join(__dirname, 'src/server.js')], {
     cwd: __dirname,
+    // Explicit, so a value inherited from the calling shell cannot make the backend listen somewhere
+    // this suite is not probing.
+    env: Object.assign({}, process.env, { PORT: String(TEST_PORT) }),
     stdio: 'ignore',
     detached: true,
     windowsHide: true
-  });
+  }));
   proc.unref();
 
-  for (let i = 0; i < 40; i++) {
-    await sleep(250);
+  // Cold boot here measures 7-21s (session restore + hydration), so 40 x 250ms = 10s is not a wait, it
+  // is a race. Poll to a deadline instead, and report the elapsed time either way.
+  const bootFrom = Date.now();
+  for (;;) {
+    await sleep(500);
     try {
       const res = await request('GET', '/api/health');
       if (res.status === 200) {
-        console.log('✅ Fresh backend process online & ready');
+        console.log(`  backend online on port ${TEST_PORT} after ${Date.now() - bootFrom}ms`);
         return proc;
       }
     } catch (e) {}
+    if (Date.now() - bootFrom > 90000) {
+      throw new Error(`backend never answered /api/health on port ${TEST_PORT} within 90s (harness/environment failure, not a product assertion failure)`);
+    }
   }
-  throw new Error('Backend failed to restart within timeout');
+}
+
+async function restartServer() {
+  console.log(`\n🛑 Terminating backend process listening on port ${TEST_PORT}...`);
+  const releasedForRestart = releasePrivatePort(TEST_PORT);
+  if (/skipped:foreign/.test(releasedForRestart)) {
+    console.warn(`  ⚠️  port ${TEST_PORT} is held by a process that is not a NABIN backend — it is being left running, so the cold restart below cannot bind`);
+  }
+  await sleep(1500);
+
+  console.log('🚀 Spawning fresh backend process from cold start...');
+  const proc = trackServer(spawn(process.execPath, [path.join(__dirname, 'src/server.js')], {
+    cwd: __dirname,
+    // Explicit, so a value inherited from the calling shell cannot make the backend listen somewhere
+    // this suite is not probing.
+    env: Object.assign({}, process.env, { PORT: String(TEST_PORT) }),
+    stdio: 'ignore',
+    detached: true,
+    windowsHide: true
+  }));
+  proc.unref();
+
+  // Same deadline treatment as ensureServerRunning: the restart assertion below is about durability
+  // across a cold start, which is meaningless if the probe races the boot.
+  const restartFrom = Date.now();
+  for (;;) {
+    await sleep(500);
+    try {
+      const res = await request('GET', '/api/health');
+      if (res.status === 200) {
+        console.log(`✅ Fresh backend process online & ready after ${Date.now() - restartFrom}ms`);
+        return proc;
+      }
+    } catch (e) {}
+    if (Date.now() - restartFrom > 90000) {
+      throw new Error(`Backend failed to restart on port ${TEST_PORT} within 90s`);
+    }
+  }
 }
 
 async function runPhase5SecuritySuite() {
@@ -334,6 +366,7 @@ async function runPhase5SecuritySuite() {
     // First create a food order as Customer 1
     const foodOrderRes = await request('POST', '/api/customer/book-food', {
       restaurantId: 'rest_1',
+      deliveryAddress: 'Flat 402, Civil Lines Hub, North Delhi',
       items: ['1x Special Dum Biryani (Chicken)']
     }, {
       'Authorization': `Bearer ${cust1Token}`,

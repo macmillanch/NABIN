@@ -28,7 +28,7 @@ class _GroceryAppShellState extends State<GroceryAppShell> {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: Text('Added "$title" to Grocery Cart!'),
-                  backgroundColor: GroceryTheme.primaryGreenDark,
+                  backgroundColor: GroceryTheme.primaryAction,
                 ),
               );
             },
@@ -38,7 +38,7 @@ class _GroceryAppShellState extends State<GroceryAppShell> {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: Text('Added "$title" to Grocery Cart!'),
-                  backgroundColor: GroceryTheme.primaryGreenDark,
+                  backgroundColor: GroceryTheme.primaryAction,
                 ),
               );
             },
@@ -49,8 +49,8 @@ class _GroceryAppShellState extends State<GroceryAppShell> {
       ),
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
-          color: Colors.white,
-          border: Border(top: BorderSide(color: Colors.grey.shade200, width: 1)),
+          color: GroceryTheme.surfaceWhite,
+          border: const Border(top: BorderSide(color: GroceryTheme.borderLight, width: 1)),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withValues(alpha: 0.05),
@@ -62,32 +62,32 @@ class _GroceryAppShellState extends State<GroceryAppShell> {
         child: NavigationBar(
           selectedIndex: _currentIndex,
           onDestinationSelected: (idx) => setState(() => _currentIndex = idx),
-          backgroundColor: Colors.white,
-          indicatorColor: GroceryTheme.primaryGreenLight,
+          backgroundColor: GroceryTheme.surfaceWhite,
+          indicatorColor: GroceryTheme.sectionFill,
           destinations: const [
             NavigationDestination(
               icon: Icon(Icons.home_outlined),
-              selectedIcon: Icon(Icons.home_rounded, color: GroceryTheme.primaryGreenDark),
+              selectedIcon: Icon(Icons.home_rounded, color: GroceryTheme.primaryAction),
               label: 'Home',
             ),
             NavigationDestination(
               icon: Icon(Icons.grid_view_outlined),
-              selectedIcon: Icon(Icons.grid_view_rounded, color: GroceryTheme.primaryGreenDark),
+              selectedIcon: Icon(Icons.grid_view_rounded, color: GroceryTheme.primaryAction),
               label: 'Categories',
             ),
             NavigationDestination(
               icon: Icon(Icons.local_offer_outlined),
-              selectedIcon: Icon(Icons.local_offer_rounded, color: GroceryTheme.primaryGreenDark),
+              selectedIcon: Icon(Icons.local_offer_rounded, color: GroceryTheme.primaryAction),
               label: 'Deals',
             ),
             NavigationDestination(
               icon: Icon(Icons.shopping_bag_outlined),
-              selectedIcon: Icon(Icons.shopping_bag_rounded, color: GroceryTheme.primaryGreenDark),
+              selectedIcon: Icon(Icons.shopping_bag_rounded, color: GroceryTheme.primaryAction),
               label: 'Cart',
             ),
             NavigationDestination(
               icon: Icon(Icons.person_outline_rounded),
-              selectedIcon: Icon(Icons.person_rounded, color: GroceryTheme.primaryGreenDark),
+              selectedIcon: Icon(Icons.person_rounded, color: GroceryTheme.primaryAction),
               label: 'Account',
             ),
           ],

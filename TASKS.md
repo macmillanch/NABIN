@@ -1805,9 +1805,9 @@ observation, not an inference from a previous report.
 
 - [x] **§5 catalog boundary question — answered, and it was not a violation.**
       Traced Flutter → API → table → ownership → service type. `GET /api/merchant/catalog`
-      (`server.js:6295`) reads the `products` table filtered to `.eq('merchant_id', merchant.id)`
+      (`server.js:6894`) reads the `products` table filtered to `.eq('merchant_id', merchant.id)`
       of the **authenticated** caller. Independently, the customer-facing restaurant menu route
-      `GET /api/restaurants/:id/menu` (`server.js:6129`) reads **the same `products` table**,
+      `GET /api/restaurants/:id/menu` (`server.js:6728`) reads **the same `products` table**,
       scoped by `merchant_id`, additionally requiring `merchant_type IN ('RESTAURANT',
       'HYBRID_BOTH')`. So `products` is a genuine shared catalogue abstraction used by both
       services, distinguished by the owning merchant's type — not a grocery table leaking into

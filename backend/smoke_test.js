@@ -61,6 +61,8 @@ function assertCheck(description, condition, details = '') {
 
 const { spawn } = require('child_process');
 const path = require('path');
+// Reap the backend this run starts, and only that one — scripts/spawned_server.js.
+const { trackServer } = require('./scripts/spawned_server');
 
 async function ensureLocalServerRunning() {
   if (!baseUrl.includes('localhost') && !baseUrl.includes('127.0.0.1')) return;
@@ -69,12 +71,12 @@ async function ensureLocalServerRunning() {
     if (res.statusCode === 200) return;
   } catch (e) {}
 
-  const proc = spawn(process.execPath, [path.join(__dirname, 'src/server.js')], {
+  const proc = trackServer(spawn(process.execPath, [path.join(__dirname, 'src/server.js')], {
     cwd: __dirname,
     stdio: 'ignore',
     detached: true,
     windowsHide: true
-  });
+  }));
   proc.unref();
 
   for (let i = 0; i < 30; i++) {

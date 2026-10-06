@@ -23,12 +23,15 @@ class RestaurantMenuScreen extends ConsumerStatefulWidget {
     super.key,
     this.restaurantId,
     this.restaurantName,
-    this.deliveryTime,
+    this.deliveryMinutes,
   });
 
   final String? restaurantId;
   final String? restaurantName;
-  final String? deliveryTime;
+
+  /// The merchant-declared kitchen-to-door window, passed through from the card
+  /// that opened this page. Null when that card had no declared window.
+  final int? deliveryMinutes;
 
   @override
   ConsumerState<RestaurantMenuScreen> createState() => _RestaurantMenuScreenState();
@@ -56,11 +59,6 @@ class _RestaurantMenuScreenState extends ConsumerState<RestaurantMenuScreen> {
     return fallback?.trim() ?? '';
   }
 
-  static String? _firstPresent(String? preferred, String? fallback) {
-    final value = _firstNonEmpty(preferred, fallback);
-    return value.isEmpty ? null : value;
-  }
-
   void _onDietFilterChanged(int value) => setState(() => _dietFilter = value);
 
   void _add(FoodRestaurant restaurant, FoodMenuItem item) {
@@ -79,11 +77,11 @@ class _RestaurantMenuScreenState extends ConsumerState<RestaurantMenuScreen> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
-  void _proceedToCheckout(FoodRestaurant restaurant, String? deliveryTime, FoodCart cart) {
+  void _proceedToCheckout(FoodRestaurant restaurant, int? deliveryMinutes, FoodCart cart) {
     context.push('/food-checkout', extra: <String, dynamic>{
       'restaurantId': restaurant.id,
       'restaurantName': restaurant.name,
-      if (deliveryTime != null) 'deliveryTime': deliveryTime,
+      if (deliveryMinutes != null) 'deliveryMinutes': deliveryMinutes,
       'items': cart.lines.map((line) => line.toOrderLine()).toList(),
       'itemTotal': cart.itemTotal,
     });
@@ -97,7 +95,9 @@ class _RestaurantMenuScreenState extends ConsumerState<RestaurantMenuScreen> {
 
     final routeId = _firstNonEmpty(widget.restaurantId, args['restaurantId']);
     final routeName = _firstNonEmpty(widget.restaurantName, args['restaurantName']);
-    final routeEta = _firstPresent(widget.deliveryTime, args['deliveryTime']);
+    // Same precedence as the id and the name: the constructor wins, and a route
+    // query that is not a whole number is treated as no window at all.
+    final routeMinutes = widget.deliveryMinutes ?? intOrNull(args['deliveryMinutes']);
 
     // Deep links without arguments fall back to the first live restaurant the
     // feed actually returned — never to a name typed into this file.
@@ -107,7 +107,7 @@ class _RestaurantMenuScreenState extends ConsumerState<RestaurantMenuScreen> {
     final resolved = resolvedId == null
         ? null
         : feed?.byId(resolvedId) ??
-            (routeName.isEmpty ? null : FoodRestaurant(id: resolvedId, name: routeName, deliveryTime: routeEta));
+            (routeName.isEmpty ? null : FoodRestaurant(id: resolvedId, name: routeName, deliveryMinutes: routeMinutes));
 
     return Scaffold(
       backgroundColor: RestaurantTheme.lightBg,
@@ -124,7 +124,7 @@ class _RestaurantMenuScreenState extends ConsumerState<RestaurantMenuScreen> {
             else
               _MenuBody(
                 restaurant: resolved,
-                fallbackDeliveryTime: routeEta,
+                fallbackDeliveryMinutes: routeMinutes,
                 menuSearchCtrl: _menuSearchCtrl,
                 dietFilter: _dietFilter,
                 onDietFilterChanged: _onDietFilterChanged,
@@ -133,7 +133,7 @@ class _RestaurantMenuScreenState extends ConsumerState<RestaurantMenuScreen> {
                 onDecrement: (item) => ref.read(foodCartProvider.notifier).decrement(resolved, item),
                 onCheckout: (cart) => _proceedToCheckout(
                   resolved,
-                  resolved.deliveryTime ?? routeEta,
+                  resolved.deliveryMinutes ?? routeMinutes,
                   cart,
                 ),
                 onRetryMenu: () => ref.read(restaurantMenuProvider(resolved.id).notifier).load(),
@@ -156,7 +156,7 @@ class _RestaurantMenuScreenState extends ConsumerState<RestaurantMenuScreen> {
 class _MenuBody extends ConsumerWidget {
   const _MenuBody({
     required this.restaurant,
-    required this.fallbackDeliveryTime,
+    required this.fallbackDeliveryMinutes,
     required this.menuSearchCtrl,
     required this.dietFilter,
     required this.onDietFilterChanged,
@@ -168,7 +168,7 @@ class _MenuBody extends ConsumerWidget {
   });
 
   final FoodRestaurant restaurant;
-  final String? fallbackDeliveryTime;
+  final int? fallbackDeliveryMinutes;
   final TextEditingController menuSearchCtrl;
   final int dietFilter;
   final ValueChanged<int> onDietFilterChanged;
@@ -186,7 +186,7 @@ class _MenuBody extends ConsumerWidget {
     final menuAsync = ref.watch(restaurantMenuProvider(restaurant.id));
     final cart = ref.watch(foodCartProvider);
     final items = menuAsync.valueOrNull ?? const <FoodMenuItem>[];
-    final deliveryTime = restaurant.deliveryTime ?? fallbackDeliveryTime;
+    final deliveryMinutes = restaurant.deliveryMinutes ?? fallbackDeliveryMinutes;
 
     final hasVeg = items.any((item) => item.isVeg == true);
     final hasNonVeg = items.any((item) => item.isVeg == false);
@@ -224,7 +224,7 @@ class _MenuBody extends ConsumerWidget {
             children: <Widget>[
               _HeroHeader(restaurant: restaurant),
               const SizedBox(height: 12),
-              _InfoCard(restaurant: restaurant, deliveryTime: deliveryTime),
+              _InfoCard(restaurant: restaurant, deliveryMinutes: deliveryMinutes),
               const SizedBox(height: 16),
               _MenuSearchField(controller: menuSearchCtrl, onChanged: onMenuSearchChanged),
               const SizedBox(height: 14),
@@ -310,6 +310,10 @@ class _MenuBody extends ConsumerWidget {
                       quantity: cart.restaurantId == restaurant.id ? cart.quantityOf(item.id) : 0,
                       onAdd: () => onAdd(item),
                       onDecrement: () => onDecrement(item),
+                      onOpenDetail: () => context.push(
+                        '/dish-detail?restaurantId=${Uri.encodeComponent(restaurant.id)}'
+                        '&dishId=${Uri.encodeComponent(item.id)}',
+                      ),
                     ),
                 ],
             ],
@@ -379,18 +383,16 @@ class _HeroHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // There is no restaurant image column on the API, so the hero is the
-    // initial-letter treatment rather than a network image.
+    // `merchants.cover_image_url` (034) reaches the client as `coverImageUrl`.
+    // FoodLetterTile layers the network picture over its deterministic letter
+    // plate and falls back to that plate when the url is null or fails to load,
+    // so both states are drawn here and neither invents a picture.
     return ClipRRect(
       borderRadius: BorderRadius.circular(20),
       child: Container(
         height: 150,
         decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            colors: <Color>[RestaurantTheme.charcoal, NabinColor.brandHover],
-            begin: Alignment.centerLeft,
-            end: Alignment.centerRight,
-          ),
+          color: RestaurantTheme.headerBand,
         ),
         child: Row(
           children: <Widget>[
@@ -400,6 +402,7 @@ class _HeroHeader extends StatelessWidget {
               seed: restaurant.id.isEmpty ? restaurant.name : restaurant.id,
               size: 92,
               radius: 20,
+              imageUrl: restaurant.coverImageUrl,
             ),
             const SizedBox(width: 14),
             Expanded(
@@ -441,10 +444,10 @@ class _HeroHeader extends StatelessWidget {
 }
 
 class _InfoCard extends StatelessWidget {
-  const _InfoCard({required this.restaurant, required this.deliveryTime});
+  const _InfoCard({required this.restaurant, required this.deliveryMinutes});
 
   final FoodRestaurant restaurant;
-  final String? deliveryTime;
+  final int? deliveryMinutes;
 
   @override
   Widget build(BuildContext context) {
@@ -504,34 +507,15 @@ class _InfoCard extends StatelessWidget {
             runSpacing: 4,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: <Widget>[
-              if (restaurant.rating != null)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
-                  decoration: BoxDecoration(
-                    color: RestaurantTheme.vegGreen.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: <Widget>[
-                      const Icon(Icons.star_rounded, size: 12, color: RestaurantTheme.vegGreen),
-                      const SizedBox(width: 2),
-                      Text(
-                        restaurant.rating!.toStringAsFixed(1),
-                        style: const TextStyle(
-                          color: RestaurantTheme.vegGreen,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 11,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              if (deliveryTime != null)
+              // The reference puts a `[4.1★]` rating pill in this slot. `merchants.rating`
+              // has no reviews table behind it, so the pill is gone and the hero's
+              // cuisine line, which is real projected data, carries that band instead.
+              // An undeclared window renders nothing here rather than a guess.
+              if (deliveryMinutes != null)
                 ConstrainedBox(
                   constraints: BoxConstraints(maxWidth: MediaQuery.sizeOf(context).width - 64),
                   child: Text(
-                    '• Delivery in $deliveryTime',
+                    '• Delivery in ${foodEtaLabel(deliveryMinutes)}',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
@@ -567,7 +551,7 @@ class _MenuSearchField extends StatelessWidget {
       ),
       child: Row(
         children: <Widget>[
-          const Icon(Icons.search_rounded, color: RestaurantTheme.neonOrange, size: 20),
+          const Icon(Icons.search_rounded, color: RestaurantTheme.headerBand, size: 20),
           const SizedBox(width: 8),
           Expanded(
             child: TextField(
@@ -594,12 +578,14 @@ class _DishRow extends StatelessWidget {
     required this.quantity,
     required this.onAdd,
     required this.onDecrement,
+    required this.onOpenDetail,
   });
 
   final FoodMenuItem item;
   final int quantity;
   final VoidCallback onAdd;
   final VoidCallback onDecrement;
+  final VoidCallback onOpenDetail;
 
   @override
   Widget build(BuildContext context) {
@@ -607,132 +593,136 @@ class _DishRow extends StatelessWidget {
 
     return Opacity(
       opacity: soldOut ? 0.55 : 1,
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 12),
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: RestaurantTheme.white,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: RestaurantTheme.border),
-          boxShadow: <BoxShadow>[
-            BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 6, offset: const Offset(0, 2)),
-          ],
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Stack(
-              children: <Widget>[
-                FoodLetterTile(
-                  letter: item.firstLetter,
-                  seed: item.id.isEmpty ? item.name : item.id,
-                  size: 82,
-                  imageUrl: item.imageUrl,
-                ),
-                Positioned(top: 5, left: 5, child: FoodDietDot(isVeg: item.isVeg)),
-              ],
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+      child: GestureDetector(
+        onTap: onOpenDetail,
+        behavior: HitTestBehavior.opaque,
+        child: Container(
+          margin: const EdgeInsets.only(bottom: 12),
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: RestaurantTheme.white,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: RestaurantTheme.border),
+            boxShadow: <BoxShadow>[
+              BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 6, offset: const Offset(0, 2)),
+            ],
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Stack(
                 children: <Widget>[
-                  Text(
-                    item.name,
-                    style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5, color: RestaurantTheme.charcoal),
+                  FoodLetterTile(
+                    letter: item.firstLetter,
+                    seed: item.id.isEmpty ? item.name : item.id,
+                    size: 82,
+                    imageUrl: item.imageUrl,
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    '₹${foodPrice(item.price)}',
-                    style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 15, color: RestaurantTheme.charcoal),
-                  ),
-                  if (item.description != null) ...<Widget>[
-                    const SizedBox(height: 4),
-                    Text(
-                      item.description!,
-                      style: const TextStyle(color: RestaurantTheme.secondaryText, fontSize: 11, height: 1.2),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
+                  Positioned(top: 5, left: 5, child: FoodDietDot(isVeg: item.isVeg)),
                 ],
               ),
-            ),
-            const SizedBox(width: 8),
-            soldOut
-                ? Padding(
-                    padding: const EdgeInsets.only(top: 2),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: <Widget>[
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-                          decoration: BoxDecoration(
-                            color: RestaurantTheme.borderLight,
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(color: RestaurantTheme.border),
-                          ),
-                          child: const Text(
-                            'SOLD OUT',
-                            style: TextStyle(fontWeight: FontWeight.w900, fontSize: 10.5, color: RestaurantTheme.secondaryText),
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        const Text(
-                          'not addable',
-                          style: TextStyle(fontSize: 9, color: RestaurantTheme.secondaryText),
-                        ),
-                      ],
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      item.name,
+                      style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5, color: RestaurantTheme.charcoal),
                     ),
-                  )
-                : quantity == 0
-                    ? ElevatedButton(
-                        onPressed: onAdd,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: RestaurantTheme.neonOrangeLight,
-                          foregroundColor: RestaurantTheme.neonOrangeDark,
-                          elevation: 0,
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                          minimumSize: const Size(64, 32),
-                          shape: RoundedRectangleBorder(
+                    const SizedBox(height: 2),
+                    Text(
+                      '₹${foodPrice(item.price)}',
+                      style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 15, color: RestaurantTheme.charcoal),
+                    ),
+                    if (item.description != null) ...<Widget>[
+                      const SizedBox(height: 4),
+                      Text(
+                        item.description!,
+                        style: const TextStyle(color: RestaurantTheme.secondaryText, fontSize: 11, height: 1.2),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              soldOut
+                  ? Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: <Widget>[
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                            decoration: BoxDecoration(
+                              color: RestaurantTheme.borderLight,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: RestaurantTheme.border),
+                            ),
+                            child: const Text(
+                              'SOLD OUT',
+                              style: TextStyle(fontWeight: FontWeight.w900, fontSize: 10.5, color: RestaurantTheme.secondaryText),
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          const Text(
+                            'not addable',
+                            style: TextStyle(fontSize: 9, color: RestaurantTheme.secondaryText),
+                          ),
+                        ],
+                      ),
+                    )
+                  : quantity == 0
+                      ? ElevatedButton(
+                          onPressed: onAdd,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: RestaurantTheme.neonOrangeLight,
+                            foregroundColor: RestaurantTheme.neonOrangeDark,
+                            elevation: 0,
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                            minimumSize: const Size(64, 32),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                              side: const BorderSide(color: RestaurantTheme.neonOrange),
+                            ),
+                          ),
+                          child: const Text('+ ADD', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 11.5)),
+                        )
+                      : Container(
+                          decoration: BoxDecoration(
+                            color: RestaurantTheme.neonOrange,
                             borderRadius: BorderRadius.circular(10),
-                            side: const BorderSide(color: RestaurantTheme.neonOrange),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: <Widget>[
+                              IconButton(
+                                icon: const Icon(Icons.remove, size: 14, color: NabinColor.onBrand),
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(minWidth: 26, minHeight: 28),
+                                onPressed: onDecrement,
+                              ),
+                              Text(
+                                '$quantity',
+                                style: const TextStyle(
+                                  color: NabinColor.onBrand,
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 12,
+                                ),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.add, size: 14, color: NabinColor.onBrand),
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(minWidth: 26, minHeight: 28),
+                                onPressed: onAdd,
+                              ),
+                            ],
                           ),
                         ),
-                        child: const Text('+ ADD', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 11.5)),
-                      )
-                    : Container(
-                        decoration: BoxDecoration(
-                          color: RestaurantTheme.neonOrange,
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: <Widget>[
-                            IconButton(
-                              icon: const Icon(Icons.remove, size: 14, color: NabinColor.onBrand),
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(minWidth: 26, minHeight: 28),
-                              onPressed: onDecrement,
-                            ),
-                            Text(
-                              '$quantity',
-                              style: const TextStyle(
-                                color: NabinColor.onBrand,
-                                fontWeight: FontWeight.w900,
-                                fontSize: 12,
-                              ),
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.add, size: 14, color: NabinColor.onBrand),
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(minWidth: 26, minHeight: 28),
-                              onPressed: onAdd,
-                            ),
-                          ],
-                        ),
-                      ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -750,11 +740,11 @@ class _StickyCartBar extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        color: RestaurantTheme.charcoal,
+        color: RestaurantTheme.headerBand,
         borderRadius: BorderRadius.circular(18),
         boxShadow: <BoxShadow>[
           BoxShadow(
-            color: RestaurantTheme.charcoal.withValues(alpha: 0.35),
+            color: NabinColor.brand.withValues(alpha: 0.3),
             blurRadius: 16,
             offset: const Offset(0, 6),
           ),
@@ -769,8 +759,8 @@ class _StickyCartBar extends StatelessWidget {
             children: <Widget>[
               Text(
                 '${cart.itemCount} ${cart.itemCount == 1 ? 'ITEM' : 'ITEMS'} • ${cart.restaurantName ?? 'this kitchen'}',
-                style: const TextStyle(
-                  color: RestaurantTheme.neonOrange,
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.78),
                   fontSize: 9.5,
                   fontWeight: FontWeight.w900,
                   letterSpacing: 0.5,
@@ -785,8 +775,8 @@ class _StickyCartBar extends StatelessWidget {
           ElevatedButton(
             onPressed: onCheckout,
             style: ElevatedButton.styleFrom(
-              backgroundColor: RestaurantTheme.neonOrange,
-              foregroundColor: RestaurantTheme.charcoal,
+              backgroundColor: NabinColor.surface,
+              foregroundColor: RestaurantTheme.onSecondaryAction,
               minimumSize: const Size(140, 42),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               elevation: 0,

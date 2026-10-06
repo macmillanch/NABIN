@@ -18,10 +18,10 @@ class PassengerBookingInfo {
   final String? schoolTimingSummary; // e.g. "8:30 AM – 2:30 PM • Mon–Fri"
   final String? morningPickupTime;  // e.g. "7:45 AM"
   final String? schoolArrivalTime;   // e.g. "8:15 AM"
-  final String? afternoonPickupTime; // e.g. "2:30 PM"
-  final String? homeArrivalTime;    // e.g. "3:00 PM"
   
-  final String startOtp; // e.g. "7729"
+  // No trip-start code here. The platform mints `jobs.start_otp` when the job is created
+  // (`JobRepository.create`), and a code the client picked is a code the client knows —
+  // which is exactly the `7729` fallback the backend deleted as an exploit.
 
   const PassengerBookingInfo({
     this.bookingType = 'FOR_ME',
@@ -39,9 +39,6 @@ class PassengerBookingInfo {
     this.schoolTimingSummary,
     this.morningPickupTime,
     this.schoolArrivalTime,
-    this.afternoonPickupTime,
-    this.homeArrivalTime,
-    this.startOtp = '7729',
   });
 
   bool get isForSomeoneElse => bookingType == 'FOR_SOMEONE_ELSE';
@@ -63,9 +60,6 @@ class PassengerBookingInfo {
     'schoolTimingSummary': schoolTimingSummary,
     'morningPickupTime': morningPickupTime,
     'schoolArrivalTime': schoolArrivalTime,
-    'afternoonPickupTime': afternoonPickupTime,
-    'homeArrivalTime': homeArrivalTime,
-    'startOtp': startOtp,
   };
 
   factory PassengerBookingInfo.fromJson(Map<String, dynamic> json) => PassengerBookingInfo(
@@ -84,8 +78,5 @@ class PassengerBookingInfo {
     schoolTimingSummary: json['schoolTimingSummary'] as String?,
     morningPickupTime: json['morningPickupTime'] as String?,
     schoolArrivalTime: json['schoolArrivalTime'] as String?,
-    afternoonPickupTime: json['afternoonPickupTime'] as String?,
-    homeArrivalTime: json['homeArrivalTime'] as String?,
-    startOtp: json['startOtp'] as String? ?? '7729',
   );
 }

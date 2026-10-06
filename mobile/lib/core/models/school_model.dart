@@ -1,3 +1,10 @@
+/// The backend returns text columns as `''` when unset; the models keep null for
+/// "the customer never wrote this" so a screen can tell the two apart.
+String? _blankToNull(Object? raw) {
+  final text = raw?.toString().trim();
+  return (text == null || text.isEmpty) ? null : text;
+}
+
 class SchoolTimingDay {
   final String dayName;
   final bool isOpen;
@@ -107,4 +114,46 @@ class SavedSchool {
       const SchoolTimingDay(dayName: 'Sunday', isOpen: false, startTime: '', endTime: ''),
     ];
   }
+
+  /// `mapRowToSchool` in the backend returns exactly these camelCase keys, with
+  /// latitude/longitude parsed to numbers. They are read strictly on purpose: the
+  /// write endpoint requires both, so a row that arrives without one means the
+  /// contract broke, and the load has to surface that instead of drawing a
+  /// substitute location the customer never chose.
+  factory SavedSchool.fromJson(Map<String, dynamic> json) {
+    final timings = json['customDayTimings'];
+    return SavedSchool(
+      id: json['id'].toString(),
+      name: json['name'] as String,
+      address: json['address'] as String,
+      latitude: (json['latitude'] as num).toDouble(),
+      longitude: (json['longitude'] as num).toDouble(),
+      photoUrl: json['photoUrl'] as String?,
+      instructions: _blankToNull(json['instructions']),
+      isFavorite: json['isFavorite'] == true,
+      generalTimingSummary:
+          json['generalTimingSummary'] as String? ?? 'Timings not set',
+      customDayTimings: timings is List
+          ? timings
+              .whereType<Map<String, dynamic>>()
+              .map(SchoolTimingDay.fromJson)
+              .toList()
+          : const <SchoolTimingDay>[],
+    );
+  }
+
+  /// The `POST`/`PUT /api/schools` body. `name`, `address`, `latitude` and
+  /// `longitude` are the four fields the route validates; the rest are stored as
+  /// sent. No id is included — the server mints it and owns the row.
+  Map<String, dynamic> toJson() => <String, dynamic>{
+        'name': name,
+        'address': address,
+        'latitude': latitude,
+        'longitude': longitude,
+        if (photoUrl != null) 'photoUrl': photoUrl,
+        'instructions': instructions ?? '',
+        'isFavorite': isFavorite,
+        'generalTimingSummary': generalTimingSummary,
+        'customDayTimings': customDayTimings.map((d) => d.toJson()).toList(),
+      };
 }

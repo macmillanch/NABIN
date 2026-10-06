@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
-import '../../../../core/theme/app_theme.dart';
+import '../../../../core/network/nabin_api_service.dart';
+import '../../../../core/network/session_manager.dart';
+import '../../../../core/theme/nabin_palette.dart';
 
 class IdentityVerificationSubmissionScreen extends StatefulWidget {
   final bool isResubmission;
@@ -16,61 +19,145 @@ class IdentityVerificationSubmissionScreen extends StatefulWidget {
   State<IdentityVerificationSubmissionScreen> createState() => _IdentityVerificationSubmissionScreenState();
 }
 
-class _IdentityVerificationSubmissionScreenState extends State<IdentityVerificationSubmissionScreen> {
+class _IdentityVerificationSubmissionScreenState
+    extends State<IdentityVerificationSubmissionScreen> {
   final _formKey = GlobalKey<FormState>();
 
-  final TextEditingController _fullNameController = TextEditingController(text: 'Rahul Sharma');
-  final TextEditingController _dobController = TextEditingController(text: '15/08/1994');
-  final TextEditingController _addressController = TextEditingController(text: 'Flat 402, Civil Lines, North Delhi, 110054');
-  final TextEditingController _aadhaarController = TextEditingController(text: '5482 9103 4892');
-  final TextEditingController _voterIdController = TextEditingController(text: 'DLH1948201');
+  // These five fields used to open already filled in with someone's identity:
+  // 'Rahul Sharma', 15/08/1994, 'Flat 402, Tuikual, Aizawl, Mizoram, 796001', a
+  // 12-digit Aadhaar and an EPIC number — and both document tiles and the consent
+  // box started as `true`. A customer who touched nothing could press Submit and the
+  // app would claim to have declared that other person's details accurate. They are
+  // empty now, and the only value this screen supplies for free is the name the
+  // account itself carries.
+  final TextEditingController _fullNameController = TextEditingController();
+  final TextEditingController _dobController = TextEditingController();
+  final TextEditingController _addressController = TextEditingController();
+  final TextEditingController _aadhaarController = TextEditingController();
+  final TextEditingController _voterIdController = TextEditingController();
 
-  bool _aadhaarUploaded = true;
-  bool _voterIdUploaded = true;
-  bool _consentChecked = true;
+  bool _consentChecked = false;
   bool _isSubmitting = false;
 
-  void _submitApplication() {
+  @override
+  void initState() {
+    super.initState();
+    final name = SessionManager.instance.currentUser?['name']?.toString().trim();
+    if (name != null && name.isNotEmpty) _fullNameController.text = name;
+  }
+
+  @override
+  void dispose() {
+    _fullNameController.dispose();
+    _dobController.dispose();
+    _addressController.dispose();
+    _aadhaarController.dispose();
+    _voterIdController.dispose();
+    super.dispose();
+  }
+
+  void _notice(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), duration: const Duration(seconds: 3)),
+    );
+  }
+
+  String? _validateName(String? value) {
+    final text = value?.trim() ?? '';
+    if (text.isEmpty) return 'Enter your full name as it appears on the card.';
+    if (text.length < 3) return 'That name looks too short to be the one on the card.';
+    return null;
+  }
+
+  String? _validateAddress(String? value) {
+    final text = value?.trim() ?? '';
+    if (text.isEmpty) return 'Enter the address NABIN should record.';
+    return null;
+  }
+
+  String? _validateDob(String? value) {
+    final text = value?.trim() ?? '';
+    if (text.isEmpty) return null; // Optional: the route stores what it is given.
+    if (!RegExp(r'^\d{2}/\d{2}/\d{4}$').hasMatch(text)) return 'Use DD/MM/YYYY.';
+    return null;
+  }
+
+  /// `POST /api/identity/submit` rejects anything whose digits are not at least
+  /// twelve long, so the screen asks for that before the round trip, not after.
+  String? _validateAadhaar(String? value) {
+    final digits = (value ?? '').replaceAll(RegExp(r'\D'), '');
+    if (digits.length != 12) return 'Aadhaar is 12 digits.';
+    return null;
+  }
+
+  String? _validateVoterId(String? value) {
+    final text = value?.trim().toUpperCase() ?? '';
+    if (text.length < 5) return 'The EPIC number on the card is at least 5 characters.';
+    return null;
+  }
+
+  Future<void> _submitApplication() async {
+    if (!(_formKey.currentState?.validate() ?? false)) return;
+
     if (!_consentChecked) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please confirm your consent for manual identity verification.')),
-      );
+      _notice('Tick the declaration before sending this to NABIN.');
       return;
     }
 
-    if (!_aadhaarUploaded || !_voterIdUploaded) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Both Aadhaar and Voter ID documents must be uploaded.')),
-      );
+    final user = SessionManager.instance.currentUser;
+    final userId = user?['id']?.toString();
+    if (userId == null || userId.isEmpty) {
+      // The route binds the application to the bearer token and 403s any other id,
+      // so with no session there is nothing honest to send.
+      _notice('Sign in again before sending your details.');
       return;
     }
 
     setState(() => _isSubmitting = true);
+    final res = await NabinApiService.submitIdentity(
+      userId: userId,
+      name: _fullNameController.text.trim(),
+      phone: user?['phone']?.toString() ?? '',
+      aadhaarNumber: _aadhaarController.text.replaceAll(RegExp(r'\D'), ''),
+      voterIdNumber: _voterIdController.text.trim().toUpperCase(),
+      email: user?['email']?.toString(),
+      dob: _dobController.text.trim().isEmpty ? null : _dobController.text.trim(),
+      address: _addressController.text.trim(),
+      isResubmission: widget.isResubmission,
+    );
+    if (!mounted) return;
+    setState(() => _isSubmitting = false);
 
-    Future.delayed(const Duration(milliseconds: 900), () {
-      if (mounted) {
-        setState(() => _isSubmitting = false);
-        context.go('/identity-verification-status', extra: {
-          'userName': _fullNameController.text,
-          'aadhaarMasked': 'XXXX-XXXX-${_aadhaarController.text.replaceAll(' ', '').substring(_aadhaarController.text.replaceAll(' ', '').length - 4)}',
-          'voterMasked': '${_voterIdController.text.substring(0, 3)}***${_voterIdController.text.substring(_voterIdController.text.length - 3)}',
-        });
-      }
-    });
+    if (res == null || res['success'] != true) {
+      // The platform's reason, and no success the customer did not get.
+      _notice(res?['error']?.toString() ??
+          'NABIN could not record your application. Try again.');
+      return;
+    }
+
+    // No masks are computed here any more: the application row is the server's, and
+    // the status screen reads `aadhaarNumberMasked` and `voterIdNumberMasked` back
+    // from `GET /api/identity/status/:userId`.
+    context.go('/identity-verification-status');
   }
 
   @override
   Widget build(BuildContext context) {
+    final p = NabinPalette.of(context);
     return Scaffold(
-      backgroundColor: AppTheme.background,
+      backgroundColor: p.canvas,
       appBar: AppBar(
+        backgroundColor: p.canvas,
+        foregroundColor: p.onSurface,
+        surfaceTintColor: Colors.transparent,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new, color: AppTheme.onSurface, size: 20),
+          icon: const Icon(Icons.arrow_back_ios_new, size: 20),
           onPressed: () => context.canPop() ? context.pop() : context.go('/personalization'),
         ),
-        title: const Text(
+        title: Text(
           'Identity Verification',
-          style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18, color: AppTheme.onSurface),
+          style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18, color: p.onSurface),
         ),
         centerTitle: true,
       ),
@@ -82,18 +169,18 @@ class _IdentityVerificationSubmissionScreenState extends State<IdentityVerificat
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Header Info
+                // Header Info — warning tint carries the notice, surface stays light
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFFFF8E1),
+                    color: p.warning.withValues(alpha: 0.10),
                     borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: const Color(0xFFFFE082)),
+                    border: Border.all(color: p.warning.withValues(alpha: 0.30)),
                   ),
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Icon(Icons.verified_user_rounded, color: Color(0xFFF57F17), size: 28),
+                      Icon(Icons.verified_user_rounded, color: p.warning, size: 28),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Column(
@@ -101,14 +188,14 @@ class _IdentityVerificationSubmissionScreenState extends State<IdentityVerificat
                           children: [
                             Text(
                               widget.isResubmission ? 'Resubmission Requested' : 'Mandatory Manual Identity Verification',
-                              style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 14, color: Color(0xFFE65100)),
+                              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: p.onSurface),
                             ),
                             const SizedBox(height: 4),
                             Text(
                               widget.isResubmission && widget.initialReason != null
                                   ? widget.initialReason!
-                                  : 'To protect community safety, all NABIN accounts require manual verification of Aadhaar and Voter ID by our compliance team.',
-                              style: const TextStyle(fontSize: 12, color: Color(0xFF5D4037), height: 1.3),
+                                  : 'To protect community safety, all NABIN accounts require manual verification of Aadhaar and Voter ID by NABIN.',
+                              style: TextStyle(fontSize: 12, color: p.onSurfaceMuted, height: 1.3),
                             ),
                           ],
                         ),
@@ -118,68 +205,76 @@ class _IdentityVerificationSubmissionScreenState extends State<IdentityVerificat
                 ),
                 const SizedBox(height: 24),
 
-                const Text('1. Personal Details', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: AppTheme.onSurface)),
+                Text('1. Personal Details', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: p.onSurface)),
                 const SizedBox(height: 12),
 
                 // Name Field
                 _buildInputField(
+                  p,
                   label: 'Full Legal Name (as per Govt ID)',
                   controller: _fullNameController,
                   icon: Icons.person_outline,
+                  validator: _validateName,
                 ),
                 const SizedBox(height: 12),
 
                 // DOB Field
                 _buildInputField(
+                  p,
                   label: 'Date of Birth (DD/MM/YYYY)',
                   controller: _dobController,
                   icon: Icons.cake_outlined,
+                  validator: _validateDob,
                 ),
                 const SizedBox(height: 12),
 
                 // Address Field
                 _buildInputField(
+                  p,
                   label: 'Residential Address',
                   controller: _addressController,
                   icon: Icons.location_on_outlined,
                   maxLines: 2,
+                  validator: _validateAddress,
                 ),
                 const SizedBox(height: 28),
 
-                const Text('2. Aadhaar Card Verification', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: AppTheme.onSurface)),
+                Text('2. Aadhaar Card Verification', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: p.onSurface)),
                 const SizedBox(height: 12),
 
                 _buildInputField(
+                  p,
                   label: '12-Digit Aadhaar Number',
                   controller: _aadhaarController,
                   icon: Icons.credit_card,
                   keyboardType: TextInputType.number,
+                  inputFormatters: <TextInputFormatter>[FilteringTextInputFormatter.digitsOnly],
+                  maxLength: 12,
+                  validator: _validateAadhaar,
                 ),
                 const SizedBox(height: 10),
 
-                // Aadhaar Upload Box
-                _buildDocUploadCard(
-                  title: 'Aadhaar Card (Front & Back Photo)',
-                  isUploaded: _aadhaarUploaded,
-                  onTap: () => setState(() => _aadhaarUploaded = !_aadhaarUploaded),
+                _buildSubmissionNote(
+                  p,
+                  'This form sends the number you typed. NABIN has no way to attach a photo of the card from this app, so no document travels with it.',
                 ),
                 const SizedBox(height: 28),
 
-                const Text('3. Voter ID / EPIC Verification', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: AppTheme.onSurface)),
+                Text('3. Voter ID / EPIC Verification', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: p.onSurface)),
                 const SizedBox(height: 12),
 
                 _buildInputField(
+                  p,
                   label: 'Voter ID (EPIC Number)',
                   controller: _voterIdController,
                   icon: Icons.how_to_vote_outlined,
+                  validator: _validateVoterId,
                 ),
                 const SizedBox(height: 10),
 
-                // Voter ID Upload Box
-                _buildDocUploadCard(
-                  title: 'Voter ID Card Photo',
-                  isUploaded: _voterIdUploaded,
-                  onTap: () => setState(() => _voterIdUploaded = !_voterIdUploaded),
+                _buildSubmissionNote(
+                  p,
+                  'NABIN records the application for an officer to review. Enter the number exactly as it is printed on your card.',
                 ),
                 const SizedBox(height: 24),
 
@@ -190,35 +285,39 @@ class _IdentityVerificationSubmissionScreenState extends State<IdentityVerificat
                     Checkbox(
                       value: _consentChecked,
                       onChanged: (val) => setState(() => _consentChecked = val ?? false),
-                      activeColor: AppTheme.primary,
+                      activeColor: p.brand,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
                     ),
-                    const Expanded(
-                      child: Text(
-                        'I declare that the information provided is accurate and authentic. I consent to manual verification by NABIN compliance officers.',
-                        style: TextStyle(fontSize: 11, color: AppTheme.onSurfaceVariant, height: 1.3),
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.only(top: 12),
+                        child: Text(
+                          'I declare that the information provided is accurate and authentic. I consent to manual verification by NABIN compliance officers.',
+                          style: TextStyle(fontSize: 11, color: p.onSurfaceMuted, height: 1.3),
+                        ),
                       ),
                     ),
                   ],
                 ),
                 const SizedBox(height: 24),
 
-                // Submit Button
+                // Submit Button — theme-driven brand primary CTA
                 SizedBox(
                   width: double.infinity,
-                  height: 52,
                   child: ElevatedButton(
                     onPressed: _isSubmitting ? null : _submitApplication,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppTheme.primary,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                      elevation: 2,
-                    ),
                     child: _isSubmitting
-                        ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5))
+                        ? SizedBox(
+                            width: 22,
+                            height: 22,
+                            child: CircularProgressIndicator(
+                              color: Theme.of(context).colorScheme.onPrimary,
+                              strokeWidth: 2.5,
+                            ),
+                          )
                         : Text(
                             widget.isResubmission ? 'Resubmit for Verification' : 'Submit for Admin Verification',
-                            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: Colors.white),
+                            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
                           ),
                   ),
                 ),
@@ -231,83 +330,66 @@ class _IdentityVerificationSubmissionScreenState extends State<IdentityVerificat
     );
   }
 
-  Widget _buildInputField({
+  Widget _buildInputField(
+    NabinPalette p, {
     required String label,
     required TextEditingController controller,
     required IconData icon,
     TextInputType? keyboardType,
     int maxLines = 1,
+    String? Function(String?)? validator,
+    List<TextInputFormatter>? inputFormatters,
+    int? maxLength,
   }) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       decoration: BoxDecoration(
-        color: AppTheme.surfaceContainerLowest,
+        color: p.surface,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppTheme.outlineVariant),
+        border: Border.all(color: p.divider),
       ),
-      child: TextField(
+      child: TextFormField(
         controller: controller,
         keyboardType: keyboardType,
         maxLines: maxLines,
-        style: const TextStyle(fontWeight: FontWeight.bold, color: AppTheme.onSurface, fontSize: 14),
+        validator: validator,
+        inputFormatters: inputFormatters,
+        maxLength: maxLength,
+        style: TextStyle(fontWeight: FontWeight.w600, color: p.onSurface, fontSize: 14),
         decoration: InputDecoration(
           labelText: label,
-          labelStyle: const TextStyle(color: AppTheme.onSurfaceVariant, fontSize: 12),
+          labelStyle: TextStyle(color: p.onSurfaceMuted, fontSize: 12),
           border: InputBorder.none,
-          icon: Icon(icon, color: AppTheme.primary, size: 20),
+          icon: Icon(icon, color: p.brand, size: 20),
         ),
       ),
     );
   }
 
-  Widget _buildDocUploadCard({
-    required String title,
-    required bool isUploaded,
-    required VoidCallback onTap,
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: isUploaded ? const Color(0xFFE8F5E9) : AppTheme.surfaceContainerLowest,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: isUploaded ? const Color(0xFF81C784) : AppTheme.outlineVariant),
-        ),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: isUploaded ? const Color(0xFFC8E6C9) : const Color(0xFFF5F5F5),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Icon(
-                isUploaded ? Icons.check_circle : Icons.upload_file,
-                color: isUploaded ? const Color(0xFF2E7D32) : AppTheme.onSurfaceVariant,
-                size: 22,
-              ),
+  /// What this app can and cannot send. There is no camera or gallery picker in it,
+  /// so the two upload tiles that used to sit here — starting pre-ticked 'Document
+  /// attached' and flipping to that state on a tap — claimed a photo of a card that
+  /// was never read from the device.
+  Widget _buildSubmissionNote(NabinPalette p, String text) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: p.surfaceMuted,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: p.divider),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.info_outline_rounded, color: p.onSurfaceMuted, size: 20),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(fontSize: 11.5, color: p.onSurfaceMuted, height: 1.35),
             ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppTheme.onSurface)),
-                  Text(
-                    isUploaded ? 'Document attached (Tap to change)' : 'Tap to upload high-resolution photo',
-                    style: TextStyle(fontSize: 11, color: isUploaded ? const Color(0xFF2E7D32) : AppTheme.onSurfaceVariant),
-                  ),
-                ],
-              ),
-            ),
-            Icon(
-              isUploaded ? Icons.edit_outlined : Icons.add_photo_alternate_outlined,
-              color: AppTheme.primary,
-              size: 20,
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

@@ -16,7 +16,7 @@ void main() {
 
 /// NABIN Customer Super-App
 /// 1:1 Google Stitch Kinetic Reliability Design Paradigm
-/// Deep Navy (#1A237E), Electric Orange (#FF6D00), Electric Cyan (#00E5FF)
+/// NABIN signature blue (#1A3BA2) on white/neutral surfaces, with per-service accents
 class NabinCustomerSuperApp extends ConsumerWidget {
   const NabinCustomerSuperApp({super.key});
 

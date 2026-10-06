@@ -52,6 +52,10 @@ test('NABIN Phase 18 driver earnings identity audit', async () => {
   const c = new Client({ connectionString: PG });
   await c.connect();
   const q = async (sql) => (await c.query(sql)).rows;
+  /* Snapshot for IDENT-13. "This audit changed nothing" is a statement about the delta this
+   * file caused, so it has to be measured against where the file started — an absolute row
+   * count only says how much test residue the previous runs left behind. */
+  const txAtStart = Number((await q('SELECT COUNT(*)::int n FROM journal_transactions'))[0].n);
 
   /* ---------- the completed job always carries a usable identity ---------- */
   const ids = await q(`SELECT COUNT(*)::int completed,
@@ -105,24 +109,71 @@ test('NABIN Phase 18 driver earnings identity audit', async () => {
     twoArgCallers.length === 0,
     `two-argument call sites: ${twoArgCallers.join(' | ') || 'none'}`);
 
-  /* ---------- and it has actually happened, with real money ---------- */
+  /* ---------- and the barrier really does not cover it ---------- */
   /* COUNT(DISTINCT t.id) throughout: joining journal_lines multiplies a
    * transaction by its own detail rows, and that is how earlier phases ended up
-   * reporting line counts as if they were counts of money movements. */
+   * reporting line counts as if they were counts of money movements.
+   *
+   * The incident rows are no longer in a freshly reset local database, and a check that
+   * passes only while old test residue sits in a table is measuring the residue, not the
+   * rule. What the rule actually is — UNIQUE(idempotency_key) does not protect a NULL —
+   * is provable on any database by attempting it, inside a transaction this file rolls
+   * back. IDENT-12 already uses that technique, and the residue read below proves the
+   * rollback held. */
   const noKey = await q(`SELECT COUNT(DISTINCT t.id)::int n, COALESCE(SUM(l.amount),0) amount
       FROM journal_transactions t JOIN journal_lines l ON l.journal_id = t.id
      WHERE l.account_code='DRIVER_EARNINGS_PAYABLE' AND l.entry_type='CREDIT'
        AND t.idempotency_key IS NULL`);
-  check('IDENT-07 driver-earnings credits exist that carry NO idempotency key',
-    Number(noKey[0].n) > 0,
-    `${noKey[0].n} earnings transactions with a NULL key, totalling ₹${noKey[0].amount} — the UNIQUE(key) index cannot protect a NULL`);
+  const nullProbe = await (async () => {
+    const cc = new Client({ connectionString: PG });
+    const out = { accepted: 0, why: null, residue: null };
+    const stamp = `P18NULL:${Date.now()}`;
+    const insert = (tag) => cc.query(
+      `INSERT INTO journal_transactions (transaction_id, idempotency_key, category, total_debit, total_credit, description, reference_id)
+       VALUES ($1, NULL, 'WALLET_TOPUP', 1.00, 1.00, $2, $3)`, [tag, 'null-key earnings probe', tag]);
+    try {
+      await cc.connect();
+      await cc.query('BEGIN');
+      await insert(`${stamp}:A`);
+      out.accepted += 1;
+      await insert(`${stamp}:B`);
+      out.accepted += 1;
+      await cc.query('ROLLBACK');
+    } catch (e) {
+      out.why = String(e.message).split('\n')[0].slice(0, 70);
+      try { await cc.query('ROLLBACK'); } catch { /* the aborted transaction is already closed */ }
+    } finally {
+      try {
+        const left = await cc.query(
+          "SELECT COUNT(*)::int n FROM journal_transactions WHERE transaction_id LIKE 'P18NULL:%'");
+        out.residue = left.rows[0].n;
+      } catch { out.residue = 'unreadable'; }
+      try { await cc.end(); } catch { /* ignore */ }
+    }
+    return out;
+  })();
+  check('IDENT-07 driver-earnings credits can be posted with NO idempotency key',
+    nullProbe.accepted === 2 && Number(nullProbe.residue) === 0,
+    nullProbe.accepted === 2
+      ? `two keyless transactions were accepted side by side, then rolled back (${nullProbe.residue} rows left) — the UNIQUE(key) index cannot protect a NULL; ${noKey[0].n} such earnings transactions worth ₹${noKey[0].amount} are still in this database`
+      : `the probe was refused instead: ${nullProbe.why}`);
   const tsRows = await q(`SELECT COUNT(DISTINCT t.id)::int n FROM journal_transactions t
       JOIN journal_lines l ON l.journal_id=t.id
      WHERE l.account_code='DRIVER_EARNINGS_PAYABLE' AND l.entry_type='CREDIT'
        AND t.reference_id LIKE 'drv_earn_%'`);
-  check('IDENT-08 those rows are not attributable to any job',
-    Number(tsRows[0].n) > 0,
-    `${tsRows[0].n} earnings transactions reference drv_earn_<timestamp> rather than a job`);
+  if (Number(tsRows[0].n) > 0) {
+    const attributable = await q(`SELECT COUNT(*)::int matched FROM journal_transactions t
+        JOIN journal_lines l ON l.journal_id=t.id
+       WHERE l.account_code='DRIVER_EARNINGS_PAYABLE' AND l.entry_type='CREDIT'
+         AND t.reference_id LIKE 'drv_earn_%'
+         AND EXISTS (SELECT 1 FROM jobs j WHERE j.job_number = t.reference_id OR j.id::text = t.reference_id)`);
+    check('IDENT-08 those rows are not attributable to any job',
+      Number(attributable[0].matched) === 0,
+      `${tsRows[0].n} earnings transactions reference drv_earn_<timestamp> and ${attributable[0].matched} of them name a real job`);
+  } else {
+    notMeasured('IDENT-08 those rows are not attributable to any job',
+      'this database holds no drv_earn_<timestamp> earnings rows to attribute — the local store was reset, and the caller-side rule that mints them is proven by IDENT-04/IDENT-05 instead');
+  }
 
   /* ---------- where identity WAS passed, the protection works ---------- */
   /* Count DISTINCT transactions per job. An earlier version counted the join
@@ -140,15 +191,84 @@ test('NABIN Phase 18 driver earnings identity audit', async () => {
   check('IDENT-09 no job has more than one earnings transaction (distinct journal ids)',
     Number(perJob[0].max_tx_per_job) <= 1,
     `${perJob[0].jobs_with_legs} distinct job references carry an earnings leg; max distinct transactions for any one = ${perJob[0].max_tx_per_job}, max distinct idempotency keys = ${perJob[0].max_keys_per_job}`);
-  const coverage = await q(`SELECT COUNT(*)::int completed,
-      COUNT(*) FILTER (WHERE EXISTS (SELECT 1 FROM journal_transactions t
-         JOIN journal_lines l ON l.journal_id=t.id
+  /* IDENT-10 has to create the case it measures. Asserting over every COMPLETED row in `jobs`
+   * measured whichever scaffolding the other fifty links left behind, not the ride path — and
+   * that scaffolding could not be cleaned up either. `trg_jobs_financial_record_guard` used to
+   * fire BEFORE DELETE and `RETURN NEW`, and NEW is NULL for a DELETE, so PostgreSQL silently
+   * skipped the row for *every* role (measured: rowCount 0, row intact, no error raised). The
+   * teardown in test_suite (JOB-P22-*) and the sweep in support_bounty_atomicity (JOB-E3-*)
+   * therefore never removed their fixture jobs, and those jobs were never settled. Migration 033
+   * corrected that guard so a privileged DELETE returns OLD; clients are still refused. Meanwhile
+   * the audit settles a job of its own, through the same RPC and the same key
+   * DriverRepository.updateEarnings passes for a trip, and requires the predicate to attribute it.
+   * Everything happens inside a transaction it rolls back. */
+  const settle = await (async () => {
+    const cc = new Client({ connectionString: PG });
+    const JN = `JOB-IDENT10-${Date.now()}`;
+    const DRIVER = '00000000-0000-0000-0000-000000000101';
+    const key = `RIDE_SETTLEMENT:${JN}:DRIVER_EARNINGS`;
+    const out = { ok: false, legs: 0, credited: 0, residue: 'unreadable', verdict: 'not-run' };
+    try {
+      await cc.connect();
+      const drv = await cc.query('SELECT id FROM drivers WHERE id=$1::uuid', [DRIVER]);
+      if (!drv.rowCount) throw new Error(`no durable drivers row ${DRIVER} to settle against`);
+      await cc.query('BEGIN');
+      const made = await cc.query(`INSERT INTO jobs (job_number, service_type, status, pickup_address, drop_address,
+          fare_subtotal, final_total, driver_earnings, platform_commission)
+        VALUES ($1,'RIDE','COMPLETED','IDENT-10 pickup','IDENT-10 drop',100.00,100.00,85.00,15.00)
+        RETURNING id::text id`, [JN]);
+      const jobId = made.rows[0].id;
+      const rpc = await cc.query(`SELECT * FROM adjust_wallet_atomic($1::uuid, 'DRIVER', 85.00, 'RIDE_SETTLEMENT',
+          'IDENT-10 settlement fixture', $2, 'CUSTOMER_WALLET_LIABILITY', 'DRIVER_EARNINGS_PAYABLE', $3)`,
+      [DRIVER, JN, key]);
+      /* The same predicate the store-wide read below uses, aimed at one job this file owns. */
+      const found = await cc.query(`SELECT COUNT(DISTINCT t.id)::int legs, COALESCE(SUM(l.amount),0) credited
+          FROM journal_transactions t JOIN journal_lines l ON l.journal_id=t.id
+         WHERE l.account_code='DRIVER_EARNINGS_PAYABLE' AND l.entry_type='CREDIT'
+           AND (t.reference_id=$1 OR t.reference_id=$2)`, [JN, jobId]);
+      out.legs = Number(found.rows[0].legs);
+      out.credited = found.rows[0].credited;
+      /* The RPC returns one json value, so the driver row is `{ json: {...} }` here — the
+       * repository sees `data.balance` only because PostgREST unwraps the scalar. */
+      const posted = rpc.rows[0] && (rpc.rows[0].json ?? Object.values(rpc.rows[0])[0]);
+      out.status = posted && posted.status;
+      out.balance = posted && posted.balance;
+      await cc.query('ROLLBACK');
+      const residue = await cc.query(`SELECT
+          (SELECT COUNT(*) FROM jobs WHERE job_number=$1)::int jobs,
+          (SELECT COUNT(*) FROM journal_transactions WHERE reference_id IN ($1,$2))::int tx`, [JN, jobId]);
+      out.residue = `jobs=${residue.rows[0].jobs} journal=${residue.rows[0].tx}`;
+      out.ok = out.legs === 1 && out.status === 'POSTED'
+        && Number(residue.rows[0].jobs) === 0 && Number(residue.rows[0].tx) === 0;
+      out.verdict = `the fixture job settled once and the audit's own predicate found it: ${out.legs} earnings `
+        + `transaction(s) crediting ₹${out.credited} against ${JN} (RPC ${out.status}, balance after the credit `
+        + `₹${out.balance}); after ROLLBACK ${out.residue} — the key the ride path derives is ${key.slice(0, 24)}…`;
+    } catch (e) {
+      out.verdict = `probe failed: ${String(e.message).split('\n')[0].slice(0, 90)}`;
+      try { await cc.query('ROLLBACK'); } catch { /* the aborted transaction is already closed */ }
+    } finally { try { await cc.end(); } catch { /* ignore */ } }
+    return out;
+  })();
+  check('IDENT-10 a COMPLETED job settled through the ride RPC is attributable to that job',
+    settle.ok, settle.verdict);
+
+  const gaps = await q(`SELECT j.job_number FROM jobs j WHERE j.status='COMPLETED'
+      AND NOT EXISTS (SELECT 1 FROM journal_transactions t JOIN journal_lines l ON l.journal_id=t.id
         WHERE l.account_code='DRIVER_EARNINGS_PAYABLE' AND l.entry_type='CREDIT'
-          AND (t.reference_id=j.job_number OR t.reference_id=j.id::text)))::int attributable
-      FROM jobs j WHERE j.status='COMPLETED'`);
-  check('IDENT-10 completed jobs are covered by an attributable earnings leg',
-    Number(coverage[0].attributable) === Number(coverage[0].completed),
-    `${coverage[0].attributable}/${coverage[0].completed} (this is the measurement that corrects Phase 17's "1 of 979")`);
+          AND (t.reference_id=j.job_number OR t.reference_id=j.id::text)) ORDER BY j.created_at`);
+  /* The tripwire that replaces the store-wide equality: a job the application itself minted
+   * (JobRepository mints JOB-<8 digits>-<3 digits>) that completes without a leg is a real
+   * settlement failure. A job whose number was hand-written by another suite is scaffolding. */
+  const appMinted = gaps.filter((g) => /^JOB-\d{8}-\d{3}$/.test(String(g.job_number)));
+  check('IDENT-10B no job the platform minted completed without an attributable earnings leg',
+    appMinted.length === 0,
+    appMinted.length > 0
+      ? `${appMinted.length} app-minted job(s) completed with no attributable earnings leg: `
+      + `${appMinted.map((g) => g.job_number).join(', ')}`
+      : gaps.length === 0
+        ? 'every COMPLETED job in this store carries exactly one attributable earnings leg'
+        : `${gaps.length} COMPLETED job(s) carry no leg: ${gaps.map((g) => g.job_number).join(', ')}; `
+        + `none of them match the application's own JOB-<8digits>-<3digits> generator`);
 
   /* ---------- wallet and journal move together, or not at all ---------- */
   const rpc = await q("SELECT prosrc FROM pg_proc WHERE proname='adjust_wallet_atomic' LIMIT 1");
@@ -166,10 +286,12 @@ test('NABIN Phase 18 driver earnings identity audit', async () => {
       await cc.connect();
       const before = (await cc.query('SELECT wallet_balance FROM drivers WHERE id=$1', [FIX])).rows[0].wallet_balance;
       await cc.query('BEGIN');
-      const r = await cc.query(`SELECT * FROM adjust_wallet_atomic('DRIVER'::owner_type, $1, 1234.56,
-          'WALLET_TOPUP'::journal_category, 'IDENT-12 rollback probe', 'IDENT12', $2, 'CUSTOMER_WALLET_LIABILITY', 'DRIVER_EARNINGS_PAYABLE', 'DRIVER')`,
+      const r = await cc.query(`SELECT * FROM adjust_wallet_atomic($1::uuid, 'DRIVER', 1234.56,
+          'WALLET_TOPUP', 'IDENT-12 rollback probe', 'IDENT12', 'CUSTOMER_WALLET_LIABILITY',
+          'DRIVER_EARNINGS_PAYABLE', $2)`,
         [FIX, `IDENT12:${Date.now()}`]);
-      const inTx = r.rows[0] && (r.rows[0].balance ?? r.rows[0].new_balance);
+      const posted = r.rows[0] && (r.rows[0].json ?? Object.values(r.rows[0])[0]);
+      const inTx = posted && posted.balance;
       const txCount = (await cc.query("SELECT COUNT(*) n FROM journal_transactions WHERE reference_id='IDENT12'")).rows[0].n;
       await cc.query('ROLLBACK');
       const after = (await cc.query('SELECT wallet_balance FROM drivers WHERE id=$1', [FIX])).rows[0].wallet_balance;
@@ -192,8 +314,8 @@ test('NABIN Phase 18 driver earnings identity audit', async () => {
   /* The history rule the whole phase depends on: nothing here may change it. */
   const census = await q('SELECT COUNT(*)::int tx, MAX(created_at)::date last_day FROM journal_transactions');
   check('IDENT-13 this audit read the journal and changed nothing',
-    Number(census[0].tx) > 4000,
-    `${census[0].tx} journal transactions, newest ${census[0].last_day}; all probes used rolled-back transactions`);
+    Number(census[0].tx) === txAtStart,
+    `${census[0].tx} journal transactions now, ${txAtStart} when this audit began; all probes used rolled-back transactions, newest ${census[0].last_day}`);
   await c.end();
 
   console.log(`\nPhase 18 identity audit totals: ${results.pass} passed, ${results.fail} failed, ${results.skip} not measured`);

@@ -3,9 +3,14 @@
 /// Every field below exists in the backend response of
 /// `GET /api/restaurants`, `GET /api/restaurants/:id/menu` or
 /// `GET /api/advertisements`. Nothing the API does not return is modelled here
-/// — no review counts, distance, delivery fee, price-for-two, offer copy, menu
-/// sections, dish images or dish add-ons — so the food screens cannot render a
-/// value they were never given.
+/// — no review counts, distance, delivery fee, price-for-one, offer copy or
+/// dish add-ons — so the food screens cannot render a value they were never
+/// given.
+///
+/// A restaurant's own banner is `coverImageUrl` and its window is
+/// `deliveryMinutes`, both nullable because migration 034 made them columns a
+/// merchant may leave undeclared; a null renders the letter plate and no ETA
+/// chip. `rating` is absent on purpose: see FoodRestaurant.
 library;
 
 String? stringOrNull(Object? value) {
@@ -17,6 +22,17 @@ String? stringOrNull(Object? value) {
 double? doubleOrNull(Object? value) {
   if (value is num) return value.toDouble();
   if (value is String) return double.tryParse(value.trim());
+  return null;
+}
+
+/// A whole number, or null for anything that is not one. `standard_delivery_minutes`
+/// arrives as a JSON number; a `'28'` string is accepted because PostgREST can
+/// hand back a numeric column as text, and a fraction or a word is refused rather
+/// than rounded into a claim the merchant never made.
+int? intOrNull(Object? value) {
+  if (value is int) return value;
+  if (value is num) return value.isFinite && value == value.truncate() ? value.toInt() : null;
+  if (value is String) return int.tryParse(value.trim());
   return null;
 }
 
@@ -43,15 +59,35 @@ String foodPrice(num value) {
   return value.toStringAsFixed(2);
 }
 
+/// The one place a declared window gains its unit label. A null stays null so a
+/// caller renders no ETA at all rather than a guess, and no screen adds "min"
+/// on its own.
+String? foodEtaLabel(int? minutes) => minutes == null ? null : '$minutes min';
+
 /// A restaurant as projected by `projectRestaurantForCustomer` on the server.
+///
+/// The projection is exactly
+/// `id, name, merchant_type, address, lat, lng, is_open, cuisines,
+/// cover_image_url, standard_delivery_minutes` (migration 034 added the last
+/// three), so this class models those and nothing else:
+///
+/// - **no `rating`** — `merchants.rating` was created as `NUMERIC(3,2) DEFAULT 4.80`
+///   and the schema has no reviews, ratings or order-feedback table, so every
+///   stored score was the column default rather than a measurement. 034 dropped
+///   the default and the projection stopped selecting the column, so a star here
+///   would have nothing to read. A real rating needs a real source.
+/// - **no `deliveryTime` string** — an ETA is `standard_delivery_minutes`, a whole
+///   number of minutes or null. Free-text '25-35 mins' cannot be compared or
+///   displayed honestly, so the client formats the number it was given.
+/// - **no `operationalStatus`** — the endpoint does not return it. Whether the
+///   kitchen can take orders is `isOpen`, which is a real projected boolean.
 class FoodRestaurant {
   const FoodRestaurant({
     required this.id,
     required this.name,
     this.cuisines = const <String>[],
-    this.rating,
-    this.deliveryTime,
-    this.operationalStatus,
+    this.coverImageUrl,
+    this.deliveryMinutes,
     this.isOpen = false,
     this.address,
   });
@@ -59,27 +95,31 @@ class FoodRestaurant {
   final String id;
   final String name;
   final List<String> cuisines;
-  final double? rating;
-  final String? deliveryTime;
-  final String? operationalStatus;
+
+  /// The banner the merchant declared, or null — which renders the letter plate,
+  /// never a stock picture.
+  final String? coverImageUrl;
+
+  /// The merchant's declared kitchen-to-door window in minutes, or null when the
+  /// merchant has declared nothing.
+  final int? deliveryMinutes;
   final bool isOpen;
   final String? address;
 
   String get firstLetter => _initialOf(name);
 
-  /// `operationalStatus` is a real column; anything other than APPROVED means
-  /// the kitchen cannot take orders yet.
-  bool get isApproved => operationalStatus == null || operationalStatus == 'APPROVED';
-
   String get cuisineLabel => cuisines.isEmpty ? '' : cuisines.join(', ');
+
+  /// The declared window as a label, or null so callers render no chip at all
+  /// rather than a guess.
+  String? get etaLabel => foodEtaLabel(deliveryMinutes);
 
   factory FoodRestaurant.fromJson(Map<String, dynamic> json) => FoodRestaurant(
         id: stringOrNull(json['id']) ?? '',
         name: stringOrNull(json['name']) ?? 'Untitled restaurant',
         cuisines: stringList(json['cuisines']),
-        rating: doubleOrNull(json['rating']),
-        deliveryTime: stringOrNull(json['deliveryTime']),
-        operationalStatus: stringOrNull(json['operationalStatus']),
+        coverImageUrl: stringOrNull(json['coverImageUrl']),
+        deliveryMinutes: intOrNull(json['deliveryMinutes']),
         isOpen: isTrue(json['isOpen']),
         address: stringOrNull(json['address']),
       );

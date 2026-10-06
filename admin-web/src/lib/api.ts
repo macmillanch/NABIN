@@ -89,4 +89,43 @@ export const adminApi = {
   setCustomerStatus: (id: string, status: string, reason?: string) =>
     api.post(`/admin/customers/${encodeURIComponent(id)}/status`, { status, reason }),
   signOutCustomer: (id: string) => api.post(`/admin/customers/${encodeURIComponent(id)}/sign-out`),
+  // COMMAND CENTER actions. Each body below was read off the route, not inferred:
+  //   /admin/services/emergency-killswitch  { activate: boolean, reason?: string }
+  //     `activate` must be a real boolean - the route refuses `KILLSWITCH_DIRECTION_REQUIRED`
+  //     rather than guess a direction, because a dropped parameter once pulled the lockdown UP
+  //     while answering 200. `false` is the recovery path, so the control is reversible.
+  //   /admin/support/:id/assign   no body at all: the route assigns to `req.admin`, so sending
+  //     an assignee would be an invitation to re-decide who owns a ticket from the client.
+  //   /admin/support/:id/resolve  { resolutionNotes, refundAmount?, specializedData? }
+  //     Only `resolutionNotes` is sent from this console. `refundAmount` is a money movement
+  //     wearing a support ticket's clothing, and a dashboard field is not how it should arrive.
+  emergencyKillswitch: (activate: boolean, reason: string) =>
+    api.post('/admin/services/emergency-killswitch', { activate, reason }),
+  getSupportTickets: (params?: Record<string, string | number>) => api.get('/admin/support', { params }),
+  assignTicket: (id: string) => api.post(`/admin/support/${encodeURIComponent(id)}/assign`, {}),
+  resolveTicket: (id: string, resolutionNotes: string) =>
+    api.post(`/admin/support/${encodeURIComponent(id)}/resolve`, { resolutionNotes }),
+  getFinanceMetrics: () => api.get('/admin/finance/metrics'),
+  getLedger: (params?: Record<string, string | number>) => api.get('/admin/finance/ledger', { params }),
+  getDoubleEntryLedger: (params?: Record<string, string | number>) =>
+    api.get('/admin/finance/ledger-double-entry', { params }),
+  getDriverSettlements: () => api.get('/admin/finance/settlements/drivers'),
+  getKycQueue: (params?: Record<string, string | number>) => api.get('/admin/identity-verifications', { params }),
+  // KYC decision. Body is exactly { decision, reason, checklist } - no other field exists on the
+  // route. The server requires identity_verification.review plus the decision-specific grant, and
+  // since TASK 4G an APPROVE is refused unless all three checklist values are strictly true
+  // (code IDENTITY_APPROVAL_CHECKLIST_REQUIRED). The caller therefore sends the real checkbox
+  // state; this client never fills the checklist in on the operator's behalf.
+  reviewIdentity: (id: string, body: { decision: string; reason?: string; checklist?: Record<string, boolean> }) =>
+    api.post(`/admin/identity-verifications/${encodeURIComponent(id)}/review`, body),
+  getAuditLogs: (params?: Record<string, string | number>) => api.get('/admin/audit-logs', { params }),
+  getPlatformSettings: () => api.get('/admin/platform-settings'),
+  // Settings write. The route is `PUT /admin/platform-settings/:key` guarded by
+  // authenticateAdmin + requireSuperAdmin (a role gate, not a permission key), and its body is
+  // exactly { value, description?, reason? }; appConfigService.validateSettingWrite() decides
+  // what is acceptable and never echoes the submitted value back. This console only ever calls
+  // it for the one key it has a verified editor for - see SettingsPage.
+  putPlatformSetting: (key: string, body: { value: unknown; description?: string; reason?: string }) =>
+    api.put(`/admin/platform-settings/${encodeURIComponent(key)}`, body),
+  getDarkStores: () => api.get('/admin/dark-stores'),
 };

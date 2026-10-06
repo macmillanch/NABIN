@@ -306,7 +306,7 @@ The four operations the owner named, measured against the code that would have t
 
 | Named critical operation | Consults geo policy in the path? | Where it happens, or where it does not |
 | --- | --- | --- |
-| **Fare calculation** | **Yes** | `POST /api/pricing/estimate` `server.js:3077` → `db.calculateFareEstimate` → `database.js:2400-2416` → `geoPolicy.evaluate` at `:2407` (`operation: 'QUOTE'`) |
+| **Fare calculation** | **Yes** | `POST /api/pricing/estimate` `server.js:3391` → `db.calculateFareEstimate` → `database.js:2400-2416` → `geoPolicy.evaluate` at `:2407` (`operation: 'QUOTE'`) |
 | **Booking creation — ride** | **Yes, and it refuses** | `server.js:3411`, coordinates at `:3477`, refusal at `:3486-3487` via `replyGeoRefusal` (`:68-78`) |
 | **Booking creation — parcel** | Reaches the engine **with no coordinates** | `server.js:3614`, input built at `:3665-3669` ⇒ `geoStatus: 'NOT_PROVIDED'`, and no refusal (`database.js:2457-2471`) |
 | **Booking creation — food** | **No** | `server.js:3756` — no geo call; feature-gated by an `X-Location-Id` header string (`:3770-3771`) |
@@ -378,7 +378,7 @@ order to give the original wording something to apply to.
    `mobile/lib/core/network/nabin_api_service.dart` calls `/pricing/estimate` (`:146`), `/admin/geofences`
    (`:896`) and `/admin/surgezones` (`:912`) and never calls evaluate; the four web clients contain no
    match for `geofence`/`evaluate`/`reverse-geocode`.
-3. `POST /api/pricing/estimate` (`server.js:3077`) is **also** registered with no middleware, accepts
+3. `POST /api/pricing/estimate` (`server.js:3391`) is **also** registered with no middleware, accepts
    `pickupLat`/`pickupLng` from the body, calls the same `db.calculateFareEstimate` →
    `geoPolicy.evaluate` path (`database.js:2400-2416`), and returns the full `estimate` — which is the
    surcharge-inclusive fare a rider would be quoted for coordinates the caller chooses to submit. It is

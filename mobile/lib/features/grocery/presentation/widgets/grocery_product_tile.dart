@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import '../../../../core/theme/nabin_tokens.dart';
 import '../models/grocery_product.dart';
 import '../providers/grocery_cart_provider.dart';
 import '../theme/grocery_theme.dart';
-import 'grocery_product_detail_modal.dart';
 
 /// ADD button that becomes a quantity stepper, driven by the live cart.
 class GroceryAddControl extends ConsumerWidget {
@@ -56,7 +56,12 @@ class GroceryAddControl extends ConsumerWidget {
       return ElevatedButton(
         onPressed: addOne,
         style: ElevatedButton.styleFrom(
-          backgroundColor: GroceryTheme.primaryGreenDark,
+          // Compact = a row-level control inside a list, so it keeps the grocery
+          // green identity. Full width = the page's single main action, so it
+          // carries the NABIN brand instead.
+          backgroundColor: compact
+              ? GroceryTheme.serviceAccent
+              : GroceryTheme.primaryAction,
           foregroundColor: Colors.white,
           elevation: 0,
           minimumSize: compact ? const Size(58, 32) : const Size(120, 44),
@@ -71,7 +76,7 @@ class GroceryAddControl extends ConsumerWidget {
     return Container(
       height: compact ? 32 : 44,
       decoration: BoxDecoration(
-        color: GroceryTheme.primaryGreenDark,
+        color: compact ? GroceryTheme.serviceAccent : GroceryTheme.primaryAction,
         borderRadius: NabinRadius.control,
       ),
       child: Row(
@@ -193,7 +198,7 @@ class GroceryProductTile extends StatelessWidget {
           Expanded(
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,
-              onTap: () => GroceryProductDetailModal.show(context: context, product: product),
+              onTap: () => context.push('/grocery-product-detail?productId=${Uri.encodeComponent(product.id)}'),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(14),
                 child: Container(

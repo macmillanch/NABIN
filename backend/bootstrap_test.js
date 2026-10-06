@@ -1,6 +1,8 @@
 const http = require('http');
 const { spawn } = require('child_process');
 const path = require('path');
+// Reap the backend this run starts, and only that one — scripts/spawned_server.js.
+const { trackServer } = require('./scripts/spawned_server');
 
 const BASE_URL = 'http://127.0.0.1:4000';
 
@@ -51,12 +53,12 @@ async function runTests() {
     // Non-blocking if supabase is unavailable
   }
 
-  const proc = spawn(process.execPath, [path.join(__dirname, 'src/server.js')], {
+  const proc = trackServer(spawn(process.execPath, [path.join(__dirname, 'src/server.js')], {
     cwd: __dirname,
     stdio: 'ignore',
     env: { ...process.env, PORT: 4000, ADMIN_BOOTSTRAP_SECRET: 'test-secret' },
     detached: true,
-  });
+  }));
 
   // wait for startup
   for (let i = 0; i < 20; i++) {

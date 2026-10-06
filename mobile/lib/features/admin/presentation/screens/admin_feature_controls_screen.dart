@@ -207,8 +207,8 @@ class _AdminFeatureControlsScreenState extends ConsumerState<AdminFeatureControl
                       child: Row(
                         children: [
                           Icon(Icons.warning_amber_rounded, size: 14, color: AdminTheme.accentRose),
-                          const SizedBox(width: 4),
-                          Text(
+                          SizedBox(width: 4),
+                          const Text(
                             'Service Disabled',
                             style: TextStyle(
                               fontSize: 12,

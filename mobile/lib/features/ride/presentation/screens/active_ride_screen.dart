@@ -1,16 +1,47 @@
 import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
-import '../../../../core/theme/app_theme.dart';
-import '../../../../core/widgets/driver_map_view.dart';
+
 import '../../../../core/models/passenger_booking_info.dart';
+import '../../../../core/network/nabin_api_service.dart';
 import '../../../../core/network/nabin_ws_service.dart';
 import '../../../../core/network/session_manager.dart';
+import '../../../../core/theme/app_theme.dart';
 
+/// Follows one ride by reading its trip row back from the platform.
+///
+/// The screen used to own the lifecycle: an `int _tripStage` walked forward through
+/// invented titles, and it printed a driver from a hard-coded roster ('Rajesh Kumar',
+/// 'Vikram Singh', 'Amitabh Sen' with plates, ratings and dialable phone numbers), a
+/// start PIN of `7729`, an ETA, a remaining distance, a speed, a per-vehicle-class
+/// cancellation fee table (2W Rs 20 / 3W Rs 30 / 4W Rs 50), a mid-trip early-stop with a
+/// minimum-50% fare rule, an instant-refund-to-wallet claim, and a rating bar that sent
+/// nothing. None of it had a source.
+///
+/// What actually exists for a customer and a job:
+/// - `GET /api/tracking/:jobId` — the trip row: `status`, `driver {id,name,phone}`,
+///   `location`, `pickup`, `drop`. Nothing else.
+/// - `DRIVER_ASSIGNED` on the customer socket — the only message that carries a vehicle
+///   plate and the trip-start code. It is a signal, so it is used as one: the push is
+///   captured and the row is re-read. There is no driver rating in it, and there isn't
+///   going to be one while `drivers.rating` is a `DEFAULT 5.00` column with no reviews
+///   table behind it (see docs/CUSTOMER_SCREEN_CONTRACT_AUDIT.md §6).
+/// - `POST /api/rides/:id/cancel` — the only customer write a job has. Its response
+///   carries the real `cancellationFee`, `driverCompensation`, `refundAmount` and
+///   `refundStatus`, which are printed exactly as returned.
+///
+/// The rest of what this screen used to assert has no route on the platform: no
+/// early-stop or end-trip write, no customer rating write, no trip-adjustment write, no
+/// server-side ETA or distance-covered, no per-vehicle fee table. Those gaps are stated
+/// in the copy rather than filled with a simulation.
 class ActiveRideScreen extends StatefulWidget {
   final String vehicleType;
   final String vehicleName;
+
+  /// The quote the booking handed over. It is a booking value, not a trip row value —
+  /// `GET /api/tracking/:jobId` reports no fare, so this screen labels it as such.
   final String fare;
   final PassengerBookingInfo? passengerInfo;
   final String? jobId;
@@ -19,7 +50,7 @@ class ActiveRideScreen extends StatefulWidget {
     super.key,
     this.vehicleType = '3W',
     this.vehicleName = 'Auto',
-    this.fare = '₹85.00',
+    this.fare = '',
     this.passengerInfo,
     this.jobId,
   });
@@ -29,126 +60,332 @@ class ActiveRideScreen extends StatefulWidget {
 }
 
 class _ActiveRideScreenState extends State<ActiveRideScreen> {
-  // 0: Driver En Route to Pickup, 1: On Trip to Destination, 2: Completed
-  int _tripStage = 0;
-  int _rating = 5;
+  static const Duration _pollEvery = Duration(seconds: 10);
 
-  StreamSubscription? _tripSub;
-  StreamSubscription? _locationSub;
+  /// A mirror of the ride half of `VALID_JOB_TRANSITIONS`
+  /// (`backend/src/repositories/JobRepository.js:5-23`). It is a list of what the
+  /// platform can write, not a script this screen performs.
+  static const List<Map<String, dynamic>> _ladder = <Map<String, dynamic>>[
+    <String, dynamic>{
+      'state': 'REQUESTED',
+      'title': 'Request placed',
+      'copy': 'Your request is on the platform. No driver has been chosen for it yet.',
+      'icon': Icons.receipt_long_rounded,
+    },
+    <String, dynamic>{
+      'state': 'SEARCHING',
+      'title': 'Looking for a driver',
+      'copy': 'The platform is matching your request to a driver.',
+      'icon': Icons.radar_rounded,
+    },
+    <String, dynamic>{
+      'state': 'ASSIGNED',
+      'title': 'Driver assigned',
+      'copy': 'A driver has taken the trip.',
+      'icon': Icons.assignment_turned_in_rounded,
+    },
+    <String, dynamic>{
+      'state': 'DRIVER_ARRIVING',
+      'title': 'Driver on the way',
+      'copy': 'The driver is heading to your pickup point.',
+      'icon': Icons.route_rounded,
+    },
+    <String, dynamic>{
+      'state': 'DRIVER_ARRIVED',
+      'title': 'Driver at the pickup point',
+      'copy': 'The driver has reached the pickup point and is waiting for you.',
+      'icon': Icons.pin_drop_rounded,
+    },
+    <String, dynamic>{
+      'state': 'IN_TRANSIT',
+      'title': 'Trip in progress',
+      'copy': 'The driver started the trip after verifying your code.',
+      'icon': Icons.navigation_rounded,
+    },
+    <String, dynamic>{
+      'state': 'COMPLETED',
+      'title': 'Trip completed',
+      'copy': 'The driver closed the trip.',
+      'icon': Icons.flag_circle_rounded,
+    },
+  ];
+
+  /// CANCELLED has no outgoing edge in the transition table, so the row cannot move
+  /// again. Nothing here claims what happened to the money — the settlement figures come
+  /// from the cancel write's own response, never from this table.
+  static const Map<String, Map<String, String>> _stoppedStates =
+      <String, Map<String, String>>{
+    'CANCELLED': <String, String>{
+      'title': 'Cancelled',
+      'copy': 'This trip was cancelled and will not move again.',
+    },
+  };
+
+  /// ACCEPTED is a distinct stored status that means the same thing to a passenger as
+  /// ASSIGNED, so it reads as that step rather than as an unknown stage.
+  static const Map<String, String> _stateAliases = <String, String>{
+    'ACCEPTED': 'ASSIGNED',
+  };
+
+  /// The six states `CANCELLED` is reachable from (`JobRepository.js:22`). Offering a
+  /// cancellation anywhere else would offer a write the platform refuses.
+  static const List<String> _cancellableStates = <String>[
+    'REQUESTED',
+    'SEARCHING',
+    'ASSIGNED',
+    'ACCEPTED',
+    'DRIVER_ARRIVING',
+    'DRIVER_ARRIVED',
+  ];
+
+  static const List<String> _cancelReasons = <String>[
+    'Change of plans / no longer needed',
+    'Booked the wrong vehicle',
+    'Driver is taking too long to arrive',
+    'Cannot reach the driver',
+    'Incorrect pickup or drop location',
+  ];
+
+  /// Quoted from `cancel_ride_atomic` (migration 016:308-343). That is the whole rule —
+  /// there is no per-vehicle-class fee table anywhere in the platform.
+  static const List<String> _cancelRules = <String>[
+    'If no driver is attached to the trip, there is no fee.',
+    'Once a driver is attached, cancelling more than 2 minutes after that assignment '
+        'costs a flat Rs 50.00.',
+    '40.00 of that fee goes to the driver and 10.00 to the platform.',
+    'A refund is made against whatever was actually captured as payment, so a trip that '
+        'was never paid has nothing to refund.',
+  ];
+
+  Map<String, dynamic>? _tracking;
+
+  /// Captured from the `DRIVER_ASSIGNED` push — the only source of a plate and the
+  /// trip-start code. Never invented when it has not arrived.
+  Map<String, dynamic>? _assigned;
+
+  /// The cancel write's response, kept so the money the platform settled stays on screen.
+  Map<String, dynamic>? _settlement;
+
+  bool _loading = true;
+  bool _failed = false;
+  bool _cancelling = false;
+  DateTime? _lastReadAt;
+  Timer? _poll;
+  StreamSubscription<Map<String, dynamic>>? _tripSub;
 
   @override
   void initState() {
     super.initState();
+    _load();
+    if (_jobId.isNotEmpty) {
+      // A re-read of the same row, never a local guess about what happened next.
+      _poll = Timer.periodic(_pollEvery, (_) => _load(silent: true));
+    }
     _connectCustomerWs();
-  }
-
-  void _connectCustomerWs() {
-    final user = SessionManager.instance.currentUser;
-    final userId = user?['id']?.toString() ?? 'cust_active';
-    NabinWsService.instance.connect(role: 'customer', userId: userId);
-    _tripSub = NabinWsService.instance.onTripUpdate.listen((msg) {
-      if (!mounted) return;
-      final type = msg['type'] as String?;
-      if (type == 'TRIP_STARTED') {
-        setState(() => _tripStage = 1);
-      } else if (type == 'TRIP_COMPLETED') {
-        setState(() => _tripStage = 2);
-      }
-    });
   }
 
   @override
   void dispose() {
+    _poll?.cancel();
     _tripSub?.cancel();
-    _locationSub?.cancel();
     super.dispose();
   }
 
-  PassengerBookingInfo get passenger => widget.passengerInfo ?? const PassengerBookingInfo();
-
-  Map<String, dynamic> get _driverInfo {
-    switch (widget.vehicleType) {
-      case '2W':
-        return {
-          'name': 'Vikram Singh',
-          'initials': 'VS',
-          'rating': '4.95',
-          'trips': '2,800+',
-          'model': 'Honda Activa 6G • Matte Black',
-          'plate': 'DL 5S AA 1294',
-          'phone': '+919811029384',
-        };
-      case '4W':
-        return {
-          'name': 'Amitabh Sen',
-          'initials': 'AS',
-          'rating': '4.98',
-          'trips': '6,200+',
-          'model': 'Maruti Dzire Sedan • Pearl White',
-          'plate': 'DL 3C AB 9021',
-          'phone': '+919899123456',
-        };
-      case '3W':
-      default:
-        return {
-          'name': 'Rajesh Kumar',
-          'initials': 'RK',
-          'rating': '4.90',
-          'trips': '4,500+',
-          'model': 'Bajaj RE EV Auto • Yellow/Green',
-          'plate': 'DL 1RA 4892',
-          'phone': '+919876512345',
-        };
-    }
+  void _connectCustomerWs() {
+    final userId = SessionManager.instance.currentUser?['id']?.toString();
+    if (userId == null || userId.isEmpty) return;
+    NabinWsService.instance.connect(role: 'customer', userId: userId);
+    _tripSub = NabinWsService.instance.onTripUpdate.listen(_onTripUpdate);
   }
 
-  Future<void> _launchPhoneCall(BuildContext context, String phoneNumber) async {
-    final Uri launchUri = Uri(scheme: 'tel', path: phoneNumber);
+  void _onTripUpdate(Map<String, dynamic> msg) {
+    if (!mounted) return;
+    final fromMessage = msg['jobId']?.toString();
+    final tracked = _tracking?['jobId']?.toString();
+    if (fromMessage != null && tracked != null && fromMessage != tracked) return;
+
+    if (msg['type'] == 'DRIVER_ASSIGNED' && msg['driver'] is Map) {
+      _assigned = Map<String, dynamic>.from(msg['driver'] as Map);
+    }
+    // The message says something changed; the row says what. Re-read rather than
+    // presenting the push as the trip's state.
+    _load(silent: true);
+  }
+
+  Future<void> _load({bool silent = false}) async {
+    if (_jobId.isEmpty) {
+      setState(() {
+        _loading = false;
+        _failed = false;
+      });
+      return;
+    }
+    if (!silent) setState(() => _loading = true);
+
+    final res = await NabinApiService.getJobTracking(_jobId);
+
+    if (!mounted) return;
+    setState(() {
+      _loading = false;
+      if (res != null && res['success'] == true) {
+        _tracking = res;
+        _lastReadAt = DateTime.now();
+        _failed = false;
+        if (_isCompleted || _isStopped) _poll?.cancel();
+      } else if (!silent) {
+        _failed = true;
+      }
+      // A silent re-read that fails keeps the last row on screen rather than blanking
+      // a status the customer was already reading.
+    });
+  }
+
+  // ── Derived from the read ──────────────────────────────────────────────────────
+
+  String get _jobId => widget.jobId ?? '';
+
+  PassengerBookingInfo get passenger =>
+      widget.passengerInfo ?? const PassengerBookingInfo();
+
+  String get _status => (_tracking?['status'] ?? '').toString();
+
+  String get _effectiveStatus => _stateAliases[_status] ?? _status;
+
+  int get _ladderIndex {
+    for (var i = 0; i < _ladder.length; i++) {
+      if (_ladder[i]['state'] == _effectiveStatus) return i;
+    }
+    return -1;
+  }
+
+  bool get _isStopped => _stoppedStates.containsKey(_status);
+
+  bool get _isCompleted => _status == 'COMPLETED';
+
+  bool get _canCancel =>
+      _cancellableStates.contains(_status) && _settlement == null;
+
+  Map<String, dynamic> get _driver {
+    final raw = _tracking?['driver'];
+    return raw is Map
+        ? Map<String, dynamic>.from(raw)
+        : const <String, dynamic>{};
+  }
+
+  String get _driverName {
+    final fromRow = (_driver['name'] ?? '').toString();
+    return fromRow.isNotEmpty ? fromRow : (_assigned?['name'] ?? '').toString();
+  }
+
+  String get _driverPhone => (_driver['phone'] ?? '').toString();
+
+  String get _driverPlate => (_assigned?['vehiclePlate'] ?? '').toString();
+
+  // There is deliberately no rating reader here. `drivers.rating NUMERIC(3,2) DEFAULT 5.00`
+  // (001_central_schema.sql:58) is a column default and no reviews or ratings table exists in this
+  // schema, so the server no longer puts a `rating` on the `DRIVER_ASSIGNED` payload at all — the
+  // same ruling migration 034 made for `merchants.rating`. Reading the field "defensively" would be
+  // a standing invitation to put a default on screen as a score.
+
+  Map<String, dynamic> get _location {
+    final raw = _tracking?['location'];
+    return raw is Map
+        ? Map<String, dynamic>.from(raw)
+        : const <String, dynamic>{};
+  }
+
+  /// The trip-start code exists in exactly one place a customer can see it: the
+  /// `DRIVER_ASSIGNED` payload. No customer read returns it, so when that message has not
+  /// arrived this card is not shown at all. Once the trip is moving the code has been
+  /// verified, so it stops being useful.
+  String get _startCode {
+    final code = (_assigned?['startOtp'] ?? '').toString();
+    if (code.isEmpty) return '';
+    if (_ladderIndex >= _ladder.length - 2) return '';
+    return code;
+  }
+
+  String _addressOf(String which) {
+    final fromRow = _asAddress(_tracking?[which]);
+    if (fromRow.isNotEmpty) return fromRow;
+    return which == 'pickup'
+        ? (passenger.pickupAddress ?? '')
+        : (passenger.dropAddress ?? '');
+  }
+
+  String _asAddress(dynamic raw) {
+    if (raw is Map) {
+      return (Map<String, dynamic>.from(raw)['address'] ?? '').toString();
+    }
+    return (raw ?? '').toString();
+  }
+
+  // ── Actions ────────────────────────────────────────────────────────────────────
+
+  Future<void> _launch(Uri uri, String fallback) async {
     try {
-      if (await canLaunchUrl(launchUri)) {
-        await launchUrl(launchUri, mode: LaunchMode.externalApplication);
-      } else {
-        await launchUrl(launchUri);
+      final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!opened && mounted) {
+        _showSnack(fallback);
       }
     } catch (_) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Opening native phone dialer with $phoneNumber...')),
-        );
-      }
+      if (mounted) _showSnack(fallback);
     }
   }
 
-  Future<void> _launchSms(BuildContext context, String phoneNumber, String message) async {
-    final Uri launchUri = Uri(
-      scheme: 'sms',
-      path: phoneNumber,
-      queryParameters: <String, String>{'body': message},
+  void _showSnack(String message, {Color? color}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: color ?? AppTheme.onSurface),
     );
-    try {
-      if (await canLaunchUrl(launchUri)) {
-        await launchUrl(launchUri, mode: LaunchMode.externalApplication);
-      } else {
-        await launchUrl(launchUri);
-      }
-    } catch (_) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Opening native SMS app with message to $phoneNumber...')),
-        );
-      }
-    }
   }
 
-  void _showSafetyModal(BuildContext context) {
+  void _call(String number) {
+    _launch(Uri(scheme: 'tel', path: number),
+        'NABIN could not open the dialer. Dial $number yourself.');
+  }
+
+  void _messageDriver() {
+    if (_driverPhone.isEmpty) return;
+    final greeting = _driverName.isEmpty ? 'Hi,' : 'Hi $_driverName,';
+    final pickup = _addressOf('pickup');
+    final waiting = pickup.isEmpty ? '' : ' I am waiting at the pickup point ($pickup).';
+    _launch(
+      Uri(
+        scheme: 'sms',
+        path: _driverPhone,
+        queryParameters: <String, String>{
+          'body': '$greeting this is the customer on your NABIN trip '
+              '${_tripNumber()}.$waiting'
+        },
+      ),
+      'NABIN could not open the messaging app.',
+    );
+  }
+
+  /// Built only from values the platform supplied. The previous version of this message
+  /// carried a live-tracking URL that does not exist and a `7729` code that was never
+  /// real.
+  String _tripSummaryMessage() {
+    final parts = <String>[
+      'NABIN trip ${_tripNumber()}',
+      if (_status.isNotEmpty) 'Stage: $_status',
+      if (_driverName.isNotEmpty) 'Driver: $_driverName',
+      if (_driverPlate.isNotEmpty) 'Vehicle: $_driverPlate',
+      if (_addressOf('pickup').isNotEmpty) 'Pickup: ${_addressOf('pickup')}',
+      if (_addressOf('drop').isNotEmpty) 'Drop: ${_addressOf('drop')}',
+    ];
+    return parts.join(' - ');
+  }
+
+  void _showSafetySheet(BuildContext context) {
     showModalBottomSheet(
       context: context,
+      backgroundColor: AppTheme.surfaceContainerLowest,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      backgroundColor: AppTheme.surfaceContainerLowest,
       builder: (ctx) => Padding(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -158,144 +395,77 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
               children: [
                 const Row(
                   children: [
-                    Icon(Icons.shield_rounded, color: Color(0xFFD50000), size: 24),
+                    Icon(Icons.shield_rounded, color: AppTheme.error, size: 22),
                     SizedBox(width: 8),
-                    Text('NABIN Safety Toolkit', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18, color: AppTheme.onSurface)),
+                    Text('Safety',
+                        style: TextStyle(
+                            fontWeight: FontWeight.w800,
+                            fontSize: 16,
+                            color: AppTheme.onSurface)),
                   ],
                 ),
-                IconButton(icon: const Icon(Icons.close_rounded), onPressed: () => Navigator.pop(ctx)),
+                IconButton(
+                  icon: const Icon(Icons.close_rounded),
+                  onPressed: () => Navigator.pop(ctx),
+                ),
               ],
             ),
-            const SizedBox(height: 14),
+            const Text(
+              'These actions use what the trip row reports. Nothing here reaches NABIN as '
+              'an alert, because the platform has no emergency-event write.',
+              style: TextStyle(
+                  fontSize: 11.5, color: AppTheme.onSurfaceVariant, height: 1.35),
+            ),
+            const SizedBox(height: 10),
             ListTile(
               contentPadding: EdgeInsets.zero,
-              leading: Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(color: const Color(0xFFFFEBEE), borderRadius: BorderRadius.circular(12)),
-                child: const Icon(Icons.sos_rounded, color: Color(0xFFD50000), size: 22),
-              ),
-              title: const Text('Emergency Police Hotline (112)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-              subtitle: const Text('Dial 112 directly on phone with live GPS coordinates', style: TextStyle(fontSize: 11)),
+              leading: const Icon(Icons.sos_rounded, color: AppTheme.error),
+              title: const Text('Dial 112',
+                  style: TextStyle(fontWeight: FontWeight.w700)),
+              subtitle: const Text('India\'s emergency number, on your own phone',
+                  style: TextStyle(fontSize: 11.5)),
               onTap: () {
                 Navigator.pop(ctx);
-                _launchPhoneCall(context, '112');
+                _call('112');
               },
             ),
             ListTile(
               contentPadding: EdgeInsets.zero,
-              leading: Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(color: AppTheme.primary.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(12)),
-                child: const Icon(Icons.share_location_rounded, color: AppTheme.primary, size: 22),
+              leading: const Icon(Icons.share_location_rounded,
+                  color: AppTheme.primary),
+              title: const Text('Send the trip details by SMS',
+                  style: TextStyle(fontWeight: FontWeight.w700)),
+              subtitle: Text(
+                _tripSummaryMessage(),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 11.5),
               ),
-              title: const Text('Share Live Trip via SMS', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-              subtitle: const Text('Send live GPS tracking link to family and trusted contacts', style: TextStyle(fontSize: 11)),
               onTap: () {
                 Navigator.pop(ctx);
-                final dest = passenger.dropAddress ?? 'Destination';
-                _launchSms(context, '', 'Live tracking for ${passenger.passengerName ?? "NABIN Ride"} to $dest: https://nabin.app/track/7729 (Driver: ${_driverInfo['name']}, ${_driverInfo['plate']})');
+                _launch(
+                  Uri(
+                    scheme: 'sms',
+                    queryParameters: <String, String>{
+                      'body': _tripSummaryMessage()
+                    },
+                  ),
+                  'NABIN could not open the messaging app.',
+                );
               },
             ),
-            const SizedBox(height: 10),
-          ],
-        ),
-      ),
-    );
-  }
-
-  bool _isEarlyDropoff = false;
-  double _earlyDropoffFare = 0.0;
-  double _earlyDropoffRefund = 0.0;
-
-  double get _numericFare {
-    final clean = widget.fare.replaceAll(RegExp(r'[^0-9.]'), '');
-    return double.tryParse(clean) ?? 85.0;
-  }
-
-  double get _standardCancelFee {
-    switch (widget.vehicleType) {
-      case '2W':
-        return 20.0;
-      case '4W':
-        return 50.0;
-      case '3W':
-      default:
-        return 30.0;
-    }
-  }
-
-  void _showCancellationPolicyModal(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => Container(
-        decoration: const BoxDecoration(
-          color: AppTheme.surfaceContainerLowest,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-        ),
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Container(
-                width: 36,
-                height: 4,
-                decoration: BoxDecoration(color: AppTheme.outlineVariant, borderRadius: BorderRadius.circular(2)),
-              ),
-            ),
-            const SizedBox(height: 14),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Row(
-                  children: [
-                    Icon(Icons.rule_rounded, color: AppTheme.primary, size: 22),
-                    SizedBox(width: 8),
-                    Text('NABIN Cancellation Rules', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 17, color: AppTheme.onSurface)),
-                  ],
-                ),
-                IconButton(icon: const Icon(Icons.close_rounded), onPressed: () => Navigator.pop(ctx)),
-              ],
-            ),
-            const SizedBox(height: 10),
-            _buildPolicyRuleItem(
-              '⏱️ 2-Minute Free Grace Period',
-              'Cancel within 2 minutes of booking for a 100% full refund with zero fees.',
-              const Color(0xFF00C853),
-            ),
-            _buildPolicyRuleItem(
-              '🛡️ Driver Delay Exception (>5 Mins)',
-              'If the driver is delayed by more than 5 minutes past estimated arrival, the cancellation fee is 100% waived.',
-              const Color(0xFF0052CC),
-            ),
-            _buildPolicyRuleItem(
-              '📞 Driver Unresponsive / Asked to Cancel',
-              'If the driver asks you to cancel or cannot be reached, zero cancellation fee is charged.',
-              const Color(0xFF00897B),
-            ),
-            _buildPolicyRuleItem(
-              '🛺 Driver Dispatch Compensation (After 2 Mins)',
-              'If cancelled after 2 mins while driver is en route:\n• 2W Bike: ₹20.00\n• 3W Auto: ₹30.00\n• 4W Car: ₹50.00\nCompensates driver for fuel and time.',
-              const Color(0xFFFF6D00),
-            ),
-            _buildPolicyRuleItem(
-              '🛑 Mid-Trip Early Stop (Post-OTP Rule)',
-              'Once OTP is verified, the ride cannot be cancelled. You can request an Early Stop with a minimum 50% fare or distance-based fare.',
-              const Color(0xFFD50000),
-            ),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: () => Navigator.pop(ctx),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppTheme.primary,
-                foregroundColor: Colors.white,
-                minimumSize: const Size(double.infinity, 46),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-              ),
-              child: const Text('Understood', style: TextStyle(fontWeight: FontWeight.bold)),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.support_agent_rounded,
+                  color: AppTheme.primary),
+              title: const Text('Contact Support',
+                  style: TextStyle(fontWeight: FontWeight.w700)),
+              subtitle: const Text('For anything this screen cannot act on',
+                  style: TextStyle(fontSize: 11.5)),
+              onTap: () {
+                Navigator.pop(ctx);
+                context.push('/support');
+              },
             ),
           ],
         ),
@@ -303,928 +473,1436 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
     );
   }
 
-  Widget _buildPolicyRuleItem(String title, String desc, Color accent) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: accent.withValues(alpha: 0.07),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: accent.withValues(alpha: 0.25)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(title, style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12.5, color: accent)),
-          const SizedBox(height: 3),
-          Text(desc, style: const TextStyle(fontSize: 11, color: AppTheme.onSurface, height: 1.3)),
-        ],
-      ),
-    );
-  }
-
-  void _showCancelBottomSheet(BuildContext context) {
-    int selectedReasonIndex = 0;
-    final List<Map<String, dynamic>> reasons = [
-      {
-        'title': 'Driver is taking too long to arrive (>5 mins)',
-        'isDriverFault': true,
-      },
-      {
-        'title': 'Driver asked to cancel / Unable to reach driver',
-        'isDriverFault': true,
-      },
-      {
-        'title': 'Change of plans / No longer needed',
-        'isDriverFault': false,
-      },
-      {
-        'title': 'Incorrect pickup or drop location',
-        'isDriverFault': false,
-      },
-      {
-        'title': 'Booked wrong vehicle / Found alternate transit',
-        'isDriverFault': false,
-      },
-    ];
+  void _showCancelSheet(BuildContext context) {
+    var selected = 0;
+    var driverLate = false;
 
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) => StatefulBuilder(
-        builder: (context, setModalState) {
-          final isDriverFault = reasons[selectedReasonIndex]['isDriverFault'] == true;
-          final double cancelFee = isDriverFault ? 0.0 : _standardCancelFee;
-          final double refundAmount = (_numericFare - cancelFee).clamp(0.0, _numericFare);
-
-          return Container(
-            decoration: const BoxDecoration(
-              color: AppTheme.surfaceContainerLowest,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-            ),
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Center(
-                  child: Container(
-                    width: 36,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: AppTheme.outlineVariant,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 14),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Row(
-                      children: [
-                        Icon(Icons.cancel_rounded, color: Color(0xFFD50000), size: 24),
-                        SizedBox(width: 8),
-                        Text('Cancel Ride', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18, color: AppTheme.onSurface)),
-                      ],
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.close_rounded),
-                      onPressed: () => Navigator.pop(ctx),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text('Select reason for cancellation:', style: TextStyle(fontSize: 12, color: AppTheme.onSurfaceVariant)),
-                    InkWell(
-                      onTap: () => _showCancellationPolicyModal(context),
-                      child: const Text('View Rules ℹ️', style: TextStyle(fontSize: 11.5, color: AppTheme.primary, fontWeight: FontWeight.bold)),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-
-                ...List.generate(reasons.length, (idx) {
-                  final isSelected = selectedReasonIndex == idx;
-                  return InkWell(
-                    onTap: () => setModalState(() => selectedReasonIndex = idx),
-                    borderRadius: BorderRadius.circular(12),
-                    child: Container(
-                      margin: const EdgeInsets.only(bottom: 6),
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: isSelected ? AppTheme.primary.withValues(alpha: 0.08) : Colors.transparent,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: isSelected ? AppTheme.primary : AppTheme.outlineVariant.withValues(alpha: 0.5),
-                          width: isSelected ? 1.5 : 1,
-                        ),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            isSelected ? Icons.radio_button_checked : Icons.radio_button_off,
-                            color: isSelected ? AppTheme.primary : AppTheme.outline,
-                            size: 18,
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text(
-                              reasons[idx]['title'] as String,
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                                color: isSelected ? AppTheme.primary : AppTheme.onSurface,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                }),
-                const SizedBox(height: 12),
-
-                // Dynamic Cancellation Fee Breakdown Card
-                Container(
-                  padding: const EdgeInsets.all(12),
+        builder: (context, setModalState) => Container(
+          decoration: const BoxDecoration(
+            color: AppTheme.surfaceContainerLowest,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+          ),
+          padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
                   decoration: BoxDecoration(
-                    color: cancelFee == 0 ? const Color(0xFFE8F5E9) : const Color(0xFFFFF3E0),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: cancelFee == 0 ? const Color(0xFFA5D6A7) : const Color(0xFFFFB74D)),
+                    color: AppTheme.outlineVariant,
+                    borderRadius: BorderRadius.circular(2),
                   ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                ),
+              ),
+              const SizedBox(height: 14),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Row(
                     children: [
-                      Row(
-                        children: [
-                          Icon(
-                            cancelFee == 0 ? Icons.verified_rounded : Icons.info_outline_rounded,
-                            color: cancelFee == 0 ? const Color(0xFF2E7D32) : const Color(0xFFE65100),
-                            size: 20,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            cancelFee == 0 ? '₹0.00 Cancellation Fee (Waived)' : '₹${cancelFee.toStringAsFixed(2)} Driver Compensation Fee',
-                            style: TextStyle(
-                              fontWeight: FontWeight.w900,
-                              fontSize: 12.5,
-                              color: cancelFee == 0 ? const Color(0xFF1B5E20) : const Color(0xFFE65100),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        cancelFee == 0
-                            ? '100% full refund of ${widget.fare} will be restored to your NABIN Wallet immediately.'
-                            : 'Upfront Fare: ${widget.fare} • Fee: -₹${cancelFee.toStringAsFixed(2)}\nNet Instant Wallet Refund: ₹${refundAmount.toStringAsFixed(2)}',
-                        style: TextStyle(fontSize: 11, color: cancelFee == 0 ? const Color(0xFF2E7D32) : const Color(0xFFBF360C), height: 1.25),
-                      ),
+                      Icon(Icons.cancel_rounded,
+                          color: AppTheme.error, size: 22),
+                      SizedBox(width: 8),
+                      Text('Cancel this trip',
+                          style: TextStyle(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 16,
+                              color: AppTheme.onSurface)),
                     ],
                   ),
-                ),
-                const SizedBox(height: 16),
-
-                Row(
-                  children: [
-                    Expanded(
-                      flex: 5,
-                      child: OutlinedButton(
-                        onPressed: () {
-                          Navigator.pop(ctx);
-                          context.go('/home');
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                cancelFee == 0
-                                    ? 'Ride cancelled. Full refund of ${widget.fare} credited to your Wallet.'
-                                    : 'Ride cancelled. ₹${refundAmount.toStringAsFixed(2)} refunded to Wallet (₹${cancelFee.toStringAsFixed(2)} cancellation fee applied).',
-                              ),
-                              backgroundColor: const Color(0xFFD50000),
-                              duration: const Duration(seconds: 4),
-                            ),
-                          );
-                        },
-                        style: OutlinedButton.styleFrom(
-                          side: const BorderSide(color: Color(0xFFD50000)),
-                          foregroundColor: const Color(0xFFD50000),
-                          padding: const EdgeInsets.symmetric(vertical: 13),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                        ),
-                        child: Text('Confirm Cancel (₹${cancelFee.toInt()} Fee)', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                  IconButton(
+                    icon: const Icon(Icons.close_rounded),
+                    onPressed: () => Navigator.pop(ctx),
+                  ),
+                ],
+              ),
+              Text(
+                'Trip ${_tripNumber()} is at: '
+                '${_status.isEmpty ? 'not reported' : _status}. Cancelling here writes to '
+                'the platform, and the platform settles the money.',
+                style: const TextStyle(
+                    fontSize: 11.5,
+                    color: AppTheme.onSurfaceVariant,
+                    height: 1.35),
+              ),
+              const SizedBox(height: 12),
+              ...List.generate(_cancelReasons.length, (idx) {
+                final isSelected = selected == idx;
+                return InkWell(
+                  onTap: () => setModalState(() => selected = idx),
+                  borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    margin: const EdgeInsets.only(bottom: 6),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: isSelected
+                          ? AppTheme.primary.withValues(alpha: 0.08)
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: isSelected
+                            ? AppTheme.primary
+                            : AppTheme.outlineVariant.withValues(alpha: 0.5),
+                        width: isSelected ? 1.5 : 1,
                       ),
                     ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      flex: 6,
-                      child: ElevatedButton(
-                        onPressed: () => Navigator.pop(ctx),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppTheme.primaryContainer,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 13),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                          elevation: 2,
+                    child: Row(
+                      children: [
+                        Icon(
+                          isSelected
+                              ? Icons.radio_button_checked
+                              : Icons.radio_button_off,
+                          size: 18,
+                          color: isSelected
+                              ? AppTheme.primary
+                              : AppTheme.outline,
                         ),
-                        child: const Text('Keep My Ride', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            _cancelReasons[idx],
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: isSelected
+                                  ? FontWeight.w700
+                                  : FontWeight.w500,
+                              color: isSelected
+                                  ? AppTheme.primary
+                                  : AppTheme.onSurface,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }),
+              // The sheet's own background is a DecoratedBox, which would paint over the
+              // tile's ink; Material gives the tile a surface of its own.
+              Material(
+                type: MaterialType.transparency,
+                child: CheckboxListTile(
+                  value: driverLate,
+                  onChanged: (value) =>
+                      setModalState(() => driverLate = value ?? false),
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  controlAffinity: ListTileControlAffinity.leading,
+                  activeColor: AppTheme.primary,
+                  title: const Text(
+                      'The driver has been attached for more than 2 minutes and is late',
+                      style: TextStyle(fontSize: 12)),
+                  subtitle: const Text(
+                    'This is your declaration. The platform records it as '
+                    'isDelayedOverride and decides the fee with it.',
+                    style: TextStyle(fontSize: 11),
+                  ),
+                ),
+              ),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppTheme.surfaceContainerLow,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: AppTheme.outlineVariant),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('How the platform charges a cancellation',
+                        style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12)),
+                    const SizedBox(height: 6),
+                    ..._cancelRules.map(
+                      (rule) => Padding(
+                        padding: const EdgeInsets.only(bottom: 3),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('•  ',
+                                style: TextStyle(
+                                    fontSize: 11.5,
+                                    color: AppTheme.onSurfaceVariant)),
+                            Expanded(
+                              child: Text(rule,
+                                  style: const TextStyle(
+                                      fontSize: 11.5,
+                                      color: AppTheme.onSurfaceVariant,
+                                      height: 1.3)),
+                            ),
+                          ],
+                        ),
                       ),
+                    ),
+                    const Text(
+                      'The fee is not known until the write returns, so no amount is '
+                      'promised here.',
+                      style: TextStyle(
+                          fontSize: 11, color: AppTheme.onSurface, height: 1.3),
                     ),
                   ],
                 ),
-              ],
-            ),
-          );
-        },
+              ),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 13),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14)),
+                      ),
+                      child: const Text('Keep my trip',
+                          style: TextStyle(fontWeight: FontWeight.w700)),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: _cancelling
+                          ? null
+                          : () {
+                              Navigator.pop(ctx);
+                              _cancelTrip(
+                                reason: _cancelReasons[selected],
+                                driverLate: driverLate,
+                              );
+                            },
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppTheme.error,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 13),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14)),
+                      ),
+                      child: Text(
+                        _cancelling ? 'Cancelling…' : 'Cancel the trip',
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
 
-  void _showEarlyDropoffModal(BuildContext context) {
-    final double totalFare = _numericFare;
-    final double min50Percent = totalFare * 0.50;
-    // Simulate distance traveled (e.g. 1.8 km out of 4.2 km ~ 43% covered)
-    final double distanceCoveredFare = totalFare * 0.45;
-    // Rule: Maximum of 50% or distance-based fare
-    final double payableFare = min50Percent > distanceCoveredFare ? min50Percent : distanceCoveredFare;
-    final double refundToWallet = (totalFare - payableFare).clamp(0.0, totalFare);
+  Future<void> _cancelTrip({
+    required String reason,
+    required bool driverLate,
+  }) async {
+    setState(() => _cancelling = true);
+    final res = await NabinApiService.cancelRide(
+      jobId: _jobId,
+      reason: reason,
+      isDelayedOverride: driverLate,
+    );
+    if (!mounted) return;
+    setState(() {
+      _cancelling = false;
+      if (res != null && res['success'] == true) {
+        _settlement = res;
+        _poll?.cancel();
+      }
+    });
+    if (res == null || res['success'] != true) {
+      _showSnack(
+        'The trip was not cancelled. Nothing changed on the platform.',
+        color: AppTheme.error,
+      );
+      return;
+    }
+    _load(silent: true);
+  }
 
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => Container(
-        decoration: const BoxDecoration(
-          color: AppTheme.surfaceContainerLowest,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-        ),
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Container(
-                width: 36,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: AppTheme.outlineVariant,
-                  borderRadius: BorderRadius.circular(2),
+  // ── Body ───────────────────────────────────────────────────────────────────────
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppTheme.surface,
+      body: SafeArea(bottom: false, child: _buildBody()),
+    );
+  }
+
+  Widget _buildBody() {
+    if (_loading && _tracking == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_failed || _tracking == null) {
+      return _buildUnavailable();
+    }
+
+    return RefreshIndicator(
+      color: AppTheme.primary,
+      backgroundColor: AppTheme.surface,
+      onRefresh: () => _load(),
+      child: ListView(
+        padding: EdgeInsets.zero,
+        children: [
+          _buildStatusBand(),
+          _buildStageBanner(),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _buildPositionPanel(),
+                const SizedBox(height: 14),
+                _buildDriverCard(),
+                if (_startCode.isNotEmpty) ...[
+                  const SizedBox(height: 14),
+                  _buildStartCodeCard(),
+                ],
+                const SizedBox(height: 14),
+                _buildTripCard(),
+                if (passenger.isForSomeoneElse) ...[
+                  const SizedBox(height: 14),
+                  _buildPassengerCard(),
+                ],
+                const SizedBox(height: 14),
+                _buildTimeline(),
+                const SizedBox(height: 14),
+                _buildCancellationCard(),
+                const SizedBox(height: 14),
+                _buildSafetyRow(),
+                const SizedBox(height: 20),
+                _buildPrimaryAction(),
+                const SizedBox(height: 24),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildUnavailable() {
+    final bool noId = _jobId.isEmpty;
+    return Column(
+      children: [
+        _buildBandChrome(showRefresh: !noId),
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.all(28),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  noId ? Icons.local_taxi_rounded : Icons.cloud_off_rounded,
+                  size: 40,
+                  color: AppTheme.onSurfaceVariant,
                 ),
+                const SizedBox(height: 12),
+                Text(
+                  noId
+                      ? 'No trip to follow. Book a ride and this screen will track it.'
+                      : 'NABIN couldn\'t load this trip right now.',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 15,
+                    color: AppTheme.onSurface,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  'Its stage, driver and addresses come from the trip row. Nothing is '
+                  'guessed while it cannot be read.',
+                  textAlign: TextAlign.center,
+                  style:
+                      TextStyle(fontSize: 12.5, color: AppTheme.onSurfaceVariant),
+                ),
+                if (!noId) ...[
+                  const SizedBox(height: 16),
+                  FilledButton(
+                    onPressed: () => _load(),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppTheme.primary,
+                      foregroundColor: Colors.white,
+                    ),
+                    child: const Text('Retry'),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ── Status band ────────────────────────────────────────────────────────────────
+
+  Widget _buildStatusBand() {
+    final Color band = _isStopped
+        ? AppTheme.error
+        : (_isCompleted ? AppTheme.success : AppTheme.primary);
+    final int index = _ladderIndex;
+    final String headline = index >= 0
+        ? _ladder[index]['title'] as String
+        : (_stoppedStates[_status]?['title'] ?? 'Stage not reported');
+
+    return Container(
+      width: double.infinity,
+      color: band,
+      child: Column(
+        children: [
+          _buildBandChrome(showRefresh: true),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 18),
+            child: Column(
+              children: [
+                Text(
+                  headline,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                    height: 1.2,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 14, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.16),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    _pill(),
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  _tripNumber(),
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.8),
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.4,
+                  ),
+                ),
+                if (!_isCompleted && !_isStopped) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    'Re-reads every ${_pollEvery.inSeconds} seconds',
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.75),
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBandChrome({required bool showRefresh}) {
+    return Column(
+      children: [
+        Row(
+          children: [
+            IconButton(
+              icon: const Icon(Icons.keyboard_arrow_down_rounded,
+                  color: Colors.white, size: 26),
+              tooltip: 'Close',
+              onPressed: () {
+                if (Navigator.of(context).canPop()) {
+                  Navigator.of(context).pop();
+                } else {
+                  context.go('/home');
+                }
+              },
+            ),
+            const Spacer(),
+            IconButton(
+              icon: const Icon(Icons.shield_rounded,
+                  color: Colors.white, size: 22),
+              tooltip: 'Safety',
+              onPressed: () => _showSafetySheet(context),
+            ),
+            IconButton(
+              icon: const Icon(Icons.support_agent_rounded,
+                  color: Colors.white, size: 22),
+              tooltip: 'Contact support',
+              onPressed: () => context.push('/support'),
+            ),
+          ],
+        ),
+        if (showRefresh)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Text(
+                  'Live trip',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 1.1,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  visualDensity: VisualDensity.compact,
+                  icon: const Icon(Icons.refresh_rounded,
+                      color: Colors.white, size: 20),
+                  tooltip: 'Read the trip again',
+                  onPressed: () => _load(),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
+  String _pill() {
+    if (_isStopped) return 'This trip is closed';
+    if (_isCompleted) return 'Trip closed by the driver';
+    final who = _driverName.isEmpty ? 'Your driver' : _driverName;
+    switch (_effectiveStatus) {
+      case 'REQUESTED':
+        return 'No driver assigned yet';
+      case 'SEARCHING':
+        return 'Looking for a driver';
+      case 'ASSIGNED':
+      case 'DRIVER_ARRIVING':
+        return '$who is on the way to you';
+      case 'DRIVER_ARRIVED':
+        return '$who is at the pickup point';
+      case 'IN_TRANSIT':
+        final drop = _addressOf('drop');
+        return drop.isEmpty ? 'Trip in progress' : 'On the way to $drop';
+      default:
+        return '${widget.vehicleName} • ${widget.vehicleType}';
+    }
+  }
+
+  // ── Banner line under the band ─────────────────────────────────────────────────
+
+  Widget _buildStageBanner() {
+    final int index = _ladderIndex;
+    final String copy = index >= 0
+        ? _ladder[index]['copy'] as String
+        : (_stoppedStates[_status]?['copy'] ??
+            (_status.isEmpty
+                ? 'The trip row did not report a stage, so nothing is invented for it.'
+                : 'The trip row reported the stage "$_status". This app has no view for '
+                    'it, so it shows the row as it is.'));
+    final IconData icon = index >= 0
+        ? _ladder[index]['icon'] as IconData
+        : (_isStopped ? Icons.cancel_rounded : Icons.info_outline_rounded);
+
+    return Container(
+      width: double.infinity,
+      color: AppTheme.surface,
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: AppTheme.primary.withValues(alpha: 0.08),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, size: 18, color: AppTheme.primary),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              copy,
+              style: const TextStyle(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w700,
+                color: AppTheme.onSurface,
+                height: 1.35,
               ),
             ),
-            const SizedBox(height: 14),
-            const Row(
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Position ───────────────────────────────────────────────────────────────────
+
+  Widget _buildPositionPanel() {
+    final location = _location;
+    final lat = location['lat'];
+    final lng = location['lng'];
+    final bool hasPosition = lat != null && lng != null;
+    final speed = _asDouble(location['speed']);
+    final heading = _asDouble(location['heading']);
+    final bits = <String>[
+      '$lat, $lng',
+      if (speed > 0) '${speed.toStringAsFixed(1)} km/h',
+      if (heading > 0) 'heading ${heading.toStringAsFixed(0)}°',
+    ];
+
+    return _card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: const BoxDecoration(
+                  color: AppTheme.surfaceContainerLow,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.location_searching_rounded,
+                    size: 20, color: AppTheme.onSurfaceVariant),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Text(
+                  'Where the driver is',
+                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          hasPosition
+              ? Text(
+                  'Last position the driver\'s app reported: ${bits.join(' • ')}',
+                  style: const TextStyle(
+                      fontSize: 12, fontWeight: FontWeight.w700, height: 1.4),
+                )
+              : const Text(
+                  'The driver\'s app has not reported a position for this trip yet.',
+                  style:
+                      TextStyle(fontSize: 12, color: AppTheme.onSurfaceVariant),
+                ),
+          const SizedBox(height: 6),
+          const Text(
+            'NABIN publishes no route line, remaining distance or arrival time for a '
+            'trip, so none is drawn or counted down here.',
+            style: TextStyle(
+                fontSize: 11.5,
+                color: AppTheme.onSurfaceVariant,
+                height: 1.4),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              const Icon(Icons.schedule_rounded,
+                  size: 14, color: AppTheme.onSurfaceVariant),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  'Checked ${_checkedAt()} from the trip row',
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
+                  style: const TextStyle(
+                      fontSize: 11.5, color: AppTheme.onSurfaceVariant),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Driver ─────────────────────────────────────────────────────────────────────
+
+  Widget _buildDriverCard() {
+    final name = _driverName;
+    final hasDriver = name.isNotEmpty || _assigned != null;
+
+    if (!hasDriver) {
+      return _card(
+        child: const Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('No driver yet',
+                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5)),
+            SizedBox(height: 6),
+            Text(
+              'The platform names the driver when one takes the trip, and sends the '
+              'plate and start code in that same message. Until it does, this '
+              'screen shows none of them.',
+              style: TextStyle(
+                  fontSize: 12,
+                  height: 1.45,
+                  color: AppTheme.onSurfaceVariant),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final details = <String>[
+      if (_assigned?['vehicleName'] != null)
+        _assigned!['vehicleName'].toString(),
+      if (_driverPlate.isNotEmpty) _driverPlate,
+    ];
+
+    return _card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: const BoxDecoration(
+                  color: AppTheme.primary,
+                  shape: BoxShape.circle,
+                ),
+                child: Center(
+                  child: Text(
+                    _initials(name),
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 15),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      name.isEmpty ? 'Assigned driver' : name,
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 1,
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w800, fontSize: 14),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      details.isEmpty
+                          ? 'Vehicle details were not in the assignment message.'
+                          : details.join(' • '),
+                      style: const TextStyle(
+                          fontSize: 11.5, color: AppTheme.onSurfaceVariant),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              _fareChip(),
+            ],
+          ),
+          const SizedBox(height: 12),
+          if (_driverPhone.isNotEmpty)
+            Row(
               children: [
-                Icon(Icons.pan_tool_rounded, color: Color(0xFFFF6D00), size: 24),
-                SizedBox(width: 8),
-                Text('Ask Driver to Stop Here', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 17, color: AppTheme.onSurface)),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _messageDriver,
+                    icon: const Icon(Icons.chat_bubble_outline_rounded, size: 15),
+                    label: const Text('Message',
+                        style: TextStyle(fontWeight: FontWeight.w700)),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppTheme.primary,
+                      side: const BorderSide(color: AppTheme.primaryFixed),
+                      padding: const EdgeInsets.symmetric(vertical: 11),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12)),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: () => _call(_driverPhone),
+                    icon: const Icon(Icons.phone_rounded, size: 15),
+                    label: const Text('Call driver',
+                        style: TextStyle(fontWeight: FontWeight.w700)),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppTheme.primary,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 11),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12)),
+                    ),
+                  ),
+                ),
+              ],
+            )
+          else
+            const Text(
+              'The trip row did not carry a phone number for this driver, so there is '
+              'nothing to dial or message from here. Use Support to reach the platform.',
+              style: TextStyle(
+                  fontSize: 11.5,
+                  height: 1.4,
+                  color: AppTheme.onSurfaceVariant),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStartCodeCard() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: AppTheme.primary.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppTheme.primary.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        children: [
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'START CODE FOR THE DRIVER',
+                  style: TextStyle(
+                      fontSize: 9,
+                      fontWeight: FontWeight.w900,
+                      color: AppTheme.primary,
+                      letterSpacing: 0.6),
+                ),
+                SizedBox(height: 2),
+                Text(
+                  'The driver enters this on their app to start the trip. It arrived with '
+                  'the driver assignment.',
+                  style:
+                      TextStyle(fontSize: 10.5, color: AppTheme.onSurfaceVariant),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          Text(
+            _startCode,
+            style: const TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w900,
+                color: AppTheme.primary,
+                letterSpacing: 2),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Trip ───────────────────────────────────────────────────────────────────────
+
+  Widget _buildTripCard() {
+    final pickup = _addressOf('pickup');
+    final drop = _addressOf('drop');
+    final quote = widget.fare.trim();
+
+    return _card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Trip',
+              style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5)),
+          const SizedBox(height: 10),
+          _buildAddressRow(Icons.trip_origin_rounded,
+              pickup.isEmpty ? 'Pickup not recorded on the trip row' : pickup),
+          const SizedBox(height: 8),
+          _buildAddressRow(Icons.place_outlined,
+              drop.isEmpty ? 'Drop not recorded on the trip row' : drop),
+          const Divider(height: 20),
+          Text(
+            quote.isEmpty
+                ? 'No fare was carried into this screen.'
+                : 'Quote from the booking: $quote',
+            style: const TextStyle(
+                fontSize: 12, fontWeight: FontWeight.w700, height: 1.35),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'The trip row read here reports no fare, so nothing on this screen settles, '
+            'refunds or adjusts money. Only the cancellation write returns figures, and it '
+            'returns the platform\'s own.',
+            style: TextStyle(
+                fontSize: 11, height: 1.4, color: AppTheme.onSurfaceVariant),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAddressRow(IconData icon, String value) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 15, color: AppTheme.onSurfaceVariant),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            value,
+            style: const TextStyle(
+                fontSize: 12.5, color: AppTheme.onSurface, height: 1.35),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _fareChip() {
+    final label = widget.fare.trim();
+    if (label.isEmpty) return const SizedBox.shrink();
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: AppTheme.primary.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(
+            fontSize: 12, fontWeight: FontWeight.w800, color: AppTheme.primary),
+      ),
+    );
+  }
+
+  Widget _buildPassengerCard() {
+    final p = passenger;
+    final isChild = p.isSchoolChild;
+    final guardian = (p.guardianPhone ?? '').trim();
+    final accent = isChild ? AppTheme.warning : AppTheme.primary;
+
+    return _card(
+      borderColor: accent.withValues(alpha: 0.4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            isChild ? 'SCHOOL CHILD PASSENGER' : 'BOOKED FOR SOMEONE ELSE',
+            style: TextStyle(
+                fontSize: 9.5,
+                fontWeight: FontWeight.w900,
+                color: accent,
+                letterSpacing: 0.6),
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      p.passengerName?.isNotEmpty == true
+                          ? p.passengerName!
+                          : 'Passenger',
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w800, fontSize: 13.5),
+                    ),
+                    if (isChild) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        '${p.schoolName ?? 'School'}'
+                        '${p.gradeClass != null && p.gradeClass!.isNotEmpty ? ' • ${p.gradeClass}' : ''}'
+                        '${p.section != null && p.section!.isNotEmpty ? ' (${p.section})' : ''}',
+                        style: const TextStyle(
+                            fontSize: 11.5, color: AppTheme.onSurfaceVariant),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              if (isChild && guardian.isNotEmpty)
+                IconButton(
+                  icon: Icon(Icons.call_rounded, color: accent, size: 20),
+                  tooltip: 'Call guardian',
+                  onPressed: () => _call(guardian),
+                ),
+            ],
+          ),
+          const SizedBox(height: 2),
+          const Text(
+            'These are the details you entered for the passenger. The platform does not '
+            'verify them against a school record.',
+            style: TextStyle(
+                fontSize: 11, height: 1.4, color: AppTheme.onSurfaceVariant),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Stage ladder ───────────────────────────────────────────────────────────────
+
+  Widget _buildTimeline() {
+    final int current = _ladderIndex;
+
+    return _card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Trip stages',
+                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
+              ),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  current >= 0
+                      ? 'Step ${current + 1} of ${_ladder.length}'
+                      : (_isStopped
+                          ? 'Closed'
+                          : (_status.isEmpty
+                              ? 'No stage reported'
+                              : 'Unrecognised stage')),
+                  textAlign: TextAlign.end,
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
+                  style: const TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w700,
+                    color: AppTheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'The driver\'s app writes these stages. This screen reads them; it never '
+            'advances on its own.',
+            style: TextStyle(fontSize: 11.5, color: AppTheme.onSurfaceVariant),
+          ),
+          const SizedBox(height: 14),
+          ...List.generate(_ladder.length, (idx) {
+            final stage = _ladder[idx];
+            return _buildStep(
+              idx,
+              stage['title'] as String,
+              stage['copy'] as String,
+              stage['icon'] as IconData,
+              current: current,
+              isLast: idx == _ladder.length - 1,
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStep(
+    int idx,
+    String title,
+    String subtitle,
+    IconData icon, {
+    required int current,
+    bool isLast = false,
+  }) {
+    final bool isDone = current >= 0 && idx <= current;
+    final bool isCurrent = current == idx;
+
+    final Color badge = isCurrent
+        ? AppTheme.primary
+        : (isDone ? AppTheme.success : AppTheme.surface);
+    final Color badgeIcon = isDone ? Colors.white : AppTheme.onSurfaceVariant;
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Column(
+          children: [
+            Container(
+              width: 28,
+              height: 28,
+              decoration: BoxDecoration(
+                color: badge,
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: isDone ? Colors.transparent : AppTheme.outlineVariant,
+                ),
+              ),
+              child: Icon(
+                isDone && !isCurrent ? Icons.check_rounded : icon,
+                color: badgeIcon,
+                size: 14,
+              ),
+            ),
+            if (!isLast)
+              Container(
+                width: 2,
+                height: 22,
+                color: isDone ? AppTheme.success : AppTheme.outlineVariant,
+              ),
+          ],
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: isCurrent
+                      ? FontWeight.w800
+                      : (isDone ? FontWeight.w700 : FontWeight.w500),
+                  color: isCurrent
+                      ? AppTheme.primary
+                      : (isDone ? AppTheme.onSurface : AppTheme.onSurfaceVariant),
+                ),
+              ),
+              Text(
+                subtitle,
+                style: const TextStyle(
+                    fontSize: 10.5, color: AppTheme.onSurfaceVariant),
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ── Cancellation ───────────────────────────────────────────────────────────────
+
+  Widget _buildCancellationCard() {
+    if (_settlement != null) return _buildSettlementCard(_settlement!);
+
+    if (_canCancel) {
+      return _card(
+        borderColor: AppTheme.error.withValues(alpha: 0.3),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    _cancelling ? 'Cancelling this trip…' : 'Cancel this trip',
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w800, fontSize: 13.5),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  _status,
+                  style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: AppTheme.onSurfaceVariant),
+                ),
               ],
             ),
             const SizedBox(height: 6),
             const Text(
-              'Trip is currently active with verified OTP. Cancellation is locked, but you can end the ride early at your current location.',
-              style: TextStyle(fontSize: 12, color: AppTheme.onSurfaceVariant, height: 1.3),
+              'This writes to the platform. The fee, the driver compensation and the '
+              'refund are whatever the platform returns, and they appear here after it '
+              'does.',
+              style: TextStyle(
+                  fontSize: 11.5,
+                  height: 1.4,
+                  color: AppTheme.onSurfaceVariant),
             ),
-            const SizedBox(height: 14),
-
-            // 50% Minimum / Distance Rule Box
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: const Color(0xFFFFF8F1),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: const Color(0xFFFFCC80)),
+            const SizedBox(height: 10),
+            OutlinedButton(
+              onPressed:
+                  _cancelling ? null : () => _showCancelSheet(context),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppTheme.error,
+                side: const BorderSide(color: AppTheme.error),
+                minimumSize: const Size(double.infinity, 44),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14)),
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Row(
-                    children: [
-                      Icon(Icons.rule_folder_rounded, color: Color(0xFFE65100), size: 18),
-                      SizedBox(width: 6),
-                      Text('MID-TRIP EARLY STOP POLICY', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: Color(0xFFE65100), letterSpacing: 0.5)),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  _buildFareSummaryRow('Upfront Booked Fare', '₹${totalFare.toStringAsFixed(2)}'),
-                  _buildFareSummaryRow('Distance Covered (1.8 km / 4.2 km)', '₹${distanceCoveredFare.toStringAsFixed(2)}'),
-                  _buildFareSummaryRow('Minimum 50% Threshold Rule', '₹${min50Percent.toStringAsFixed(2)}'),
-                  const Divider(height: 14),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text('Final Early Stop Fare (Max of 50% or Distance)', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: AppTheme.onSurface)),
-                      Text('₹${payableFare.toStringAsFixed(2)}', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: Color(0xFFE65100))),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Instant Refund to Wallet: ₹${refundToWallet.toStringAsFixed(2)}',
-                    style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: Color(0xFF2E7D32)),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            Row(
-              children: [
-                Expanded(
-                  flex: 5,
-                  child: ElevatedButton(
-                    onPressed: () {
-                      Navigator.pop(ctx);
-                      setState(() {
-                        _isEarlyDropoff = true;
-                        _earlyDropoffFare = payableFare;
-                        _earlyDropoffRefund = refundToWallet;
-                        _tripStage = 2; // Jump to completed receipt
-                      });
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text('Trip ended early at current stop. ₹${refundToWallet.toStringAsFixed(2)} refunded to Wallet.'),
-                          backgroundColor: const Color(0xFF00C853),
-                        ),
-                      );
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFFF6D00),
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 13),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                      elevation: 2,
-                    ),
-                    child: Text('Stop Here (₹${payableFare.toStringAsFixed(0)})', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  flex: 6,
-                  child: OutlinedButton(
-                    onPressed: () => Navigator.pop(ctx),
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 13),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                    ),
-                    child: const Text('Continue Trip', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                  ),
-                ),
-              ],
+              child: const Text('Cancel trip',
+                  style: TextStyle(fontWeight: FontWeight.w700)),
             ),
           ],
         ),
+      );
+    }
+
+    return _card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Cancellation',
+              style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5)),
+          const SizedBox(height: 6),
+          Text(
+            _isCompleted
+                ? 'This trip is completed, so it can no longer be cancelled.'
+                : (_status.isEmpty
+                    ? 'The trip row reported no stage, so this screen does not offer a '
+                        'cancellation.'
+                    : 'A trip at the stage "$_status" cannot be cancelled — the platform '
+                        'accepts a cancellation only before the trip is running.'),
+            style: const TextStyle(
+                fontSize: 11.5,
+                height: 1.4,
+                color: AppTheme.onSurfaceVariant),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'To stop a trip that is already running, tell the driver where to stop and '
+            'raise any fare question with Support — there is no customer early-stop or '
+            'trip-adjustment write on the platform.',
+            style: TextStyle(
+                fontSize: 11.5, height: 1.4, color: AppTheme.onSurfaceVariant),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildFareSummaryRow(String label, String amount) {
+  Widget _buildSettlementCard(Map<String, dynamic> res) {
+    return _card(
+      borderColor: AppTheme.success.withValues(alpha: 0.4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.check_circle_rounded,
+                  color: AppTheme.success, size: 20),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text('Cancellation settled',
+                    style:
+                        TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5)),
+              ),
+              Text(
+                (res['status'] ?? 'CANCELLED').toString(),
+                style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: AppTheme.onSurfaceVariant),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          _buildSummaryRow('Cancellation fee', _rupee(res['cancellationFee'])),
+          _buildSummaryRow('Refund', _rupee(res['refundAmount'])),
+          _buildSummaryRow(
+              'Driver compensation', _rupee(res['driverCompensation'])),
+          const SizedBox(height: 8),
+          Text(
+            _refundLine(res),
+            style:
+                const TextStyle(fontSize: 11.5, height: 1.4, color: AppTheme.onSurface),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'These figures are what the platform wrote when it recorded the '
+            'cancellation. This screen cannot change them.',
+            style: TextStyle(
+                fontSize: 11, height: 1.4, color: AppTheme.onSurfaceVariant),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _refundLine(Map<String, dynamic> res) {
+    final status = (res['refundStatus'] ?? '').toString();
+    final amount = _rupee(res['refundAmount']);
+    switch (status) {
+      case 'REFUNDED':
+        return 'Refund status: REFUNDED. $amount was returned.';
+      case 'PARTIALLY_REFUNDED':
+        return 'Refund status: PARTIALLY_REFUNDED. $amount was returned against the '
+            'amount that was actually captured as payment.';
+      case 'NOT_APPLICABLE':
+        return 'Refund status: NOT_APPLICABLE. Nothing was captured as payment for this '
+            'trip, so there is nothing to return.';
+      case '':
+        return 'The platform returned no refund status.';
+      default:
+        return 'The platform returned refund status: $status.';
+    }
+  }
+
+  Widget _buildSummaryRow(String label, String value) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: const TextStyle(fontSize: 11, color: AppTheme.onSurfaceVariant)),
-          Text(amount, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppTheme.onSurface)),
+          Expanded(
+            child: Text(label,
+                style: const TextStyle(
+                    fontSize: 12, color: AppTheme.onSurfaceVariant)),
+          ),
+          const SizedBox(width: 8),
+          Text(value,
+              style:
+                  const TextStyle(fontSize: 12, fontWeight: FontWeight.w800)),
         ],
       ),
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final driver = _driverInfo;
-    final p = passenger;
-    final isChild = p.isSchoolChild;
-    final isSomeoneElse = p.isForSomeoneElse;
+  // ── Safety and primary action ──────────────────────────────────────────────────
 
-    final pickup = p.pickupAddress ?? 'Civil Lines Metro Gate 2';
-    final drop = p.dropAddress ?? (isChild ? 'ABC Public School' : 'Connaught Place');
+  Widget _buildSafetyRow() {
+    return Row(
+      children: [
+        Expanded(
+          child: OutlinedButton.icon(
+            onPressed: () => _showSafetySheet(context),
+            icon: const Icon(Icons.shield_rounded, size: 16),
+            label: const Text('Safety',
+                style: TextStyle(fontWeight: FontWeight.w700)),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: AppTheme.error,
+              side: const BorderSide(color: AppTheme.error),
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14)),
+            ),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: OutlinedButton.icon(
+            onPressed: () => context.push('/support'),
+            icon: const Icon(Icons.support_agent_rounded, size: 16),
+            label: const Text('Support',
+                style: TextStyle(fontWeight: FontWeight.w700)),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: AppTheme.primary,
+              side: const BorderSide(color: AppTheme.primaryFixed),
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14)),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
 
-    return Scaffold(
-      backgroundColor: AppTheme.background,
-      body: Stack(
+  Widget _buildPrimaryAction() {
+    if (_isCompleted) {
+      return FilledButton.icon(
+        onPressed: () {
+          context.pushReplacement('/ride-receipt', extra: {
+            'jobId': _jobId,
+            'fare': widget.fare,
+            'vehicleType': widget.vehicleType,
+            'vehicleName': widget.vehicleName,
+          });
+        },
+        icon: const Icon(Icons.receipt_long_rounded, size: 18),
+        label: const Text('View trip receipt',
+            style: TextStyle(fontWeight: FontWeight.w700)),
+        style: FilledButton.styleFrom(
+          backgroundColor: AppTheme.primary,
+          foregroundColor: Colors.white,
+          minimumSize: const Size(double.infinity, 50),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        ),
+      );
+    }
+    return OutlinedButton(
+      onPressed: () => context.go('/home'),
+      style: OutlinedButton.styleFrom(
+        minimumSize: const Size(double.infinity, 48),
+        side: const BorderSide(color: AppTheme.primary),
+        foregroundColor: AppTheme.primary,
+        shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      ),
+      child: const Row(
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          // 1. Vector Map Viewport
-          Positioned.fill(
-            child: DriverMapView(
-              vehicleType: widget.vehicleType,
-              showRoute: true,
-              isBookingConfirmed: true,
-              tripStage: _tripStage,
-              pickupLabel: pickup,
-              dropLabel: drop,
-            ),
-          ),
-
-          // 2. Top Floating Status Bar
-          SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Center(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(24),
-                    border: Border.all(
-                      color: _tripStage == 0
-                          ? const Color(0xFF00C853)
-                          : (_tripStage == 1 ? (isChild ? const Color(0xFFFF6D00) : AppTheme.primary) : const Color(0xFF00C853)),
-                      width: 1.5,
-                    ),
-                    boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 10, offset: Offset(0, 3))],
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.circle,
-                        color: _tripStage == 2
-                            ? const Color(0xFF00C853)
-                            : (_tripStage == 1 ? (isChild ? const Color(0xFFFF6D00) : AppTheme.primary) : const Color(0xFF00C853)),
-                        size: 10,
-                      ),
-                      const SizedBox(width: 8),
-                      Flexible(
-                        child: Text(
-                          _tripStage == 0
-                              ? 'Driver En Route to Pickup • Arriving in 2 mins'
-                              : (_tripStage == 1
-                                  ? (isChild ? 'School Ride in Progress • Safe Transit to ${p.schoolName ?? "School"}' : 'En Route to $drop • 11 mins')
-                                  : 'Trip Completed • Safely Dropped'),
-                          style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12.5, color: AppTheme.onSurface),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-
-          // 3. Bottom Floating Trip HUD Card
-          Positioned(
-            left: 14,
-            right: 14,
-            bottom: 14,
-            child: SafeArea(
-              top: false,
-              child: Container(
-                padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(24),
-                  boxShadow: const [
-                    BoxShadow(color: Colors.black26, blurRadius: 20, spreadRadius: 2, offset: Offset(0, 6)),
-                  ],
-                  border: Border.all(color: AppTheme.outlineVariant.withValues(alpha: 0.6)),
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Passenger Information Banner / Card (if booked for someone else / school child)
-                    if (isSomeoneElse) ...[
-                      Container(
-                        margin: const EdgeInsets.only(bottom: 10),
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: isChild ? const Color(0xFFFFF3E0) : AppTheme.surfaceContainerLow,
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(
-                            color: isChild ? const Color(0xFFFFB74D) : AppTheme.outlineVariant.withValues(alpha: 0.6),
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            Container(
-                              width: 38,
-                              height: 38,
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  colors: isChild
-                                      ? [const Color(0xFFFF6D00), const Color(0xFFFF9E80)]
-                                      : [AppTheme.primary, AppTheme.primaryContainer],
-                                ),
-                                shape: BoxShape.circle,
-                              ),
-                              child: Center(
-                                child: Text(
-                                  (p.passengerName != null && p.passengerName!.isNotEmpty) ? p.passengerName!.substring(0, 1) : 'P',
-                                  style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 16),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      Text(
-                                        isChild ? '🎒 SCHOOL CHILD PASSENGER' : '👤 BOOKED FOR SOMEONE ELSE',
-                                        style: TextStyle(
-                                          fontSize: 9,
-                                          fontWeight: FontWeight.w900,
-                                          color: isChild ? const Color(0xFFE65100) : AppTheme.primary,
-                                          letterSpacing: 0.5,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 1),
-                                  Text(
-                                    p.passengerName ?? 'Passenger',
-                                    style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 13, color: AppTheme.onSurface),
-                                  ),
-                                  if (isChild) ...[
-                                    Text(
-                                      '${p.schoolName ?? "School"} • ${p.gradeClass ?? "Class 5"}${p.section != null && p.section!.isNotEmpty ? " (${p.section})" : ""}',
-                                      style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: AppTheme.primary),
-                                    ),
-                                  ],
-                                ],
-                              ),
-                            ),
-                            if (isChild && p.guardianPhone != null) ...[
-                              IconButton(
-                                icon: const Icon(Icons.call_rounded, color: Color(0xFFFF6D00), size: 20),
-                                tooltip: 'Call Guardian',
-                                onPressed: () => _launchPhoneCall(context, p.guardianPhone!),
-                              ),
-                            ],
-                          ],
-                        ),
-                      ),
-                    ],
-
-                    if (_tripStage == 0) ...[
-                      // Stage 0: Driver Arriving & Start PIN
-                      Row(
-                        children: [
-                          Container(
-                            width: 42,
-                            height: 42,
-                            decoration: BoxDecoration(
-                              gradient: const LinearGradient(colors: [AppTheme.primary, AppTheme.primaryContainer]),
-                              shape: BoxShape.circle,
-                              boxShadow: [BoxShadow(color: AppTheme.primary.withValues(alpha: 0.25), blurRadius: 6)],
-                            ),
-                            child: Center(
-                              child: Text(driver['initials'] as String, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 15)),
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  children: [
-                                    Flexible(
-                                      child: Text(
-                                        driver['name'] as String,
-                                        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w900, color: AppTheme.onSurface),
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 6),
-                                    Text('⭐ ${driver['rating']}', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppTheme.primary)),
-                                  ],
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  '${driver['model']} • ${driver['plate']}',
-                                  style: const TextStyle(color: AppTheme.onSurfaceVariant, fontSize: 11, fontWeight: FontWeight.w600),
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-                            decoration: BoxDecoration(
-                              color: AppTheme.primary.withValues(alpha: 0.1),
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Text(widget.fare, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: AppTheme.primary)),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-
-                      // Start PIN Card for Booking Person (Passenger needs no phone/app)
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFF0F4FF),
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(color: AppTheme.primary.withValues(alpha: 0.3)),
-                        ),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    isChild ? 'PICKUP VERIFICATION OTP (FOR GUARDIAN)' : 'START PIN (SHARE WITH DRIVER)',
-                                    style: const TextStyle(fontSize: 8.5, fontWeight: FontWeight.w900, color: AppTheme.primary, letterSpacing: 0.5),
-                                  ),
-                                  const SizedBox(height: 1),
-                                  Text(
-                                    isChild
-                                        ? 'Passenger needs no phone. Guardian confirms OTP with driver.'
-                                        : 'Driver will verify this code to start ride',
-                                    style: const TextStyle(fontSize: 9.5, color: AppTheme.onSurfaceVariant),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            GestureDetector(
-                              onTap: () {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(content: Text('Start PIN 7729 copied to clipboard!')),
-                                );
-                              },
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-                                decoration: BoxDecoration(
-                                  color: Colors.white,
-                                  borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(color: AppTheme.primary, width: 1.5),
-                                  boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 4)],
-                                ),
-                                child: const Row(
-                                  children: [
-                                    Text('7729', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: AppTheme.primary, letterSpacing: 2.5)),
-                                    SizedBox(width: 4),
-                                    Icon(Icons.copy_rounded, size: 12, color: AppTheme.primary),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-
-                      // Action Buttons: Message, Call Driver
-                      Row(
-                        children: [
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed: () => _launchSms(
-                                context,
-                                driver['phone'] as String,
-                                isChild
-                                    ? 'Hi ${driver['name']}, I booked a school ride for ${p.passengerName}. Pickup is at $pickup.'
-                                    : 'Hi ${driver['name']}, I am waiting at the pickup point ($pickup).',
-                              ),
-                              icon: const Icon(Icons.chat_bubble_outline_rounded, size: 15, color: AppTheme.primary),
-                              label: const Text('Message', style: TextStyle(fontWeight: FontWeight.bold, color: AppTheme.primary, fontSize: 12)),
-                              style: OutlinedButton.styleFrom(
-                                side: const BorderSide(color: AppTheme.primaryFixed),
-                                backgroundColor: AppTheme.surfaceContainerLow,
-                                padding: const EdgeInsets.symmetric(vertical: 10),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: ElevatedButton.icon(
-                              onPressed: () => _launchPhoneCall(context, driver['phone'] as String),
-                              icon: const Icon(Icons.phone_rounded, size: 15, color: Colors.white),
-                              label: const Text('Call Driver', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 12)),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: AppTheme.primaryContainer,
-                                padding: const EdgeInsets.symmetric(vertical: 10),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                elevation: 2,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-
-                      // Driver Verifies OTP & Starts Trip
-                      ElevatedButton.icon(
-                        onPressed: () {
-                          setState(() => _tripStage = 1);
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text('✅ Driver ${driver['name']} verified Start PIN 7729! Safe transit started to $drop.'),
-                              backgroundColor: const Color(0xFF00C853),
-                            ),
-                          );
-                        },
-                        icon: const Icon(Icons.verified_user_rounded, size: 16, color: Colors.white),
-                        label: Text(
-                          isChild ? 'Passenger Picked Up → Start School Transit' : 'Driver Verifies OTP (7729) & Starts Ride',
-                          style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF00C853),
-                          foregroundColor: Colors.white,
-                          minimumSize: const Size(double.infinity, 42),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-
-                      Center(
-                        child: TextButton(
-                          onPressed: () => _showCancelBottomSheet(context),
-                          style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 2), minimumSize: const Size(50, 24)),
-                          child: const Text('Cancel Ride', style: TextStyle(color: Color(0xFFD50000), fontWeight: FontWeight.bold, fontSize: 11)),
-                        ),
-                      ),
-                    ] else if (_tripStage == 1) ...[
-                      // Stage 1: Active In-Transit View
-                      Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF00C853).withValues(alpha: 0.15),
-                              shape: BoxShape.circle,
-                            ),
-                            child: const Icon(Icons.navigation_rounded, color: Color(0xFF00C853), size: 18),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  isChild ? 'Safe Transit to ${p.schoolName ?? drop}' : 'Heading to $drop',
-                                  style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 13, color: AppTheme.onSurface),
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  isChild ? 'Live GPS Guard Active • Est. Arrival: 08:15 AM' : 'Est. Arrival: 11:58 AM • 3.2 km remaining',
-                                  style: const TextStyle(color: AppTheme.onSurfaceVariant, fontSize: 11),
-                                ),
-                              ],
-                            ),
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                            decoration: BoxDecoration(
-                              color: AppTheme.primary.withValues(alpha: 0.1),
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: const Text('38 km/h', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 11, color: AppTheme.primary)),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed: () => _launchPhoneCall(context, driver['phone'] as String),
-                              icon: const Icon(Icons.phone_rounded, size: 14, color: AppTheme.primary),
-                              label: const Text('Call Driver', style: TextStyle(fontWeight: FontWeight.bold, color: AppTheme.primary, fontSize: 12)),
-                              style: OutlinedButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(vertical: 10),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: ElevatedButton.icon(
-                              onPressed: () => _showSafetyModal(context),
-                              icon: const Icon(Icons.shield_rounded, size: 14, color: Colors.white),
-                              label: const Text('Safety Toolkit (SOS)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFFD50000),
-                                foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(vertical: 10),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          Expanded(
-                            flex: 6,
-                            child: OutlinedButton.icon(
-                              onPressed: () => _showEarlyDropoffModal(context),
-                              icon: const Icon(Icons.pan_tool_rounded, size: 14, color: Color(0xFFFF6D00)),
-                              label: const Text('Ask Driver to Stop Here', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFFF6D00), fontSize: 11.5)),
-                              style: OutlinedButton.styleFrom(
-                                side: const BorderSide(color: Color(0xFFFF6D00)),
-                                padding: const EdgeInsets.symmetric(vertical: 9),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            flex: 5,
-                            child: OutlinedButton(
-                              onPressed: () => setState(() => _tripStage = 2),
-                              style: OutlinedButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(vertical: 9),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                              ),
-                              child: Text(
-                                isChild ? 'Reaching Gate' : 'Simulate Drop',
-                                style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ] else ...[
-                      // Stage 2: Trip Completed & Receipt Card
-                      Row(
-                        children: [
-                          Icon(
-                            _isEarlyDropoff ? Icons.check_circle_outline_rounded : Icons.check_circle_rounded,
-                            color: const Color(0xFF2E7D32),
-                            size: 22,
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  _isEarlyDropoff
-                                      ? '🛑 Trip Ended Early (Mid-Trip Drop)'
-                                      : (isChild ? 'Safely Arrived at ${p.schoolName ?? "School Gate"}' : 'Trip Completed Successfully!'),
-                                  style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 13, color: Color(0xFF1B5E20)),
-                                ),
-                                Text(
-                                  _isEarlyDropoff
-                                      ? 'Paid ₹${_earlyDropoffFare.toStringAsFixed(2)} (Min 50% Rule) • ₹${_earlyDropoffRefund.toStringAsFixed(2)} Refunded'
-                                      : (isChild ? 'Passenger safely handed over to school entrance' : 'Paid ${widget.fare} via NABIN Wallet (Autopay)'),
-                                  style: const TextStyle(fontSize: 11, color: Color(0xFF2E7D32)),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-
-                      // Rating Bar
-                      Center(
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: List.generate(5, (idx) {
-                            return IconButton(
-                              padding: const EdgeInsets.symmetric(horizontal: 2),
-                              constraints: const BoxConstraints(),
-                              icon: Icon(
-                                idx < _rating ? Icons.star_rounded : Icons.star_outline_rounded,
-                                color: const Color(0xFFFFB300),
-                                size: 24,
-                              ),
-                              onPressed: () => setState(() => _rating = idx + 1),
-                            );
-                          }),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-
-                      ElevatedButton(
-                        onPressed: () => context.go('/home'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppTheme.primaryContainer,
-                          foregroundColor: Colors.white,
-                          minimumSize: const Size(double.infinity, 44),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                          elevation: 2,
-                        ),
-                        child: const Text('Back to Home', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-          ),
+          Icon(Icons.home_rounded, size: 18),
+          SizedBox(width: 8),
+          Text('Back to NABIN', style: TextStyle(fontWeight: FontWeight.w700)),
         ],
       ),
     );
   }
+
+  // ── Shared pieces ──────────────────────────────────────────────────────────────
+
+  Widget _card({required Widget child, Color? borderColor}) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppTheme.surfaceCard,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: borderColor ?? AppTheme.outlineVariant),
+      ),
+      child: child,
+    );
+  }
+
+  String _tripNumber() {
+    final id = (_tracking?['jobId'] ?? _jobId).toString();
+    return id.isEmpty ? 'no trip id' : '#$id';
+  }
+
+  String _initials(String name) {
+    final parts = name
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((p) => p.isNotEmpty)
+        .toList();
+    if (parts.isEmpty) return 'D';
+    if (parts.length == 1) return parts[0].substring(0, 1).toUpperCase();
+    return (parts[0].substring(0, 1) + parts[1].substring(0, 1)).toUpperCase();
+  }
+
+  String _checkedAt() {
+    final at = _lastReadAt;
+    if (at == null) return '—';
+    final local = at.toLocal();
+    final hour12 = local.hour % 12 == 0 ? 12 : local.hour % 12;
+    final suffix = local.hour < 12 ? 'AM' : 'PM';
+    return '$hour12:${local.minute.toString().padLeft(2, '0')} $suffix';
+  }
+
+  double _asDouble(dynamic raw) {
+    if (raw is num) return raw.toDouble();
+    return double.tryParse(raw?.toString() ?? '') ?? 0;
+  }
+
+  String _rupee(dynamic raw) => '₹${_asDouble(raw).toStringAsFixed(2)}';
 }

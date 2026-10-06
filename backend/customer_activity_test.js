@@ -11,6 +11,9 @@
  *      beside those orders, so a naive merge would list every meal twice.
  *   4. It is not silently truncated: the caller's newest ride and newest order must both
  *      appear.
+ *   5. Alongside it, the customer's own record from `GET /api/auth/me` (the other read the
+ *      Profile screen makes) carries no `rating` — that column is a DDL default with no
+ *      ratings table behind it, so a score there would be a number nobody measured (#140).
  *
  * Ownership is verified with `.in(...)` over the ids the feed itself returned rather than
  * by re-reading the customer's table, because PostgREST caps an unbounded read at 1000
@@ -20,6 +23,8 @@
  * Requires the local backend on :4000 and the local Docker PostgreSQL.
  */
 const http = require('http');
+const fs = require('fs');
+const path = require('path');
 const { createLogin } = require('./testSessionCache');
 
 const BASE_URL = process.env.NABIN_TEST_BASE_URL || 'http://127.0.0.1:4000';
@@ -236,6 +241,54 @@ let supabaseAdmin = null;
       { otherUuid: !!otherUuid, otherToken: !!otherToken });
     assert('ACT-20 second fixture customer unavailable — cross-tenant check not exercised', false);
   }
+
+  // --- the customer's own record: ACT-21…23 (#140) ---------------------------------------
+  //
+  // The Profile screen reads this same route, and it used to render "⭐ 5.00 User Rating".
+  // That number is `users.rating NUMERIC(3,2) DEFAULT 5.00` (001_central_schema.sql:22): no
+  // reviews or ratings table exists in this schema, so every account's score is the column
+  // default. The hydrator made it worse than the DDL — `parseFloat(row.rating || 5.0)`
+  // (database.js:1704) turns a NULL into 5.0 before any route sees the row. Same ruling
+  // migration 034 made for `merchants.rating` and #138 made for `drivers.rating`.
+  //
+  // Unlike the driver rating, this one is provable from the live response alone: a field that
+  // is absent cannot be mistaken for a measurement. The source guard after it is not proof,
+  // it is protection — it stops a third self-read being added that hands out `session.entity`
+  // whole again.
+  const me = await request('GET', '/api/auth/me', null, { Authorization: `Bearer ${token}` });
+  const meUser = me.data && me.data.user;
+  assert('ACT-21 the customer\'s own record carries no rating field',
+    me.status === 200 && meUser && typeof meUser === 'object' && !('rating' in meUser),
+    { status: me.status, keys: meUser ? Object.keys(meUser).join(',') : null });
+  // Absence must not cost the customer anything they actually own.
+  assert('ACT-22 the same record still carries the identity the profile renders',
+    !!meUser && !!meUser.id && !!meUser.name && !!meUser.phone,
+    meUser ? { id: meUser.id, name: meUser.name, phone: meUser.phone } : { meUser: null });
+
+  const refreshed = await request('POST', '/api/auth/refresh-token', { token });
+  const echoEntity = refreshed.data && refreshed.data.session && refreshed.data.session.entity;
+  assert('ACT-23 the refresh echo of that same record carries no rating either',
+    refreshed.status === 200 && (echoEntity === undefined || echoEntity === null || !('rating' in echoEntity)),
+    { status: refreshed.status, keys: echoEntity ? Object.keys(echoEntity).join(',') : 'no entity echoed' });
+
+  // Source guard, FD-10d / CT-07 precedent. Comments are stripped first: the ruling is written
+  // down as prose that quotes the very shapes being retired.
+  const serverSrc = fs.readFileSync(path.join(__dirname, 'src', 'server.js'), 'utf8');
+  const codeOnly = (text) => text.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
+  const code = codeOnly(serverSrc);
+  const handlerAfter = (marker) => {
+    const at = code.indexOf(marker);
+    return at === -1 ? null : code.slice(at, code.indexOf('\napp.', at + marker.length));
+  };
+  const meHandler = handlerAfter("app.get('/api/auth/me'");
+  const refreshHandler = handlerAfter("app.post('/api/auth/refresh-token'");
+  assert('SELF-01 both self-reads are located in the shipped source',
+    !!meHandler && !!refreshHandler,
+    { me: !!meHandler, refresh: !!refreshHandler });
+  assert('SELF-02 both of them project the own-record instead of echoing it whole',
+    !!meHandler && !!refreshHandler
+      && /projectUserForSelf\(/.test(meHandler) && /projectUserForSelf\(/.test(refreshHandler),
+    { me: meHandler ? 'found' : 'missing', refresh: refreshHandler ? 'found' : 'missing' });
 
   finish();
 })().catch((err) => {

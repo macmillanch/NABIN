@@ -37,6 +37,8 @@ class NabinPalette extends ThemeExtension<NabinPalette> {
     this.danger = NabinColor.danger,
     this.foodAccent = NabinColor.foodOrange,
     this.groceryAccent = NabinColor.groceryGreen,
+    this.rideAccent = NabinColor.rideBlue,
+    this.parcelAccent = NabinColor.gold,
     this.publishedTokens = const <String>[],
     this.campaignName,
   });
@@ -67,6 +69,8 @@ class NabinPalette extends ThemeExtension<NabinPalette> {
   final Color danger;
   final Color foodAccent;
   final Color groceryAccent;
+  final Color rideAccent;
+  final Color parcelAccent;
 
   bool get isRemote => source == NabinPaletteSource.remote;
 
@@ -79,6 +83,8 @@ class NabinPalette extends ThemeExtension<NabinPalette> {
     if (role.accent == NabinColor.brand) return brand;
     if (role.accent == NabinColor.foodOrange) return foodAccent;
     if (role.accent == NabinColor.groceryGreen) return groceryAccent;
+    if (role.accent == NabinColor.rideBlue) return rideAccent;
+    if (role.accent == NabinColor.gold) return parcelAccent;
     return role.accent;
   }
 
@@ -121,12 +127,17 @@ class NabinPalette extends ThemeExtension<NabinPalette> {
         return foodAccent;
       case 'groceryAccent':
         return groceryAccent;
+      case 'rideAccent':
+        return rideAccent;
+      case 'parcelAccent':
+        return parcelAccent;
       default:
         return null;
     }
   }
 
-  static NabinPalette defaults() => const NabinPalette(source: NabinPaletteSource.local);
+  static NabinPalette defaults() =>
+      const NabinPalette(source: NabinPaletteSource.local);
 
   /// This ramp with every published token applied. Tokens the server did not
   /// send keep their built-in value, so a partial publication is a partial
@@ -137,7 +148,8 @@ class NabinPalette extends ThemeExtension<NabinPalette> {
       for (final entry in published.entries)
         // A token the published vocabulary does not define, or a value that
         // matches the built-in ramp anyway, changes nothing.
-        if (token(entry.key) != null && entry.value != token(entry.key)) entry.key: entry.value,
+        if (token(entry.key) != null && entry.value != token(entry.key))
+          entry.key: entry.value,
     };
     if (applied.isEmpty) return this;
     Color pick(String name, Color current) => applied[name] ?? current;
@@ -161,6 +173,8 @@ class NabinPalette extends ThemeExtension<NabinPalette> {
       danger: pick('danger', danger),
       foodAccent: pick('foodAccent', foodAccent),
       groceryAccent: pick('groceryAccent', groceryAccent),
+      rideAccent: pick('rideAccent', rideAccent),
+      parcelAccent: pick('parcelAccent', parcelAccent),
     );
   }
 
@@ -199,6 +213,8 @@ class NabinPalette extends ThemeExtension<NabinPalette> {
     Color? danger,
     Color? foodAccent,
     Color? groceryAccent,
+    Color? rideAccent,
+    Color? parcelAccent,
     List<String>? publishedTokens,
     String? campaignName,
   }) =>
@@ -219,6 +235,8 @@ class NabinPalette extends ThemeExtension<NabinPalette> {
         danger: danger ?? this.danger,
         foodAccent: foodAccent ?? this.foodAccent,
         groceryAccent: groceryAccent ?? this.groceryAccent,
+        rideAccent: rideAccent ?? this.rideAccent,
+        parcelAccent: parcelAccent ?? this.parcelAccent,
         publishedTokens: publishedTokens ?? this.publishedTokens,
         campaignName: campaignName ?? this.campaignName,
       );
@@ -246,6 +264,8 @@ class NabinPalette extends ThemeExtension<NabinPalette> {
       danger: mix(danger, other.danger),
       foodAccent: mix(foodAccent, other.foodAccent),
       groceryAccent: mix(groceryAccent, other.groceryAccent),
+      rideAccent: mix(rideAccent, other.rideAccent),
+      parcelAccent: mix(parcelAccent, other.parcelAccent),
     );
   }
 }

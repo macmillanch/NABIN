@@ -40,6 +40,8 @@ const http = require('http');
 const path = require('path');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
+// Reap the backend this run starts, and only that one — scripts/spawned_server.js.
+const { trackServer } = require('./scripts/spawned_server');
 
 process.env.PAYMENT_WEBHOOK_SECRET ||= 'test_webhook_secret_not_for_deployment';
 process.env.PAYMENT_KEY_SECRET ||= 'test_key_secret_not_for_deployment';
@@ -100,9 +102,9 @@ async function serverIsUp() {
 
 async function ensureServerRunning() {
   if (await serverIsUp()) return { up: true };
-  const proc = spawn(process.execPath, [path.join(__dirname, 'src/server.js')], {
+  const proc = trackServer(spawn(process.execPath, [path.join(__dirname, 'src/server.js')], {
     cwd: __dirname, stdio: 'ignore', detached: true, windowsHide: true
-  });
+  }));
   proc.unref();
   for (let i = 0; i < 60; i++) {
     if (await serverIsUp()) return { up: true };

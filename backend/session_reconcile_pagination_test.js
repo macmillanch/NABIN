@@ -28,7 +28,11 @@
 //
 // The live group (RC-01..RC-07, RC-16) runs the same reader against the real PostgREST, so
 // the cursor is proven against the server's own pagination and not only against this file's
-// model of it. It reads only.
+// model of it. It reads only. Its page size comes from the live row count rather than from
+// the production page size: a clean local store holds only the sessions the running harness
+// itself signed in, so a 500-row page over it is one request and proves nothing about
+// boundaries. Smaller pages over the same real rows cross the same boundary the 1459-row
+// incident did; the 1000-row cap itself is witnessed by RC-00 and by RC-08/09 straddling it.
 // =========================================================================
 
 const db = require('./src/database');
@@ -48,7 +52,7 @@ const COLUMNS = 'token_hash, role, entity_id, phone, entity, created_at, expires
 
 // A keyset walk ends on a page that came back short, so an exact multiple of the page size
 // costs one more (empty) request. Asserting the real shape, not a hopeful one.
-const expectedPages = (n) => Math.floor(n / PAGE) + 1;
+const expectedPages = (n, size = PAGE) => Math.floor(n / size) + 1;
 
 const hash = (n) => String(n).padStart(64, '0');
 
@@ -143,19 +147,24 @@ async function main() {
     .from('backend_sessions').select('token_hash', { count: 'exact', head: true })
     .gt('expires_at', new Date().toISOString());
   const { count: liveCount, error: countError } = await countLive();
-  check('RC-02', !countError && Number.isInteger(liveCount) && liveCount > MAX_ROWS,
-    `the real table holds ${liveCount} eligible rows against a ${MAX_ROWS}-row page (error=${countError?.message || 'none'})`);
+  // Two eligible rows is the minimum that a page boundary can exist between. Anything the
+  // harness signs in satisfies it; an empty live table would mean this file proved nothing.
+  const livePage = Math.max(1, Math.ceil(Math.max(0, liveCount || 0) / 3));
+  check('RC-02', !countError && Number.isInteger(liveCount) && liveCount >= 2,
+    `the real table holds ${liveCount} eligible rows, walked at a ${livePage}-row page (error=${countError?.message || 'none'})`);
 
   const real = await db.readAllActiveSessions(configured.supabaseAdmin, { pageSize: PAGE });
   check('RC-03', real.complete && real.rows.length === liveCount,
     `the real walk returned ${real.rows.length} of ${liveCount} rows across ${real.pages} page(s), complete=${real.complete}${real.error ? ` error=${real.error}` : ''}`);
-  check('RC-04', real.pages > 1 && real.pages === expectedPages(liveCount),
-    `it made ${real.pages} requests (expected ${expectedPages(liveCount)}), so one capped read could never have covered it`);
-  check('RC-05', new Set(real.rows.map((r) => r.token_hash)).size === real.rows.length,
-    `no row was processed twice (${new Set(real.rows.map((r) => r.token_hash)).size} unique of ${real.rows.length})`);
-  check('RC-06', real.rows.every((r, i) => i === 0 || r.token_hash > real.rows[i - 1].token_hash),
+  const realPaged = await db.readAllActiveSessions(configured.supabaseAdmin, { pageSize: livePage });
+  check('RC-04', realPaged.complete && realPaged.rows.length === liveCount
+    && realPaged.pages > 1 && realPaged.pages === expectedPages(realPaged.rows.length, livePage),
+    `it made ${realPaged.pages} requests at a ${livePage}-row page (expected ${expectedPages(liveCount, livePage)}), so one capped read could never have covered it`);
+  check('RC-05', new Set(realPaged.rows.map((r) => r.token_hash)).size === realPaged.rows.length,
+    `no row was processed twice across the ${realPaged.pages} page(s) (${new Set(realPaged.rows.map((r) => r.token_hash)).size} unique of ${realPaged.rows.length})`);
+  check('RC-06', realPaged.rows.every((r, i) => i === 0 || r.token_hash > realPaged.rows[i - 1].token_hash),
     'the walk came back ordered by the cursor column, which is what makes skips and repeats impossible');
-  check('RC-07', real.rows.every((r) => Date.parse(r.expires_at) > Date.now()),
+  check('RC-07', realPaged.rows.every((r) => Date.parse(r.expires_at) > Date.now()),
     'no expired row was pulled back by the walk');
 
   // --- Straddle the cap deterministically -----------------------------------------------

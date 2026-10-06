@@ -40,8 +40,8 @@ export default function NabinMap({ lat, lng, label = 'Store location', height = 
           .addTo(map!);
         L.circleMarker([lat!, lng!], {
           radius: 9,
-          color: '#3c4890',
-          fillColor: '#5a69be',
+          color: '#1a3ba2',
+          fillColor: '#3e5cc4',
           fillOpacity: 0.85,
           weight: 2,
         })

@@ -61,6 +61,23 @@ class _GroceryMerchantOtpScreenState extends ConsumerState<GroceryMerchantOtpScr
 
   String get _otpCode => _controllers.map((c) => c.text).join();
 
+  Future<void> _resendOtp() async {
+    final sent = await ref
+        .read(groceryMerchantAuthProvider.notifier)
+        .sendOtp(widget.phoneNumber);
+    if (!mounted) return;
+    _startTimer();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(sent
+            ? 'A new verification code is on its way.'
+            : 'The code could not be resent. Try again in a moment.'),
+        backgroundColor:
+            sent ? GroceryMerchantTheme.primaryGreen : GroceryMerchantTheme.accentRose,
+      ),
+    );
+  }
+
   Future<void> _verifyOtp() async {
     final otp = _otpCode;
     if (otp.length < 6) {
@@ -272,15 +289,7 @@ class _GroceryMerchantOtpScreenState extends ConsumerState<GroceryMerchantOtpScr
                         ),
                       )
                     : TextButton(
-                        onPressed: () {
-                          _startTimer();
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Verification OTP resent! Use 123456 for demo.'),
-                              backgroundColor: GroceryMerchantTheme.primaryGreen,
-                            ),
-                          );
-                        },
+                        onPressed: _resendOtp,
                         child: const Text(
                           'Resend OTP Code',
                           style: TextStyle(

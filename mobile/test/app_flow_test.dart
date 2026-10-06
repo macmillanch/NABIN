@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:mobile/core/widgets/driver_map_view.dart';
 import 'package:mobile/features/auth/presentation/screens/welcome_screen.dart';
 import 'package:mobile/features/auth/presentation/screens/phone_entry_screen.dart';
 import 'package:mobile/features/auth/presentation/screens/otp_verification_screen.dart';
@@ -111,6 +113,13 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byType(RideBookingScreen), findsOneWidget);
+      // The map behind this screen was the Driver app's widget, whose geometry is
+      // a hard-coded Delhi polyline with eight invented drivers pinned around
+      // Civil Lines. A Customer booking must not draw a route through Delhi for a
+      // ride whose ends were placed in Aizawl, so neither the widget nor a route
+      // line may come back.
+      expect(find.byType(DriverMapView), findsNothing);
+      expect(find.byType(Polyline), findsNothing);
     });
 
     testWidgets('7. ParcelBookingScreen renders parcel options', (tester) async {
@@ -139,7 +148,12 @@ void main() {
       expect(find.byType(FoodHomeScreen), findsOneWidget);
     });
 
-    testWidgets('9. WalletScreen renders balance and transactions', (tester) async {
+    testWidgets('9. WalletScreen renders without a balance it has to invent', (tester) async {
+      // This file has no HttpOverrides of its own, so the screen's GET /auth/me gets
+      // flutter_test's blocking answer and it settles in its "couldn't load" state.
+      // That is the point of this smoke test: the screen must render either a balance
+      // it read or an admission that it could not, never the ₹450.00 literal it used
+      // to carry. `customer_wallet_test.dart` serves the route and asserts numbers.
       await tester.pumpWidget(
         const ProviderScope(
           child: MaterialApp(
@@ -150,6 +164,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byType(WalletScreen), findsOneWidget);
+      expect(find.textContaining('450'), findsNothing);
     });
 
     testWidgets('10. ProfileScreen renders user profile information', (tester) async {

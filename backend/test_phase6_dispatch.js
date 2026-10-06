@@ -2,8 +2,13 @@
 // NABIN — PHASE 6: DISPATCH & DRIVER ASSIGNMENT SECURITY TEST SUITE
 // =========================================================================
 const http = require('http');
-const { spawn, execSync } = require('child_process');
+const { spawn } = require('child_process');
 const path = require('path');
+// Two harness-boundary rules, both shared with the chain runner: reap the backend this run
+// started (scripts/spawned_server.js), and never evict a port owner by pid alone —
+// releasePrivatePort kills only a NABIN `src/server.js` and reports anything foreign untouched.
+const { trackServer } = require('./scripts/spawned_server');
+const { releasePrivatePort } = require('./scripts/port_release');
 const { Client } = require('pg');
 const WebSocket = require('ws');
 
@@ -78,17 +83,18 @@ async function ensureServerRunning() {
     if (res.status === 200) return null;
   } catch (e) {}
 
-  try {
-    execSync('powershell -Command "Get-NetTCPConnection -LocalPort 4000 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }"');
-  } catch (e) {}
+  const released = releasePrivatePort(4000);
+  if (/skipped:foreign/.test(released)) {
+    console.warn('  ⚠️  port 4000 is held by a process that is not a NABIN backend — it is being left running, so this suite may fail to bind');
+  }
   await sleep(1500);
 
-  const proc = spawn(process.execPath, [path.join(__dirname, 'src/server.js')], {
+  const proc = trackServer(spawn(process.execPath, [path.join(__dirname, 'src/server.js')], {
     cwd: __dirname,
     stdio: 'ignore',
     detached: true,
     windowsHide: true
-  });
+  }));
   proc.unref();
 
   for (let i = 0; i < 40; i++) {
@@ -103,18 +109,19 @@ async function ensureServerRunning() {
 
 async function restartServer() {
   console.log('\n🛑 Terminating backend process on port 4000 for restart verification...');
-  try {
-    execSync('powershell -Command "Get-NetTCPConnection -LocalPort 4000 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }"');
-  } catch (e) {}
+  const releasedForRestart = releasePrivatePort(4000);
+  if (/skipped:foreign/.test(releasedForRestart)) {
+    console.warn('  ⚠️  port 4000 is held by a process that is not a NABIN backend — it is being left running, so the cold restart below cannot bind');
+  }
   await sleep(1500);
 
   console.log('🚀 Spawning fresh backend process from cold start...');
-  const proc = spawn(process.execPath, [path.join(__dirname, 'src/server.js')], {
+  const proc = trackServer(spawn(process.execPath, [path.join(__dirname, 'src/server.js')], {
     cwd: __dirname,
     stdio: 'ignore',
     detached: true,
     windowsHide: true
-  });
+  }));
   proc.unref();
 
   for (let i = 0; i < 40; i++) {

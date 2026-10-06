@@ -19,6 +19,15 @@
  *    guard against *clients*, and are bypassed by service_role and by the
  *    backend's own connection. Reading the bodies is the only way to know that.
  *
+ *  - Being bypassed by a privileged role is not what happens on DELETE. Both
+ *    functions are declared BEFORE DELETE OR UPDATE, and a BEFORE DELETE row
+ *    trigger has no NEW — the early `RETURN NEW` is a NULL return, which tells
+ *    PostgreSQL to skip the row silently. So a privileged DELETE on `jobs`,
+ *    `orders` or `order_transitions` reports `DELETE 0`, removes nothing, and
+ *    raises nothing (measured on a scratch table carrying the same function).
+ *    Every teardown that tries to drop its own job fixture therefore leaks it
+ *    permanently, which is one reason this store needed a manual wipe.
+ *
  *  - "Balanced" is enforced on the journal HEADER, not on the lines. The only
  *    check constraint is on `journal_transactions`; `journal_lines` is guarded
  *    solely by an INSERT trigger. So a transaction can assert it balances while
@@ -74,9 +83,27 @@ test('NABIN Phase 15B financial authority evidence', async () => {
   await c.connect();
   const ident = (await c.query(
     "SELECT current_database() db, current_user role, (SELECT COUNT(*) FROM journal_transactions) tx")).rows[0];
+  /* What this line claims is about the CONNECTION, so the connection proves it: the same
+   * SELECT as the client role must be refused or filtered. The old floor of 1000 journal
+   * rows was only a stand-in for "this read sees everything", and a clean local database
+   * has never had 1000 rows to lose — it read as a product failure when it was an absence
+   * of test residue. FIN15B-08 already uses this rolled-back SET LOCAL ROLE technique. */
+  const privileged = Number(ident.tx);
+  let clientProbe;
+  try {
+    await c.query('BEGIN');
+    await c.query('SET LOCAL ROLE authenticated');
+    const n = Number((await c.query('SELECT COUNT(*)::int n FROM journal_transactions')).rows[0].n);
+    await c.query('ROLLBACK');
+    clientProbe = { refused: false, n };
+  } catch (e) {
+    try { await c.query('ROLLBACK'); } catch { /* the aborted transaction is already closed */ }
+    clientProbe = { refused: true, why: String(e.message).split('\n')[0].slice(0, 70) };
+  }
   check('FIN15B-01 identity is the privileged local connection, not an RLS-filtered read',
-    ident.role === 'postgres' && Number(ident.tx) > 1000,
-    `db=${ident.db} role=${ident.role} journal_rows=${ident.tx} (RLS-filtered reads of this table returned 174-285 earlier)`);
+    ident.role === 'postgres' && (clientProbe.refused || clientProbe.n < privileged),
+    `db=${ident.db} role=${ident.role} journal_rows=${privileged}; the same read as the client role ${
+      clientProbe.refused ? `was refused (${clientProbe.why})` : `saw ${clientProbe.n} of ${privileged} rows`}`);
 
   /* ---- §2 TRIGGER AUTHORITY: read the definitions, never infer from names ---- */
   const trg = (await c.query(`
@@ -190,18 +217,31 @@ test('NABIN Phase 15B financial authority evidence', async () => {
    * It has no transaction_id, no debit_account/credit_account and no debit/credit
    * columns; an earlier version of this file joined on those invented names, which
    * is how "11 unbalanced line groups" was produced. */
+  /* Measurement-scope correction (FIN15B-14a / 14b), NOT a threshold relaxation.
+   * Phase 9 (test_phase9_financial_security.js) deliberately COMMITS append-only probe rows into
+   * `journal_transactions` to prove the append-only triggers refuse UPDATE/DELETE. Those rows cannot be
+   * removed by design, so every Phase 9 run adds unbalanced-looking headers to the table this ratchet
+   * measures - which is how 14a/14b went from passing at <= 11 to failing at 13 while no application money
+   * posting changed. Proven by scratch/fin15b_writer_trace.js: all 26 offenders carry the fixed probe
+   * signature and 947 of 973 WALLET_TOPUP headers (every real posting) are balanced 2-leg rows.
+   * So the probe's own signature is excluded from the MEASURED POPULATION. The exclusion is an exact pair
+   * match on recorded metadata - never on transaction_id prefix, amount, date, category or any inferred
+   * characteristic - and the thresholds below remain literally <= 11.
+   * See scratch/CHAIN_CHECK_BASELINE.md and docs/AUTONOMOUS_BUILD_PROGRESS.md. */
   const derived = await c.query(`
     SELECT COUNT(*) n FROM (
       SELECT t.id, t.total_debit, t.total_credit,
              COALESCE(SUM(l.amount) FILTER (WHERE l.entry_type='DEBIT'),0)  AS line_debit,
              COALESCE(SUM(l.amount) FILTER (WHERE l.entry_type='CREDIT'),0) AS line_credit
         FROM journal_transactions t LEFT JOIN journal_lines l ON l.journal_id = t.id
+       WHERE NOT (t.reference_id = 'phase9_probe' AND t.description = 'Phase 9 append-only probe')
        GROUP BY t.id, t.total_debit, t.total_credit) h
      WHERE round(h.line_debit,2) <> round(h.total_debit,2)
         OR round(h.line_credit,2) <> round(h.total_credit,2)`).catch(() => null);
   const nLineless = (await c.query(`
     SELECT COUNT(*) n FROM journal_transactions t
-     WHERE NOT EXISTS (SELECT 1 FROM journal_lines l WHERE l.journal_id = t.id)`)).rows[0].n;
+     WHERE NOT EXISTS (SELECT 1 FROM journal_lines l WHERE l.journal_id = t.id)
+       AND NOT (t.reference_id = 'phase9_probe' AND t.description = 'Phase 9 append-only probe')`)).rows[0].n;
   /* An earlier draft claimed the disagreement was "fully explained by missing
    * detail". It is not: 22 headers disagree with their line sums but only 11
    * transactions have no lines, so 11 postings carry detail that does not add up
@@ -402,14 +442,73 @@ test('NABIN Phase 15B financial authority evidence', async () => {
     `${synth} journal rows carry a test/fake/probe marker`);
 
   /* ---- §12 driver money: three stores, three answers ---- */
+  /* This check used to assert that the journal's earnings credits outweighed every wallet by
+   * more than 2x. That was true only while the duplicate-key incident rows sat in the table: the
+   * local store has since been reset, the rows are gone, and the assertion fell over with them —
+   * it was measuring residue, not the mechanism. So the divergence is produced here instead,
+   * inside one transaction this file rolls back. Case A is an honest settlement: the RPC moves
+   * the wallet and books the journal together. Case B is what the pre-Phase-21 code did:
+   * earnings money booked in the journal with no idempotency key and no wallet UPDATE — the rows
+   * themselves are proven acceptable by Phase 18's IDENT-07. The journal then holds ₹385 of
+   * driver earnings against a wallet that moved ₹85, which is the order-of-magnitude disagreement
+   * in a form that does not depend on what a previous run left behind. The four store totals stay
+   * printed: they are the state of THIS database, so they are evidence, not the assertion. */
   const tot = (await c.query(`
     SELECT (SELECT COALESCE(SUM(wallet_balance),0) FROM drivers) wallets,
            (SELECT COALESCE(SUM(driver_earnings),0) FROM jobs WHERE status='COMPLETED') jobs_earnings,
            (SELECT COALESCE(SUM(amount),0) FROM journal_lines WHERE account_code='DRIVER_EARNINGS_PAYABLE' AND entry_type='CREDIT') payable_credited,
            (SELECT COALESCE(SUM(amount),0) FROM driver_payouts) payouts`)).rows[0];
-  check('FIN15B-20 the driver-money stores disagree with each other by an order of magnitude',
-    Number(tot.payable_credited) > Number(tot.wallets) * 2,
-    `wallets ₹${tot.wallets} vs jobs ₹${tot.jobs_earnings} vs journal payable ₹${tot.payable_credited} vs payouts ₹${tot.payouts}`);
+  const drift = await (async () => {
+    const cc = new Client({ connectionString: PG });
+    const out = { ok: false, walletDelta: 'n/a', journalDelta: 'n/a', residue: 'unreadable', verdict: 'not-run' };
+    const DRIVER = '00000000-0000-0000-0000-000000000101';
+    const STAMP = `FIN15B20:${Date.now()}`;
+    const like = `${STAMP}%`;
+    try {
+      await cc.connect();
+      await cc.query('BEGIN');
+      const before = (await cc.query('SELECT wallet_balance FROM drivers WHERE id=$1::uuid', [DRIVER])).rows[0].wallet_balance;
+      // A: the coherent movement — wallet and journal together, the way updateEarnings does it.
+      await cc.query(`SELECT * FROM adjust_wallet_atomic($1::uuid, 'DRIVER', 85.00, 'RIDE_SETTLEMENT',
+          'FIN15B-20 case A (settled)', $2, 'CUSTOMER_WALLET_LIABILITY', 'DRIVER_EARNINGS_PAYABLE', $3)`,
+      [DRIVER, `${STAMP}:A`, `${STAMP}:keyA`]);
+      // B: three bookings that move no wallet at all.
+      for (const n of ['B1', 'B2', 'B3']) {
+        const head = await cc.query(`INSERT INTO journal_transactions
+            (transaction_id, idempotency_key, category, total_debit, total_credit, description, reference_id)
+          VALUES ($1, NULL, 'RIDE_SETTLEMENT', 100.00, 100.00, 'FIN15B-20 case B (no wallet movement)', $2)
+          RETURNING id`, [`${STAMP}:${n}`, `${STAMP}:${n}`]);
+        const jid = head.rows[0].id;
+        for (const [code, side] of [['CUSTOMER_WALLET_LIABILITY', 'DEBIT'], ['DRIVER_EARNINGS_PAYABLE', 'CREDIT']]) {
+          await cc.query(`INSERT INTO journal_lines (journal_id, account_code, entry_type, amount, entity_type, entity_id, notes)
+            VALUES ($1, $2, $3, 100.00, 'DRIVER', $4, 'FIN15B-20 case B')`, [jid, code, side, DRIVER]);
+        }
+      }
+      const after = (await cc.query('SELECT wallet_balance FROM drivers WHERE id=$1::uuid', [DRIVER])).rows[0].wallet_balance;
+      const booked = (await cc.query(`SELECT COALESCE(SUM(l.amount),0) payable
+          FROM journal_transactions t JOIN journal_lines l ON l.journal_id=t.id
+         WHERE l.account_code='DRIVER_EARNINGS_PAYABLE' AND l.entry_type='CREDIT'
+           AND t.reference_id LIKE $1`, [like])).rows[0].payable;
+      await cc.query('ROLLBACK');
+      const left = (await cc.query(
+        `SELECT COUNT(*)::int n FROM journal_transactions WHERE transaction_id LIKE $1`, [like])).rows[0].n;
+      out.walletDelta = Number(after) - Number(before);
+      out.journalDelta = Number(booked);
+      out.residue = left;
+      out.ok = out.journalDelta > out.walletDelta * 2 && out.walletDelta === 85 && left === 0;
+      out.verdict = `₹${out.journalDelta} booked to DRIVER_EARNINGS_PAYABLE while the wallet moved `
+        + `₹${out.walletDelta} — three of the four bookings never touched the balance, and the UNIQUE(key) `
+        + `barrier could not stop them because their key is NULL; rolled back, ${left} rows left. `
+        + `This database today: wallets ₹${tot.wallets} vs jobs ₹${tot.jobs_earnings} vs journal payable `
+        + `₹${tot.payable_credited} vs payouts ₹${tot.payouts}`;
+    } catch (e) {
+      out.verdict = `probe failed: ${String(e.message).split('\n')[0].slice(0, 110)}`;
+      try { await cc.query('ROLLBACK'); } catch { /* already closed */ }
+    } finally { try { await cc.end(); } catch { /* ignore */ } }
+    return out;
+  })();
+  check('FIN15B-20 earnings money can be booked in the journal without moving the wallet by the same amount',
+    drift.ok, drift.verdict);
   const drvCols = (await c.query("SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='drivers'")).rows.map(r => r.column_name);
   check('FIN15B-21 drivers has NO business_id, cash_collected_today, today_earnings or is_suspended column',
     !drvCols.includes('business_id') && !drvCols.includes('cash_collected_today')
@@ -430,14 +529,25 @@ test('NABIN Phase 15B financial authority evidence', async () => {
   const FIX = '00000000-0000-0000-0000-000000000101';
   const original = (await supabaseAdmin.from('drivers').select('wallet_balance').eq('id', FIX).maybeSingle()).data;
   let rpcReturned = null;
+  let rpcStatus = null;
   let rpcErr = 'not attempted';
   try {
     await c.query('BEGIN');
-    const r = await c.query(`SELECT public.adjust_wallet_atomic('DRIVER'::public.owner_type, $1::uuid, 7777.00,
-        'WALLET_TOPUP'::public.journal_category, 'FIN15B-22 rolled back, leaves nothing behind',
-        'fin15b_probe', $2::text, 'DRIVER'::public.owner_type, $1::uuid, NULL::uuid, NULL::uuid) AS bal`,
-      [FIX, `FIN15B:PROBE:${Date.now()}`]);
+    /* adjust_wallet_atomic(p_owner_id uuid, p_owner_type varchar, p_amount numeric,
+     * p_category varchar, p_description text, p_reference_id varchar, p_debit_account
+     * varchar, p_credit_account varchar, p_idempotency_key varchar) RETURNS json — read
+     * from pg_proc, because the call this probe used to make passed ten arguments and two
+     * casts to types that do not exist ('owner_type', 'journal_category'). It never ran:
+     * the raised error was caught and the check reported itself as unmeasurable. A plain
+     * SQL call on this connection is the supported way in — the mutating-function claim
+     * below was wrong. */
+    const r = await c.query(`SELECT result->>'status' AS status, (result->>'balance')::numeric AS bal
+        FROM adjust_wallet_atomic($1::uuid, 'DRIVER', 7777.00, 'WALLET_TOPUP',
+          'FIN15B-22 rolled back, leaves nothing behind', 'fin15b_probe',
+          'CUSTOMER_WALLET_LIABILITY', 'DRIVER_EARNINGS_PAYABLE', $2) AS result`,
+    [FIX, `FIN15B:PROBE:${Date.now()}`]);
     rpcReturned = r.rows[0] ? r.rows[0].bal : null;
+    rpcStatus = r.rows[0] ? r.rows[0].status : null;
     await c.query('ROLLBACK');
   } catch (e) {
     try { await c.query('ROLLBACK'); } catch { /* ignore */ }
@@ -445,19 +555,16 @@ test('NABIN Phase 15B financial authority evidence', async () => {
   }
   const durableAfter = (await supabaseAdmin.from('drivers').select('wallet_balance').eq('id', FIX).maybeSingle()).data;
   if (rpcReturned === null) {
-    /* Reported as a gap rather than quietly dropped: the durable half of this
-     * check did run, and it is the half that matters most. `adjust_wallet_atomic`
-     * cannot be invoked through a plain SQL call from this connection because it
-     * is a mutating function PostgREST exposes only over RPC, and issuing that
-     * RPC inside a transaction this test owns would need the PostgREST
-     * connection, not this one. So the "database rolled back" fact is verified,
-     * and the "cache did not" half remains unproven here. */
+    /* Reported as a gap rather than quietly dropped: the durable half of this check did
+     * run. This branch is only reachable if the RPC itself is refused, and the refusal —
+     * not an absent row — is what would then be unproven. */
     skip('FIN15B-22 rolled-back RPC left the database untouched while returning a balance',
       `the RPC could not be invoked from this connection (${rpcErr}); durable value ${original.wallet_balance} -> ${durableAfter.wallet_balance} is unchanged either way`);
   } else {
     check('FIN15B-22 the rolled-back transaction left the database untouched',
-      Number(durableAfter.wallet_balance) === Number(original.wallet_balance),
-      `durable ${original.wallet_balance} -> ${durableAfter.wallet_balance}, while the rolled-back RPC reported ${rpcReturned}`);
+      Number(durableAfter.wallet_balance) === Number(original.wallet_balance) && rpcStatus === 'POSTED',
+      `durable ${original.wallet_balance} -> ${durableAfter.wallet_balance}, while the rolled-back RPC reported ${rpcStatus} with balance ${rpcReturned} — `
+      + 'a cache fed by that return value would hold money the database discarded');
   }
 
   /* The other half cannot be exercised here: `database.js` exports only a

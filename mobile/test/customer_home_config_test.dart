@@ -120,9 +120,8 @@ void main() {
         ),
       );
 
-      expect(find.text('Our Services'), findsOneWidget);
-      expect(find.text('Temporarily offline'), findsNothing);
-      expect(find.text('Unavailable'), findsNothing);
+      expect(find.text('What do you need today?'), findsOneWidget);
+      expect(find.text('Paused'), findsNothing);
     });
 
     testWidgets('one paused service takes only its own tile offline, in its own words',
@@ -150,8 +149,7 @@ void main() {
       // No resume time was published, so the app must not invent one.
       expect(find.text('No resume time has been published.'), findsOneWidget);
       // Only the paused service's tile goes dark; the others keep selling.
-      expect(find.text('Temporarily offline'), findsOneWidget);
-      expect(find.text('Unavailable'), findsNothing);
+      expect(find.text('Paused'), findsOneWidget);
     });
 
     testWidgets('a published feature flag switches a tile off even while its service runs',
@@ -166,7 +164,7 @@ void main() {
         ),
       );
 
-      expect(find.text('Temporarily offline'), findsOneWidget);
+      expect(find.text('Paused'), findsOneWidget);
     });
 
     testWidgets('an emergency stop takes every tile offline', (tester) async {
@@ -179,16 +177,14 @@ void main() {
       );
 
       expect(find.text('NABIN is temporarily stopped'), findsOneWidget);
-      // The hero card is the ride tile; the other three are standard cards.
-      expect(find.text('Unavailable'), findsOneWidget);
-      expect(find.text('Temporarily offline'), findsNWidgets(3));
+      // All four service shortcuts dim together under a platform-wide stop.
+      expect(find.text('Paused'), findsNWidgets(4));
     });
 
     testWidgets('a service row the server never listed stays on the flag', (tester) async {
       await pumpHome(tester, body: feed.configBody());
 
-      expect(find.text('Temporarily offline'), findsNothing);
-      expect(find.text('Unavailable'), findsNothing);
+      expect(find.text('Paused'), findsNothing);
     });
   });
 
@@ -221,7 +217,7 @@ void main() {
       expect(find.text('Promoted'), findsNothing);
       // The rest of the home screen still renders — a failed ad slot is not a
       // failed app.
-      expect(find.text('Our Services'), findsOneWidget);
+      expect(find.text('What do you need today?'), findsOneWidget);
     });
 
     testWidgets('nothing published paints no slot at all', (tester) async {

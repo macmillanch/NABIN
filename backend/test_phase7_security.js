@@ -4,7 +4,12 @@
 const http = require('http');
 const crypto = require('crypto');
 const path = require('path');
-const { spawn, execSync } = require('child_process');
+const { spawn } = require('child_process');
+// Two harness-boundary rules, both shared with the chain runner: reap the backend this run
+// started (scripts/spawned_server.js), and never evict a port owner by pid alone —
+// releasePrivatePort kills only a NABIN `src/server.js` and reports anything foreign untouched.
+const { trackServer } = require('./scripts/spawned_server');
+const { releasePrivatePort } = require('./scripts/port_release');
 const { Client } = require('pg');
 const { createLogin } = require('./testSessionCache');
 
@@ -77,17 +82,18 @@ async function ensureServerRunning() {
     if (res.status === 200) return null;
   } catch (e) {}
 
-  try {
-    execSync('powershell -Command "Get-NetTCPConnection -LocalPort 4000 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }"');
-  } catch (e) {}
+  const released = releasePrivatePort(4000);
+  if (/skipped:foreign/.test(released)) {
+    console.warn('  ⚠️  port 4000 is held by a process that is not a NABIN backend — it is being left running, so this suite may fail to bind');
+  }
   await sleep(1500);
 
-  const proc = spawn(process.execPath, [path.join(__dirname, 'src/server.js')], {
+  const proc = trackServer(spawn(process.execPath, [path.join(__dirname, 'src/server.js')], {
     cwd: __dirname,
     stdio: 'ignore',
     detached: true,
     windowsHide: true
-  });
+  }));
   proc.unref();
 
   for (let i = 0; i < 40; i++) {
@@ -320,6 +326,22 @@ async function runSuite() {
     voterIdNumber: 'ABCDE1234F'
   }, { 'Authorization': `Bearer ${cust2Token}` });
   assert('Customer 2 submitting own KYC succeeds with HTTP 200', ownKycRes.status === 200 && ownKycRes.data?.success);
+
+  // 4. A submission that claims to carry an identity document is refused (task #147).
+  // NABIN has no document upload path: no bucket, no scan, no retention rule. The column existed
+  // with no validation and its only reader is an examiner's browser, so a customer could have put
+  // any URL into the admin dashboard's page and had the admin's own session load it — the address
+  // below is aimed at this very server to make the point unmissable. Refusing at the boundary is
+  // the only place a claim of a document can be checked against a capability that does not exist.
+  const docClaimRes = await request('POST', '/api/identity/submit', {
+    userId: cust2Id,
+    aadhaarNumber: '123456789012',
+    voterIdNumber: 'ABCDE1234F',
+    aadhaarDocUrl: 'http://127.0.0.1:4000/docs/preview_aadhaar.png'
+  }, { 'Authorization': `Bearer ${cust2Token}` });
+  assert('Submission claiming an identity document is refused with HTTP 400 (IDENTITY_DOCUMENT_UPLOAD_UNSUPPORTED)',
+    docClaimRes.status === 400 && docClaimRes.data?.code === 'IDENTITY_DOCUMENT_UPLOAD_UNSUPPORTED'
+  );
 
   // =========================================================================
   // MODULE 5: MASTER CATALOG ROUTE PROTECTION

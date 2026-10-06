@@ -8,6 +8,7 @@
 // belongs to the API and not to a function.
 //
 //   A. Phase 12 — the booking matrix, RIDE / FOOD / PARCEL
+//   A2. Phase 12b — the trip the customer placed is the trip that got priced
 //   B. Phase 13 — pricing invariants
 //   C. Phase 14 — failure injection
 //   D. Phase 15 — security cases (IDOR, tampering, enumeration, RLS, replay)
@@ -19,9 +20,10 @@
 // needs a process that really cannot read the store, which group E of
 // geo_policy_test.js owns — including the booking route — and this file does not
 // start a second one. FOOD and PARCEL coordinate cases are sampled rather than
-// run in full: those routes read no coordinate at all, so proving that six
-// different coordinates produce one identical fare is the finding, and every
-// successful food order is an immutable row.
+// run in full: a parcel's fare is the distance between two placed points and
+// nothing else, so once the probe holds that length still (see `probePair`) six
+// origins producing one fare is the whole finding, and every successful food
+// order is an immutable row.
 //
 // Where current behaviour is a business decision that is still open (§14 of
 // docs/GEOFENCING_SECURITY_AUDIT.md), the check asserts what the code does today
@@ -56,6 +58,7 @@ function check(id, cond, detail) {
 function request(method, base, route, body, headers = {}) {
   return new Promise((resolve) => {
     const url = new URL(route, base);
+    const startedAt = Date.now();
     const payload = body === undefined || body === null ? null : JSON.stringify(body);
     const req = http.request({
       hostname: url.hostname,
@@ -76,10 +79,24 @@ function request(method, base, route, body, headers = {}) {
       res.on('end', () => {
         let data = null;
         try { data = JSON.parse(text); } catch (_) { /* asserted below */ }
-        resolve({ status: res.statusCode, data, text });
+        // `headers` is added for the fare-diagnostic only (see `book`); nothing else in this
+        // suite reads it, so no assertion changes. The diagnostic itself selects an allowlist,
+        // so a credential-bearing header cannot be printed even though it is captured here.
+        resolve({ status: res.statusCode, data, text, headers: res.headers, elapsedMs: Date.now() - startedAt });
       });
     });
-    req.on('error', err => resolve({ status: 0, data: null, text: String(err.message) }));
+    // `transportError` is added for the #159 diagnostic only (see `book`). `status: 0` has
+    // always meant "the transport said nothing" - no assertion reads anything else from this
+    // shape - but the error's own code and the elapsed ms were thrown away, so a link-5 red
+    // could not be told apart from a booking-route fault. Nothing here changes a verdict.
+    req.on('error', err => resolve({
+      status: 0,
+      data: null,
+      text: String(err.message),
+      headers: null,
+      transportError: { code: err.code || null, message: String(err.message), syscall: err.syscall || null, port: err.port || null },
+      elapsedMs: Date.now() - startedAt
+    }));
     req.on('timeout', () => { req.destroy(new Error('timed out')); });
     if (payload) req.write(payload);
     req.end();
@@ -121,30 +138,60 @@ function engineVerdict(res) {
 // The admin route answers a create with the record under `geoFence`.
 const fenceIdOf = res => res.data?.geoFence?.id || res.data?.geofence?.id || res.data?.id || null;
 
+// One degree of latitude is this many kilometres on the sphere GeoPolicyService
+// measures with (6371 km). A pair this far apart north-to-south is a trip of exactly
+// `km`, wherever on the planet it sits, because the great-circle length between two
+// points on the same meridian does not depend on the latitude.
+const KM_PER_DEG_LAT = 111.1949;
+
+// The booking routes price the trip between the two places the customer placed, so a
+// probe that varies only the *geography* has to hold the *length* still: the far end
+// is placed a fixed distance from the point under test. A probe whose point cannot be
+// a point at all (999, "abc", missing) gets no far end, and the route refuses it.
+function probePair(coords, km) {
+  // The same acceptance rule the server applies: `Number(null)` is 0, and a probe
+  // that quietly became the Gulf of Guinea would prove nothing about a null pin.
+  const read = (raw) => (raw === null || raw === undefined || raw === '' || typeof raw === 'boolean'
+    ? NaN : Number(raw));
+  const lat = read(coords?.lat);
+  const lng = read(coords?.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return { origin: coords || {}, destination: {} };
+  return { origin: { lat, lng }, destination: { lat: lat + km / KM_PER_DEG_LAT, lng } };
+}
+
 const BOOKINGS = {
-  RIDE: (coords, extra) => ({
-    route: '/api/customer/book-ride',
-    body: {
-      vehicleType: '3W',
-      pickup: { address: 'NABIN Adversarial Probe Pickup', ...coords },
-      drop: { address: 'NABIN Adversarial Probe Drop', lat: 28.6853, lng: 77.2185 },
-      ...extra
-    }
-  }),
-  PARCEL: (coords, extra) => ({
-    route: '/api/customer/book-parcel',
-    body: {
-      senderDetails: { address: 'NABIN Adversarial Probe Sender', ...coords },
-      recipientDetails: { address: 'NABIN Adversarial Probe Recipient' },
-      ...extra
-    }
-  }),
+  RIDE: (coords, extra) => {
+    const { origin, destination } = probePair(coords, ROUTE_INPUT.RIDE.distanceKm);
+    return {
+      route: '/api/customer/book-ride',
+      body: {
+        vehicleType: '3W',
+        pickup: { address: 'NABIN Adversarial Probe Pickup', ...origin },
+        drop: { address: 'NABIN Adversarial Probe Drop', ...destination },
+        ...extra
+      }
+    };
+  },
+  PARCEL: (coords, extra) => {
+    const { origin, destination } = probePair(coords, ROUTE_INPUT.PARCEL.distanceKm);
+    return {
+      route: '/api/customer/book-parcel',
+      body: {
+        senderDetails: { address: 'NABIN Adversarial Probe Sender', ...origin },
+        recipientDetails: { address: 'NABIN Adversarial Probe Recipient', ...destination },
+        ...extra
+      }
+    };
+  },
+  // A food order carries its place as a string and nothing in NABIN turns that string
+  // into a point, so there is no coordinate for this route to read. `coords` is
+  // therefore absent from the body by design: MTX-FOOD-NO-GEO below is the proof.
   FOOD: (coords, extra) => ({
     route: '/api/customer/book-food',
     body: {
       restaurantId: 'rest_1',
       items: ['1x Special Dum Biryani (Chicken)'],
-      deliveryAddress: { address: 'NABIN Adversarial Probe Doorstep', ...coords },
+      deliveryAddress: 'NABIN Adversarial Probe Doorstep',
       ...extra
     }
   })
@@ -152,25 +199,120 @@ const BOOKINGS = {
 
 const SERVICE_TYPE = { RIDE: '3W', PARCEL: 'PARCEL', FOOD: 'FOOD' };
 
-// The trip each booking route prices is hard-coded in that route: a ride is 3.8 km
-// over 11 minutes whatever the pickup and drop say. A quote compared against a
-// booking therefore has to ask with the same numbers, or the difference is the
-// distance and not the geography — which is exactly the mistake this file is here
-// to make impossible. That the distance is fixed is itself a finding, recorded in
-// the audit's report rather than silently corrected here.
+// The length of trip each probe places. The routes derive distance and duration from
+// the two placed points now, so these numbers are no longer what the server hard-codes
+// — they are what this file chooses to be 3.8 km (a ride) or 6.1 km (a parcel) from the
+// point under test, and quotes a booking against with the same trip. A quote that no
+// longer matches the booking's fare is the server's derivation changing, which is a
+// finding about the route; the unit arithmetic lives in geo_policy_test.js.
 const ROUTE_INPUT = {
   RIDE: { distanceKm: 3.8, durationMins: 11 },
   PARCEL: { distanceKm: 6.1, durationMins: 18 },
   FOOD: { distanceKm: 4, durationMins: 12 }
 };
 
+// The last quote this process made, kept only so a fare failure can be read beside the number
+// the platform had just told the customer it would charge. Declared before `quote` because
+// `quote` writes it and the reporter reads it.
+let lastQuoteSummary = null;
+
 async function quote(service, coords, extra = {}) {
-  return request('POST', BASE, '/api/pricing/estimate', {
+  const res = await request('POST', BASE, '/api/pricing/estimate', {
     serviceType: SERVICE_TYPE[service],
     ...ROUTE_INPUT[service],
     ...(coords || {}),
     ...(extra.zoneId !== undefined ? { zoneId: extra.zoneId } : {})
   });
+  // Recorded purely so a fare failure can be read next to the number the platform had just
+  // quoted. Nothing reads it on the success path, and it changes no verdict.
+  const e = (res && res.data && res.data.estimate) || {};
+  lastQuoteSummary = {
+    service, http: res.status, customerCharge: e.customerCharge, surgeMultiplier: e.surgeMultiplier,
+    activeZoneName: e.activeZoneName ?? null, geoStatus: (e.geoValidation && e.geoValidation.status) || null,
+    pickup: { lat: (coords || {}).lat, lng: (coords || {}).lng }
+  };
+  return res;
+}
+
+// ---------------------------------------------------------------------------
+// Fare-extraction observability - added after the closed ₹NaN investigation
+// (docs/testing/GEO_STATE_ROOT_CAUSE.md).
+//
+// That investigation could not be closed as *impossible* for one reason only: the original event
+// left nothing behind but `Number(value ?? NaN)`, and the response that produced it was never
+// captured. So when - and only when - a booking fare cannot be read as a finite number, this
+// prints what the server actually sent.
+//
+// It is deliberately NOT a fix and NOT a fallback: a non-finite fare still fails every assertion
+// exactly as it did before. The only change is that the failure now carries evidence.
+const NAN_CRED_KEY = /otp|token|secret|passw|author|cookie|apikey|api_key|salt|hash|jwt|credential|session/i;
+
+function redactForLog(value, depth = 0) {
+  if (value === null || typeof value !== 'object') return value;
+  if (depth > 6) return '[TRUNCATED-DEPTH]';
+  if (Array.isArray(value)) return value.slice(0, 25).map(v => redactForLog(v, depth + 1));
+  const out = {};
+  for (const [k, v] of Object.entries(value)) {
+    if (NAN_CRED_KEY.test(k)) { out[k] = '__REDACTED__'; continue; }
+    // A booking response carries the customer's number; the last four digits identify a row
+    // without writing a phone number into a log.
+    if (/phone|mobile/i.test(k) && typeof v === 'string' && v.length > 4) { out[k] = `****${v.slice(-4)}`; continue; }
+    out[k] = redactForLog(v, depth + 1);
+  }
+  return out;
+}
+
+// An allowlist, not a blocklist: a header that happens to carry a credential cannot reach the
+// output even if the server starts sending one.
+const safeHeaders = (h) => Object.fromEntries(Object.entries(h || {})
+  .filter(([k]) => ['content-type', 'content-length', 'x-request-id', 'request-id', 'x-correlation-id'].includes(k.toLowerCase()))
+  .map(([k, v]) => [k, v]));
+
+function reportNonFiniteFare(ctx) {
+  const frame = (new Error().stack || '').split('\n')
+    .find(l => /geo_adversarial_test\.js:\d+/.test(l) && !/reportNonFiniteFare|^\s*at book\b/.test(l)) || 'unknown call site';
+  const res = ctx.res;
+  console.error([
+    '[₹NaN-DIAG] fare extraction was non-finite. Assertions are unchanged - this only records the evidence.',
+    `  scenario/service   : ${ctx.service}   route=${ctx.route}`,
+    `  call site          : ${frame.trim()}`,
+    `  http status        : ${res.status}`,
+    `  headers (allowlist): ${JSON.stringify(safeHeaders(res.headers))}`,
+    `  idempotency key    : ${ctx.idempotencyKey || '(none)'}   job id=${ctx.jobId || '(none)'}   duplicate=${ctx.duplicate}`,
+    `  request sent       : ${JSON.stringify(redactForLog(ctx.body))}`.slice(0, 900),
+    `  fare candidates    : ${JSON.stringify(redactForLog(ctx.candidates))}`,
+    `  selected raw value : ${JSON.stringify(ctx.selected)}  typeof=${typeof ctx.selected}`,
+    `  nearest prior quote: ${JSON.stringify(lastQuoteSummary)}`,
+    `  response key sets  : top=${JSON.stringify(Object.keys(res.data || {}))} job=${JSON.stringify(Object.keys((res.data || {}).job || {}))} order=${JSON.stringify(Object.keys((res.data || {}).order || {}))}`,
+    `  response body      : ${String(JSON.stringify(redactForLog(res.data)) || res.text || '').slice(0, 1400)}`
+  ].join('\n'));
+}
+
+// #159. `status: 0` is produced by exactly one place - the transport error handler above - so
+// every matrix row that printed `0 not booked ₹NaN` was a booking that never got an answer, not
+// a booking the engine refused. Until now the suite threw the error's code away, so a link-5 red
+// could not be attributed: EADDRINUSE / ephemeral-port exhaustion and a real booking-route fault
+// looked identical in the log. The second shape it covers is the other silent one - a 2xx that
+// carries no job id. Assertions are unchanged; this only records the evidence the next red run
+// needs. Credentials never reach here: the transport error carries none, request headers are not
+// printed, and the response body goes through the same redactor the fare diagnostic uses.
+function reportNoBooking(ctx) {
+  const frame = (new Error().stack || '').split('\n')
+    .find(l => /geo_adversarial_test\.js:\d+/.test(l) && !/reportNoBooking|^\s*at book\b/.test(l)) || 'unknown call site';
+  const te = ctx.res.transportError || {};
+  console.error([
+    `[NO-BOOKING] ${ctx.kind}. route=${ctx.route}`,
+    `  scenario/service   : ${ctx.service}`,
+    `  call site          : ${frame.trim()}`,
+    `  http status        : ${ctx.res.status} (0 = the transport spoke, the server never answered)`,
+    `  error code         : ${te.code || '(none reported)'}`,
+    `  syscall / port     : ${te.syscall || '?'} / ${te.port || '?'}`,
+    `  message            : ${te.message || '(a response did arrive)'}`,
+    `  elapsed ms         : ${ctx.res.elapsedMs}`,
+    `  idempotency key    : ${ctx.idempotencyKey || '(none)'}`,
+    `  response key sets  : top=${JSON.stringify(Object.keys(ctx.res.data || {}))} job=${JSON.stringify(Object.keys((ctx.res.data || {}).job || {}))} order=${JSON.stringify(Object.keys((ctx.res.data || {}).order || {}))}`,
+    `  response body      : ${String(JSON.stringify(redactForLog(ctx.res.data)) || ctx.res.text || '').slice(0, 1200)}`
+  ].join('\n'));
 }
 
 async function book(service, coords, extra = {}, token, idempotencyKey = unique()) {
@@ -180,12 +322,42 @@ async function book(service, coords, extra = {}, token, idempotencyKey = unique(
     'Idempotency-Key': idempotencyKey
   });
   const created = Boolean(res.data?.success && (res.data.job?.id || res.data.order?.id));
+  // A refusal is a 4xx with a reason code, so neither branch below fires on an expected
+  // refusal - only on the two shapes that carry no verdict at all.
+  if (res.status === 0) {
+    reportNoBooking({ service, route: spec.route, res, idempotencyKey, kind: 'no response from the transport' });
+  } else if (res.status >= 200 && res.status < 300 && !created) {
+    reportNoBooking({ service, route: spec.route, res, idempotencyKey, kind: '2xx with no job or order id' });
+  }
+  // The expression below is the original one, byte for byte, including its NaN terminus.
+  const selected = res.data?.job?.fare ?? res.data?.job?.customerCharge ??
+    (res.data?.order?.totalAmount ?? res.data?.job?.totalAmount ?? NaN);
+  const fare = res.data?.job?.fare ?? res.data?.job?.customerCharge ??
+    Number(res.data?.order?.totalAmount ?? res.data?.job?.totalAmount ?? NaN);
+  // Trigger scope matters. This suite deliberately books with refused coordinates (lat=999,
+  // lat="abc"), and a refusal legitimately carries no fare - firing there produced three
+  // diagnostics on a fully passing 62/0 run, which is noise that would bury the signal. The
+  // anomaly worth capturing is the historical one: the platform REPORTED a created job and
+  // still handed back no readable fare. That, and only that, is reported.
+  if (created && !Number.isFinite(Number(fare))) {
+    reportNonFiniteFare({
+      service, route: spec.route, body: spec.body, res, idempotencyKey,
+      jobId: res.data?.job?.id || res.data?.order?.id || null,
+      duplicate: Boolean(res.data?.duplicate),
+      candidates: {
+        'job.fare': res.data?.job?.fare,
+        'job.customerCharge': res.data?.job?.customerCharge,
+        'order.totalAmount': res.data?.order?.totalAmount,
+        'job.totalAmount': res.data?.job?.totalAmount
+      },
+      selected
+    });
+  }
   return {
     http: res.status,
     code: res.data?.code || null,
     created,
-    fare: res.data?.job?.fare ?? res.data?.job?.customerCharge ??
-      Number(res.data?.order?.totalAmount ?? res.data?.job?.totalAmount ?? NaN),
+    fare,
     id: res.data?.job?.id || res.data?.order?.id || null,
     duplicate: Boolean(res.data?.duplicate)
   };
@@ -235,9 +407,10 @@ async function groupA(token, realZoneId) {
       ` | ${ride.bk.http} ${ride.bk.created ? 'booked' : 'not booked'} ₹${ride.bk.fare} | ${geoMovedPrice} |`);
   }
 
-  // FOOD and PARCEL: sampled, and the sample is the point. If every coordinate
-  // — including nonsense — produces one identical fare, the route is not looking
-  // at geography at all.
+  // FOOD and PARCEL: sampled, and the sample is the point. Each probe places a trip
+  // of the same length, so if every origin — including nonsense — produces one
+  // identical fare, no boundary or area rule can be reaching that service's money.
+  // MTX-*-GEOM below is the other half: the same routes priced at different lengths.
   for (const service of ['PARCEL', 'FOOD']) {
     const sampled = MATRIX.filter(t => ['A', 'B', 'C', 'E', 'F', 'G'].includes(t.id));
     const fares = new Set();
@@ -250,11 +423,22 @@ async function groupA(token, realZoneId) {
       console.log(`| ${service} | ${testCase.id} ${testCase.label} | ${est.refused ? est.code : est.status}` +
         ` | ${bk.http} ${bk.created ? 'booked' : 'not booked'} ₹${bk.fare} | — |`);
     }
-    check(`MTX-${service}-NO-GEO`,
-      fares.size === 1 && [...fares][0] > 0,
-      `${service}: ${sampled.length} different coordinates (nonsense included) produced ` +
-      `${fares.size} distinct fare(s) — the route reads no coordinate at all; service-area policy for ` +
-      `${service} is §14 decision 1 and is NOT IMPLEMENTED`);
+    const booked = rows.filter(r => r.service === service && r.bk.created);
+    if (service === 'PARCEL') {
+      check(`MTX-${service}-NO-GEO`,
+        fares.size === 1 && [...fares][0] > 0 && booked.every(r => r.bk.fare === [...fares][0]),
+        `PARCEL: ${booked.length} origins at one trip length produced ${fares.size} distinct fare(s) ` +
+        `— no boundary or area rule reaches a parcel's price, so a geographic modifier is not possible ` +
+        `and no area refusal either; service-area policy for PARCEL is §14 decision 1 and is NOT IMPLEMENTED. ` +
+        `The unplaced origins are refused outright (MTX-PARCEL-PLACE), and the length does move the money ` +
+        `(MTX-PARCEL-GEOM).`);
+    } else {
+      check(`MTX-${service}-NO-GEO`,
+        fares.size === 1 && [...fares][0] > 0,
+        `${service}: ${sampled.length} different coordinates (nonsense included) produced ` +
+        `${fares.size} distinct fare(s) — a food order carries its place as a string and the route reads ` +
+        `no coordinate at all; service-area policy for ${service} is §14 decision 1 and is NOT IMPLEMENTED`);
+    }
   }
 
   // RIDE: the safety half, case by case.
@@ -295,15 +479,116 @@ async function groupA(token, realZoneId) {
   const missingRows = rideRows.filter(r => ['G', 'H'].includes(r.case));
   check('MTX-R08', missingRows.every(r => !r.est.refused && r.est.status === 'NOT_PROVIDED' && r.est.matched === false),
     `a quote with no location is labelled NOT_PROVIDED, not validated (${missingRows.map(r => `${r.case}:${r.est.status}`).join(' ')})`);
-  check('MTX-R09', missingRows.every(r => r.bk.created),
-    'a ride booked with no location is still booked, from the platform\'s own central-Delhi default; ' +
-    'whether a booking may proceed without a client location is §14 decision 1 and left open');
+  check('MTX-R09', missingRows.every(r => !r.bk.created && r.bk.http === 400 && r.bk.code === 'PLACE_REQUIRED'),
+    'a ride booked without a placed pickup is refused instead of being priced from a place the ' +
+    `platform chose for it (${missingRows.map(r => `${r.case}:${r.bk.http}/${r.bk.code}`).join(' ')})`);
 
   const nonsense = rideRows.filter(r => ['E', 'F'].includes(r.case));
   check('MTX-R10', nonsense.every(r => r.est.refused && !r.bk.created),
     `nonsense coordinates produce no quote and no booking (${nonsense.map(r => `${r.case}:${r.est.code}`).join(', ')})`);
 
   return rows;
+}
+
+// ---------------------------------------------------------------------------
+// A2. Phase 12b — the trip the customer placed is the trip that got priced
+//
+// Group A holds the trip length still so geography is the only variable. This group
+// removes the pin instead: a booking route that prices a ride or a parcel must do it
+// from the two points the customer placed, so an unplaced end has to be refused, and
+// three different placed lengths have to cost three different amounts. Both halves
+// matter — a fare that never moves is as wrong as one that moves for a reason nobody
+// chose.
+// ---------------------------------------------------------------------------
+const PLACED_ROUTES = {
+  RIDE: '/api/customer/book-ride',
+  PARCEL: '/api/customer/book-parcel'
+};
+
+// One end of the trip, as the app sends it: a pin, and the label typed beside it.
+function placedPin(point, label) {
+  return { address: label, lat: point.lat, lng: point.lng };
+}
+
+function placedBody(service, from, to) {
+  return service === 'RIDE'
+    ? { vehicleType: '3W', pickup: placedPin(from, 'GeoAdv placed origin'), drop: placedPin(to, 'GeoAdv placed destination') }
+    : {
+      senderDetails: placedPin(from, 'GeoAdv placed sender'),
+      recipientDetails: placedPin(to, 'GeoAdv placed recipient')
+    };
+}
+
+async function groupA2(token) {
+  console.log('\n--- A2. Phase 12b: a placed trip is the priced trip ---');
+
+  for (const [id, service, field] of [['MTX-RIDE-PLACE', 'RIDE', 'drop'], ['MTX-PARCEL-PLACE', 'PARCEL', 'recipient']]) {
+    const halfPlaced = await request('POST', BASE, PLACED_ROUTES[service], placedBody(service, INSIDE, {}),
+      { Authorization: `Bearer ${token}`, 'Idempotency-Key': unique() });
+    check(`${id}-01`, halfPlaced.status === 400 && halfPlaced.data?.code === 'PLACE_REQUIRED' &&
+      halfPlaced.data?.field === field && !halfPlaced.data?.job,
+      `${service} with only one end placed is refused, and the refusal names the end still missing ` +
+      `(${halfPlaced.status} ${halfPlaced.data?.code}/${halfPlaced.data?.field})`);
+
+    const nothingPlaced = await request('POST', BASE, PLACED_ROUTES[service], { vehicleType: '3W' },
+      { Authorization: `Bearer ${token}`, 'Idempotency-Key': unique() });
+    check(`${id}-02`, nothingPlaced.status === 400 && nothingPlaced.data?.code === 'PLACE_REQUIRED' &&
+      nothingPlaced.data?.field === (service === 'RIDE' ? 'pickup' : 'sender') && !nothingPlaced.data?.job,
+      `${service} with no place at all is refused rather than sent to a default (${nothingPlaced.status} ` +
+      `${nothingPlaced.data?.code}/${nothingPlaced.data?.field})`);
+
+    const samePoint = await request('POST', BASE, PLACED_ROUTES[service], placedBody(service, INSIDE, INSIDE),
+      { Authorization: `Bearer ${token}`, 'Idempotency-Key': unique() });
+    check(`${id}-03`, samePoint.status === 400 && samePoint.data?.code === 'PLACE_REQUIRED' && !samePoint.data?.job,
+      `${service} between one point and itself has no length to price and is refused (${samePoint.status} ` +
+      `${samePoint.data?.code})`);
+  }
+
+  const foodNoAddress = await request('POST', BASE, '/api/customer/book-food', {
+    restaurantId: 'rest_1', items: ['1x Special Dum Biryani (Chicken)']
+  }, { Authorization: `Bearer ${token}`, 'Idempotency-Key': unique() });
+  check('MTX-FOOD-PLACE', foodNoAddress.status === 400 && foodNoAddress.data?.code === 'PLACE_REQUIRED' &&
+    foodNoAddress.data?.field === 'deliveryAddress' && !foodNoAddress.data?.job,
+    `a food order with no address is refused instead of being delivered to an address the platform ` +
+    `invented (${foodNoAddress.status} ${foodNoAddress.data?.code}/${foodNoAddress.data?.field})`);
+
+  // Three lengths from one origin that sits outside every fence, so no boundary can
+  // be the reason the numbers differ. Each job is then quoted back its own declared
+  // distance and duration: if the fare is anything other than f(those two numbers),
+  // the route priced something the customer never placed.
+  for (const service of ['RIDE', 'PARCEL']) {
+    const LENGTHS = [2, 6, 14];
+    const seen = [];
+    for (const km of LENGTHS) {
+      const from = OUTSIDE;
+      const to = { lat: OUTSIDE.lat + km / KM_PER_DEG_LAT, lng: OUTSIDE.lng };
+      const res = await request('POST', BASE, PLACED_ROUTES[service], placedBody(service, from, to),
+        { Authorization: `Bearer ${token}`, 'Idempotency-Key': unique() });
+      const job = res.data?.job;
+      const declaredKm = Number(String(job?.distance ?? '').replace(' km', ''));
+      const declaredMins = parseInt(job?.duration ?? '', 10);
+      const est = await request('POST', BASE, '/api/pricing/estimate', {
+        serviceType: SERVICE_TYPE[service], distanceKm: declaredKm, durationMins: declaredMins,
+        pickupLat: from.lat, pickupLng: from.lng
+      });
+      seen.push({ want: km, http: res.status, job, declaredKm, declaredMins, fare: job?.fare, quoted: est.data?.estimate?.customerCharge });
+    }
+    const measured = seen.map(s => s.declaredKm);
+    const ok = seen.every((s, i) => s.http === 200 && s.fare > 0 &&
+        Math.abs(s.declaredKm - LENGTHS[i]) <= 0.05 && s.fare === s.quoted) &&
+      measured.every((v, i) => i === 0 || v > measured[i - 1]) &&
+      seen[0].fare < seen[1].fare && seen[1].fare < seen[2].fare;
+    check(`MTX-${service}-GEOM`, ok,
+      `${service}: three placed trips measured ${measured.join(' / ')} km where the probe put 2 / 6 / 14 km, priced ` +
+      `${seen.map(s => `₹${s.fare}`).join(' → ')}, each equal to a quote for the distance and duration the job ` +
+      `itself declares (${seen.map(s => `₹${s.quoted}`).join(', ')})`);
+
+    // The job row has to carry the length it was priced from, or the receipt and the
+    // money disagree the moment anybody re-reads it.
+    check(`MTX-${service}-GEOM-STORED`, seen.every(s => Number.isFinite(s.declaredKm) && s.declaredKm > 0 &&
+      Number.isFinite(s.declaredMins) && s.declaredMins > 0),
+      `${service}: every created job stores its own distance and duration (${seen.map(s => `"${s.job?.distance}" "${s.job?.duration}"`).join(', ')})`);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1015,6 +1300,7 @@ async function main() {
 
   const zoneId = await realZoneId(adminHeaders);
   await groupA(token, zoneId);
+  await groupA2(token);
   await groupB(token);
   await groupC(adminHeaders);
   await groupD(token, rahul.token, adminHeaders);

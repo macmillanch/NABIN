@@ -366,7 +366,7 @@ void main() {
       expect(find.text('Merry NABIN'), findsNothing);
       expect(find.text('Christmas 2026'), findsNothing);
       // The screen itself is unaffected: an ended campaign is not a broken app.
-      expect(find.text('Our Services'), findsOneWidget);
+      expect(find.text('What do you need today?'), findsOneWidget);
     });
 
     testWidgets('copy written for checkout stays off the home surface', (tester) async {

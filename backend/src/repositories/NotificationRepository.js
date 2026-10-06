@@ -2,6 +2,41 @@ const { supabaseAdmin, isLivePostgres } = require('../supabase');
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// PostgREST on this stack fails *connections*, not queries. An admin broadcast fans out to up
+// to 500 recipients under one `Promise.all`, and each recipient costs two requests here (the
+// idempotency read and the insert). Measured on the local store: 264 concurrent inserts succeed
+// in 400ms, 528 fail 223 of them with `TypeError: fetch failed` — the socket layer gives up
+// before PostgREST does. The limit lives in the repository so every caller inherits it and a
+// route cannot forget to apply it.
+const LIVE_REQUEST_SLOTS = 16;
+let liveFreeSlots = LIVE_REQUEST_SLOTS;
+const liveSlotWaiters = [];
+
+function takeLiveSlot() {
+  if (liveFreeSlots > 0) {
+    liveFreeSlots--;
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => liveSlotWaiters.push(resolve));
+}
+
+function releaseLiveSlot() {
+  const next = liveSlotWaiters.shift();
+  // The slot moves to the waiter without passing through the counter, so a resumed task can
+  // never be starved by a newcomer that queued after it.
+  if (next) next();
+  else liveFreeSlots++;
+}
+
+async function liveRequest(fn) {
+  await takeLiveSlot();
+  try {
+    return await fn();
+  } finally {
+    releaseLiveSlot();
+  }
+}
+
 const LEGACY_USER_MAP = {
   'usr_1': '00000000-0000-0000-0000-000000000001',
   'usr_2': '00000000-0000-0000-0000-000000000002',
@@ -327,11 +362,13 @@ class NotificationRepository {
     if (isLivePostgres && supabaseAdmin) {
       // 1. If eventKey provided, check idempotency first
       if (eventKey) {
-        const { data: existing } = await supabaseAdmin
-          .from('notifications')
-          .select('*')
-          .eq('event_key', eventKey)
-          .maybeSingle();
+        const { data: existing } = await liveRequest(() =>
+          supabaseAdmin
+            .from('notifications')
+            .select('*')
+            .eq('event_key', eventKey)
+            .maybeSingle()
+        );
 
         if (existing) {
           return { success: true, duplicate: true, notification: mapRowToNotification(existing) };
@@ -358,20 +395,24 @@ class NotificationRepository {
         updated_at: now
       };
 
-      const { data: inserted, error: insErr } = await supabaseAdmin
-        .from('notifications')
-        .insert(rowToInsert)
-        .select('*')
-        .single();
+      const { data: inserted, error: insErr } = await liveRequest(() =>
+        supabaseAdmin
+          .from('notifications')
+          .insert(rowToInsert)
+          .select('*')
+          .single()
+      );
 
       if (insErr) {
         // Enforce Migration 012 unique constraint on idx_notifications_event_key
         if (insErr.code === '23505' && eventKey) {
-          const { data: conflictRow } = await supabaseAdmin
-            .from('notifications')
-            .select('*')
-            .eq('event_key', eventKey)
-            .maybeSingle();
+          const { data: conflictRow } = await liveRequest(() =>
+            supabaseAdmin
+              .from('notifications')
+              .select('*')
+              .eq('event_key', eventKey)
+              .maybeSingle()
+          );
           if (conflictRow) {
             return { success: true, duplicate: true, notification: mapRowToNotification(conflictRow) };
           }

@@ -55,7 +55,12 @@ const ORDERS_FROZEN = [
 const BACKEND_DIR = path.join(__dirname, 'src');
 
 const http = require('http');
-const { spawn, execSync } = require('child_process');
+const { spawn } = require('child_process');
+// Two harness-boundary rules, both shared with the chain runner: reap the backend this run
+// started (scripts/spawned_server.js), and never evict a port owner by pid alone —
+// releasePrivatePort kills only a NABIN `src/server.js` and reports anything foreign untouched.
+const { trackServer } = require('./scripts/spawned_server');
+const { releasePrivatePort } = require('./scripts/port_release');
 
 const BASE_URL = 'http://127.0.0.1:4000';
 const TEST_PHONE_DRIVER = '9810122910';   // Driver 1: Rajesh Kumar (DRV-101)
@@ -104,18 +109,19 @@ async function ensureServerRunning() {
   });
   if (await checkPort()) return null;
 
-  try {
-    execSync('powershell -Command "Get-NetTCPConnection -LocalPort 4000 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }"');
-  } catch (e) { /* nothing listening */ }
+  const released = releasePrivatePort(4000);
+  if (/skipped:foreign/.test(released)) {
+    console.warn('  ⚠️  port 4000 is held by a process that is not a NABIN backend — it is being left running, so this suite may fail to bind');
+  }
   await sleep(1500);
 
-  const proc = spawn(process.execPath, [path.join(__dirname, 'src', 'server.js')], {
+  const proc = trackServer(spawn(process.execPath, [path.join(__dirname, 'src', 'server.js')], {
     cwd: __dirname,
     stdio: 'ignore',
     detached: true,
     windowsHide: true,
     env: { ...process.env, NABIN_TEST_MODE: 'true' }
-  });
+  }));
   proc.unref();
 
   for (let i = 0; i < 40; i++) {
