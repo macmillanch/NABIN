@@ -44,10 +44,58 @@ const fs = require('fs');
 const path = require('path');
 const http = require('http');
 const net = require('net');
+const crypto = require('crypto');
 const { spawn, spawnSync, execFile } = require('child_process');
 
 const BACKEND = path.resolve(__dirname, '..');
 const LOG_DIR = path.join(BACKEND, '.chain-logs');
+
+// Evidence retention (#165). Every run used to write the same fixed paths — 55 files named
+// `.chain-logs/<suite>.log` and one boot log opened in 'w' mode — so re-running the chain truncated the only
+// record of why an intermittent link had gone red. That is how the failing run behind #159 was lost before it
+// could be traced. A run now owns a directory nothing else writes into:
+//
+//   backend/.chain-logs/runs/chain_<YYYYMMDD>_<HHMMSS>_<pid>_<rand>/
+//     <suite>.log          full stdout+stderr of that link, for this run only
+//     harness-boot.log     the harness child's own output (masked before printing)
+//     chain-summary.txt    the per-link table, as the console saw it
+//     metadata.json        machine-readable facts about the run
+//
+// The flat `.chain-logs/<suite>.log` files are still written as a latest-run mirror because build docs cite
+// that path; they are convenience, not evidence. The runner never prunes previous runs — deleting retained
+// evidence is not this file's call to make.
+const RUNS_DIR = path.join(LOG_DIR, 'runs');
+let RUN_ID = null;
+let RUN_DIR = null;
+let RUN_STARTED_AT = null;
+const MIRROR_LOGS = [];
+
+function timestamp(d) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}`
+    + `_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+}
+
+function gitRef(args) {
+  try {
+    const res = spawnSync('git', ['-C', BACKEND, 'rev-parse', ...args], { encoding: 'utf8', windowsHide: true });
+    return res.status === 0 ? res.stdout.trim() : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function createRunDir() {
+  const now = new Date();
+  // A timestamp alone is not unique — two chains can start in the same second — so the pid and a random
+  // suffix are part of the id.
+  RUN_ID = `chain_${timestamp(now)}_${process.pid}_${crypto.randomBytes(3).toString('hex')}`;
+  RUN_DIR = path.join(RUNS_DIR, RUN_ID);
+  RUN_STARTED_AT = now;
+  fs.mkdirSync(RUN_DIR, { recursive: true });
+  HARNESS_BOOT_LOG = path.join(RUN_DIR, 'harness-boot.log');
+  return { commit: gitRef(['HEAD']), branch: gitRef(['--abbrev-ref', 'HEAD']) };
+}
 
 // Must match the values the suites default to inside their own processes
 // (`restart_test.js`, `test_suite.js`, `driver_earnings_test.js`), otherwise the webhook
@@ -324,8 +372,10 @@ let stoppingHarness = false;
 
 // The harness child used to be spawned with `stdio: 'ignore'`, which threw away the only evidence of why a
 // boot failed: seven chain runs aborted on "harness never answered /api/health" with nothing to inspect.
-// Its output now goes here, and is echoed (masked) when readiness fails.
-const HARNESS_BOOT_LOG = path.join(BACKEND, 'scratch', 'harness-boot.log');
+// Its output now goes here, and is echoed (masked) when readiness fails. `createRunDir()` re-points it into
+// the current run's directory so a later run cannot truncate a boot failure that has not been read yet; the
+// default only matters if the chain refuses before any run directory exists.
+let HARNESS_BOOT_LOG = path.join(BACKEND, 'scratch', 'harness-boot.log');
 
 function bootLogTail(chars = 1800) {
   try {
@@ -518,6 +568,66 @@ function scratchCli(cmd) {
 // implementation - test_chain.js cannot be imported without starting a chain.
 const { readLinkEnv, releasePrivatePort } = require('./port_release');
 
+/**
+ * Records the run's own evidence in its directory: a human-readable per-link table and a machine-readable
+ * manifest. Written after teardown so the file exists whether the chain finished green, finished red, or was
+ * aborted by the harness. It only reports what the links already returned - nothing here can influence a
+ * verdict, an assertion, or the exit code.
+ */
+function writeRunEvidence({ results, passedLinks, problems, checks, skipped, exitCode, harnessPid, git }) {
+  if (!RUN_DIR || !RUN_STARTED_AT) return;
+  const finishedAt = new Date();
+  const lines = [
+    `NABIN chain run ${RUN_ID}`,
+    `started ${RUN_STARTED_AT.toISOString()}  finished ${finishedAt.toISOString()}`
+    + `  duration ${Math.round((finishedAt - RUN_STARTED_AT) / 1000)}s`,
+    `harness ${HARNESS_HOST}:${HARNESS_PORT} pid ${harnessPid || 'never started'}`,
+    `git ${git.branch || 'unknown'} ${git.commit || 'unknown'}`,
+    `links ${LINKS.length}, clean ${passedLinks}, problems ${problems}, exit ${exitCode}`,
+    `${checks} explicit passing checks reported, ${skipped} skipped line(s)`,
+    'note: the passed= column is the runner\'s advisory parse of suite output; exit= is the authority.',
+    '',
+    ...results.map((r, i) => `[${i + 1}/${LINKS.length}] ${r.file} exit=${r.exit === null ? 'null' : r.exit}`
+      + ` passed=${r.passed} failed=${r.failLines.length} skipped=${r.skipLines.length} ms=${r.durationMs}`
+      + `${r.error ? ` error=${r.error}` : ''}${r.otpThrottled ? ' OTP_THROTTLED' : ''}`
+      + `${r.contamination ? ' CONTAMINATION' : ''}`)
+  ];
+  // Suite messages are deliberately not copied in here - the per-link log in this directory already holds
+  // them, and a machine-readable summary is one more place a printed credential would have to be scrubbed.
+  const metadata = {
+    runId: RUN_ID,
+    startedAt: RUN_STARTED_AT.toISOString(),
+    finishedAt: finishedAt.toISOString(),
+    durationMs: finishedAt - RUN_STARTED_AT,
+    git,
+    harness: { host: HARNESS_HOST, port: HARNESS_PORT, pid: harnessPid || null },
+    linkCount: LINKS.length,
+    verdict: {
+      linksClean: passedLinks, problems, checksReported: checks, skippedLines: skipped, exitCode
+    },
+    links: results.map((r, i) => ({
+      index: i + 1,
+      file: r.file,
+      exit: r.exit,
+      passed: r.passed,
+      failedMarks: r.failLines.length,
+      skippedLines: r.skipLines.length,
+      durationMs: r.durationMs,
+      error: r.error,
+      otpThrottled: r.otpThrottled === true,
+      contamination: r.contamination === true,
+      isolationPort: r.isolationPort || null,
+      drift: r.drift || []
+    }))
+  };
+  try {
+    fs.writeFileSync(path.join(RUN_DIR, 'chain-summary.txt'), `${lines.join('\n')}\n`, 'utf8');
+    fs.writeFileSync(path.join(RUN_DIR, 'metadata.json'), `${JSON.stringify(metadata, null, 2)}\n`, 'utf8');
+  } catch (e) {
+    console.error(`! could not write run evidence: ${e.message}`);
+  }
+}
+
 function runLink(link, env) {
   const startedAt = Date.now();
   const res = spawnSync(process.execPath, [path.join(BACKEND, link.file)], {
@@ -528,7 +638,15 @@ function runLink(link, env) {
     timeout: Number(process.env.NABIN_LINK_TIMEOUT_MS || 20 * 60 * 1000)
   });
   const stdout = `${res.stdout || ''}${res.stderr || ''}`;
-  fs.writeFileSync(path.join(LOG_DIR, `${link.file.replace(/\.js$/, '')}.log`), stdout, 'utf8');
+  // The per-run copy is the evidence and is never reused; the flat file is the latest-run mirror that the
+  // build docs cite, so it still gets written but is never the thing a red run is traced from.
+  // Separators are flattened because a link under a subdirectory would otherwise need that subdirectory to
+  // exist inside the run directory, and a failed evidence write would abort the whole chain.
+  const linkLogName = `${link.file.replace(/\.js$/, '')}.log`.replace(/[\\/]/g, '_');
+  fs.writeFileSync(path.join(RUN_DIR, linkLogName), stdout, 'utf8');
+  const mirrorPath = path.join(LOG_DIR, linkLogName);
+  fs.writeFileSync(mirrorPath, stdout, 'utf8');
+  MIRROR_LOGS.push(mirrorPath);
   const scan = scanOutput(stdout, link.subtotalPattern);
   return {
     file: link.file,
@@ -557,7 +675,9 @@ function runLink(link, env) {
     process.exit(1);
   }
 
-  fs.mkdirSync(LOG_DIR, { recursive: true });
+  const run = createRunDir();
+  console.log(`run ${RUN_ID}`);
+  console.log(`evidence for this run: ${path.relative(process.cwd(), RUN_DIR)}${path.sep}`);
   if (HARNESS_PORT !== 4000) {
     // Four of the admin suites still hardcode http://127.0.0.1:4000 rather than reading
     // NABIN_TEST_BASE_URL, so moving the harness makes them fail to connect. Loud on purpose:
@@ -573,6 +693,7 @@ function runLink(link, env) {
 
   let failures = 0;
   let skipped = 0;
+  let kept = true;
   const results = [];
   try {
     await startHarness(baseEnv);
@@ -701,17 +822,34 @@ function runLink(link, env) {
     console.log(`\nteardown: ${stopped.note}`);
     if (!stopped.released) failures++;
     if (process.env.NABIN_KEEP_CHAIN_LOGS === '0') {
-      try { fs.rmSync(LOG_DIR, { recursive: true, force: true }); } catch (e) { /* best effort */ }
+      // Explicit opt-out discards THIS run only. This used to remove the whole `.chain-logs` tree, which once
+      // runs live inside it would have deleted every earlier run's evidence - the opposite of why #165 exists.
+      try {
+        fs.rmSync(RUN_DIR, { recursive: true, force: true });
+        for (const mirror of MIRROR_LOGS) fs.rmSync(mirror, { force: true });
+        kept = false;
+      } catch (e) { /* best effort */ }
     }
   }
 
   const passedLinks = results.length - failures;
   const checks = results.reduce((sum, r) => sum + r.passed, 0);
+  const exitCode = failures ? 1 : 0;
+  if (kept) {
+    writeRunEvidence({
+      results, passedLinks, problems: failures, checks, skipped, exitCode,
+      harnessPid: harnessProc ? harnessProc.pid : null, git: run
+    });
+  }
   console.log(`\n=== CHAIN RESULT: ${passedLinks}/${LINKS.length} links clean, ${failures} problem(s) ===`);
   console.log(`    ${checks} explicit passing checks reported, ${skipped} skipped line(s) across the chain`);
   if (skipped) console.log('    a skip is coverage this run did not get; the reason is in the per-link log');
-  if (failures) console.log(`full output per link in ${path.relative(process.cwd(), LOG_DIR)}<link>.log`);
-  process.exit(failures ? 1 : 0);
+  if (failures && kept) {
+    console.log(`full output per link in ${path.relative(process.cwd(), RUN_DIR)}${path.sep}<link>.log`);
+    console.log(`    the previous runs under ${path.relative(process.cwd(), RUNS_DIR)}${path.sep} are untouched`);
+  }
+  if (!kept) console.log('    NABIN_KEEP_CHAIN_LOGS=0: this run\'s directory was removed after teardown');
+  process.exit(exitCode);
 })().catch((err) => {
   console.error(`✖ ${err && err.message ? err.message : err}`);
   process.exit(1);
