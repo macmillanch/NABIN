@@ -365,7 +365,7 @@ class _MenuPlaceholder extends StatelessWidget {
               icon: Icons.storefront_rounded,
               title: 'No restaurant to show',
               message: feedIsEmpty
-                  ? 'No restaurant is live on NABIN in this area yet, so there is no menu to open.'
+                  ? 'No restaurant is live on NABIN yet, so there is no menu to open.'
                   : 'Open a restaurant from the food home screen to load its menu.',
               actionLabel: 'Reload restaurants',
               onAction: onRetry,

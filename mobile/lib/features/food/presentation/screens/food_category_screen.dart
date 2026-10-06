@@ -55,7 +55,7 @@ class FoodCategoryScreen extends ConsumerWidget {
         child: RefreshIndicator(
           color: RestaurantTheme.primaryAction,
           onRefresh: () => ref.read(foodRestaurantsProvider.notifier).retry(),
-          child: _body(context, ref, restaurantsAsync, cuisines, counts),
+          child: _body(context, ref, restaurantsAsync, cuisines, restaurants, counts),
         ),
       ),
     );
@@ -66,6 +66,7 @@ class FoodCategoryScreen extends ConsumerWidget {
     WidgetRef ref,
     AsyncValue<FoodRestaurantFeed> restaurantsAsync,
     List<String> cuisines,
+    List<FoodRestaurant> restaurants,
     Map<String, int> counts,
   ) {
     if (restaurantsAsync.isLoading && !restaurantsAsync.hasValue) {
@@ -93,14 +94,26 @@ class FoodCategoryScreen extends ConsumerWidget {
     }
 
     if (cuisines.isEmpty) {
+      // Two different truths live here, and collapsing them tells a lie. An empty
+      // feed means no kitchen is listed at all; a feed of kitchens that declare
+      // nothing — which is the current state of the database, 27 restaurants on
+      // `GET /api/restaurants` and 0 with a non-empty `cuisines` — means the
+      // restaurants exist and simply have not said what they cook. Only the first
+      // one entitles this screen to speak about restaurants, and `GET /api/restaurants`
+      // applies no location filter, so neither may claim anything about an area.
       return ListView(
         padding: const EdgeInsets.all(18),
-        children: const <Widget>[
+        children: <Widget>[
           FoodMessageCard(
             icon: Icons.rice_bowl_rounded,
             title: 'No cuisines yet',
-            message:
-                'No restaurants have opened on NABIN in this area yet, so there are no cuisines to browse. Check back shortly.',
+            message: restaurants.isEmpty
+                ? 'No restaurant is listed on NABIN yet, so there are no cuisines to browse. Check back shortly.'
+                : 'These restaurants have not told us what they cook, so there are no cuisines to browse yet. Open a restaurant from the full list to see its menu.',
+            actionLabel: restaurants.isEmpty ? null : 'See all restaurants',
+            onAction: restaurants.isEmpty
+                ? null
+                : () => context.go('/food-home'),
           ),
         ],
       );

@@ -81,7 +81,8 @@ final List<Map<String, dynamic>> _kitchens = <Map<String, dynamic>>[
   ),
 ];
 
-void serveFoodFeed() {
+void serveFoodFeed({List<Map<String, dynamic>>? kitchens}) {
+  final List<Map<String, dynamic>> rows = kitchens ?? _kitchens;
   stubHandler = (method, url, _) {
     if (url.path.endsWith('/advertisements')) {
       // The sponsored slot is empty, so the carousel must collapse to nothing
@@ -92,7 +93,7 @@ void serveFoodFeed() {
       final String? cuisine = url.queryParameters['cuisine'];
       final String? search = url.queryParameters['search'];
       final bool openOnly = url.queryParameters['openNow'] == 'true';
-      final rows = _kitchens.where((Map<String, dynamic> r) {
+      final filtered = rows.where((Map<String, dynamic> r) {
         if (openOnly && r['isOpen'] != true) return false;
         if (cuisine != null) {
           final List<String> list = (r['cuisines'] as List).cast<String>();
@@ -103,7 +104,7 @@ void serveFoodFeed() {
         }
         return true;
       }).toList();
-      return (200, jsonEncode(<String, dynamic>{'success': true, 'count': rows.length, 'restaurants': rows}));
+      return (200, jsonEncode(<String, dynamic>{'success': true, 'count': filtered.length, 'restaurants': filtered}));
     }
     if (url.path.endsWith('/menu')) {
       return (200, jsonEncode(<String, dynamic>{
@@ -163,6 +164,20 @@ Color _cuisineLabelColor(WidgetTester tester, String cuisine) {
 Finder _cardTile(String restaurantId) => find.byWidgetPredicate(
       (Widget w) => w is FoodLetterTile && w.seed == restaurantId,
     );
+
+/// A card's cuisine line, matched by its exact style so the list's `N places`
+/// count (same size, bolder) and a `FoodMessageCard` body (same size, looser
+/// line height) cannot be mistaken for one. A card that declares no cuisine
+/// must contribute zero of these.
+final Finder _cuisineLines = find.byWidgetPredicate(
+  (Widget w) =>
+      w is Text &&
+      w.style ==
+          const TextStyle(
+            color: RestaurantTheme.secondaryText,
+            fontSize: 12,
+          ),
+);
 
 Future<void> settle(WidgetTester tester) async {
   for (var i = 0; i < 14; i++) {
@@ -293,6 +308,70 @@ void main() {
     // still paints no star.
     expect(find.text('• Delivery in 35 min'), findsOneWidget);
     expect(find.byIcon(Icons.star_rounded), findsNothing);
+  });
+
+  testWidgets('a kitchen that declares nothing is drawn as a kitchen that declares nothing',
+      (WidgetTester tester) async {
+    // The whole nullable surface at once, because this is the row the live
+    // database actually returns: of the 27 restaurants `GET /api/restaurants`
+    // serves in dev, none declares a cuisine, a banner or a window
+    // (measured 2026-10-07). Every one of those fields must be absent rather
+    // than filled — an empty cuisine line, a stock picture, or '25 min'.
+    serveFoodFeed(kitchens: <Map<String, dynamic>>[
+      _restaurant(id: 'rest_silent', name: 'Silent Kitchen', cuisines: <String>[]),
+    ]);
+    await pumpFoodHome(tester);
+
+    // The name and the real open flag are all the card has, and all it paints.
+    expect(find.text('Silent Kitchen'), findsOneWidget);
+    expect(find.text('● OPEN'), findsOneWidget);
+    expect(find.text('1 place'), findsOneWidget);
+
+    // No cuisine line: the card's cuisine row is a 12px secondary-text line, and
+    // a restaurant with `cuisines: []` must contribute none of them.
+    expect(_cuisineLines, findsNothing);
+    // No ETA chip, and no placeholder minute figure standing in for one.
+    expect(find.textContaining(' min'), findsNothing);
+    // No rating, in any shape.
+    expect(find.byIcon(Icons.star_rounded), findsNothing);
+    // The band is the letter plate alone — no network image, no invented artwork.
+    expect(tester.widget<FoodLetterTile>(_cardTile('rest_silent')).imageUrl, isNull);
+    expect(
+      find.descendant(of: _cardTile('rest_silent'), matching: find.byType(Image)),
+      findsNothing,
+    );
+    // No address row was invented for a row that sent none, and the tap target
+    // still reads what it is.
+    expect(find.text('Menu & prices'), findsOneWidget);
+    expect(find.text('View Menu'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a feed of silent kitchens drops the wheel and keeps the list',
+      (WidgetTester tester) async {
+    // The wheel is a cuisine navigator. With no declared cuisine anywhere in
+    // the feed it has nothing to navigate to, so the whole section — heading,
+    // 'Browse all' and circles — must collapse instead of painting an invented
+    // taxonomy, while the restaurant list below it stays fully usable.
+    serveFoodFeed(kitchens: <Map<String, dynamic>>[
+      _restaurant(id: 'rest_1', name: 'Zirkhal Biryani House', cuisines: <String>[], coverImageUrl: null, address: 'Zarkham, Aizawl'),
+      _restaurant(id: 'rest_2', name: 'Pizza Point', cuisines: <String>[], address: 'Bungpal, Aizawl', isOpen: false),
+    ]);
+    await pumpFoodHome(tester, logicalSize: const Size(393, 1400));
+
+    expect(find.text('Eat what makes you happy'), findsNothing);
+    expect(find.text('Browse all'), findsNothing);
+    expect(_cuisineLines, findsNothing);
+    // The list itself is untouched by the missing taxonomy.
+    expect(find.text('All restaurants'), findsOneWidget);
+    expect(find.text('2 places'), findsOneWidget);
+    expect(find.text('Zirkhal Biryani House'), findsOneWidget);
+    expect(find.text('Pizza Point'), findsOneWidget);
+    expect(find.text('● OPEN'), findsOneWidget);
+    expect(find.text('● CLOSED'), findsOneWidget);
+    // 'Open now' is a real projected column, so it stays offered on its own.
+    expect(find.text('Open now'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('search asks the endpoint for results', (WidgetTester tester) async {

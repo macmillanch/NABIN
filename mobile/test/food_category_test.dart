@@ -179,6 +179,29 @@ void main() {
     expect(find.text('Biryani'), findsNothing);
   });
 
+  testWidgets('kitchens that declare no cuisine are not reported as kitchens that do not exist',
+      (WidgetTester tester) async {
+    // The live state of the dev database: 27 restaurants on `GET /api/restaurants`
+    // and none of them has declared a cuisine. `cuisines` is empty for both
+    // reasons — nothing listed, or listed but silent — and only the first one
+    // entitles the screen to say nothing has opened. Measured 2026-10-07 with
+    // `curl /api/restaurants`: 27 rows, 0 carrying a non-empty `cuisines`.
+    serveCuisineFeed(kitchens: <Map<String, dynamic>>[
+      _kitchen(id: 'rest_1', name: 'Zirkhal Biryani House', cuisines: <String>[]),
+      _kitchen(id: 'rest_2', name: 'Pizza Point', cuisines: <String>[]),
+    ]);
+    await pumpCategories(tester);
+
+    expect(stubSaw('GET', '/restaurants'), isTrue);
+    // The claim the feed contradicts must not be painted.
+    expect(find.textContaining('No restaurants have opened'), findsNothing,
+        reason: 'two restaurants ARE listed; only their cuisines are undeclared');
+    expect(find.textContaining('no cuisines to browse'), findsOneWidget);
+    // And no invented tile stands in for the missing taxonomy.
+    expect(find.byType(GridView), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('a failed feed is an error with a retry, not an empty wheel',
       (WidgetTester tester) async {
     serveCuisineFeed(fail: true);

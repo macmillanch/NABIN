@@ -275,7 +275,7 @@ class _FoodHomeScreenState extends ConsumerState<FoodHomeScreen> {
                   icon: Icons.search_off_rounded,
                   title: 'No restaurants match this search',
                   message: filters.isPlain
-                      ? 'No restaurant has opened on NABIN in this area yet. Check back shortly.'
+                      ? 'No restaurant has opened on NABIN yet. Check back shortly.'
                       : 'Try a different dish, cuisine or turn off the open-now filter.',
                   actionLabel: filters.isPlain ? null : 'Clear filters',
                   onAction: filters.isPlain
