@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../../../../core/theme/restaurant_theme.dart';
 import '../../../../core/network/nabin_api_service.dart';
 import '../../../../core/network/session_manager.dart';
+import '../../domain/restaurant_profile_form.dart';
 
 /// Whether a list on this screen has actually been fetched.
 ///
@@ -48,10 +49,36 @@ class _RestaurantMainShellState extends State<RestaurantMainShell> {
   _ListState _menuState = _ListState.loading;
   List<Map<String, dynamic>> _menuItems = const [];
 
+  // --- Restaurant discovery metadata (the merchant's own declaration) -----------------
+  //
+  // These three fields (`cuisines`, cover image, standard delivery window) are what turns
+  // the Customer Food card from a fixture into a statement the restaurant made. Before this
+  // flow existed the app never read or wrote them: `GET /api/merchant/services` returns a
+  // profile WITHOUT them, and nothing here drove `PATCH /api/merchant/:id/profile`, so the
+  // columns stayed NULL and every customer saw a kitchen that declared nothing.
+  //
+  // `_metaState` tracks the READ (loading/ready/failed) so a store that has not declared
+  // anything is drawn as an empty editor, not as a load error, and a store the platform
+  // could not reach is drawn as unreachable rather than blank.
+  _ListState _metaState = _ListState.loading;
+  List<String> _cuisines = const [];
+  final TextEditingController _coverCtrl = TextEditingController();
+  final TextEditingController _deliveryCtrl = TextEditingController();
+  final TextEditingController _newCuisineCtrl = TextEditingController();
+  bool _savingMeta = false;
+
   @override
   void initState() {
     super.initState();
     _initMerchant();
+  }
+
+  @override
+  void dispose() {
+    _coverCtrl.dispose();
+    _deliveryCtrl.dispose();
+    _newCuisineCtrl.dispose();
+    super.dispose();
   }
 
   Future<void> _initMerchant() async {
@@ -81,6 +108,107 @@ class _RestaurantMainShellState extends State<RestaurantMainShell> {
 
     await _loadOrders();
     await _loadMenu();
+    if (_services.contains('RESTAURANT')) {
+      await _loadRestaurantMetadata();
+    } else {
+      setState(() => _metaState = _ListState.ready);
+    }
+  }
+
+  /// Read this restaurant's own declared discovery metadata to seed the Profile editor.
+  Future<void> _loadRestaurantMetadata() async {
+    if (_restaurantId.isEmpty) {
+      setState(() => _metaState = _ListState.failed);
+      return;
+    }
+    setState(() => _metaState = _ListState.loading);
+    final res = await NabinApiService.getMerchantRestaurantProfile(_restaurantId);
+    if (!mounted) return;
+    if (res == null || res['success'] != true || res['restaurant'] is! Map) {
+      setState(() => _metaState = _ListState.failed);
+      return;
+    }
+    _applyMetaFromRow(Map<String, dynamic>.from(res['restaurant'] as Map));
+    setState(() => _metaState = _ListState.ready);
+  }
+
+  /// Seed the form from a merchant row. Accepts both the snake_case read (dashboard) and
+  /// the camelCase write (the PATCH response), so a save reflects the stored row through
+  /// the same path a fresh load does.
+  void _applyMetaFromRow(Map<String, dynamic> row) {
+    final rawCuisines = row['cuisines'];
+    _cuisines = rawCuisines is List
+        ? rawCuisines.map((e) => e.toString()).toList()
+        : const [];
+    final cover = row['cover_image_url'] ?? row['coverImageUrl'];
+    _coverCtrl.text = cover == null ? '' : cover.toString();
+    final minutes = row['standard_delivery_minutes'] ?? row['standardDeliveryMinutes'];
+    _deliveryCtrl.text = minutes == null ? '' : minutes.toString();
+  }
+
+  /// Validate the form and send the authenticated PATCH, then reflect the server's row.
+  Future<void> _saveRestaurantProfile() async {
+    final validation = buildProfilePatchBody(
+      cuisines: _cuisines,
+      coverUrl: _coverCtrl.text,
+      deliveryMinutes: _deliveryCtrl.text,
+    );
+    if (!validation.isValid) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(validation.error!), duration: const Duration(seconds: 3)),
+      );
+      return;
+    }
+    if (_restaurantId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No restaurant identity to save against.')),
+      );
+      return;
+    }
+
+    setState(() => _savingMeta = true);
+    final res = await NabinApiService.updateMerchantRestaurantProfile(
+      restaurantId: _restaurantId,
+      patch: validation.body!,
+    );
+    if (!mounted) return;
+    setState(() => _savingMeta = false);
+
+    // A refusal or an outage is NOT a save. Keep the last-known values on screen and say
+    // what the platform answered — never flip the form to look like it persisted.
+    if (res == null || res['success'] != true || res['restaurant'] is! Map) {
+      final reason = res?['error'] ?? 'NABIN could not save these details.';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Not saved: $reason'), duration: const Duration(seconds: 4)),
+      );
+      return;
+    }
+
+    _applyMetaFromRow(Map<String, dynamic>.from(res['restaurant'] as Map));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Saved. Customers will now see these details on your listing.'),
+        duration: Duration(seconds: 3),
+      ),
+    );
+  }
+
+  void _addCuisine() {
+    final error = cuisineAddError(_cuisines, _newCuisineCtrl.text);
+    if (error != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error), duration: const Duration(seconds: 3)),
+      );
+      return;
+    }
+    setState(() {
+      _cuisines = [..._cuisines, _newCuisineCtrl.text.trim()];
+      _newCuisineCtrl.clear();
+    });
+  }
+
+  void _removeCuisine(String name) {
+    setState(() => _cuisines = _cuisines.where((c) => c != name).toList());
   }
 
   Future<void> _loadOrders() async {
@@ -1040,6 +1168,155 @@ class _RestaurantMainShellState extends State<RestaurantMainShell> {
     );
   }
 
+  /// The merchant's own declaration of how it appears in Customer Food discovery.
+  ///
+  /// These are the three migration-034 columns `GET /api/restaurants` projects and the
+  /// Customer card draws. Editing them is the whole point of this screen — the values here
+  /// are what a customer sees about this restaurant, so nothing is prefilled with a guess
+  /// and nothing is sent the merchant did not put on the form.
+  ///
+  /// Cover image: this repo has no image upload — there is no Supabase Storage usage and no
+  /// `image_picker` anywhere, and the `PATCH` route accepts only an http(s) URL string (the
+  /// same convention `products.image_url` and `advertisements.image_url` already follow). So
+  /// the merchant points at a hosted image URL; a file-upload control would need storage
+  /// infrastructure that does not exist and is deliberately not faked here.
+  Widget _buildDiscoverySection() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: RestaurantTheme.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: RestaurantTheme.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Restaurant discovery',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: RestaurantTheme.charcoal),
+          ),
+          const SizedBox(height: 2),
+          const Text(
+            'What customers see when they browse Food. Saved only to NABIN after you press Save.',
+            style: TextStyle(fontSize: 12, color: RestaurantTheme.secondaryText),
+          ),
+          const SizedBox(height: 14),
+          if (_metaState == _ListState.loading)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 12),
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else if (_metaState == _ListState.failed)
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Could not load your declared details from NABIN.',
+                  style: TextStyle(fontSize: 13, color: RestaurantTheme.charcoal, fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 8),
+                TextButton(
+                  onPressed: _loadRestaurantMetadata,
+                  child: const Text('Try again', style: TextStyle(fontWeight: FontWeight.w800)),
+                ),
+              ],
+            )
+          else ...[
+            // Cuisines — TEXT[], so many, order preserved, blanks/duplicates rejected.
+            const Text('Cuisines', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: RestaurantTheme.charcoal)),
+            const SizedBox(height: 6),
+            if (_cuisines.isEmpty)
+              const Text('None declared yet — customers will see this kitchen under "All restaurants" only.',
+                  style: TextStyle(fontSize: 12, color: RestaurantTheme.secondaryText))
+            else
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: _cuisines.map((name) => InputChip(
+                      label: Text(name),
+                      onDeleted: () => _removeCuisine(name),
+                      deleteIcon: const Icon(Icons.close, size: 16),
+                    )).toList(),
+              ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _newCuisineCtrl,
+                    maxLength: kCuisineMaxLength,
+                    decoration: const InputDecoration(
+                      hintText: 'Add a cuisine (e.g. Mughlai)',
+                      counterText: '',
+                      isDense: true,
+                      border: OutlineInputBorder(),
+                    ),
+                    onSubmitted: (_) => _addCuisine(),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  tooltip: 'Add cuisine',
+                  onPressed: _addCuisine,
+                  icon: const Icon(Icons.add_circle_outline, color: RestaurantTheme.primaryAction),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+
+            // Cover image — an http(s) URL string; no upload exists in this repo.
+            const Text('Cover image URL', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: RestaurantTheme.charcoal)),
+            const SizedBox(height: 6),
+            TextField(
+              controller: _coverCtrl,
+              keyboardType: TextInputType.url,
+              decoration: const InputDecoration(
+                hintText: 'https://…/banner.jpg',
+                helperText: 'Point to an image you host. Uploading from this device is not available yet.',
+                isDense: true,
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 14),
+
+            // Standard delivery window — this restaurant's stated minutes, not a live ETA.
+            const Text('Standard delivery time (minutes)', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: RestaurantTheme.charcoal)),
+            const SizedBox(height: 6),
+            TextField(
+              controller: _deliveryCtrl,
+              keyboardType: TextInputType.number,
+              maxLength: 3,
+              decoration: const InputDecoration(
+                hintText: '$kDeliveryMinutesMin–$kDeliveryMinutesMax',
+                helperText: 'Your usual time to prepare and hand off an order, not a live estimate.',
+                counterText: '',
+                isDense: true,
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: RestaurantTheme.primaryAction,
+                  foregroundColor: RestaurantTheme.onPrimaryAction,
+                  minimumSize: const Size(double.infinity, 48),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                onPressed: _savingMeta ? null : _saveRestaurantProfile,
+                icon: _savingMeta
+                    ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    : const Icon(Icons.save_rounded),
+                label: Text(_savingMeta ? 'Saving…' : 'Save discovery details'),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
   // 5. PROFILE TAB
   Widget _buildProfileTab() {
     return SingleChildScrollView(
@@ -1086,6 +1363,10 @@ class _RestaurantMainShellState extends State<RestaurantMainShell> {
             ),
           ),
           const SizedBox(height: 16),
+          if (_services.contains('RESTAURANT')) ...[
+            _buildDiscoverySection(),
+            const SizedBox(height: 16),
+          ],
           OutlinedButton(
             onPressed: () => context.go('/home'),
             style: OutlinedButton.styleFrom(

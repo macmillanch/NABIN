@@ -755,6 +755,51 @@ class NabinApiService {
     }
   }
 
+  /// The signed-in restaurant's own discovery metadata, read back so the Profile
+  /// editor opens on what is actually stored rather than an empty form.
+  ///
+  /// There is no dedicated merchant-profile GET; the dashboard route is the existing
+  /// authenticated read of the merchant's own row (it `select('*)`s `merchants`), so its
+  /// `restaurant` object carries `cuisines`, `cover_image_url` and
+  /// `standard_delivery_minutes`. No id is trusted from the caller beyond the path — the
+  /// backend 403s when the path id is not the bearer token's own merchant.
+  static Future<Map<String, dynamic>?> getMerchantRestaurantProfile(String restaurantId) =>
+      _getJson('/merchant/${Uri.encodeComponent(restaurantId)}/dashboard');
+
+  /// Declare this restaurant's own cuisines, cover image and standard delivery window.
+  ///
+  /// This is the merchant's WRITE to `PATCH /api/merchant/:restaurantId/profile`. It
+  /// returns the parsed body even on a non-200, plus the `statusCode`, because a refusal
+  /// has to stay a refusal here: `success:false` with a `code`/`error` is what lets the
+  /// screen say "the platform did not save this" instead of painting a saved state that
+  /// was never written. The `restaurant` object on success is the server's stored row, so
+  /// the caller updates its state from THAT, not from the value it sent.
+  static Future<Map<String, dynamic>?> updateMerchantRestaurantProfile({
+    required String restaurantId,
+    required Map<String, dynamic> patch,
+  }) async {
+    try {
+      final client = HttpClient();
+      final request = await client.openUrl(
+        'PATCH',
+        Uri.parse('$effectiveUrl/merchant/${Uri.encodeComponent(restaurantId)}/profile'),
+      );
+      request.headers.set('content-type', 'application/json');
+      _attachAuthHeader(request);
+      request.add(utf8.encode(jsonEncode(patch)));
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (body.isEmpty) return {'success': false, 'statusCode': response.statusCode};
+      final decoded = jsonDecode(body);
+      if (decoded is Map<String, dynamic>) {
+        return {...decoded, 'statusCode': response.statusCode};
+      }
+      return {'success': false, 'statusCode': response.statusCode};
+    } catch (e) {
+      return {'success': false, 'error': e.toString()};
+    }
+  }
+
   // =========================================================================
   // 7. CUSTOMER BOOKINGS
   // =========================================================================
