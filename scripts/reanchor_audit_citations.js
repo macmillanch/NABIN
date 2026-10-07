@@ -250,8 +250,14 @@ function processDoc(docPath) {
 // Durable documents only. `.kilo/worktrees` holds other people's checkouts, `backend/scratch` is
 // throwaway run output, and node_modules is not ours — rewriting citations in any of those would
 // either fight another agent's work or churn files nobody reads.
+// `stitch_designs/` is frozen design/source material: the owner's rule is that implementation work
+// never edits it, and its markdown keeps its own citation generator outside this repo. Leaving it
+// in the recursive scan put a `--write` here in direct conflict with that rule (measured: 41
+// citations across five of its documents, all drifted by one server.js insert), so the frozen tree
+// is outside the executable citation scan. Excluding it here changes discovery only — name any
+// frozen file as an argument and it is still parsed, checked and reported like every other document.
 const ROOT = path.join(__dirname, '..');
-const SKIP_DIRS = new Set(['node_modules', '.git', '.kilo', '.qoder', 'scratch']);
+const SKIP_DIRS = new Set(['node_modules', '.git', '.kilo', '.qoder', 'scratch', 'stitch_designs']);
 
 function markdownFiles(dir, collected = []) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
