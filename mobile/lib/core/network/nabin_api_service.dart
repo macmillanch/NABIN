@@ -115,6 +115,43 @@ class NabinApiService {
     }
   }
 
+  /// Change the signed-in customer's own name and/or email.
+  ///
+  /// This is the only write a customer has to their own `users` row, and it carries no
+  /// account id: `PATCH /api/customer/profile` acts on whoever the bearer token resolves
+  /// to, so there is no way to aim it at somebody else. `patch` is expected to contain
+  /// only `name` and `email`; nothing else is sent, because the backend ignores unknown
+  /// keys and the screen must not look like it tried to move a wallet balance.
+  ///
+  /// Like the merchant profile editor, this returns the parsed body even on a non-200 with
+  /// the `statusCode` attached, because a refusal has to stay a refusal on this side:
+  /// `success:false` plus `code`/`error` is what lets the screen say "the platform did not
+  /// save this" instead of painting a saved state that was never written. On success the
+  /// `profile` object is the server's stored row — trimmed, case-folded and persisted — so
+  /// the caller updates its own state from THAT and not from what it typed.
+  static Future<Map<String, dynamic>?> updateCustomerProfile(Map<String, dynamic> patch) async {
+    try {
+      final client = HttpClient();
+      final request = await client.openUrl(
+        'PATCH',
+        Uri.parse('$effectiveUrl/customer/profile'),
+      );
+      request.headers.set('content-type', 'application/json');
+      _attachAuthHeader(request);
+      request.add(utf8.encode(jsonEncode(patch)));
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (body.isEmpty) return {'success': false, 'statusCode': response.statusCode};
+      final decoded = jsonDecode(body);
+      if (decoded is Map<String, dynamic>) {
+        return {...decoded, 'statusCode': response.statusCode};
+      }
+      return {'success': false, 'statusCode': response.statusCode};
+    } catch (e) {
+      return {'success': false, 'error': e.toString()};
+    }
+  }
+
   /// The customer's real history across Ride, Food, Instamart and Parcel.
   ///
   /// Returns null when the read could not be completed, which the caller must render as

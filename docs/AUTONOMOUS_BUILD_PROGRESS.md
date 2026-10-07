@@ -437,7 +437,7 @@ recorded so the fix can be made in one pass by whoever resumes.
 
 The master grocery catalogue is admin-owned and *inactive means not stockable*: every merchant-facing
 **read** already restricts to active rows.
-- `GET /api/merchant/master-catalog` (`server.js:6919`) → `.eq('is_active', true)`, guarded by
+- `GET /api/merchant/master-catalog` (`server.js:6973`) → `.eq('is_active', true)`, guarded by
   `authenticateMerchant + requireMerchantTenant + requireMerchantService('GROCERY')`.
 - merchant inventory list (`server.js:6220`) → `.eq('master_grocery_catalog.is_active', true)`.
 
@@ -511,7 +511,7 @@ Verified and locked in:
    audit assertion. Registered as chain **link 43** in `scripts/test_chain.js` (`node -c` clean, 43
    links counted) — **registered but never yet executed in-chain.**
 4. **MTI-25 diagnosed, classified STATUS_ONLY.** `GET /api/merchant/:restaurantId/dashboard`
-   (`server.js:4567`) rejects only `requestedMerchant && requestedMerchant.id !== merchant.id`, so an
+   (`server.js:4621`) rejects only `requestedMerchant && requestedMerchant.id !== merchant.id`, so an
    unresolvable id falls through to HTTP 200 while all data comes from
    `getOrdersByMerchant(merchant.id)` with `merchant` resolved from `req.merchant.id` — no cross-tenant
    exposure. Its sibling `/api/merchant/:restaurantId/orders` (4395) uses `!requestedMerchant || …` and
@@ -623,7 +623,7 @@ changed, or chosen by the agent. Each is recorded with its evidence so the rulin
 re-deriving it. Grocery price-history work is intentionally not started.
 
 ### DECISION A — MTI-25 (merchant dashboard, unknown `restaurantId`)
-- **Issue:** `GET /api/merchant/:restaurantId/dashboard` (`server.js:4567`) rejects only
+- **Issue:** `GET /api/merchant/:restaurantId/dashboard` (`server.js:4621`) rejects only
   `requestedMerchant && requestedMerchant.id !== merchant.id`, so an id that resolves to nobody falls
   through instead of being refused.
 - **Evidence:** complete handler trace `4349-4384`; standalone harness run **29/30, failing only
@@ -931,7 +931,7 @@ not evidence of absence of authentication. Results:
   `/api/geofence/reverse-geocode`, `/api/pricing/estimate` (pre-booking, no tenant data).
 - Custom-auth, correctly guarded: all `/api/support/*` (`requireSupportCallerAuth`), `/api/schools*`,
   `/api/children*` (`requireCustomerAuth`).
-- **`POST /api/rides/:id/cancel` / `/api/jobs/:id/cancel` (`server.js:5836`) - flagged by the survey,
+- **`POST /api/rides/:id/cancel` / `/api/jobs/:id/cancel` (`server.js:5890`) - flagged by the survey,
   verified NOT a defect.** It authenticates inline (401 `AUTH_REQUIRED`, session resolution, role
   derivation, `refusedClosedCustomerAccount`), rejects body-declared identity (403
   `CUSTOMER_MISMATCH`, 5620-5632), enforces ownership for both roles (403 `FORBIDDEN_NOT_OWNER` 5635-5644,
@@ -1001,7 +1001,7 @@ endpoint is unaffected (still 200).
   delegate to `getMerchantPriceHistory`) rather than the fixture handler.
 
 
-### FINDING F-2 (P2) - `POST /api/advertisements/:id/click` (`server.js:2815`)
+### FINDING F-2 (P2) - `POST /api/advertisements/:id/click` (`server.js:2869`)
 Unauthenticated write that records a click, so anonymous traffic can inflate campaign metrics - material
 if ads are billed on clicks. Not investigated deeply yet; next action is to read the handler and check
 whether any deduplication/attribution exists before proposing rate-limit or auth. Recorded, unmodified.
@@ -1061,7 +1061,7 @@ rows surfaced by the removed F-1 route) must not be presented as real merchant i
 
 ### 3. TASK F1 - Food discovery and real menu ordering
 **Discovery first.** The backend already served everything the customer journey needs, and it is durable:
-`GET /api/restaurants` (`server.js:6658`), `GET /api/restaurants/:id` (6401) and
+`GET /api/restaurants` (`server.js:6712`), `GET /api/restaurants/:id` (6401) and
 `GET /api/restaurants/:id/menu` (6421) all read `merchants`/`products` through `supabaseAdmin`, tag the
 payload `dataSource: 'postgres'`, and fall back to fixtures only with `degraded: true`. Checkout
 (`POST /api/customer/book-food`) already accepts **`productId` UUIDs** (`OrderRepository.js:152-172`),

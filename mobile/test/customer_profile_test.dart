@@ -35,6 +35,12 @@ void serve({
   bool activityOk = true,
   bool preferencesOk = true,
   bool preferencesPutOk = true,
+  int profilePatchStatus = 200,
+  String profilePatchCode = 'EMAIL_ALREADY_USED',
+  String profilePatchError =
+      'That email address already belongs to a NABIN account, so it cannot be used here. '
+      'Nothing was changed.',
+  bool profilePatchAnswers = true,
 }) {
   // The row the store holds, so a read after a write returns what was written rather
   // than a fixture that forgot the write.
@@ -47,8 +53,58 @@ void serve({
       key: true,
   };
 
+  // The same trick on the profile side: the PATCH answer comes out of this map, so a test
+  // that asserts "the screen shows what the server returned" cannot be satisfied by a
+  // fixture that would echo whatever was asked for.
+  final Map<String, dynamic> row = <String, dynamic>{...?user};
+
   stubHandler = (method, url, body) {
     final String path = url.path;
+    if (path.contains('/customer/profile') && method == 'PATCH') {
+      if (!profilePatchAnswers) {
+        // No answer at all: the socket fails, so the service's own catch fires and the
+        // screen has to say "couldn't reach" without claiming the change was stored.
+        throw const SocketException('connection refused');
+      }
+      if (profilePatchStatus != 200) {
+        return (
+          profilePatchStatus,
+          jsonEncode(<String, dynamic>{
+            'success': false,
+            'code': profilePatchCode,
+            'error': profilePatchError,
+          })
+        );
+      }
+      final patch = jsonDecode(body) as Map<String, dynamic>;
+      // The backend trims the name and trims and case-folds the email, so the stub does
+      // too — otherwise the screen could look correct while showing text that was never
+      // stored.
+      if (patch.containsKey('name')) {
+        row['name'] = (patch['name'] as String).trim();
+      }
+      if (patch.containsKey('email')) {
+        final String stated = (patch['email'] as String).trim();
+        row['email'] = stated.isEmpty ? null : stated.toLowerCase();
+      }
+      return (
+        200,
+        jsonEncode(<String, dynamic>{
+          'success': true,
+          'profile': <String, dynamic>{
+            'id': row['id'],
+            'name': row['name'],
+            'phone': row['phone'],
+            'email': row['email'],
+            'createdAt': '2026-09-01T10:00:00.000Z',
+            'updatedAt': '2026-10-07T11:00:00.000Z',
+          },
+          'changed': patch.keys.toList(),
+          'dataSource': 'postgres',
+          'persisted': true,
+        })
+      );
+    }
     if (path.contains('/auth/me')) {
       if (!profileOk) {
         return (500, jsonEncode({'success': false, 'error': 'store unavailable'}));
@@ -58,7 +114,7 @@ void serve({
         jsonEncode(<String, dynamic>{
           'success': true,
           'role': 'CUSTOMER',
-          'user': user,
+          'user': row,
           'token': 'test-token',
         })
       );
@@ -373,6 +429,218 @@ void main() {
       expect(find.textContaining("couldn't load your notification preferences"),
           findsOneWidget);
       expect(find.text('Retry'), findsWidgets);
+    });
+  });
+
+  group('profile editing', () {
+    const Key nameKey = ValueKey('profileNameField');
+    const Key emailKey = ValueKey('profileEmailField');
+    const Key saveKey = ValueKey('saveProfileButton');
+    const Key failureKey = ValueKey('profileEditFailure');
+    const Key editKey = ValueKey('editProfileDetails');
+
+    Future<void> openEditor(WidgetTester tester) async {
+      await tester.tap(find.byKey(editKey));
+      for (var i = 0; i < 10; i++) {
+        await tester.pump(const Duration(milliseconds: 40));
+      }
+    }
+
+    Future<void> settle(WidgetTester tester) async {
+      for (var i = 0; i < 14; i++) {
+        await tester.pump(const Duration(milliseconds: 40));
+      }
+    }
+
+    Map<String, dynamic> sentPatch(WidgetTester tester) {
+      final body = stubBodyFor('PATCH', '/customer/profile');
+      expect(body, isNotNull, reason: 'no PATCH left the process');
+      return jsonDecode(body!) as Map<String, dynamic>;
+    }
+
+    testWidgets('the editor opens on the values the profile read returned',
+        (tester) async {
+      serve();
+      await pumpProfile(tester);
+      expect(stubSaw('GET', '/auth/me'), isTrue);
+
+      await openEditor(tester);
+
+      expect(find.byKey(nameKey), findsOneWidget);
+      expect(find.byKey(emailKey), findsOneWidget);
+      expect(tester.widget<TextField>(find.byKey(nameKey)).controller!.text,
+          'Lalthanmawli Vanminuwa');
+      expect(tester.widget<TextField>(find.byKey(emailKey)).controller!.text,
+          'lalthan@example.in');
+      // An edit affordance that cannot be painted on a phone is not an affordance.
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('editing the name sends it and shows the stored result',
+        (tester) async {
+      serve();
+      await pumpProfile(tester);
+      await openEditor(tester);
+
+      await tester.enterText(find.byKey(nameKey), 'Zonamthang Ralte');
+      await tester.tap(find.byKey(saveKey));
+      await settle(tester);
+
+      expect(stubSaw('PATCH', '/customer/profile'), isTrue);
+      expect(sentPatch(tester)['name'], 'Zonamthang Ralte');
+      expect(find.byKey(nameKey), findsNothing, reason: 'the sheet closes only on a 200');
+      expect(find.text('Zonamthang Ralte'), findsWidgets);
+    });
+
+    testWidgets('the card shows what the server stored, not what was typed',
+        (tester) async {
+      serve();
+      await pumpProfile(tester);
+      await openEditor(tester);
+
+      await tester.enterText(find.byKey(emailKey), '  Zonam@Example.IN  ');
+      await tester.tap(find.byKey(saveKey));
+      await settle(tester);
+
+      // Padding and case go up as the customer wrote them, because trimming and
+      // case-folding are the backend's rule; what comes back is the stored form.
+      expect(sentPatch(tester)['email'], '  Zonam@Example.IN  ');
+      expect(find.text('zonam@example.in'), findsWidgets);
+      expect(find.text('  Zonam@Example.IN  '), findsNothing);
+      expect(find.text('+91 94360 11223'), findsWidgets,
+          reason: 'the phone on the row is not the profile write\'s to change');
+    });
+
+    testWidgets('the save is visibly in flight while the write is outstanding',
+        (tester) async {
+      serve();
+      await pumpProfile(tester);
+      await openEditor(tester);
+      // Delay only the write, so the reads above still land.
+      stubDelay = const Duration(seconds: 3);
+
+      await tester.enterText(find.byKey(nameKey), 'Zonamthang Ralte');
+      await tester.tap(find.byKey(saveKey));
+      await tester.pump();
+
+      expect(stubSaw('PATCH', '/customer/profile'), isTrue);
+      expect(find.text('Saving…'), findsOneWidget);
+      expect(tester.widget<ElevatedButton>(find.byKey(saveKey)).onPressed, isNull,
+          reason: 'a second tap must not fire a second write');
+      // Judged by the avatar's initials, not by the name on screen: the field itself holds
+      // the typed text, so "the new name is nowhere" would fail for the right reason only
+      // by accident. `LV` is painted from `_user`, which only a 200 is allowed to change.
+      expect(find.text('ZR'), findsNothing,
+          reason: 'nothing is claimed as saved before the server answers');
+      expect(find.text('LV'), findsWidgets);
+
+      await tester.pump(const Duration(seconds: 4));
+      await settle(tester);
+      expect(find.text('Saving…'), findsNothing);
+      expect(find.text('Zonamthang Ralte'), findsWidgets);
+    });
+
+    testWidgets('a validation refusal is read out and nothing looks saved',
+        (tester) async {
+      serve(
+        profilePatchStatus: 400,
+        profilePatchCode: 'INVALID_CUSTOMER_PROFILE',
+        profilePatchError: 'name must be at most 100 characters',
+      );
+      await pumpProfile(tester);
+      await openEditor(tester);
+
+      await tester.enterText(find.byKey(nameKey), 'x' * 101);
+      await tester.tap(find.byKey(saveKey));
+      await settle(tester);
+
+      expect(stubSaw('PATCH', '/customer/profile'), isTrue);
+      expect(find.byKey(failureKey), findsOneWidget);
+      expect(find.textContaining('name must be at most 100 characters'), findsOneWidget);
+      expect(find.byKey(nameKey), findsOneWidget, reason: 'the editor stays open for a fix');
+      expect(find.text('Lalthanmawli Vanminuwa'), findsWidgets,
+          reason: 'the card keeps the stored name behind the refusal');
+    });
+
+    testWidgets('a duplicate email is refused as the conflict the server called it',
+        (tester) async {
+      serve(profilePatchStatus: 409);
+      await pumpProfile(tester);
+      await openEditor(tester);
+
+      await tester.enterText(find.byKey(emailKey), 'someone.else@example.in');
+      await tester.tap(find.byKey(saveKey));
+      await settle(tester);
+
+      expect(stubSaw('PATCH', '/customer/profile'), isTrue);
+      expect(find.byKey(failureKey), findsOneWidget);
+      expect(find.textContaining('already belongs to a NABIN account'), findsOneWidget);
+      expect(find.text('lalthan@example.in'), findsWidgets,
+          reason: 'the address on the row survives the refused change');
+    });
+
+    testWidgets('a write that never reached the platform is not reported as saved',
+        (tester) async {
+      serve(profilePatchAnswers: false);
+      await pumpProfile(tester);
+      await openEditor(tester);
+
+      await tester.enterText(find.byKey(nameKey), 'Zonamthang Ralte');
+      await tester.tap(find.byKey(saveKey));
+      await settle(tester);
+
+      expect(find.byKey(failureKey), findsOneWidget);
+      expect(find.textContaining("couldn't reach the platform"), findsOneWidget);
+      expect(find.text('ZR'), findsNothing,
+          reason: 'the card is painted from the read, and the read never changed');
+      expect(find.text('LV'), findsWidgets);
+      expect(find.byKey(nameKey), findsOneWidget,
+          reason: 'the editor stays open so the customer can try again');
+    });
+
+    testWidgets('nothing but name and email is ever sent', (tester) async {
+      serve();
+      await pumpProfile(tester);
+      await openEditor(tester);
+
+      await tester.enterText(find.byKey(nameKey), 'Zonamthang Ralte');
+      await tester.tap(find.byKey(saveKey));
+      await settle(tester);
+
+      final sent = sentPatch(tester);
+      expect(sent.keys.toSet(), <String>{'name', 'email'});
+      for (final String field in <String>[
+        'wallet_balance', 'walletBalance', 'account_status', 'identity_status',
+        'phone', 'dob', 'address', 'rating', 'role', 'id', 'uuid', 'user_id', 'userId',
+      ]) {
+        expect(sent.containsKey(field), isFalse,
+            reason: '$field is not the customer\'s to send on this screen');
+      }
+    });
+
+    testWidgets('an emptied email is sent as not stated, not as a fake address',
+        (tester) async {
+      serve();
+      await pumpProfile(tester);
+      await openEditor(tester);
+
+      await tester.enterText(find.byKey(emailKey), '');
+      await tester.tap(find.byKey(saveKey));
+      await settle(tester);
+
+      expect(sentPatch(tester)['email'], '');
+      expect(find.text('lalthan@example.in'), findsNothing,
+          reason: 'the server stored NULL, so the card must stop painting an address');
+    });
+
+    testWidgets('no editor is offered while the profile read has failed',
+        (tester) async {
+      serve(profileOk: false);
+      await pumpProfile(tester);
+
+      expect(stubSaw('GET', '/auth/me'), isTrue);
+      expect(find.byKey(editKey), findsNothing,
+          reason: 'editing values that were never read would be guessing at them');
     });
   });
 

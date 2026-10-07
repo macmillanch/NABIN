@@ -7753,6 +7753,162 @@ class NabinDatabase {
   }
 
   /**
+   * Change the signed-in customer's own name or email address.
+   *
+   * There is no identifier to pass in except the one the session already carries. That is
+   * the point: `/api/customer/profile` is the only route that reaches here, it resolves the
+   * caller through `authenticateUser`, and this method writes the row whose id came out of
+   * that session — so a body claiming a different `userId` cannot aim the write at another
+   * account, and `validateCustomerProfilePatch` never reads such a key anyway.
+   *
+   * PostgreSQL-only, for the same reason the restaurant declaration is
+   * (`updateMerchantRestaurantProfile`): the in-memory user list is a boot mirror, and a
+   * 2xx answer to a name change that only lived until the next restart would be a lie a
+   * customer acts on.
+   *
+   * Three things the write has to get right beyond putting two columns in a row:
+   *
+   *  - Only `name`, `email` and `updated_at` are ever sent. The patch object is built from
+   *    the domain module's two lines, not from the body, so `wallet_balance`,
+   *    `account_status` and `identity_status` cannot be reached through this door even by a
+   *    caller who knows the column names.
+   *  - An address belongs to one account. The pre-check gives the honest 409 with the field
+   *    named, and migration 035's partial unique index is the backstop for the two cases a
+   *    read-then-write cannot see — a concurrent write, and an address stored in a different
+   *    case by an older path. Both land in the same 409 rather than in a 503 that would
+   *    tell the customer to retry something that will never succeed.
+   *  - The mirror moves with the row. `authenticateUser` hands every guarded route the
+   *    session's own entity object and `GET /api/auth/me` answers from it, so a change that
+   *    reached only PostgreSQL would leave the customer's app showing the name they just
+   *    replaced until they signed out.
+   */
+  async updateOwnCustomerProfile(sessionUser, body = {}) {
+    const { validateCustomerProfilePatch } = require('./services/customerProfileDomain');
+    const { fields, patch } = validateCustomerProfilePatch(body);
+    if (fields.length === 0) {
+      const refusal = new Error('Send at least one of name or email.');
+      refusal.code = 'NO_PROFILE_FIELDS';
+      refusal.status = 400;
+      refusal.statusCode = 400;
+      throw refusal;
+    }
+
+    const store = this.liveStore();
+    if (!store) {
+      const refusal = new Error('Your profile lives in PostgreSQL and this server is not connected to it. Nothing was changed.');
+      refusal.code = 'PROFILE_STORE_UNAVAILABLE';
+      refusal.status = 503;
+      refusal.statusCode = 503;
+      throw refusal;
+    }
+
+    const emailConflict = () => {
+      const refusal = new Error('That email address already belongs to a NABIN account, so it cannot be used here. Nothing was changed.');
+      refusal.code = 'EMAIL_ALREADY_USED';
+      refusal.status = 409;
+      refusal.statusCode = 409;
+      return refusal;
+    };
+
+    // Resolved from the authenticated entity alone. `customerIdSpaces` is the same
+    // id-space helper the operator's account routes use, so a session minted against a
+    // legacy `usr_1` and a directory row keyed by its uuid reach one row, not two.
+    const identifier = String((sessionUser && (sessionUser.id || sessionUser.uuid)) || '').trim();
+    const { uuid, known } = this.customerIdSpaces(identifier);
+    if (!uuid) {
+      const refusal = new Error('This session cannot be traced to a customer row in the authoritative directory, so there is no profile to change. Nothing was written.');
+      refusal.code = 'CUSTOMER_NOT_ENROLLED';
+      refusal.status = 409;
+      refusal.statusCode = 409;
+      throw refusal;
+    }
+
+    const current = await this.authoritativeRead(
+      store.from('users').select(CUSTOMER_ACCOUNT_PROJECTION).eq('id', uuid).maybeSingle(),
+      { what: 'the customer profile' }
+    );
+    if (!current) {
+      const refusal = new Error('Your account is not in the authoritative directory, so its profile cannot be changed here.');
+      refusal.code = 'CUSTOMER_NOT_ENROLLED';
+      refusal.status = 409;
+      refusal.statusCode = 409;
+      throw refusal;
+    }
+
+    // The address the customer is asking for, compared against every *other* account.
+    // Exact match on the normalised value; the index below is what catches a stored
+    // upper-case twin that this filter would walk straight past.
+    if (typeof patch.email === 'string') {
+      const taken = await this.authoritativeRead(
+        store.from('users').select('id').neq('id', uuid).eq('email', patch.email).limit(1),
+        { what: 'the email address' }
+      );
+      if (Array.isArray(taken) && taken.length > 0) throw emailConflict();
+    }
+
+    const written = await this.settleAuthoritative(
+      store.from('users')
+        .update({ ...patch, updated_at: new Date().toISOString() })
+        .eq('id', uuid)
+        .select(CUSTOMER_ACCOUNT_PROJECTION),
+      'the customer profile'
+    );
+    if (written.error) {
+      // 23505 is `users_email_lower_uniq` (migration 035) speaking: either another
+      // account took this address between the read above and this write, or it already
+      // holds it in a different case. Everything else is a store failure.
+      if (String(written.error.code) === '23505') throw emailConflict();
+      throw this.authStoreUnavailable(written.error, 'the customer profile');
+    }
+    const row = (written.data || [])[0];
+    if (!row) {
+      const refusal = new Error('The authoritative directory refused the profile change and reported no such row.');
+      refusal.code = 'CUSTOMER_NOT_ENROLLED';
+      refusal.status = 409;
+      refusal.statusCode = 409;
+      throw refusal;
+    }
+
+    for (const mirror of new Set([sessionUser, known].filter(Boolean))) {
+      mirror.name = row.name;
+      mirror.email = row.email;
+      if ('updated_at' in mirror) mirror.updated_at = row.updated_at;
+      if ('updatedAt' in mirror) mirror.updatedAt = row.updated_at;
+    }
+
+    const previous = { name: current.name ?? null, email: current.email ?? null };
+    const next = { name: row.name ?? null, email: row.email ?? null };
+    await this.auditAppliedChange({
+      adminId: String(row.id),
+      adminName: row.name || 'Customer',
+      role: 'CUSTOMER',
+      action: 'CUSTOMER_PROFILE_UPDATED',
+      module: 'CUSTOMER',
+      targetEntityType: 'CUSTOMER',
+      targetEntityId: String(row.id),
+      previousState: JSON.stringify(previous),
+      newState: JSON.stringify(next),
+      reason: `The customer changed their own ${fields.join(' and ')} from their authenticated session.`,
+      metadata: { fields, dataSource: 'postgres' }
+    });
+
+    return {
+      profile: {
+        id: row.id,
+        name: row.name ?? null,
+        phone: row.phone ?? null,
+        email: row.email ?? null,
+        createdAt: row.created_at ?? null,
+        updatedAt: row.updated_at ?? null
+      },
+      changed: fields,
+      previous,
+      dataSource: 'postgres',
+      persisted: true
+    };
+  }
+
+  /**
    * A customer account, narrowed to the columns the customer surface is allowed to serve.
    *
    * Applied to whatever the caller holds — a store row in snake_case or the in-memory

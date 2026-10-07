@@ -21,6 +21,13 @@ typedef StubHandler = (int status, String body) Function(
 /// Handler the fake consults for every request. Set it per test.
 StubHandler stubHandler = (_, __, ___) => (200, '{"success":true}');
 
+/// How long the fake waits before it answers. Non-zero only where a test has to observe
+/// the window between "the write left" and "the answer landed" — a saving spinner is
+/// invisible at zero delay, because the whole request resolves inside the pump that
+/// started it. `tester.pump()` does not advance a timer, so a pending delay keeps the
+/// in-flight state on screen for the assertion.
+Duration stubDelay = Duration.zero;
+
 /// Every request the fake served, as "METHOD url". Assert on this: a screen that
 /// renders an error state proves nothing until the request is seen here.
 final List<String> stubSeen = <String>[];
@@ -46,6 +53,7 @@ void stubReset() {
   stubSeen.clear();
   stubBodies.clear();
   stubHandler = (_, __, ___) => (200, '{"success":true}');
+  stubDelay = Duration.zero;
 }
 
 class StubHttpOverrides extends HttpOverrides {
@@ -110,6 +118,7 @@ class _StubRequest implements HttpClientRequest {
     final String body = utf8.decode(_body);
     stubSeen.add('$_method ${_url.toString()}');
     stubBodies.add(body);
+    if (stubDelay > Duration.zero) await Future<void>.delayed(stubDelay);
     final (status, responseBody) = stubHandler(_method, _url, body);
     return _StubResponse(status, utf8.encode(responseBody));
   }

@@ -163,7 +163,8 @@ class _PersonalizationScreenState extends State<PersonalizationScreen> {
               const SizedBox(height: 32),
 
               // The two values NABIN holds for this account, shown as records rather
-              // than as inputs: no route this app can call writes either of them.
+              // than as inputs: this step is about the identity declaration, and the
+              // editable home for these two fields is the profile screen.
               _buildAccountRow(
                 icon: Icons.person_outline,
                 label: 'Full Name',
@@ -177,9 +178,9 @@ class _PersonalizationScreenState extends State<PersonalizationScreen> {
               ),
               const SizedBox(height: 12),
               const Text(
-                'These are the details on your NABIN account. This app has no way to '
-                'change them, so they are shown for you to check before the identity '
-                'step — speak to NABIN if either one is wrong.',
+                'These are the details on your NABIN account, shown here for you to check '
+                'before the identity step. To change your name or email address, use '
+                'Profile → Edit — this step does not change them.',
                 style: TextStyle(color: AppTheme.onSurfaceVariant, fontSize: 11.5, height: 1.35),
               ),
               const SizedBox(height: 24),

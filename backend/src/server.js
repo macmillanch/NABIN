@@ -1297,6 +1297,60 @@ app.post('/api/auth/logout', (req, res) => {
   res.json({ success: true, message: 'Logged out successfully.' });
 });
 
+// The customer's own profile: name and email.
+//
+// Two fields, because those are the two a customer is entitled to state about
+// themselves. `users.name` and `users.email` (001_central_schema.sql:18-19) previously had
+// one writer each and neither was the customer: sign-in mints a placeholder address
+// (`<phone>@user.nabin.in`, database.js) and the identity submission copies whatever the
+// applicant typed into both columns. So the profile screen could display a name and an
+// address but could not change either, and the app told people to phone NABIN about a
+// spelling of their own name.
+//
+// What is NOT here, and why:
+//
+//   * No id in the path or the body. The row is the one `authenticateUser` resolved from
+//     the bearer token, so there is no way to aim this at somebody else's account — a
+//     `userId` in the body is not honoured, it is dropped by the domain validator.
+//   * No phone, date of birth, address, wallet, account status, identity status or rating.
+//     Phone is the sign-in credential and changing it is a credential flow, not a profile
+//     edit; identity status and account status are NABIN's decisions about a person, not
+//     theirs; and `rating` is a column default with no reviews table behind it (#140), so
+//     a write here could only invent one.
+//   * No email verification. This backend has no mail transport and the schema has no
+//     verification column, so the address is stored as stated and never as confirmed.
+//     Nothing in the response claims otherwise, and the app must not either.
+app.patch('/api/customer/profile', authenticateUser, async (req, res) => {
+  try {
+    const result = await db.updateOwnCustomerProfile(req.user, req.body || {});
+    res.json({
+      success: true,
+      // The row as it now stands in PostgreSQL, not what the caller sent: the customer's
+      // name is normalised by trimming and an address by lowercasing, and the app has to
+      // show what was stored rather than what was typed.
+      profile: result.profile,
+      changed: result.changed,
+      dataSource: result.dataSource,
+      persisted: result.persisted,
+      requestId: req.id
+    });
+  } catch (err) {
+    if (supabaseHelper.isStoreUnreachable(err)) return replyStoreError(res, req, err, 'customer profile');
+    // 400 for a value outside the domain, 409 for an address that is somebody else's or a
+    // session that cannot be traced to a directory row, 503 for a server not connected to
+    // the store the profile lives in. All three are the customer's answer to be told, so
+    // none of them may be flattened into a 500.
+    const status = err.status || err.statusCode || 500;
+    res.status(status).json({
+      success: false,
+      code: err.code || 'CUSTOMER_PROFILE_UPDATE_FAILED',
+      error: err.message,
+      ...(err.field ? { field: err.field } : {}),
+      requestId: req.id
+    });
+  }
+});
+
 // Refresh / Validate Token
 app.post('/api/auth/refresh-token', async (req, res) => {
   const { token } = req.body;

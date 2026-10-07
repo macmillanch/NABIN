@@ -250,7 +250,7 @@ puts Section A back. A `DROP POLICY` is a schema change, so the dump is not opti
 - **Does a customer or driver auth path exist that could apply?** Yes, and this route uses none of
   it. Customer and driver sessions are issued and verified (`POST /api/auth/*`, bearer resolution
   in `server.js`), and the booking routes that price a real trip sit on that path — but a rider's
-  quote comes from `POST /api/pricing/estimate`, which is *also* anonymous (`server.js:3391`).
+  quote comes from `POST /api/pricing/estimate`, which is *also* anonymous (`server.js:3445`).
 - **Is it used by admins?** As a tool, yes; as an admin route, no. The five real admin geo routes
   are separately registered and gated (`server.js:2922`, `:2931`, `:2940`, `:2950`, `:2959`,
   `:3130`; `geo_adversarial_test.js` SEC-02 proves 401 unauthenticated). So `/evaluate` is a

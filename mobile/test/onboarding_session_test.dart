@@ -293,10 +293,11 @@ void main() {
 
       expect(find.text(_serverName), findsOneWidget);
       expect(find.text(_serverEmail), findsOneWidget);
-      // No route this app may call writes either field, so there is nothing here
-      // to type into.
+      // This step is the identity declaration, so it carries no inputs — the editable
+      // home for name and email is the profile screen, and the copy says so.
       expect(find.byType(TextField), findsNothing);
-      expect(find.textContaining('no way to'), findsOneWidget);
+      expect(find.textContaining('use Profile → Edit'), findsOneWidget);
+      expect(find.textContaining('no way to'), findsNothing);
     });
 
     testWidgets('the monogram is the account\'s own initials', (tester) async {

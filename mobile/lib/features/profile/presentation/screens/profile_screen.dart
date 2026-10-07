@@ -296,8 +296,51 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ],
           ),
         ),
+        // The name and the email used to be read-only here because no route would accept
+        // a customer's own edit to either. `PATCH /api/customer/profile` now does, so the
+        // affordance belongs on the row that shows the two values it changes.
+        TextButton.icon(
+          key: const ValueKey('editProfileDetails'),
+          onPressed: () => _showProfileEditor(context),
+          icon: const Icon(Icons.edit_outlined, size: 16, color: AppTheme.primary),
+          label: const Text('Edit',
+              style: TextStyle(color: AppTheme.primary, fontWeight: FontWeight.w900, fontSize: 13)),
+        ),
       ],
     );
+  }
+
+  void _showProfileEditor(BuildContext context) {
+    final Map<String, dynamic> user = _user ?? const <String, dynamic>{};
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      backgroundColor: AppTheme.surfaceContainerLowest,
+      builder: (_) => _CustomerProfileEditSheet(
+        initialName: user['name']?.toString() ?? '',
+        initialEmail: user['email']?.toString() ?? '',
+        // The sheet only calls this after the backend answered 200 with the stored row,
+        // so what lands on screen is PostgreSQL's value, not what was typed.
+        onSaved: _applyServerProfile,
+      ),
+    );
+  }
+
+  /// Replace the two fields the customer just changed with the server's answer.
+  ///
+  /// Deliberately not a refetch and not the typed text: the route trims and case-folds the
+  /// email and returns the row it wrote, so this is the shortest path to the screen showing
+  /// exactly what is stored. Everything else on `_user` stays as the last read left it.
+  void _applyServerProfile(Map<String, dynamic> profile) {
+    if (!mounted) return;
+    final Map<String, dynamic> updated = <String, dynamic>{...?_user};
+    updated['name'] = profile['name'];
+    updated['email'] = profile['email'];
+    if (profile.containsKey('updatedAt')) updated['updated_at'] = profile['updatedAt'];
+    setState(() => _user = updated);
   }
 
   Widget _buildStatsRow() {
@@ -1854,6 +1897,249 @@ class _NotificationPreferencesSheetState
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Edit the two profile fields a customer is allowed to change themselves.
+///
+/// Nothing is claimed as saved until `PATCH /api/customer/profile` answers 200 with the
+/// row it wrote: [widget.onSaved] runs on that answer alone, so a 400, a 409, a 401 or a
+/// request that never reached the platform leaves the sheet open with the server's own
+/// reason in it and the profile screen still showing the previous values.
+///
+/// The patch carries `name` and `email` and nothing else. Text is sent as typed, including
+/// the padding and the capital letters, because trimming and case-folding are the
+/// backend's rules rather than this screen's, and a customer has to see the stored value
+/// (returned by the server) rather than the one they pressed keys with. An emptied email
+/// field is sent as `''`, which the backend reads as "this account states no email" and
+/// stores as NULL — not as an invalid address.
+class _CustomerProfileEditSheet extends StatefulWidget {
+  const _CustomerProfileEditSheet({
+    required this.initialName,
+    required this.initialEmail,
+    required this.onSaved,
+  });
+
+  final String initialName;
+  final String initialEmail;
+  final void Function(Map<String, dynamic> profile) onSaved;
+
+  @override
+  State<_CustomerProfileEditSheet> createState() =>
+      _CustomerProfileEditSheetState();
+}
+
+class _CustomerProfileEditSheetState extends State<_CustomerProfileEditSheet> {
+  late final TextEditingController _nameCtrl =
+      TextEditingController(text: widget.initialName);
+  late final TextEditingController _emailCtrl =
+      TextEditingController(text: widget.initialEmail);
+
+  bool _saving = false;
+  String? _failure;
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    _emailCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    if (_saving) return;
+    setState(() {
+      _saving = true;
+      _failure = null;
+    });
+    final res = await NabinApiService.updateCustomerProfile({
+      'name': _nameCtrl.text,
+      'email': _emailCtrl.text,
+    });
+    if (!mounted) return;
+    final profile = (res?['profile'] as Map?)?.cast<String, dynamic>();
+    if (res?['success'] == true && profile != null) {
+      setState(() => _saving = false);
+      widget.onSaved(profile);
+      Navigator.pop(context);
+      return;
+    }
+    setState(() {
+      _saving = false;
+      _failure = _explain(res);
+    });
+  }
+
+  /// The backend's own sentence for its own refusal. `statusCode` is missing only when
+  /// the request never got an answer at all, which is a different thing to tell the
+  /// customer than a request the platform read and refused.
+  static String _explain(Map<String, dynamic>? res) {
+    if (res == null || res['statusCode'] == null) {
+      return "NABIN couldn't reach the platform, so nothing was changed. Try again.";
+    }
+    final message = res['error']?.toString();
+    if (message != null && message.trim().isNotEmpty) return message;
+    return 'The platform refused that change, so nothing was saved.';
+  }
+
+  OutlineInputBorder get _fieldBorder =>
+      OutlineInputBorder(borderRadius: BorderRadius.circular(14));
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 20,
+        right: 20,
+        top: 16,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Expanded(
+                child: Text('Edit your details',
+                    style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
+                        color: AppTheme.onSurface)),
+              ),
+              IconButton(
+                icon: const Icon(Icons.close_rounded),
+                onPressed: () => Navigator.pop(context),
+              ),
+            ],
+          ),
+          const Text(
+            'NABIN shows this name and email address on your account. Your phone number is '
+            'how you sign in and is not changed here, and your identity documents have their '
+            'own verification journey.',
+            style: TextStyle(
+                fontSize: 12.5, color: AppTheme.onSurfaceVariant, height: 1.4),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            key: const ValueKey('profileNameField'),
+            controller: _nameCtrl,
+            enabled: !_saving,
+            textCapitalization: TextCapitalization.words,
+            decoration: InputDecoration(
+              labelText: 'Name',
+              hintText: 'The name NABIN should call you by',
+              labelStyle: const TextStyle(fontWeight: FontWeight.w600),
+              filled: true,
+              fillColor: AppTheme.surfaceContainerLow,
+              border: _fieldBorder,
+              enabledBorder: _fieldBorder,
+              focusedBorder: _fieldBorder.copyWith(
+                  borderSide: const BorderSide(color: AppTheme.primary, width: 2)),
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            key: const ValueKey('profileEmailField'),
+            controller: _emailCtrl,
+            enabled: !_saving,
+            keyboardType: TextInputType.emailAddress,
+            decoration: InputDecoration(
+              labelText: 'Email address',
+              hintText: 'you@example.com',
+              helperText: 'Leave empty if you would rather not state an email address.',
+              helperMaxLines: 2,
+              labelStyle: const TextStyle(fontWeight: FontWeight.w600),
+              filled: true,
+              fillColor: AppTheme.surfaceContainerLow,
+              border: _fieldBorder,
+              enabledBorder: _fieldBorder,
+              focusedBorder: _fieldBorder.copyWith(
+                  borderSide: const BorderSide(color: AppTheme.primary, width: 2)),
+            ),
+          ),
+          if (_failure != null) ...<Widget>[
+            const SizedBox(height: 12),
+            Container(
+              key: const ValueKey('profileEditFailure'),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppTheme.error.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: AppTheme.error.withValues(alpha: 0.4)),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(Icons.error_outline_rounded,
+                      size: 18, color: AppTheme.error),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      _failure!,
+                      style: const TextStyle(
+                          color: AppTheme.error,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          height: 1.4),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: _saving ? null : () => Navigator.pop(context),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppTheme.onSurfaceVariant,
+                    minimumSize: const Size(0, 50),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14)),
+                  ),
+                  child: const Text('Cancel'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                flex: 2,
+                child: ElevatedButton(
+                  key: const ValueKey('saveProfileButton'),
+                  onPressed: _saving ? null : _save,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.primary,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    minimumSize: const Size(0, 50),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14)),
+                  ),
+                  child: _saving
+                      ? const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2, color: Colors.white),
+                            ),
+                            SizedBox(width: 10),
+                            Text('Saving…',
+                                style: TextStyle(fontWeight: FontWeight.w900)),
+                          ],
+                        )
+                      : const Text('Save changes',
+                          style: TextStyle(fontWeight: FontWeight.w900)),
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
