@@ -155,6 +155,31 @@ class NabinApiService {
     }
   }
 
+  /// The same read as [getCustomerOrder], with the HTTP status kept.
+  ///
+  /// [getCustomerOrder] folds every non-200 into `null`, which is enough for a screen
+  /// that says "unavailable" but not for one that has to tell a customer they are
+  /// signed out, looking at another account's order, or at a number that was never
+  /// minted. The endpoint is not re-implemented here — one URL, one auth header.
+  static Future<CustomerOrderRead> readCustomerOrder(String orderId) async {
+    try {
+      final client = HttpClient();
+      final request = await client.getUrl(
+        Uri.parse('$effectiveUrl/customer/orders/${Uri.encodeComponent(orderId)}'),
+      );
+      _attachAuthHeader(request);
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      final Object? decoded = body.isEmpty ? null : jsonDecode(body);
+      return CustomerOrderRead(
+        status: response.statusCode,
+        body: decoded is Map ? Map<String, dynamic>.from(decoded) : null,
+      );
+    } catch (_) {
+      return const CustomerOrderRead(status: 0);
+    }
+  }
+
   /// Logout and Invalidate Session
   static Future<bool> logout() async {
     try {
@@ -1630,4 +1655,23 @@ class NabinApiService {
         'itemId': itemId,
         'packedWeight': packedWeight
       });
+}
+
+/// One `GET /api/customer/orders/:id` answer, with the status code kept.
+///
+/// `status` is 0 when the request never completed, so a caller can tell an outage from
+/// a refusal instead of folding four different facts into one `null`.
+class CustomerOrderRead {
+  const CustomerOrderRead({required this.status, this.body});
+
+  final int status;
+  final Map<String, dynamic>? body;
+
+  bool get ok =>
+      status == 200 && body != null && body!['success'] == true && body!['order'] is Map;
+
+  Map<String, dynamic>? get order =>
+      ok ? Map<String, dynamic>.from(body!['order'] as Map) : null;
+
+  String get error => (body?['error'] ?? '').toString();
 }

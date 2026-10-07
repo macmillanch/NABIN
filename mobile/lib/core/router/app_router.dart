@@ -24,6 +24,7 @@ import '../../features/grocery/presentation/screens/grocery_app_shell.dart';
 import '../../features/grocery/presentation/screens/grocery_cart_screen.dart';
 import '../../features/grocery/presentation/providers/grocery_cart_provider.dart';
 import '../../features/grocery/presentation/screens/grocery_checkout_screen.dart';
+import '../../features/grocery/presentation/screens/grocery_order_status_screen.dart';
 import '../../features/grocery/presentation/screens/grocery_categories_screen.dart';
 import '../../features/grocery/presentation/screens/grocery_products_screen.dart';
 import '../../features/grocery/presentation/screens/grocery_product_detail_screen.dart';
@@ -277,6 +278,15 @@ final GoRouter appRouter = GoRouter(
           );
         },
       ),
+    ),
+    GoRoute(
+      path: '/grocery-tracking',
+      builder: (context, state) {
+        // Checkout hands over the order row it just placed; the screen reads the
+        // rest back from the platform, so only the id travels through the router.
+        final extra = state.extra as Map<String, dynamic>?;
+        return GroceryOrderStatusScreen(orderData: extra);
+      },
     ),
 
     // 7. Wallet & Fintech

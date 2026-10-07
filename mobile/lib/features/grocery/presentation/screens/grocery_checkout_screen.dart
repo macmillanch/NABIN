@@ -401,9 +401,9 @@ class _GroceryCheckoutScreenState extends ConsumerState<GroceryCheckoutScreen> {
               ElevatedButton(
                 onPressed: () {
                   Navigator.of(ctx).pop();
-                  // The order row is what Activity reads back, so this is the real
-                  // way to keep following it.
-                  context.go('/activity');
+                  // The order row this screen just wrote carries its own id, and
+                  // `/grocery-tracking` reads that row back from the platform.
+                  context.go('/grocery-tracking', extra: _placedOrder);
                 },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: GroceryTheme.primaryAction,
@@ -413,7 +413,7 @@ class _GroceryCheckoutScreenState extends ConsumerState<GroceryCheckoutScreen> {
                   ),
                 ),
                 child: const Text(
-                  'View in Activity',
+                  'View order status',
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w800,
@@ -421,6 +421,19 @@ class _GroceryCheckoutScreenState extends ConsumerState<GroceryCheckoutScreen> {
                 ),
               ),
               const SizedBox(height: 8),
+              TextButton(
+                onPressed: () {
+                  Navigator.of(ctx).pop();
+                  context.go('/activity');
+                },
+                child: const Text(
+                  'View in Activity',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: GroceryTheme.textMuted,
+                  ),
+                ),
+              ),
               TextButton(
                 onPressed: () {
                   Navigator.of(ctx).pop();

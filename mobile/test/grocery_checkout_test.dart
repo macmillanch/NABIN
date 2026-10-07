@@ -9,6 +9,7 @@ import 'package:mobile/core/network/session_manager.dart';
 import 'package:mobile/features/grocery/presentation/models/grocery_product.dart';
 import 'package:mobile/features/grocery/presentation/providers/grocery_cart_provider.dart';
 import 'package:mobile/features/grocery/presentation/screens/grocery_checkout_screen.dart';
+import 'package:mobile/features/grocery/presentation/screens/grocery_order_status_screen.dart';
 
 import 'support/http_stub.dart';
 
@@ -58,6 +59,11 @@ num _serverDiscount = 30;
 bool _couponApplies = true;
 Map<String, dynamic>? _validateReply;
 
+/// The read `GET /api/customer/orders/:id` answers once checkout hands the order over.
+/// Its stage deliberately differs from the checkout reply, so a screen that printed the
+/// payload it was handed would be caught.
+Map<String, dynamic>? _orderReadReply;
+
 void serve() {
   _serverDiscount = 30;
   _couponApplies = true;
@@ -75,6 +81,33 @@ void serve() {
           'quantity': 2,
           'unit': 'kg',
           'finalItemAmount': 290,
+        },
+      ],
+    },
+  };
+  _orderReadReply = <String, dynamic>{
+    'success': true,
+    'order': <String, dynamic>{
+      'id': '7f2c9b44-0000-4000-8000-000000000044',
+      'order_number': 'ORD-GR-2026-0142',
+      'service_type': 'GROCERY',
+      'order_state': 'PREPARING',
+      'previous_state': 'ACCEPTED',
+      'total_amount': 290,
+      'currency': 'INR',
+      'created_at': '2026-10-05T09:12:00.000Z',
+      'updated_at': '2026-10-05T09:31:00.000Z',
+      'metadata': <String, dynamic>{
+        'deliveryAddress': 'Tuiklani, Aizawl • House 12',
+        'deliveryInstructions': 'Leave at the gate',
+      },
+      'lines': <Map<String, dynamic>>[
+        <String, dynamic>{
+          'product_name_snapshot': 'Reli rice',
+          'quantity': 2,
+          'unit_snapshot': 'kg',
+          'unit_price_snapshot': 145,
+          'line_total': 290,
         },
       ],
     },
@@ -102,6 +135,9 @@ void serve() {
     }
     if (url.path.contains('/grocery/checkout/validate')) {
       return (200, jsonEncode(_validateReply!));
+    }
+    if (url.path.contains('/customer/orders/')) {
+      return (200, jsonEncode(_orderReadReply ?? <String, dynamic>{'success': false}));
     }
     return (200, '{"success":true}');
   };
@@ -140,6 +176,14 @@ Future<void> pumpCheckout(
       GoRoute(
         path: '/grocery-home',
         builder: (context, state) => const Text('GROCERY HOME'),
+      ),
+      // The real screen, not a stub: the point of the exit is that it reads the
+      // order back, and a fake destination would prove nothing about that.
+      GoRoute(
+        path: '/grocery-tracking',
+        builder: (context, state) => GroceryOrderStatusScreen(
+          orderData: state.extra as Map<String, dynamic>?,
+        ),
       ),
     ],
   );
@@ -468,6 +512,29 @@ void main() {
         await tester.pump(const Duration(milliseconds: 40));
       }
       expect(find.text('ACTIVITY SCREEN'), findsOneWidget);
+    });
+
+    testWidgets('the primary exit hands the placed order to the status screen',
+        (tester) async {
+      await pumpCheckout(tester);
+      await typeAddress(tester);
+      await placeOrder(tester);
+
+      await tester.tap(find.text('View order status'));
+      for (var i = 0; i < 12; i++) {
+        await tester.pump(const Duration(milliseconds: 40));
+      }
+
+      // The identity the checkout payload carries is what the status screen asks
+      // for — no new endpoint, no id the client made up.
+      expect(stubSaw('GET', '/customer/orders/ORD-GR-2026-0142'), isTrue);
+      // And it paints the stage from that read, not from what it was handed: the
+      // checkout reply said PENDING_ACCEPTANCE, the read says PREPARING.
+      expect(find.text('Grocery order status'), findsOneWidget);
+      expect(find.text('Picking your items'), findsWidgets);
+      expect(find.text('Step 3 of 7'), findsOneWidget);
+      expect(find.text('₹290'), findsWidgets);
+      expect(find.textContaining('PENDING_ACCEPTANCE'), findsNothing);
     });
 
     testWidgets('says so when the record came back without a stage',
