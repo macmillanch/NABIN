@@ -40,12 +40,47 @@ class FeatureControlService {
     }
 
     /**
-     * Checks if a feature is enabled, respecting location overrides and parent state.
+     * Inspects independent public service activation controls from environment.
+     * Maps:
+     *   FEATURE_RIDE*    -> RIDE_PUBLIC_ENABLED
+     *   FEATURE_FOOD*    -> FOOD_PUBLIC_ENABLED
+     *   FEATURE_GROCERY* -> GROCERY_PUBLIC_ENABLED
+     *   FEATURE_PARCEL*  -> PARCEL_PUBLIC_ENABLED
+     * Returns boolean if explicitly configured, or null to defer to database platform_settings.
+     */
+    getPublicEnvControl(featureKey) {
+        if (typeof featureKey !== 'string') return null;
+        if (featureKey.startsWith('FEATURE_RIDE') && process.env.RIDE_PUBLIC_ENABLED !== undefined) {
+            const val = String(process.env.RIDE_PUBLIC_ENABLED).trim().toLowerCase();
+            return val === 'true' || val === '1';
+        }
+        if (featureKey.startsWith('FEATURE_FOOD') && process.env.FOOD_PUBLIC_ENABLED !== undefined) {
+            const val = String(process.env.FOOD_PUBLIC_ENABLED).trim().toLowerCase();
+            return val === 'true' || val === '1';
+        }
+        if (featureKey.startsWith('FEATURE_GROCERY') && process.env.GROCERY_PUBLIC_ENABLED !== undefined) {
+            const val = String(process.env.GROCERY_PUBLIC_ENABLED).trim().toLowerCase();
+            return val === 'true' || val === '1';
+        }
+        if (featureKey.startsWith('FEATURE_PARCEL') && process.env.PARCEL_PUBLIC_ENABLED !== undefined) {
+            const val = String(process.env.PARCEL_PUBLIC_ENABLED).trim().toLowerCase();
+            return val === 'true' || val === '1';
+        }
+        return null;
+    }
+
+    /**
+     * Checks if a feature is enabled, respecting location overrides, parent state, and public controls.
      * @param {string} featureKey - e.g., 'FEATURE_RIDE_TAXI'
      * @param {string} locationId - Optional, defaults to 'GLOBAL'
      * @returns {Promise<boolean>}
      */
     async isFeatureEnabled(featureKey, locationId = 'GLOBAL') {
+        const publicControl = this.getPublicEnvControl(featureKey);
+        if (publicControl !== null && !publicControl) {
+            return false;
+        }
+
         await this.refreshCache();
         
         const settingValue = this.cache.get(featureKey);

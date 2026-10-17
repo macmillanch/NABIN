@@ -18,7 +18,12 @@
  * Local/test only; refuses any non-loopback target.
  */
 const { Client } = require('pg');
-const PG = process.env.NABIN_PG_NOTIFY || 'postgres://postgres:postgres@127.0.0.1:54322/postgres';
+const targetGuard = require('./scripts/chain_target_guard');
+// F-C1-1: this suite writes and asserts through this handle, so its store must be a target
+// something DECLARED (shell, then backend/.env) and loopback - never an address typed into
+// this file, which is what let a run write one store and assert against another (#283).
+const PG_TARGET = targetGuard.requireLoopbackPgTarget({ label: 'dark_store_foundation_test' });
+const PG = PG_TARGET.connectionString;
 if (!/^(?:127\.\d{1,3}\.\d{1,3}\.\d{1,3}|localhost|::1)$/i.test(new URL(PG).hostname)) {
   console.error('DS2 REFUSED: non-loopback target'); process.exit(1);
 }
@@ -187,12 +192,16 @@ const PROTECTED = ['merchants', 'merchant_grocery_inventory', 'master_grocery_ca
     () => svc.update(ADMIN, platform.id, { status: 'ACTIVE' }));
 
   // ---------- 17 RLS + 18-23 data integrity ----------
-  const rls = await q3(c, `SELECT relname, relrowsecurity FROM pg_class WHERE relname IN
-      ('dark_stores','dark_store_inventory','dark_store_reservations') ORDER BY relname`);
+  /* relnamespace is pinned, not cosmetic: pg_class is not search_path-scoped, so the chain's
+   * disposable `chain_scratch` clone of these same three tables doubles the row count and DS2-17's
+   * `rls.length === 3` reddens on the clone instead of on the audited schema. */
+  const rls = await q3(c, `SELECT relname, relrowsecurity FROM pg_class WHERE relnamespace = 'public'::regnamespace
+      AND relname IN ('dark_stores','dark_store_inventory','dark_store_reservations') ORDER BY relname`);
   check('DS2-17', 'RLS is enabled on all three new tables with no permissive policy',
     rls.length === 3 && rls.every((r) => r.relrowsecurity === true), rls);
   const pols = (await q3(c, `SELECT polname FROM pg_policy p JOIN pg_class cl ON cl.oid=p.polrelid
-      WHERE cl.relname IN ('dark_stores','dark_store_inventory','dark_store_reservations')`)).length;
+      WHERE cl.relnamespace = 'public'::regnamespace
+      AND cl.relname IN ('dark_stores','dark_store_inventory','dark_store_reservations')`)).length;
   check('DS2-17B', 'no policy was added that would widen access (USING (true) etc.)', pols === 0, { policies: pols });
   const mgiLeft = Number((await one(`SELECT count(*)::text n FROM merchant_grocery_inventory`)).n);
   check('DS2-18', 'existing merchant grocery inventory is untouched (still 14 rows, 0 violations)',

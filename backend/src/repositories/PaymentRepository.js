@@ -9,6 +9,31 @@ const { supabaseAdmin, isLivePostgres } = require('../supabase');
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ALLOWED_PAYMENT_METHODS = ['UPI', 'CARD', 'NETBANKING', 'WALLET', 'CASH'];
 
+/**
+ * The store refused a financial write, and PostgreSQL's sentence about itself is not the
+ * caller's to read.
+ *
+ * Both payment writes used to `console.error` the refusal and continue as though it had
+ * succeeded. A checkout then answered 200 with a session that had no row behind it, and a
+ * refused webhook event booked ledger money while answering `duplicate: false`. Money is the
+ * one place a refusal cannot be an opinion, so the refusal travels with the parts `storeReply`
+ * (supabase.js) classifies — the engine's own `code`, the wire `status` when there is one, and
+ * the engine's text as `details`, which the route logs and never echoes. The status stays unset
+ * on purpose: a store failure is not a 400, and `storeReply` decides what it is (503 when the
+ * store is gone, 409 on a collision, 500 when the schema is not ready) from the code.
+ */
+function storeFailure(what, error) {
+  const err = new Error(`The ${what} could not be completed because the payment store refused it.`);
+  err.storeFailure = true;
+  err.code = (error && error.code) || 'STORE_ERROR';
+  err.details = error ? String(error.message || error.code || error) : 'unknown store failure';
+  if (error && error.hint) err.hint = String(error.hint);
+  const wireStatus = error && (error.status || error.statusCode);
+  if (wireStatus) err.status = Number(wireStatus);
+  if (error && error.cause) err.cause = error.cause;
+  return err;
+}
+
 class PaymentRepository {
   constructor(db) {
     this.db = db;
@@ -77,9 +102,15 @@ class PaymentRepository {
     };
 
     // 1. Authoritative PostgreSQL Insert
+    // The row is the checkout. `payment_sessions.order_id` is UNIQUE
+    // (migrations/006_payments_domain.sql:14), so a refusal here means the durable session does
+    // not exist — and a session that does not exist cannot be captured later. Cache and audit
+    // below are reachable only once the store has accepted the row; the degraded (non-live) path
+    // keeps answering from memory, which is the owner-approved outage semantics for this map.
     if (isLivePostgres && supabaseAdmin) {
+      let data, error;
       try {
-        const { data, error } = await supabaseAdmin
+        ({ data, error } = await supabaseAdmin
           .from('payment_sessions')
           .insert({
             order_id: orderId,
@@ -94,18 +125,22 @@ class PaymentRepository {
             metadata: sessionRecord.metadata
           })
           .select()
-          .single();
-
-        if (error) {
-          console.error('⚠️ [PaymentRepository.createPaymentSession] DB error:', error.message);
-        } else if (data) {
-          sessionRecord.id = data.id;
-          sessionRecord.createdAt = data.created_at;
-          sessionRecord.updatedAt = data.updated_at;
-        }
+          .single());
       } catch (dbErr) {
-        console.error('⚠️ [PaymentRepository.createPaymentSession] Exception:', dbErr.message);
+        throw storeFailure('payment order session', dbErr);
       }
+
+      if (error) throw storeFailure('payment order session', error);
+      if (!data) {
+        throw storeFailure('payment order session', {
+          code: 'STORE_ERROR',
+          message: 'the payment_sessions insert answered with no row and no error',
+        });
+      }
+
+      sessionRecord.id = data.id;
+      sessionRecord.createdAt = data.created_at;
+      sessionRecord.updatedAt = data.updated_at;
     }
 
     // 2. Cache in memory
@@ -224,7 +259,11 @@ class PaymentRepository {
       });
 
       if (error) {
-        throw new Error(`capture_payment_atomic RPC error: ${error.message}`);
+        // A rejected capture is the store's sentence about itself, not the customer's bug.
+        // Wrapping it in a plain Error used to strip the engine code, so an unreachable database
+        // reached the route as a codeless Error and was answered 400 — a client-error report of
+        // a server outage.
+        throw storeFailure('payment capture', error);
       }
 
       if (data && data.success) {
@@ -251,7 +290,9 @@ class PaymentRepository {
           this.db.processedWebhookIds.add(webhookEventId);
         }
         if (this.db.recordLedgerEntry && !data.duplicate) {
-          this.db.recordLedgerEntry({
+          // Awaited: an un-awaited call here used to mean a rejected journal posting became an
+          // unhandled rejection with no trace, and a store outage was invisible to the caller.
+          await this.db.recordLedgerEntry({
             transactionId: paymentId,
             debitAccount: 'PAYMENT_GATEWAY_ESCROW',
             creditAccount: (serviceType === 'FOOD' || data.serviceType === 'FOOD' || data.serviceType === 'GROCERY') ? 'MERCHANT_PAYABLE' : 'CUSTOMER_WALLET_LIABILITY',
@@ -713,16 +754,25 @@ class PaymentRepository {
    * Helper: Record Standalone Webhook and Ledger Entry
    */
   async recordStandaloneWebhook({ eventId, eventType, paymentId, amount, status, signature, payload }) {
-    if (this.db.processedWebhookIds) this.db.processedWebhookIds.add(eventId);
-
     const isRefund = eventType === 'refund.processed' || eventType === 'refund.created';
     const isFailedStatus = status === 'FAILED' || eventType === 'payment.failed';
     const numAmount = Number(amount) || 0;
 
-    // PostgreSQL Webhook Insert
+    // Claim the event id in the store BEFORE anything money-shaped happens.
+    // `payment_webhooks.event_id` is UNIQUE (migrations/001_central_schema.sql:211) so the second
+    // delivery of one event loses that race — which is the whole point of the row. supabase-js
+    // resolves a PostgreSQL refusal as `{data, error}` instead of rejecting, so the previous
+    // `try { await insert } catch { warn }` discarded the 23505 and then booked the ledger
+    // anyway: two concurrent deliveries, two identical ESCROW -> WALLET entries. The sibling SQL
+    // primitive already claims first and returns duplicate to the loser
+    // (refund_payment_atomic, migrations/006_payments_domain.sql:217-219, 272-274); this mirrors it.
+    // A refusal that is not a collision is not a duplicate either — it is "the event was not
+    // recorded", so nothing moves and the gateway retries.
+    let claimed = true;
     if (isLivePostgres && supabaseAdmin) {
+      let error;
       try {
-        await supabaseAdmin.from('payment_webhooks').insert({
+        ({ error } = await supabaseAdmin.from('payment_webhooks').insert({
           event_id: eventId,
           event_type: eventType || 'payment.captured',
           provider: 'RAZORPAY',
@@ -732,11 +782,29 @@ class PaymentRepository {
           is_processed: true,
           payment_id: paymentId,
           signature_valid: true
-        });
+        }));
       } catch (dbErr) {
-        console.warn('⚠️ [PaymentRepository.recordStandaloneWebhook] DB error:', dbErr.message);
+        throw storeFailure('payment webhook event', dbErr);
+      }
+
+      if (error) {
+        if (error.code === '23505') claimed = false;
+        else throw storeFailure('payment webhook event', error);
       }
     }
+
+    if (!claimed) {
+      if (this.db.processedWebhookIds) this.db.processedWebhookIds.add(eventId);
+      return {
+        success: true,
+        duplicate: true,
+        message: 'Webhook already processed (idempotent claim held by the earlier event row)',
+        eventId,
+        paymentId
+      };
+    }
+
+    if (this.db.processedWebhookIds) this.db.processedWebhookIds.add(eventId);
 
     // Record double-entry ledger entry ONLY if not failed and amount > 0
     if (!isFailedStatus && numAmount > 0) {

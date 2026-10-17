@@ -10,9 +10,20 @@
  * this file (`menu toggle` and the grocery product photo route) read correctly in that shape
  * and are bypassable anyway.
  *
- * The two tenants are real rows in the local/TEST database, not invented identities:
- *   A  00000000-0000-0000-0000-000000000201  +919811223344  Dilli Darbar Authentic Mughlai
- *   B  2699ade3-e014-4731-95dc-c79b095def40  +919871133479  Test Bistro M1
+ * The identities are rows THIS FILE creates and deletes, through the shared isolated-fixture
+ * helper, rather than seeded rows it hopes nobody else restyled:
+ *   A  minted HYBRID_BOTH  (both services, plus its own dish and its own stocked shelf)
+ *   B  minted RESTAURANT   (the cross-tenant pair and the attacker)
+ *   GG minted GROCERY      (the instamart-only entitlement context)
+ *   plus one minted customer and one dish per restaurant-capable tenant.
+ *
+ * They used to be three hard-coded phones resolved to whichever seeded merchant rows owned them,
+ * which made this suite's verdict depend on state it did not own: the entitlement group asserts
+ * `merchants.merchant_type` values, and the inventory group writes a grocery shelf, so one
+ * restyled seed row or one overlapping suite turned a green run red on a fixture. `rest_1` and its
+ * menu item `m1` are still named where a check is *about* the legacy in-memory store's ownership
+ * guard (MCS-01, MCMD-04/05); those checks only ever attempt a refusal, and the in-memory seed is
+ * reproduced by `database.js` on every boot, so nothing here mutates a shared row.
  *
  * Order of attack matters for honesty: cross-tenant attempts target the OTHER tenant's rows and
  * must leave them bit-identical, and the only orders this file mutates are ones it creates for
@@ -26,22 +37,36 @@ const path = require('path');
 const crypto = require('crypto');
 const { spawnSync } = require('child_process');
 const { withSharedSession } = require('./testSessionCache');
+const { openFixtures } = require('./test_fixtures');
+const targetGuard = require('./scripts/chain_target_guard');
 
 const BASE_URL = process.env.NABIN_TEST_BASE_URL || 'http://127.0.0.1:4000';
+// The store this suite mints its merchants, dishes, shelf rows and orders INTO. Until 2026-10-16
+// this line was `process.env.NABIN_PG_NOTIFY || 'postgres://<user>:<password>@127.0.0.1:54322/...'`,
+// so a run with nothing configured passed a fallback address to `openFixtures()` as an explicit
+// option — ahead of the handle's own guard — and created and deleted real rows in a store no
+// configuration named. That is the #283 split target one level down, and it is why the address is
+// gone: the target now resolves through `scripts/chain_target_guard.js`, the same mechanism
+// `test_fixtures.js` and the census use (shell first, because dotenv fills only keys the shell left
+// undefined, then `backend/.env`), and an absent, unparsable, non-loopback or production-ref target
+// is a refusal thrown at load, before any socket opens. `DATABASE_URL` leads `NABIN_PG_NOTIFY`
+// because that is the key `scripts/chain_scratch.js link-env` redirects for an isolated link.
+const PG_TARGET = targetGuard.requireLoopbackPgTarget({ label: 'merchant_operations_test' });
+const PG = PG_TARGET.connectionString;
 
-const A = {
-  phone: '9811223344',
-  uuid: '00000000-0000-0000-0000-000000000201',
-  name: 'Dilli Darbar Authentic Mughlai',
-};
-const B = {
-  phone: '9871133479',
-  uuid: '2699ade3-e014-4731-95dc-c79b095def40',
-  name: 'Test Bistro M1',
-};
-const CUSTOMER_PHONE = '9845011982';       // Priya Saxena, KYC verified
+// Populated by `main()` from the rows this suite mints. In a spawned child (group 8) the same
+// identities arrive through the environment, because the child has to name the stores the parent
+// created — it cannot mint its own without changing what is being asserted.
+const A = { phone: process.env.NABIN_MCH_A_PHONE || null, uuid: process.env.NABIN_MCH_A_ID || null, name: 'fixture hybrid store', type: 'HYBRID_BOTH' };
+const B = { phone: process.env.NABIN_MCH_B_PHONE || null, uuid: process.env.NABIN_MCH_B_ID || null, name: 'fixture restaurant store', type: 'RESTAURANT' };
+const GG = { phone: process.env.NABIN_MCH_G_PHONE || null, uuid: process.env.NABIN_MCH_G_ID || null, name: 'fixture instamart store', type: 'GROCERY' };
+let CUSTOMER_PHONE = process.env.NABIN_MCH_C_PHONE || null; // the minted buyer
 const REST_LEGACY = 'rest_1';              // legacy in-memory restaurant id
 const DAY = Date.now();
+
+let fx = null;          // the open fixture handle, when main() got as far as minting
+let aDish = null;       // A's own orderable dish
+let fixtureShelf = null; // A's own master-catalogue item, stocked on A's own shelf
 
 const passed = [];
 const failed = [];
@@ -177,8 +202,23 @@ async function mintOrderFor(tenant, merchantToken, customerToken) {
   const prods = (cat.data || {}).products || [];
   const prod = prods.find((p) => p.is_available !== false) || prods[0];
   if (!prod) return { ok: false, why: 'the tenant has no catalogue row to order', s: cat.status };
+
+  const selected_add_ons = [];
+  const groups = Array.isArray(prod.addOnGroups || prod.add_on_groups) ? (prod.addOnGroups || prod.add_on_groups) : [];
+  for (const group of groups) {
+    const isRequired = Boolean(group.isRequired || (group.minSelections && group.minSelections > 0));
+    if (isRequired && Array.isArray(group.options) && group.options.length > 0) {
+      const opt = group.options.find((o) => o.isAvailable !== false) || group.options[0];
+      if (opt && opt.id) selected_add_ons.push(opt.id);
+    }
+  }
+
   const booked = await request('POST', '/api/customer/book-food',
-    { merchantId: tenant.uuid, deliveryAddress: 'Flat 402, Civil Lines Hub, North Delhi', items: [{ productId: prod.id, quantity: 1 }] },
+    {
+      merchantId: tenant.uuid,
+      deliveryAddress: 'Flat 402, Civil Lines Hub, North Delhi',
+      items: [{ productId: prod.id, quantity: 1, selected_add_ons }]
+    },
     { ...tok(customerToken), 'Idempotency-Key': uniq('mch_fixture') });
   const order = booked.data.order || booked.data.job || {};
   return {
@@ -200,6 +240,39 @@ async function main() {
   }
   const store = supabaseAdmin;
 
+  // ---- every merchant, customer, dish and shelf used below is minted here and removed on exit ----
+  // The entitlement group (MES) reads `merchants.merchant_type` back from PostgreSQL and the
+  // inventory group (MCP) writes a grocery shelf, so both need merchants whose stored type this
+  // file chose. Minting them also means the orders, KDS tickets, sessions and price history this
+  // run creates are rows the fixture cleanup owns and can delete.
+  fx = await openFixtures('mch', { connectionString: PG });
+  const mintMerchant = async (target) => {
+    const m = await fx.merchant({ type: target.type, name: `${target.name} ${DAY}` });
+    target.uuid = m.id;
+    target.phone = m.phone;
+    target.name = m.name;
+    return target;
+  };
+  await mintMerchant(A);
+  await mintMerchant(B);
+  await mintMerchant(GG);
+  CUSTOMER_PHONE = (await fx.customer({ name: 'buyer' })).phone;
+  // One orderable dish per restaurant-capable tenant: the catalogue reads, the menu-photo group
+  // and both order mints all take their item from these rows.
+  aDish = await fx.foodProduct(A.uuid, { name: 'hybrid store dish', category: 'Fixture Menu', price: 210 });
+  aDish.sku = `FIX-MCH-${DAY}-A`;
+  await fx.query('UPDATE products SET sku = $2 WHERE id = $1::uuid', [aDish.id, aDish.sku]);
+  await fx.foodProduct(B.uuid, { name: 'restaurant store dish', category: 'Fixture Menu', price: 180 });
+  // A's instamart side: one master-catalogue row, stocked on A's own shelf. The inventory group
+  // used to derive its product from the shared master catalogue's first row, which made every
+  // price assertion depend on which other suite had run last.
+  fixtureShelf = await fx.groceryItem(A.uuid, {
+    name: 'fixture shelf item', category: 'Fixture Aisle', store_price: 56, stock_quantity: 50,
+  });
+  console.log(`  fixtures: A=${A.type} ${String(A.uuid).slice(0, 8)} | B=${B.type} ${String(B.uuid).slice(0, 8)}`
+    + ` | G=${GG.type} ${String(GG.uuid).slice(0, 8)} | dish=${String(aDish.id).slice(0, 8)}`
+    + ` | shelf=${String(fixtureShelf.id).slice(0, 8)} catalog=${String(fixtureShelf.catalogId).slice(0, 8)}`);
+
   const la = await login(A.phone, 'MERCHANT');
   const lb = await login(B.phone, 'MERCHANT');
   const lc = await login(CUSTOMER_PHONE, 'CUSTOMER');
@@ -208,11 +281,11 @@ async function main() {
   // =============================== 1. authentication ===============================
   assert('MCA-01 merchant A has a real MERCHANT session', !!A_T, { failure: la.failure });
   assert('MCA-02 merchant B has a real MERCHANT session', !!B_T, { failure: lb.failure });
-  // A shared 10-minute OTP lockout on the customer phone is an environment limit, not a
-  // merchant defect, and every earlier suite in the chain has already signed in as that
-  // customer. It is therefore reported as SKIPPED with the server's own reason, while any
-  // other failure mode still fails the suite. Run alone (not in-chain) this phone is fresh
-  // and the whole order group executes — that is how MCO-01..12 were proven.
+  // The buyer's phone was minted minutes ago, so the shared 10-minute OTP lockout that used to
+  // make this a chain-order-dependent skip cannot apply to it. The branch is kept because the
+  // lockout is a real limit of the endpoint: if it ever does answer, it is reported as SKIPPED
+  // with the server's own reason rather than as a merchant defect, while any other failure mode
+  // still fails the suite.
   const rateLimited = lc.failure && lc.failure.body && lc.failure.body.code === 'OTP_DISPATCH_FAILED';
   if (C_T) {
     assert('MCA-03a a customer session is available for the order-creation checks', true, null);
@@ -223,9 +296,10 @@ async function main() {
     assert('MCA-03a a customer session is available for the order-creation checks', false, { failure: lc.failure });
   }
   assert('MCA-03 the session resolves to A and to B, not to a shared account',
-    la.user && String(la.user.id) !== String(lb.user && lb.user.id)
-    && String(la.user.uuid || la.user.id).startsWith('00000000-0000-0000-0000-000000000201') === true,
-    { aUser: la.user && { id: la.user.id, uuid: la.user.uuid }, bUser: lb.user && { id: lb.user.id } });
+    la.user && lb.user && String(la.user.id) !== String(lb.user.id)
+    && String(la.user.uuid || la.user.id) === String(A.uuid)
+    && String(lb.user.uuid || lb.user.id) === String(B.uuid),
+    { aUser: la.user && { id: la.user.id, uuid: la.user.uuid }, bUser: lb.user && { id: lb.user.id, uuid: lb.user.uuid } });
 
   const anon = {};
   for (const p of ['/api/merchant/orders', '/api/merchant/catalog', '/api/merchant/inventory']) {
@@ -367,8 +441,12 @@ async function main() {
     { inv: { s: invSpoof.status, ok: invSpoof.data.success }, before: pBefore.row, after: pAfter.row });
 
   const masterRead = await request('GET', '/api/merchant/master-catalog', null, tok(A_T));
+  const masterProducts = (masterRead.data || {}).products || [];
   assert('MCP-05b the master catalogue is a shared read, not a tenant leak of priced rows',
-    masterRead.status === 200 && Array.isArray(masterRead.data.products), { s: masterRead.status });
+    masterRead.status === 200 && Array.isArray(masterRead.data.products)
+    && !!fixtureShelf && masterProducts.some((p) => String(p.id) === String(fixtureShelf.catalogId)),
+    { s: masterRead.status, n: masterProducts.length,
+      stocked: masterProducts.some((p) => String(p.id) === String(fixtureShelf.catalogId)) });
 
   // --- inventory value integrity (money + stock) ---
   //
@@ -377,7 +455,7 @@ async function main() {
   // check passed by ignoring its own payload. Everything below speaks the real field names and
   // reads `merchant_grocery_inventory` back, because "a 400 came back" is not evidence that
   // nothing was written — the whole point of a money-integrity guard is the row.
-  const masterId = ((masterRead.data.products || [])[0] || {}).id;
+  const masterId = (fixtureShelf || {}).catalogId;
   const invCols = 'store_price,stock_quantity,is_available,status,updated_at';
   const readInv = async () => (await store.from('merchant_grocery_inventory')
     .select(invCols).eq('merchant_id', A.uuid).eq('product_id', masterId).maybeSingle()).data;
@@ -475,19 +553,39 @@ async function main() {
     && altField.data.success === true,
     { s: altField.status, row: altRow });
 
-  // Restore or remove whatever these checks created, so the fixture is left as found.
+  // Restore whatever these checks mutated, and prove the restore landed.
+  //
+  // This block used to issue its write and never read the result. That is how a shared fixture gets
+  // poisoned invisibly: measured 2026-10-09, the `grocery_price_history` timeline shows five runs
+  // that began at the seeded 56.00 and returned to it, then every run after 15:37Z beginning at
+  // 49.50 — the restore had stopped landing, said nothing, and the next two links (test_suite's
+  // `PRICE_CHANGED` cascade and test_phase4_orders' `₹112 (2 x 56)`) went red on a fixture, not on
+  // a product defect. An unchecked restore is worse than no restore at all.
   if (masterId) {
     if (createdListing) {
-      await store.from('merchant_grocery_inventory').delete()
+      const removed = await store.from('merchant_grocery_inventory').delete()
         .eq('merchant_id', A.uuid).eq('product_id', masterId);
+      const stillThere = await readInv();
+      assert('MCP-14 the listing this suite created is gone again',
+        !removed.error && stillThere === null, { error: removed.error || null, row: stillThere });
     } else if (preExisting) {
-      await store.from('merchant_grocery_inventory').update({
+      const restore = await store.from('merchant_grocery_inventory').update({
         store_price: preExisting.store_price,
         stock_quantity: preExisting.stock_quantity,
         is_available: preExisting.is_available,
         status: preExisting.status,
       }).eq('merchant_id', A.uuid).eq('product_id', masterId);
+      const restored = await readInv();
+      assert('MCP-14 the inventory row this suite mutated reads back exactly the values it was found with',
+        !restore.error && !!restored
+        && Number(restored.store_price) === Number(preExisting.store_price)
+        && Number(restored.stock_quantity) === Number(preExisting.stock_quantity)
+        && restored.is_available === preExisting.is_available
+        && restored.status === preExisting.status,
+        { error: restore.error || null, found: preExisting, now: restored });
     }
+  } else {
+    skip('MCP-14', 'the master catalogue returned no product, so nothing was mutated to restore');
   }
 
   // =============================== 5. store / menu state ===============================
@@ -508,9 +606,15 @@ async function main() {
     { s: menuForeign.status, code: menuForeign.data.code });
 
   // =============================== 6. media authorization ===============================
-  // Cloudinary is deliberately unconfigured in this environment, so any route that reaches the
-  // upload step fails there with a 400. That is the point: an unauthenticated caller must be
-  // stopped at the door (401/403), never allowed to walk as far as the storage call.
+  // An unauthenticated caller must be stopped at the door (401/403), never allowed to walk as
+  // far as the storage call. Where a call has to go deeper than the door it carries a mime type
+  // the service rejects before it touches the SDK. That discipline is not a comment about this
+  // machine — the process measured on 2026-10-09 carried no `CLOUDINARY_*` value, so
+  // `cloudinaryService.isConfigured` was false and uploads returned from the mock branch without a
+  // network call. That is a fact about one process, not about this repository: `backend/.env*` is
+  // gitignored and can gain real credentials at any time, and a checkout that *does* load them
+  // writes with `overwrite: true` (services/cloudinaryService.js), so no suite may be capable of
+  // overwriting a shared storage account on every run.
   const tinyImage = Buffer.from('R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==', 'base64').toString('base64');
   const dataUrl = `data:image/png;base64,${tinyImage}`;
 
@@ -552,6 +656,217 @@ async function main() {
   assert('MCMD-07 no refused upload created a product row',
     !orphanProduct.error && !orphanProduct.data, { found: orphanProduct.data, err: orphanProduct.error });
 
+  // ---- the menu-item photo route reaching its own gate ----
+  // Three separate faults made this route unable to do its one job, and each produced a
+  // different wrong answer:
+  //   * the dish membership test read `rest.menu`, the in-memory mirror, which carries no menu
+  //     rows for a live-PostgreSQL store — so every real dish was refused as `MENU_ITEM_NOT_FOUND`,
+  //     a 404 about a dish that exists;
+  //   * a request that did clear the membership test then named an undeclared `restaurantId` in
+  //     the tag list and died on `ReferenceError: restaurantId is not defined`, which the catch
+  //     answered as a 400 quoting that internal sentence to the caller;
+  //   * the catch hard-coded 400, so a 403 `MERCHANT_MISMATCH` refusal arrived as a codeless 400.
+  // A disallowed mime is the probe payload throughout: `uploadImage` validates the folder and the
+  // mime before any SDK call, so "it answered the mime refusal" proves the request walked the
+  // whole authorization path without writing anything.
+  const badMime = 'application/x-msdownload';
+  const readDishes = async (storeId) => {
+    const r = await request('GET', `/api/restaurants/${storeId}/menu`);
+    return (r.data && r.data.items) || [];
+  };
+  const ownDish = (await readDishes(A.uuid)).find((i) => i && i.id) || null;
+  const foreignDish = (await readDishes(B.uuid)).find((i) => i && i.id && i.id !== (ownDish && ownDish.id)) || null;
+  const mediaCountOf = async () => {
+    const r = await request('GET', '/api/media');
+    return r.data && r.data.count;
+  };
+  const mediaCountBefore = await mediaCountOf();
+
+  // `products.image_url` is the only column on the dish's own row that a menu-photo write could
+  // rewrite, and the route never updates it — `db.saveMediaAsset` records the asset, nothing writes
+  // the product. Reading it across the whole refusal set is the side-effect assertion the media
+  // count cannot make on its own: under live PostgreSQL the asset array is process-only and starts
+  // at zero, so "count unchanged" is a weak witness while the stored dish row is a durable one.
+  const readDishImage = async (itemId) => {
+    const r = await store.from('products').select('id,sku,name,image_url').eq('id', itemId).maybeSingle();
+    return r.error ? { error: r.error } : { row: r.data };
+  };
+
+  // A dish of A's own store, addressed by its uuid.
+  if (!ownDish) {
+    for (const n of ['MCMD-08', 'MCMD-09', 'MCMD-10', 'MCMD-11', 'MCMD-12', 'MCMD-13', 'MCMD-19']) {
+      skip(n, 'merchant A has no menu rows to photograph');
+    }
+  } else {
+    const dishImageBefore = await readDishImage(ownDish.id);
+
+    // A NULL column cannot witness a preservation claim. Measured 2026-10-10: both of merchant A's
+    // seeded dish rows store `image_url` NULL, so an unchanged-value assertion would hold even
+    // against a route that overwrote a real photo with a fabricated CDN URL. Put a sentinel in the
+    // column, run the whole refusal set against it, then restore — the refusals now have something
+    // to lose. The write is this suite's own, against A's own row (`merchant_id` is in the filter),
+    // on the target the wrapper applied, and MCMD-19 checks it went back.
+    const sentinel = `nabin-sentinel/menu-photo-${crypto.randomBytes(4).toString('hex')}`;
+    let sentinelWritten = false;
+    let sentinelError = null;
+    if (!dishImageBefore.error) {
+      const w = await store.from('products').update({ image_url: sentinel })
+        .eq('id', ownDish.id).eq('merchant_id', A.uuid).select('id,image_url');
+      sentinelError = w.error || null;
+      sentinelWritten = !w.error && (w.data || []).length === 1 && w.data[0].image_url === sentinel;
+    } else {
+      sentinelError = dishImageBefore.error;
+    }
+    if (!sentinelWritten) skip('MCMD-13', `no sentinel could stand in the column: ${JSON.stringify(sentinelError)}`);
+    const ownPhoto = await request('POST', `/api/merchant/${A.uuid}/menu/${ownDish.id}/photo`,
+      { fileData: dataUrl, mimeType: badMime }, tok(A_T));
+    assert('MCMD-08 the photo route recognises one of A\'s own dishes and reaches its upload gate',
+      ownPhoto.status === 400 && /Unsupported MIME type/.test(String(ownPhoto.data.error || '')),
+      { s: ownPhoto.status, code: ownPhoto.data.code, err: ownPhoto.data.error, note: 'a 404 MENU_ITEM_NOT_FOUND here is the mirror read refusing a dish that exists' });
+
+    // `products.id` is a uuid column, so a legacy or sku-shaped identifier compared against it is
+    // a PostgreSQL 22P02 error surfaced as a store failure, not a refusal. The route matches the
+    // caller's identifier on a column that can hold it; this assertion holds that behaviour.
+    if (!ownDish.sku) {
+      skip('MCMD-09', 'A\'s fixture dish carries no sku to photograph by');
+    } else {
+      const skuPhoto = await request('POST', `/api/merchant/${A.uuid}/menu/${ownDish.sku}/photo`,
+        { fileData: dataUrl, mimeType: badMime }, tok(A_T));
+      assert('MCMD-09 a non-uuid menu identifier is matched on a column that can hold it',
+        skuPhoto.status === 400 && /Unsupported MIME type/.test(String(skuPhoto.data.error || '')),
+        { s: skuPhoto.status, code: skuPhoto.data.code, err: skuPhoto.data.error });
+    }
+
+    // The dish id is caller-controlled, so the membership read must stay scoped to the caller's
+    // own store — otherwise A can relabel one of B's dish images.
+    if (!foreignDish) {
+      skip('MCMD-10', 'merchant B has no menu row to aim A at');
+    } else {
+      const crossStoreItem = await request('POST', `/api/merchant/${A.uuid}/menu/${foreignDish.id}/photo`,
+        { fileData: dataUrl, mimeType: badMime }, tok(A_T));
+      assert('MCMD-10 A cannot photograph B\'s dish by addressing its own store',
+        crossStoreItem.status === 404 && crossStoreItem.data.code === 'MENU_ITEM_NOT_FOUND',
+        { s: crossStoreItem.status, code: crossStoreItem.data.code, err: crossStoreItem.data.error });
+    }
+
+    // The store resolver refuses before the dish is looked at, so this needs no fixture from B.
+    const wrongStorePath = await request('POST', `/api/merchant/${B.uuid}/menu/${ownDish.id}/photo`,
+      { fileData: dataUrl, mimeType: badMime }, tok(A_T));
+    assert('MCMD-11 the photo route keeps a cross-store refusal as a 403 carrying its code',
+      wrongStorePath.status === 403 && wrongStorePath.data.code === 'MERCHANT_MISMATCH',
+      { s: wrongStorePath.status, code: wrongStorePath.data.code, err: wrongStorePath.data.error });
+
+    const mediaCountAfter = await mediaCountOf();
+    assert('MCMD-12 none of the menu-photo refusals persisted a media asset',
+      mediaCountBefore === mediaCountAfter, { before: mediaCountBefore, after: mediaCountAfter });
+
+    // The sentinel has to survive every refusal, then go back exactly as it was found.
+    const dishImageAfter = await readDishImage(ownDish.id);
+    if (!sentinelWritten) {
+      skip('MCMD-19', 'the sentinel never landed, so there is nothing to restore');
+    } else if (dishImageAfter.error) {
+      skip('MCMD-13', `the dish row could not be read back: ${JSON.stringify(dishImageAfter.error)}`);
+    } else {
+      assert('MCMD-13 no menu-photo refusal overwrote the sentinel standing in the dish\'s image_url',
+        (dishImageAfter.row || {}).image_url === sentinel,
+        { found: (dishImageAfter.row || {}).image_url, expected: sentinel, note: 'a mock URL here means a refusal reached storage' });
+
+      const restored = await store.from('products')
+        .update({ image_url: (dishImageBefore.row || {}).image_url ?? null })
+        .eq('id', ownDish.id).eq('merchant_id', A.uuid).select('id,image_url');
+      assert('MCMD-19 the sentinel this suite wrote is restored to the value the row was found with',
+        !restored.error && (restored.data || []).length === 1
+        && ((restored.data || [])[0] || {}).image_url === ((dishImageBefore.row || {}).image_url ?? null),
+        { wanted: (dishImageBefore.row || {}).image_url, got: (restored.data || [])[0] && restored.data[0].image_url, err: restored.error });
+    }
+  }
+
+  // ---- the two identifier branches, aimed at a dish that does not exist ----
+  // The route chooses its comparison column by shape: a uuid is matched on `products.id`, anything
+  // else on `products.sku`. Both branches owe the caller the route's own refusal.
+  // The uuid branch is the one worth minting for: `products.id` is a uuid column, so a malformed
+  // value compared against it is SQLSTATE 22P02 — a store failure the catch answers as a codeless
+  // 400 or a store-unreachable 503, quoting infrastructure at the caller. An absent-but-valid uuid
+  // isolates the lookup from the column type, so a 404 here means the membership query refused, and
+  // anything else means the request never got that far.
+  const absentUuid = crypto.randomUUID();
+  const absentUuidRes = await request('POST', `/api/merchant/${A.uuid}/menu/${absentUuid}/photo`,
+    { fileData: dataUrl, mimeType: badMime }, tok(A_T));
+  assert('MCMD-14 an absent uuid-shaped menu id is refused by the lookup, not by a store error',
+    absentUuidRes.status === 404 && absentUuidRes.data.code === 'MENU_ITEM_NOT_FOUND',
+    { s: absentUuidRes.status, code: absentUuidRes.data.code, err: absentUuidRes.data.error });
+
+  const absentSku = `menu_probe_absent_${DAY}`;
+  const absentSkuRes = await request('POST', `/api/merchant/${A.uuid}/menu/${absentSku}/photo`,
+    { fileData: dataUrl, mimeType: badMime }, tok(A_T));
+  assert('MCMD-15 an absent sku-shaped menu id is refused on a column that can hold it',
+    absentSkuRes.status === 404 && absentSkuRes.data.code === 'MENU_ITEM_NOT_FOUND',
+    { s: absentSkuRes.status, code: absentSkuRes.data.code, err: absentSkuRes.data.error });
+
+  // ---- authenticated, but with no merchant context ----
+  // A different fault from MCMD-06's anonymous caller: here `resolveMediaCaller` has a real session
+  // in hand and must refuse on the role before it resolves a store, reads a dish, or reaches the
+  // upload gate. A 404 instead of a 403 would mean the customer walked past the role check and got
+  // an answer from the dish lookup.
+  if (!C_T) {
+    skip('MCMD-16', 'no customer session to test the role gate with');
+  } else {
+    const custMenuPhoto = await request('POST', `/api/merchant/${A.uuid}/menu/${absentSku}/photo`,
+      { fileData: dataUrl, mimeType: badMime }, tok(C_T));
+    assert('MCMD-16 a customer session is refused by the role gate before any dish lookup',
+      custMenuPhoto.status === 403 && custMenuPhoto.data.code === 'FORBIDDEN',
+      { s: custMenuPhoto.status, code: custMenuPhoto.data.code, err: custMenuPhoto.data.error });
+  }
+
+  if (!drv.token) {
+    skip('MCMD-17', `no driver session to test the role gate with (${JSON.stringify(drv.failure)})`);
+  } else {
+    const drvMenuPhoto = await request('POST', `/api/merchant/${A.uuid}/menu/${absentSku}/photo`,
+      { fileData: dataUrl, mimeType: badMime }, tok(drv.token));
+    assert('MCMD-17 a driver session is refused by the same role gate',
+      drvMenuPhoto.status === 403 && drvMenuPhoto.data.code === 'FORBIDDEN',
+      { s: drvMenuPhoto.status, code: drvMenuPhoto.data.code, err: drvMenuPhoto.data.error });
+  }
+
+  // ---- the alias route: the store can be named in the body instead of the path ----
+  // `req.params.restaurantId || req.body.restaurantId` means MCMD-11's path is only one of two ways
+  // to aim this route at a foreign store, and the body one is what a client that read the alias
+  // would send. The resolver takes the same `suppliedId` either way, so the refusal has to look the
+  // same either way. A 404 here would mean the body name was dropped and the request resolved
+  // against the caller's own store instead — which is the answer a *legitimate* alias caller gets.
+  const aliasCrossStore = await request('POST', `/api/merchant/menu/${absentUuid}/photo`,
+    { fileData: dataUrl, mimeType: badMime, restaurantId: B.uuid }, tok(A_T));
+  assert('MCMD-20 the alias route refuses a foreign store named in the body, not just in the path',
+    aliasCrossStore.status === 403 && aliasCrossStore.data.code === 'MERCHANT_MISMATCH',
+    { s: aliasCrossStore.status, code: aliasCrossStore.data.code, err: aliasCrossStore.data.error });
+
+  // And the other direction: an alias caller who names no store at all must land on their own,
+  // because `mediaTargetStore` returns the resolved own store when `suppliedId` is absent. A 400
+  // `MERCHANT_MISMATCH`/401 here would mean the missing context was read as a refusal, and a 404
+  // would be the mirror bug back again — the alias refusing a dish that exists.
+  if (!ownDish) {
+    skip('MCMD-21', 'merchant A has no menu rows to photograph through the alias');
+  } else {
+    const aliasOwnStore = await request('POST', '/api/merchant/menu/' + ownDish.id + '/photo',
+      { fileData: dataUrl, mimeType: badMime }, tok(A_T));
+    assert('MCMD-21 an alias call with no store named falls back to the caller\'s own store',
+      aliasOwnStore.status === 400 && /Unsupported MIME type/.test(String(aliasOwnStore.data.error || '')),
+      { s: aliasOwnStore.status, code: aliasOwnStore.data.code, err: aliasOwnStore.data.error });
+  }
+
+  // What "no external upload was performed" can honestly mean from outside the server process:
+  // every request above carried a mime the service rejects inside `uploadImage`, before any SDK
+  // call, and the three durable witnesses stayed where they started — no product row (MCMD-07), no
+  // dish image rewritten (MCMD-13), no media asset recorded (MCMD-18). This configuration makes the
+  // stronger statement moot but not unprovable: measured 2026-10-09 the harness process reports
+  // `cloudinaryService.isConfigured === false`, so even an accepted mime returns from the mock
+  // branch without a network call. Do not read that as safety — `backend/.env*` is gitignored and
+  // can gain real credentials at any time, at which point accepted uploads write with
+  // `overwrite: true`. That is why the payload stays rejected.
+  const mediaCountAfterNew = await mediaCountOf();
+  assert('MCMD-18 none of the boundary refusals reached media storage',
+    mediaCountBefore === mediaCountAfterNew, { before: mediaCountBefore, after: mediaCountAfterNew });
+
   // =============================== 7. transitions and concurrency ===============================
   // A brand-new order, created here, is the only thing this file mutates.
   if (!C_T) {
@@ -565,7 +880,8 @@ async function main() {
   } else {
   const bookKey = uniq('mch_book');
   const booked = await request('POST', '/api/customer/book-food',
-    { restaurantId: REST_LEGACY, deliveryAddress: 'Flat 402, Civil Lines Hub, North Delhi', items: ['1x Special Dum Biryani (Chicken)'] },
+    { merchantId: A.uuid, deliveryAddress: 'Flat 402, Civil Lines Hub, North Delhi',
+      items: [{ productId: aDish.id, quantity: 1 }] },
     { ...tok(C_T), 'Idempotency-Key': bookKey });
   const order = booked.data.order || booked.data.job || {};
   assert('MCO-01 a fresh food order was created for the transition tests',
@@ -643,15 +959,12 @@ async function main() {
   // simply create a shelf it was never granted. Hiding the module in Flutter would not have
   // changed that; only the server can.
   //
-  // Three REAL merchants, one per entitlement value the schema allows:
-  //   A  …000201  +919811223344  HYBRID_BOTH  (both services)
-  //   B  2699ade3 +919871133479  RESTAURANT   (restaurant only)
-  //   C  02eb2b26 +919840638928  GROCERY      (instamart only)
-  const GG = { phone: '9840638928', uuid: '02eb2b26-f840-48cb-a752-7c90f7e2197e' };
+  // Three merchants, one per entitlement value the schema allows, each minted at the top of this
+  // run: A HYBRID_BOTH (both services), B RESTAURANT (restaurant only), GG GROCERY (instamart only).
   const lg = await login(GG.phone, 'MERCHANT');
   const G_T = lg.token;
   assert('MES-00 the instamart-only fixture merchant has a real session', !!G_T, { failure: lg.failure });
-  if (!G_T) { finish(); return; }
+  if (!G_T) { await done(); return; }
 
   const anonSvc = await request('GET', '/api/merchant/services');
   assert('MES-01 the entitlement read refuses an anonymous caller', anonSvc.status === 401, { s: anonSvc.status });
@@ -748,11 +1061,19 @@ async function main() {
     { row: BEntRow.data, err: BEntRow.error });
 
   // =============================== 8. environment gating ===============================
-  const prod = spawnChild('production_no_merchant_for_phone', {
+  // The children answer questions about the identities this suite minted, so those ids travel to
+  // them through the environment. A child cannot mint its own without changing what is asserted:
+  // MCY-03 asks whether the number the parent authenticated with resolves to the parent's store.
+  const fixtureEnv = {
+    NABIN_MCH_A_PHONE: A.phone, NABIN_MCH_A_ID: A.uuid,
+    NABIN_MCH_B_PHONE: B.phone, NABIN_MCH_B_ID: B.uuid,
+  };
+
+  const prod = spawnChild('production_no_merchant_for_phone', Object.assign({
     NODE_ENV: 'production',
     SUPABASE_POSTGRES_LIVE: 'true',
     NABIN_TEST_MODE: 'true', // must not re-open the door in production
-  });
+  }, fixtureEnv));
   assert('MCY-01 in production an unregistered number cannot become the first seeded merchant',
     prod.threw === true && prod.assignedId == null,
     { threw: prod.threw, assignedId: prod.assignedId, code: prod.code, message: prod.message });
@@ -765,15 +1086,15 @@ async function main() {
     prodMedia.requiredAuth === true,
     { requiredAuth: prodMedia.requiredAuth, message: prodMedia.message });
 
-  const devPath = spawnChild('development_allows_registered_only', {
+  const devPath = spawnChild('development_allows_registered_only', Object.assign({
     NODE_ENV: 'development',
     SUPABASE_POSTGRES_LIVE: 'true',
-  });
+  }, fixtureEnv));
   assert('MCY-03 the convenience path is confined to non-production, and registered numbers resolve to their own store in both',
     devPath.aResolvesToSelf === true && devPath.bResolvesToSelf === true,
     { a: devPath.aId, b: devPath.bId, message: devPath.message });
 
-  finish();
+  await done();
 }
 
 function spawnChild(scenario, env) {
@@ -827,11 +1148,61 @@ async function runChild(scenario) {
   console.log(JSON.stringify(out));
 }
 
+/**
+ * Remove the rows this file minted, prove they went, then report.
+ *
+ * The residue question is answered by id and by the phones allocated for them - never by "looks
+ * like test data", which would reach into another suite's rows. The phones are counted as well as
+ * the recorded ids because the store can mint a row this suite never asked for: `/api/auth/verify-otp`
+ * auto-registers an account for a phone shape it does not already have, and that id is not in the
+ * registry. And the KDS ticket is in scope because a booked order creates one under an id no
+ * caller ever sees - which is exactly how twelve of them used to survive a chain run.
+ */
+async function done() {
+  if (fx) {
+    const handle = fx;
+    fx = null;
+    const contextIds = handle.created.merchants.concat(handle.created.users);
+    const phoneKeys = handle.created.phones.map((p) => String(p || '').replace(/\D/g, '').slice(-10));
+    let out = null;
+    let cleanupError = null;
+    try {
+      out = await handle.cleanup();
+    } catch (e) {
+      cleanupError = e;
+    }
+    const blocked = (out && out.blocked) || [];
+    const removed = Object.assign({}, out || {});
+    delete removed.blocked;
+    console.log(`  fixture cleanup: removed=${JSON.stringify(removed)} blocked=${JSON.stringify(blocked)}`);
+    let residue = null;
+    try {
+      residue = (await handle.query(
+        `SELECT (SELECT count(*) FROM users WHERE id = ANY($1::uuid[]) OR right(regexp_replace(coalesce(phone,''), '\\D', '', 'g'), 10) = ANY($2::text[]))::text u,
+                (SELECT count(*) FROM merchants WHERE id = ANY($1::uuid[]))::text m,
+                (SELECT count(*) FROM orders WHERE customer_id = ANY($1::uuid[]) OR merchant_id = ANY($1::uuid[]))::text o,
+                (SELECT count(*) FROM restaurant_kds_tickets WHERE merchant_id = ANY($1::uuid[]))::text k,
+                (SELECT count(*) FROM grocery_price_history WHERE merchant_id = ANY($1::uuid[]))::text h,
+                (SELECT count(*) FROM backend_sessions WHERE right(regexp_replace(coalesce(phone,''), '\\D', '', 'g'), 10) = ANY($2::text[]))::text s`,
+        [contextIds, phoneKeys])).rows[0];
+    } catch (e) {
+      residue = { error: String(e.message).slice(0, 160) };
+    }
+    assert('MCFX-01 every merchant, customer, order, KDS ticket, price-history and session row this suite minted is gone again',
+      !cleanupError && !!residue && !residue.error
+      && ['u', 'm', 'o', 'k', 'h', 's'].every((key) => Number(residue[key]) === 0)
+      && blocked.length === 0,
+      { residue, blocked, error: cleanupError && cleanupError.message });
+    try { await handle.client.end(); } catch (e) { /* the client is already down */ }
+  }
+  finish();
+}
+
 function mainCrash(err) {
 
   console.error('Unexpected error:', err);
   failed.push('HARNESS');
-  finish();
+  done().catch(() => finish());
 }
 
 function finish() {
@@ -841,7 +1212,14 @@ function finish() {
   setTimeout(() => process.exit(process.exitCode), 50).unref();
 }
 
-module.exports = { request, login, tok, uniq, orderRow, productRow, sameRow, assert, A, B, REST_LEGACY, finish };
+// `PG_TARGET` is exported so `chain_runner_guard_test.js` can prove by REQUIRING this suite which
+// store it resolves to, instead of asserting from the text of a line. The exported value is a view —
+// host, port, database and the key or file that declared it — never `PG_TARGET.connectionString`, so
+// reading a suite's target cannot hand a guard the password that target is connected with.
+const PG_TARGET_VIEW = {
+  source: PG_TARGET.source, host: PG_TARGET.host, port: PG_TARGET.port, database: PG_TARGET.database,
+};
+module.exports = { request, login, tok, uniq, orderRow, productRow, sameRow, assert, A, B, REST_LEGACY, finish, PG_TARGET: PG_TARGET_VIEW };
 
 if (require.main === module) {
   if (process.env.NABIN_MCH_CHILD) {

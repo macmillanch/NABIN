@@ -6,15 +6,16 @@
  * "no merchant for this phone -> use restaurants[0]" fallback (Finding A), so it cannot prove
  * that one registered store cannot reach another's data.
  *
- * Every identity here is a REAL registered merchant row authenticated through the
- * application's own deterministic test OTP. Nothing is forged, no session row is inserted,
- * no fallback identity is relied on, and no check is skipped: if any of the four contexts
- * cannot authenticate, that is a loud failure, which is exactly the information needed.
+ * Every identity here is a REAL registered merchant row, created by this suite through the shared
+ * isolated-fixture helper and authenticated through the application's own deterministic test OTP.
+ * Nothing is forged, no session row is inserted, no fallback identity is relied on, and no check is
+ * skipped: if any of the four contexts cannot authenticate, that is a loud failure, which is exactly
+ * the information needed. The contexts are:
  *
- *   9888000001 RESTAURANT  (tenant A)
- *   9888000003 RESTAURANT  (tenant B, same family as A - the interesting cross-tenant pair)
- *   9888000002 GROCERY
- *   9811223344 HYBRID_BOTH
+ *   tenant A  RESTAURANT   (owns the dish this suite mints its order from)
+ *   tenant B  RESTAURANT   (same family as A - the interesting cross-tenant pair, and the attacker)
+ *   grocery   GROCERY
+ *   hybrid    HYBRID_BOTH
  *
  * Mutations are proven with durable before/after reads. Where a table's column name is not
  * already known it is DISCOVERED from information_schema at runtime rather than guessed,
@@ -23,7 +24,13 @@
  * Local/test only; refuses any non-loopback target.
  */
 const { Client } = require('pg');
-const PG = process.env.NABIN_PG_NOTIFY || 'postgres://postgres:postgres@127.0.0.1:54322/postgres';
+const { openFixtures } = require('./test_fixtures');
+const targetGuard = require('./scripts/chain_target_guard');
+// F-C1-1: this suite writes and asserts through this handle, so its store must be a target
+// something DECLARED (shell, then backend/.env) and loopback - never an address typed into
+// this file, which is what let a run write one store and assert against another (#283).
+const PG_TARGET = targetGuard.requireLoopbackPgTarget({ label: 'merchant_tenant_isolation_test' });
+const PG = PG_TARGET.connectionString;
 const BASE = process.env.NABIN_TEST_BASE || 'http://127.0.0.1:4000';
 if (!/^(?:127\.\d{1,3}\.\d{1,3}\.\d{1,3}|localhost|::1)$/i.test(new URL(PG).hostname)
   || !/^(?:127\.\d{1,3}\.\d{1,3}\.\d{1,3}|localhost|::1)$/i.test(new URL(BASE).hostname)) {
@@ -31,8 +38,8 @@ if (!/^(?:127\.\d{1,3}\.\d{1,3}\.\d{1,3}|localhost|::1)$/i.test(new URL(PG).host
 }
 
 const OTP = process.env.NABIN_TEST_OTP || '7729';
-const PHONES = { A: '9888000001', B: '9888000003', G: '9888000002', H: '9811223344' };
 const results = [];
+let fxHandle = null;
 function check(id, name, cond, detail) {
   results.push({ id, pass: cond === true });
   console.log(`[${cond === true ? 'PASS' : 'FAIL'}] ${id} ${name}`
@@ -56,33 +63,42 @@ const norm = (p) => { const d = String(p || '').replace(/\D/g, ''); return d.len
   const one = async (sql, p) => (await c.query(sql, p)).rows[0];
   const many = async (sql, p) => (await c.query(sql, p)).rows;
 
-  // ---- resolve each test phone to its real merchant row (read-only, no guessing) ----
+  // ---- four merchant contexts created here, under phones proven unused, removed on exit ----
+  // This suite used to resolve four hard-coded phones to whichever merchant rows owned them, so
+  // its verdict depended on a shared seeded row another suite could restyle. Each context is now
+  // a merchant this file minted and deletes again.
+  const fx = await openFixtures('mti', { connectionString: PG });
+  fxHandle = fx;
+  const mk = async (key, type, name) => {
+    const m = await fx.merchant({ type, name });
+    return { key, id: m.id, phone: m.phone, type, name: m.name };
+  };
+  const A = await mk('A', 'RESTAURANT', 'tenant-a');
+  const B = await mk('B', 'RESTAURANT', 'tenant-b');
+  const G = await mk('G', 'GROCERY', 'grocery');
+  const H = await mk('H', 'HYBRID_BOTH', 'hybrid');
+  const byKey = { A, B, G, H };
+  // tenant A needs one orderable dish of its own for the order this suite mints below
+  const ownerProd = await fx.foodProduct(A.id, { name: 'fixture dish', category: 'Fixture Menu', price: 250 });
   const rowsByPhone = new Map();
   for (const r of await many('SELECT id::text id, phone, name, merchant_type FROM merchants')) {
     const k = norm(r.phone);
     if (!rowsByPhone.has(k)) rowsByPhone.set(k, []);
     rowsByPhone.get(k).push(r);
   }
-  const idFor = (key) => {
-    const rows = rowsByPhone.get(norm(PHONES[key])) || [];
-    if (rows.length !== 1) {
-      console.log(`  FATAL: phone for context ${key} (${PHONES[key]}) matched ${rows.length} merchants; `
-        + 'this suite requires an unambiguous registered merchant');
-      process.exit(1);
-    }
-    return { id: rows[0].id, type: rows[0].merchant_type, name: rows[0].name };
-  };
-  const A = idFor('A'), B = idFor('B'), G = idFor('G'), H = idFor('H');
   console.log(`  contexts: A=${A.type} ${A.id.slice(0, 13)} | B=${B.type} ${B.id.slice(0, 13)} | `
     + `G=${G.type} ${G.id.slice(0, 13)} | H=${H.type} ${H.id.slice(0, 13)}`);
-  check('MTI-00', 'the four test phones resolve to exactly one unambiguous merchant row each',
-    A.type === 'RESTAURANT' && B.type === 'RESTAURANT' && G.type === 'GROCERY' && H.type === 'HYBRID_BOTH',
+  check('MTI-00', 'each fixture phone resolves to exactly the one merchant row this suite created',
+    ['A', 'B', 'G', 'H'].every((k) => {
+      const rows = rowsByPhone.get(norm(byKey[k].phone)) || [];
+      return rows.length === 1 && rows[0].id === byKey[k].id && rows[0].merchant_type === byKey[k].type;
+    }),
     { A: A.type, B: B.type, G: G.type, H: H.type });
 
   // ---- A-D: authenticate through the application's own OTP flow ----
   const tok = {};
   for (const [key, label] of [['A', 'RESTAURANT A'], ['B', 'RESTAURANT B'], ['G', 'GROCERY'], ['H', 'HYBRID_BOTH']]) {
-    const r = await api('POST', '/api/auth/verify-otp', { phone: PHONES[key], otp: OTP, role: 'MERCHANT' });
+    const r = await api('POST', '/api/auth/verify-otp', { phone: byKey[key].phone, otp: OTP, role: 'MERCHANT' });
     tok[key] = r.data && r.data.token;
     check(`MTI-${key === 'A' ? '01' : key === 'B' ? '02' : key === 'G' ? '03' : '04'}`,
       `${label} can authenticate with the deterministic test OTP`,
@@ -91,7 +107,7 @@ const norm = (p) => { const d = String(p || '').replace(/\D/g, ''); return d.len
   if (!tok.A || !tok.B || !tok.G || !tok.H) {
     console.log('  FATAL: a legitimate merchant context could not be authenticated - see failures above.');
     console.log('  This suite refuses to continue rather than skipping the dependent checks.');
-    process.exitCode = 1; await c.end(); return;
+    process.exitCode = 1; await fx.cleanup(); await c.end(); await fx.close(); return;
   }
 
   // ---- entitlement discovery endpoint reports the authenticated merchant's own services ----
@@ -122,12 +138,12 @@ const norm = (p) => { const d = String(p || '').replace(/\D/g, ''); return d.len
   // of them. On a store that had just been cleared of transactional residue a single merchant
   // owned any orders at all, so no pair existed and six checks went red because the database was
   // tidy - not because one tenant could reach another. The order is now minted here through the
-  // application's own checkout route against a merchant this suite authenticated above, the
-  // item comes from that merchant's own catalogue, and the attacker is its sibling tenant B.
-  const CUSTOMER_PHONE = '9845011982';   // the seeded KYC-verified customer checkout is booked as
-  const ownerProd = await one(`SELECT id::text id, name FROM products WHERE merchant_id = $1::uuid
-      AND (is_available IS DISTINCT FROM false) ORDER BY created_at LIMIT 1`, [A.id]);
-  const cust = await api('POST', '/api/auth/verify-otp', { phone: CUSTOMER_PHONE, otp: OTP, role: 'CUSTOMER' });
+  // application's own checkout route against a merchant this suite authenticated above, the item
+  // is the dish this suite put on that merchant's menu, the buyer is a customer this suite created,
+  // and the attacker is its sibling tenant B.
+  const fixtureCustomer = await fx.customer({ name: 'buyer' });
+  const cust = await api('POST', '/api/auth/verify-otp',
+    { phone: fixtureCustomer.phone, otp: OTP, role: 'CUSTOMER' });
   const custTok = cust.data && cust.data.token;
   const booked = (ownerProd && custTok)
     ? await api('POST', '/api/customer/book-food',
@@ -268,11 +284,32 @@ const norm = (p) => { const d = String(p || '').replace(/\D/g, ''); return d.len
   check('MTI-27', 'this suite moved no money: journal and payout totals are identical',
     dFin.every(d => d === 0), { deltas: dFin });
 
+  // ---- nothing left behind: the four merchants, their dish, the minted order and any KDS ticket
+  // for them are this suite's own records, and cleanup removes exactly them ----
+  const contextIds = [A.id, B.id, G.id, H.id];
+  const removed = await fx.cleanup();
+  const residue = await one(`SELECT (SELECT count(*) FROM merchants WHERE id = ANY($1::uuid[]))::text m,
+      (SELECT count(*) FROM products WHERE merchant_id = ANY($1::uuid[]))::text p,
+      (SELECT count(*) FROM orders WHERE merchant_id = ANY($1::uuid[]))::text o,
+      (SELECT count(*) FROM restaurant_kds_tickets WHERE merchant_id = ANY($1::uuid[]))::text k`,
+    [contextIds]);
+  check('MTI-28', 'this suite leaves no merchant, dish, order or KDS ticket row behind',
+    removed.merchants === 4 && removed.products === 1
+      && Number(residue.m) === 0 && Number(residue.p) === 0
+      && Number(residue.o) === 0 && Number(residue.k) === 0,
+    { removed: JSON.stringify(removed), residue: JSON.stringify(residue) });
+
   await c.end();
+  await fx.close();
   const failed = results.filter(r => !r.pass);
   const skipped = results.filter(r => r.pass === undefined).length;
   console.log(`\n=== MERCHANT TENANT ISOLATION: ${results.length - failed.length}/${results.length} passed, `
     + `${failed.length} failed, ${skipped} skipped ===`);
   if (failed.length) console.log('  failed: ' + failed.map(f => f.id).join(', '));
   process.exitCode = failed.length ? 1 : 0;
-})().catch(e => { console.error('FATAL', e.message); process.exitCode = 1; });
+})().catch((e) => {
+  console.error('FATAL', e.message);
+  Promise.resolve(fxHandle && fxHandle.close())
+    .catch(() => {})
+    .finally(() => { process.exitCode = 1; });
+});

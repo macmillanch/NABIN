@@ -10,7 +10,9 @@ const path = require('path');
 // releasePrivatePort kills only a NABIN `src/server.js` and reports anything foreign untouched.
 const { trackServer } = require('./scripts/spawned_server');
 const { releasePrivatePort } = require('./scripts/port_release');
+const { openFixtures } = require('./test_fixtures');
 const { Client } = require('pg');
+const targetGuard = require('./scripts/chain_target_guard');
 process.env.PAYMENT_WEBHOOK_SECRET ||= 'test_webhook_secret_not_for_deployment';
 process.env.PAYMENT_KEY_SECRET ||= 'test_key_secret_not_for_deployment';
 process.env.NABIN_TEST_MODE = 'true';
@@ -22,7 +24,11 @@ const { supabaseAdmin, isLivePostgres } = require('./src/supabase');
 // cleaned up here instead of evicting the shared harness on 4000. With no env set, behaviour is unchanged.
 const TEST_PORT = Number(process.env.NABIN_RESTART_PORT || process.env.NABIN_TEST_PORT || 4000);
 const BASE_URL = `http://127.0.0.1:${TEST_PORT}`;
-const PG_CONN_STRING = process.env.DATABASE_URL || 'postgresql://postgres:postgres@127.0.0.1:54322/postgres';
+// F-C1-1: an `isolated` link — the runner hands it a DATABASE_URL whose search_path scopes it to the
+// clone, so a hardcoded default here would put this suite's reads back on `public` while the lane
+// server wrote the scratch schema (#283). The store must be DECLARED (shell, then backend/.env).
+const PG_TARGET = targetGuard.requireLoopbackPgTarget({ label: 'test_phase4_orders' });
+const PG_CONN_STRING = PG_TARGET.connectionString;
 
 // A food order must carry the address the customer gave. `book-food` refuses one that
 // does not (`PLACE_REQUIRED`) instead of writing an address it invented, so every
@@ -89,6 +95,66 @@ function assert(description, condition, details = '') {
   }
 }
 
+// The store, its menu and shelf, the second tenant and both customers are minted by this file and
+// removed when it exits. They used to be seeded rows: `rest_1`/`mcht_1` (00000000-…-0201) plus
+// `gprod_3`, and the grocery checks needed that merchant typed HYBRID_BOTH while the seed and
+// PostgreSQL both type it RESTAURANT. The suite therefore UPDATEd the shared row's merchant_type
+// at the top of every run — a write to a tenant other suites read, which is exactly the coupling
+// this file must not have. It also made the ₹340 total non-deterministic: two seeded dishes share
+// the name 'Special Dum Biryani (Chicken)' (₹320 and ₹220) and the string resolver takes the first
+// match, so the arithmetic depended on which row a previous run happened to leave. Minting fixed
+// prices under a merchant this run owns makes both the entitlement and the total its own.
+let fx = null;
+let fxIds = null;
+
+// Removes every row this run minted, then counts them again so a cleanup regression is a failed
+// assertion rather than a slow pile in the store. Runs on both exits — the suite calls
+// process.exit() from the success path and from the fatal catch.
+async function reapFixtures() {
+  if (!fx || !fxIds) return;
+  const handle = fx;
+  fx = null;
+  let removed = null;
+  let cleanupError = null;
+  try {
+    removed = await handle.cleanup();
+  } catch (err) {
+    cleanupError = err;
+  }
+  let residue = null;
+  try {
+    residue = await handle.one(
+      `SELECT (SELECT count(*) FROM merchants WHERE id = ANY($1::uuid[]))::text m,
+              (SELECT count(*) FROM users WHERE id = ANY($2::uuid[]))::text u,
+              (SELECT count(*) FROM orders WHERE merchant_id = ANY($1::uuid[]) OR customer_id = ANY($2::uuid[]))::text o,
+              (SELECT count(*) FROM order_lines WHERE merchant_id = ANY($1::uuid[]))::text l,
+              (SELECT count(*) FROM checkouts WHERE merchant_id = ANY($1::uuid[]) OR customer_id = ANY($2::uuid[]))::text c,
+              (SELECT count(*) FROM products WHERE merchant_id = ANY($1::uuid[]))::text p,
+              (SELECT count(*) FROM merchant_grocery_inventory WHERE merchant_id = ANY($1::uuid[]))::text i,
+              (SELECT count(*) FROM backend_sessions WHERE right(regexp_replace(coalesce(phone,''), '\\D', '', 'g'), 10) = ANY($3::text[]))::text s`,
+      [fxIds.merchants, fxIds.users, fxIds.phones]);
+  } catch (err) {
+    residue = { error: String(err.message).slice(0, 160) };
+  }
+  try { await handle.client.end(); } catch (err) { /* the client is already down */ }
+  assert('P4FX-01 every merchant, customer, order, line, checkout, dish, shelf and session this suite minted is gone again',
+    !cleanupError && !!residue && !residue.error
+    && ['m', 'u', 'o', 'l', 'c', 'p', 'i', 's'].every((k) => Number(residue[k]) === 0)
+    && (removed && removed.blocked || []).length === 0,
+    JSON.stringify({ removed, residue, error: cleanupError && cleanupError.message }));
+}
+
+// A session for a row this file minted, through the app's own OTP route. There is deliberately no
+// fallback token: `usr_session_priya`/`mcht_session_dilli` authenticated seeded tenants, so a
+// failed OTP would have silently moved the whole suite onto rows it does not own.
+async function signIn(phone, role) {
+  const send = await request('POST', '/api/auth/send-otp', { phone, role, purpose: 'LOGIN' });
+  const verify = await request('POST', '/api/auth/verify-otp', {
+    phone, otp: (send.data && send.data.testOtp) || '7729', role, purpose: 'LOGIN'
+  });
+  return (verify.data && verify.data.token) || null;
+}
+
 async function ensureServerRunning() {
   try {
     const res = await request('GET', '/api/health');
@@ -146,35 +212,60 @@ async function runPhase4Tests() {
     const dbTimeRes = await pgCheckClient.query('SELECT NOW() as db_now;');
     assert('PostgreSQL authoritative database is reachable', !!dbTimeRes.rows[0].db_now);
 
-    // Setup Auth Tokens
-    const custOtpSend = await request('POST', '/api/auth/send-otp', { phone: '9845011982', role: 'CUSTOMER', purpose: 'LOGIN' });
-    const custOtpVerify = await request('POST', '/api/auth/verify-otp', { phone: '9845011982', otp: custOtpSend.data.testOtp || '7729', role: 'CUSTOMER' });
-    const customerToken = custOtpVerify.data.token || 'usr_session_priya';
+    // Every identity below is a row this file mints and reaps: one HYBRID_BOTH store that fulfils
+    // both the food and the grocery orders, a second tenant whose dish and shelf are the
+    // cross-tenant targets, and two customers. Sessions come from the app's own OTP route against
+    // the minted phones, with no fallback to a seeded token — a seeded session would authenticate
+    // as a tenant this suite does not own.
+    fx = await openFixtures('p4', { connectionString: PG_CONN_STRING });
+    const store = await fx.merchant({ type: 'HYBRID_BOTH', name: 'phase4 store' });
+    const foreignStore = await fx.merchant({ type: 'HYBRID_BOTH', name: 'phase4 foreign store' });
+    const biryani = await fx.foodProduct(store.id, { name: 'biryani', price: 220 });
+    const naan = await fx.foodProduct(store.id, { name: 'naan', price: 60 });
+    const milk = await fx.groceryItem(store.id, { name: 'milk', store_price: 56, standard_unit: 'litre', pack_size: '1 litre' });
+    const foreignDish = await fx.foodProduct(foreignStore.id, { name: 'foreign biryani', price: 220 });
+    const foreignMilk = await fx.groceryItem(foreignStore.id, { name: 'foreign milk', store_price: 56, standard_unit: 'litre', pack_size: '1 litre' });
+    const buyer = await fx.customer({ name: 'phase4 buyer' });
+    const otherBuyer = await fx.customer({ name: 'phase4 other buyer' });
+    fxIds = {
+      merchants: [store.id, foreignStore.id],
+      users: [buyer.id, otherBuyer.id],
+      phones: [store.phone, foreignStore.phone, buyer.phone, otherBuyer.phone]
+    };
 
-    const cust2OtpSend = await request('POST', '/api/auth/send-otp', { phone: '9876543210', role: 'CUSTOMER', purpose: 'LOGIN' });
-    const cust2OtpVerify = await request('POST', '/api/auth/verify-otp', { phone: '9876543210', otp: cust2OtpSend.data.testOtp || '7729', role: 'CUSTOMER' });
-    const customer2Token = cust2OtpVerify.data.token || 'usr_session_rahul';
+    const storeUuid = store.id;
+    const buyerUuid = buyer.id;
 
-    const merchantToken = 'mcht_session_dilli';
-
-    // Merchant UUID and Products
-    const mcht1Uuid = '00000000-0000-0000-0000-000000000201'; // Dilli Darbar Authentic Mughlai
-    const customer1Uuid = '00000000-0000-0000-0000-000000000002'; // Priya Saxena
-
-    // Ensure merchant 1 is set to HYBRID_BOTH so it can fulfill both food & grocery in integration tests
-    await pgCheckClient.query(`UPDATE merchants SET merchant_type = 'HYBRID_BOTH' WHERE id = $1`, [mcht1Uuid]);
+    const customerToken = await signIn(buyer.phone, 'CUSTOMER');
+    const customer2Token = await signIn(otherBuyer.phone, 'CUSTOMER');
+    const merchantToken = await signIn(store.phone, 'MERCHANT');
+    assert('P4-000 this suite minted three real sessions (two customers and the store) instead of reusing seeded ones',
+      !!customerToken && !!customer2Token && !!merchantToken,
+      `buyer=${!!customerToken} otherBuyer=${!!customer2Token} merchant=${!!merchantToken}`);
+    if (!customerToken || !customer2Token || !merchantToken) throw new Error('fixture sessions could not be minted');
 
     // =========================================================================
     // MODULE 1: CUSTOMER FOOD ORDER CREATION & LIFECYCLE
     // =========================================================================
     console.log('\n--- MODULE 1: Customer Food Order Creation (PostgreSQL-Authoritative) ---');
 
+    // The food carts name the dishes this suite minted. The seeded ones it used to order by string
+    // were ambiguous — two rows share 'Special Dum Biryani (Chicken)' at ₹320 and ₹220 — so the
+    // ₹340 total below is now computed off prices this file set instead of whichever row a
+    // previous run happened to leave first.
+    const cartBiryaniOnly = [`1x ${biryani.name}`];
+    const cartBiryaniAndNaan = [`1x ${biryani.name}`, `2x ${naan.name}`];
+    const cartNaanOnly = [`2x ${naan.name}`];
+    // `groceryItem` returns the merchant_grocery_inventory row id, which is what checkout resolves,
+    // so the carts below point at the shelf this suite stocked rather than a seeded `gprod_3`.
+    const grocCart = (quantity = 2) => [{ productId: milk.id, quantity, price: milk.store_price }];
+
     // 1. Authenticated creation
     const foodIdempKey1 = 'food_idemp_' + crypto.randomUUID();
     const foodBookingRes = await request('POST', '/api/customer/book-food', {
       deliveryAddress: FOOD_ADDRESS,
-      restaurantId: 'rest_1',
-      items: ['1x Special Dum Biryani (Chicken)', '2x Garlic Butter Naan']
+      restaurantId: storeUuid,
+      items: cartBiryaniAndNaan
     }, {
       'Authorization': `Bearer ${customerToken}`,
       'Idempotency-Key': foodIdempKey1
@@ -186,44 +277,45 @@ async function runPhase4Tests() {
 
     const createdFoodOrder = foodBookingRes.data.order;
     assert('Food order state is authoritatively RECEIVED', createdFoodOrder.order_state === 'RECEIVED');
-    assert('Food order customer_id matches authenticated session customer UUID', createdFoodOrder.customer_id === customer1Uuid);
-    assert('Food order merchant_id matches resolved restaurant UUID', createdFoodOrder.merchant_id === mcht1Uuid);
+    assert('Food order customer_id matches authenticated session customer UUID', createdFoodOrder.customer_id === buyerUuid);
+    assert('Food order merchant_id matches resolved restaurant UUID', createdFoodOrder.merchant_id === storeUuid);
     assert('Food order service_type is FOOD', createdFoodOrder.service_type === 'FOOD');
-    assert('Food order total_amount matches line items (₹340)', Number(createdFoodOrder.total_amount) === 340);
+    assert('Food order total_amount matches line items (₹340)', Number(createdFoodOrder.total_amount) === 340,
+      `measured ${createdFoodOrder.total_amount} for 1x ₹${biryani.price} + 2x ₹${naan.price}`);
     assert('Food order has exactly 2 order lines', (createdFoodOrder.lines || []).length === 2);
 
     // 2. Unauthenticated rejection
     const unauthFoodRes = await request('POST', '/api/customer/book-food', {
       deliveryAddress: FOOD_ADDRESS,
-      restaurantId: 'rest_1',
-      items: ['1x Special Dum Biryani (Chicken)']
+      restaurantId: storeUuid,
+      items: cartBiryaniOnly
     });
     assert('Unauthenticated food order creation rejected with HTTP 401', unauthFoodRes.status === 401);
 
     // 3. Customer identity binding - cannot forge another user
     const forgedFoodRes = await request('POST', '/api/customer/book-food', {
       deliveryAddress: FOOD_ADDRESS,
-      customerId: '00000000-0000-0000-0000-000000000001', // Attacker trying to place order on usr_1 account
-      restaurantId: 'rest_1',
-      items: ['1x Special Dum Biryani (Chicken)']
+      customerId: otherBuyer.id, // one minted customer trying to place an order on the other's account
+      restaurantId: storeUuid,
+      items: cartBiryaniOnly
     }, { 'Authorization': `Bearer ${customerToken}` });
     assert('Order binds to session identity or rejects cross-customer IDOR',
-      forgedFoodRes.status === 403 || (forgedFoodRes.status === 200 && forgedFoodRes.data.order.customer_id === customer1Uuid)
+      forgedFoodRes.status === 403 || (forgedFoodRes.status === 200 && forgedFoodRes.data.order.customer_id === buyerUuid)
     );
 
     // 4. Merchant validation - non-existent merchant rejected
     const badMchtRes = await request('POST', '/api/customer/book-food', {
       deliveryAddress: FOOD_ADDRESS,
-      restaurantId: 'rest_non_existent_9999',
-      items: ['1x Special Dum Biryani (Chicken)']
+      restaurantId: crypto.randomUUID(), // a merchant id that exists in no schema
+      items: cartBiryaniOnly
     }, { 'Authorization': `Bearer ${customerToken}` });
     assert('Non-existent restaurant rejected with HTTP 404', badMchtRes.status === 404);
 
     // 5. Cross-merchant / invalid product rejection
     const invalidProdRes = await request('POST', '/api/customer/book-food', {
       deliveryAddress: FOOD_ADDRESS,
-      restaurantId: 'rest_1',
-      items: ['1x Pizza Hut Extravaganza Supreme']
+      restaurantId: storeUuid,
+      items: [`1x ${foreignDish.name}`] // a dish that exists, but on the other tenant's menu
     }, { 'Authorization': `Bearer ${customerToken}` });
     assert('Product not belonging to merchant rejected with HTTP 404/400',
       invalidProdRes.status === 404 || invalidProdRes.status === 400
@@ -232,8 +324,8 @@ async function runPhase4Tests() {
     // 6. Idempotent retry returns same order
     const replayFoodRes = await request('POST', '/api/customer/book-food', {
       deliveryAddress: FOOD_ADDRESS,
-      restaurantId: 'rest_1',
-      items: ['1x Special Dum Biryani (Chicken)', '2x Garlic Butter Naan']
+      restaurantId: storeUuid,
+      items: cartBiryaniAndNaan
     }, {
       'Authorization': `Bearer ${customerToken}`,
       'Idempotency-Key': foodIdempKey1
@@ -248,8 +340,8 @@ async function runPhase4Tests() {
     // 7. Conflicting idempotency key rejected
     const conflictFoodRes = await request('POST', '/api/customer/book-food', {
       deliveryAddress: FOOD_ADDRESS,
-      restaurantId: 'rest_1',
-      items: ['1x Special Dum Biryani (Chicken)'] // Different payload
+      restaurantId: storeUuid,
+      items: cartBiryaniOnly // Different payload under the same key
     }, {
       'Authorization': `Bearer ${customerToken}`,
       'Idempotency-Key': foodIdempKey1
@@ -295,11 +387,9 @@ async function runPhase4Tests() {
     // 1. Authenticated checkout
     const groceryIdempKey1 = 'groc_idemp_' + crypto.randomUUID();
     const groceryCheckoutRes = await request('POST', '/api/grocery/checkout/validate', {
-      merchantId: 'mcht_1',
-      cartItems: [
-        { productId: 'gprod_3', quantity: 2, price: 56.0 } // Amul Taaza Milk (store_price 56, qty 2 = 112)
-      ],
-      deliveryAddress: 'Flat 402, Civil Lines Hub, North Delhi'
+      merchantId: storeUuid,
+      cartItems: grocCart(2), // the shelf this suite stocked: ₹56 x 2 = ₹112
+      deliveryAddress: FOOD_ADDRESS
     }, {
       'Authorization': `Bearer ${customerToken}`,
       'Idempotency-Key': groceryIdempKey1
@@ -312,29 +402,30 @@ async function runPhase4Tests() {
     const createdGroceryOrder = groceryCheckoutRes.data.order;
     assert('Grocery order service_type is GROCERY', createdGroceryOrder.serviceType === 'GROCERY');
     assert('Grocery order state is authoritatively RECEIVED', createdGroceryOrder.order_state === 'RECEIVED');
-    assert('Grocery order total is ₹112 (2 x 56)', createdGroceryOrder.finalTotal === 112);
+    assert('Grocery order total is ₹112 (2 x 56)', createdGroceryOrder.finalTotal === 112,
+      `measured ${createdGroceryOrder.finalTotal} for 2 x ₹${milk.store_price}`);
     assert('Grocery order has authoritative checkoutId linked', !!createdGroceryOrder.checkoutId);
 
     // 2. Unauthenticated rejection
     const unauthGrocRes = await request('POST', '/api/grocery/checkout/validate', {
-      cartItems: [{ productId: 'gprod_3', quantity: 1 }]
+      cartItems: grocCart(1)
     });
     assert('Unauthenticated grocery checkout rejected with HTTP 401', unauthGrocRes.status === 401);
 
     // 3. Rejection of dark store reference (NO mcht_darkstore_1)
     const darkStoreRes = await request('POST', '/api/grocery/checkout/validate', {
       merchantId: 'mcht_darkstore_1',
-      cartItems: [{ productId: 'gprod_3', quantity: 1 }]
+      cartItems: grocCart(1)
     }, { 'Authorization': `Bearer ${customerToken}` });
     assert('Dark store merchantId (mcht_darkstore_1) rejected with HTTP 400 DARK_STORE_NOT_SUPPORTED',
       darkStoreRes.status === 400 && darkStoreRes.data.code === 'DARK_STORE_NOT_SUPPORTED'
     );
 
     // 4. Cross-merchant inventory rejection
-    // Using inventory 47428bc0-997d-40c7-90f6-3ee0c17b1201 from merchant 23b987de-1a00-4d7f-b662-ed94e16c7b30
+    // The shelf the other minted tenant stocked, carted against this one.
     const crossInvRes = await request('POST', '/api/grocery/checkout/validate', {
-      merchantId: 'mcht_1',
-      cartItems: [{ inventoryId: '47428bc0-997d-40c7-90f6-3ee0c17b1201', quantity: 1 }]
+      merchantId: storeUuid,
+      cartItems: [{ inventoryId: foreignMilk.id, quantity: 1 }]
     }, { 'Authorization': `Bearer ${customerToken}` });
     assert('Cross-merchant inventory item rejected with HTTP 400 MERCHANT_MISMATCH',
       crossInvRes.status === 400 && (crossInvRes.data.code === 'MERCHANT_MISMATCH' || crossInvRes.data.code === 'INVENTORY_NOT_FOUND')
@@ -342,9 +433,9 @@ async function runPhase4Tests() {
 
     // 5. Checkout duplicate claim / already linked check
     const duplicateClaimRes = await request('POST', '/api/grocery/checkout/validate', {
-      merchantId: 'mcht_1',
+      merchantId: storeUuid,
       checkoutId: createdGroceryOrder.checkoutId, // Already linked to createdGroceryOrder
-      cartItems: [{ productId: 'gprod_3', quantity: 1 }]
+      cartItems: grocCart(1)
     }, {
       'Authorization': `Bearer ${customerToken}`,
       'Idempotency-Key': 'claim_attempt_' + crypto.randomUUID()
@@ -363,13 +454,13 @@ async function runPhase4Tests() {
         'CHK-' || substr(md5(random()::text), 1, 12),
         $1, $2, 'GROCERY', 'WALLET', 112.00, 112.00, 'CONFIRMED'
       ) RETURNING id;
-    `, [customer1Uuid, mcht1Uuid]);
+    `, [buyerUuid, storeUuid]);
     const foreignCheckoutId = foreignChkRes.rows[0].id;
 
     const crossCustClaimRes = await request('POST', '/api/grocery/checkout/validate', {
-      merchantId: 'mcht_1',
+      merchantId: storeUuid,
       checkoutId: foreignCheckoutId,
-      cartItems: [{ productId: 'gprod_3', quantity: 2 }]
+      cartItems: grocCart(2)
     }, {
       'Authorization': `Bearer ${customer2Token}`, // Customer 2 trying to claim Customer 1's checkout
       'Idempotency-Key': 'cross_cust_' + crypto.randomUUID()
@@ -380,9 +471,9 @@ async function runPhase4Tests() {
 
     // 7. Grocery idempotent retry
     const replayGrocRes = await request('POST', '/api/grocery/checkout/validate', {
-      merchantId: 'mcht_1',
-      cartItems: [{ productId: 'gprod_3', quantity: 2, price: 56.0 }],
-      deliveryAddress: 'Flat 402, Civil Lines Hub, North Delhi'
+      merchantId: storeUuid,
+      cartItems: grocCart(2),
+      deliveryAddress: FOOD_ADDRESS
     }, {
       'Authorization': `Bearer ${customerToken}`,
       'Idempotency-Key': groceryIdempKey1
@@ -407,7 +498,7 @@ async function runPhase4Tests() {
     console.log('\n--- MODULE 3: Merchant KDS Order Lifecycle & Tenant Isolation ---');
 
     // 1. Merchant Dashboard
-    const mchtDashRes = await request('GET', '/api/merchant/rest_1/dashboard', null, {
+    const mchtDashRes = await request('GET', `/api/merchant/${storeUuid}/dashboard`, null, {
       'Authorization': `Bearer ${merchantToken}`
     });
     assert('Merchant dashboard reads active orders directly from PostgreSQL (HTTP 200)',
@@ -415,16 +506,16 @@ async function runPhase4Tests() {
     );
 
     // 2. Merchant Order List - tenant isolation
-    const mchtOrdersRes = await request('GET', '/api/merchant/rest_1/orders', null, {
+    const mchtOrdersRes = await request('GET', `/api/merchant/${storeUuid}/orders`, null, {
       'Authorization': `Bearer ${merchantToken}`
     });
     assert('Merchant orders endpoint returns only orders for this merchant',
-      mchtOrdersRes.status === 200 && mchtOrdersRes.data.orders.every(o => o.merchant_id === mcht1Uuid)
+      mchtOrdersRes.status === 200 && mchtOrdersRes.data.orders.every(o => o.merchant_id === storeUuid)
     );
 
     // 3. Tenant cross-access blocked
-    const crossTenantRes = await request('GET', '/api/merchant/rest_2/orders', null, {
-      'Authorization': `Bearer ${merchantToken}` // Session is for rest_1
+    const crossTenantRes = await request('GET', `/api/merchant/${foreignStore.id}/orders`, null, {
+      'Authorization': `Bearer ${merchantToken}` // The session belongs to `store`, not to this tenant
     });
     assert('Merchant attempting to access another merchant tenant rejected with HTTP 403',
       crossTenantRes.status === 403
@@ -432,21 +523,21 @@ async function runPhase4Tests() {
 
     // 4. Valid KDS state transitions for Food order
     // State sequence: RECEIVED -> ACCEPTED -> PREPARING -> READY_FOR_PICKUP
-    const acceptRes = await request('POST', `/api/merchant/rest_1/orders/${createdFoodOrder.id}/status`, {
+    const acceptRes = await request('POST', `/api/merchant/${storeUuid}/orders/${createdFoodOrder.id}/status`, {
       status: 'ACCEPTED'
     }, { 'Authorization': `Bearer ${merchantToken}` });
     assert('Merchant transitions Food order to ACCEPTED (HTTP 200)',
       acceptRes.status === 200 && acceptRes.data.success && acceptRes.data.order_state === 'ACCEPTED'
     );
 
-    const prepRes = await request('POST', `/api/merchant/rest_1/orders/${createdFoodOrder.id}/status`, {
+    const prepRes = await request('POST', `/api/merchant/${storeUuid}/orders/${createdFoodOrder.id}/status`, {
       status: 'PREPARING'
     }, { 'Authorization': `Bearer ${merchantToken}` });
     assert('Merchant transitions Food order to PREPARING (HTTP 200)',
       prepRes.status === 200 && prepRes.data.success && prepRes.data.order_state === 'PREPARING'
     );
 
-    const readyRes = await request('POST', `/api/merchant/rest_1/orders/${createdFoodOrder.id}/status`, {
+    const readyRes = await request('POST', `/api/merchant/${storeUuid}/orders/${createdFoodOrder.id}/status`, {
       status: 'READY_FOR_PICKUP'
     }, { 'Authorization': `Bearer ${merchantToken}` });
     assert('Merchant transitions Food order to READY_FOR_PICKUP (HTTP 200)',
@@ -454,7 +545,7 @@ async function runPhase4Tests() {
     );
 
     // 5. Invalid state transition rejection (e.g. from READY_FOR_PICKUP back to ACCEPTED)
-    const invalidTransRes = await request('POST', `/api/merchant/rest_1/orders/${createdFoodOrder.id}/status`, {
+    const invalidTransRes = await request('POST', `/api/merchant/${storeUuid}/orders/${createdFoodOrder.id}/status`, {
       status: 'ACCEPTED',
       idempotencyKey: 'invalid_attempt_' + crypto.randomUUID()
     }, { 'Authorization': `Bearer ${merchantToken}` });
@@ -467,8 +558,8 @@ async function runPhase4Tests() {
     const foodToRejectKey = 'food_reject_' + crypto.randomUUID();
     const foodToRejectRes = await request('POST', '/api/customer/book-food', {
       deliveryAddress: FOOD_ADDRESS,
-      restaurantId: 'rest_1',
-      items: ['1x Special Dum Biryani (Chicken)']
+      restaurantId: storeUuid,
+      items: cartBiryaniOnly
     }, {
       'Authorization': `Bearer ${customerToken}`,
       'Idempotency-Key': foodToRejectKey
@@ -476,7 +567,7 @@ async function runPhase4Tests() {
     const orderToRejectId = foodToRejectRes.data.order.id;
 
     // Reject without reason
-    const rejectNoReasonRes = await request('POST', `/api/merchant/rest_1/orders/${orderToRejectId}/status`, {
+    const rejectNoReasonRes = await request('POST', `/api/merchant/${storeUuid}/orders/${orderToRejectId}/status`, {
       status: 'REJECTED'
     }, { 'Authorization': `Bearer ${merchantToken}` });
     assert('Merchant rejection without reason is rejected with HTTP 400',
@@ -484,7 +575,7 @@ async function runPhase4Tests() {
     );
 
     // Reject with invalid reason
-    const rejectBadReasonRes = await request('POST', `/api/merchant/rest_1/orders/${orderToRejectId}/status`, {
+    const rejectBadReasonRes = await request('POST', `/api/merchant/${storeUuid}/orders/${orderToRejectId}/status`, {
       status: 'REJECTED',
       reason: 'BECAUSE_I_SAID_SO'
     }, { 'Authorization': `Bearer ${merchantToken}` });
@@ -493,7 +584,7 @@ async function runPhase4Tests() {
     );
 
     // Reject with valid approved reason (OUT_OF_STOCK)
-    const rejectValidRes = await request('POST', `/api/merchant/rest_1/orders/${orderToRejectId}/status`, {
+    const rejectValidRes = await request('POST', `/api/merchant/${storeUuid}/orders/${orderToRejectId}/status`, {
       status: 'REJECTED',
       reason: 'OUT_OF_STOCK'
     }, { 'Authorization': `Bearer ${merchantToken}` });
@@ -519,8 +610,8 @@ async function runPhase4Tests() {
     const timeoutOrderKey = 'order_timeout_' + crypto.randomUUID();
     const timeoutOrderRes = await request('POST', '/api/customer/book-food', {
       deliveryAddress: FOOD_ADDRESS,
-      restaurantId: 'rest_1',
-      items: ['1x Special Dum Biryani (Chicken)']
+      restaurantId: storeUuid,
+      items: cartBiryaniOnly
     }, {
       'Authorization': `Bearer ${customerToken}`,
       'Idempotency-Key': timeoutOrderKey
@@ -620,23 +711,22 @@ async function runPhase4Tests() {
     await concClientA.connect();
     await concClientB.connect();
 
-    const biryaniProductUuid = '00000000-0000-0000-0000-000000000501';
     const foodItemsPayload = JSON.stringify([
       {
         catalog_kind: 'RESTAURANT_PRODUCT',
-        restaurant_product_id: biryaniProductUuid,
+        restaurant_product_id: biryani.id,
         quantity: 1,
         unit_price: 220.00,
         unit_snapshot: 'piece',
-        product_name_snapshot: 'Special Dum Biryani (Chicken)'
+        product_name_snapshot: biryani.name
       }
     ]);
 
     const [concFoodResA, concFoodResB] = await Promise.all([
       concClientA.query(`SELECT create_order_with_lines_atomic('FOOD', $1, $2, 220.00, $3::jsonb, '{}'::jsonb, $4, NULL) as result;`,
-        [customer1Uuid, mcht1Uuid, foodItemsPayload, concFoodKey]),
+        [buyerUuid, storeUuid, foodItemsPayload, concFoodKey]),
       concClientB.query(`SELECT create_order_with_lines_atomic('FOOD', $1, $2, 220.00, $3::jsonb, '{}'::jsonb, $4, NULL) as result;`,
-        [customer1Uuid, mcht1Uuid, foodItemsPayload, concFoodKey])
+        [buyerUuid, storeUuid, foodItemsPayload, concFoodKey])
     ]);
 
     await concClientA.end();
@@ -665,21 +755,20 @@ async function runPhase4Tests() {
         'CHK-' || substr(md5(random()::text), 1, 12),
         $1, $2, 'GROCERY', 'WALLET', 112.00, 112.00, 'CONFIRMED'
       ) RETURNING id;
-    `, [customer1Uuid, mcht1Uuid]);
+    `, [buyerUuid, storeUuid]);
     const concurrentCheckoutId = concChkRes.rows[0].id;
 
     const keyConcClaim1 = 'test_claim1_' + crypto.randomUUID();
     const keyConcClaim2 = 'test_claim2_' + crypto.randomUUID();
 
-    const milkInvUuid = '00000000-0000-0000-0000-000000000602';
     const grocItemsPayload = JSON.stringify([
       {
         catalog_kind: 'GROCERY_INVENTORY',
-        grocery_inventory_id: milkInvUuid,
+        grocery_inventory_id: milk.id,
         quantity: 2,
         unit_price: 56.00,
         unit_snapshot: 'litre',
-        product_name_snapshot: 'Amul Taaza Milk'
+        product_name_snapshot: milk.name
       }
     ]);
 
@@ -690,9 +779,9 @@ async function runPhase4Tests() {
 
     const [claimRes1, claimRes2] = await Promise.all([
       concClaimClient1.query(`SELECT create_order_with_lines_atomic('GROCERY', $1, $2, 112.00, $3::jsonb, '{}'::jsonb, $4, $5) as result;`,
-        [customer1Uuid, mcht1Uuid, grocItemsPayload, keyConcClaim1, concurrentCheckoutId]),
+        [buyerUuid, storeUuid, grocItemsPayload, keyConcClaim1, concurrentCheckoutId]),
       concClaimClient2.query(`SELECT create_order_with_lines_atomic('GROCERY', $1, $2, 112.00, $3::jsonb, '{}'::jsonb, $4, $5) as result;`,
-        [customer1Uuid, mcht1Uuid, grocItemsPayload, keyConcClaim2, concurrentCheckoutId])
+        [buyerUuid, storeUuid, grocItemsPayload, keyConcClaim2, concurrentCheckoutId])
     ]);
 
     await concClaimClient1.end();
@@ -715,8 +804,8 @@ async function runPhase4Tests() {
     const preRestartFoodKey = 'pre_restart_food_' + crypto.randomUUID();
     const preFoodRes = await request('POST', '/api/customer/book-food', {
       deliveryAddress: FOOD_ADDRESS,
-      restaurantId: 'rest_1',
-      items: ['2x Garlic Butter Naan']
+      restaurantId: storeUuid,
+      items: cartNaanOnly
     }, {
       'Authorization': `Bearer ${customerToken}`,
       'Idempotency-Key': preRestartFoodKey
@@ -725,8 +814,8 @@ async function runPhase4Tests() {
 
     const preRestartGrocKey = 'pre_restart_groc_' + crypto.randomUUID();
     const preGrocRes = await request('POST', '/api/grocery/checkout/validate', {
-      merchantId: 'mcht_1',
-      cartItems: [{ productId: 'gprod_3', quantity: 1, price: 56.0 }]
+      merchantId: storeUuid,
+      cartItems: grocCart(1)
     }, {
       'Authorization': `Bearer ${customerToken}`,
       'Idempotency-Key': preRestartGrocKey
@@ -772,10 +861,11 @@ async function runPhase4Tests() {
     const postHealth = await request('GET', '/api/health');
     assert('Post-restart backend server is healthy & online', postHealth.status === 200 && postHealth.data.status === 'ONLINE');
 
-    // Read back pre-restart Food order via customer API
-    const postCustOtpSend = await request('POST', '/api/auth/send-otp', { phone: '9845011982', role: 'CUSTOMER', purpose: 'LOGIN' });
-    const postCustOtpVerify = await request('POST', '/api/auth/verify-otp', { phone: '9845011982', otp: postCustOtpSend.data.testOtp || '7729', role: 'CUSTOMER' });
-    const postCustToken = postCustOtpVerify.data.token || 'usr_session_priya';
+    // Read back pre-restart Food order via customer API, with a session minted after the restart
+    const postCustToken = await signIn(buyer.phone, 'CUSTOMER');
+    assert('P4-700 the minted buyer signed in again after the cold restart', !!postCustToken,
+      'no token came back from /api/auth/verify-otp');
+    if (!postCustToken) throw new Error('post-restart fixture session could not be minted');
 
     const postFoodRead = await request('GET', `/api/customer/orders/${preFoodOrderId}`, null, {
       'Authorization': `Bearer ${postCustToken}`
@@ -798,6 +888,10 @@ async function runPhase4Tests() {
       postGrocRead.data.order.checkout_id === preGrocCheckoutId
     );
 
+    // Reaped before the verdict is printed, so the residue check is one of the counted assertions
+    // rather than a side effect of the exit path.
+    await reapFixtures();
+
     await pgCheckClient.end();
 
     console.log('\n========================================================================');
@@ -811,6 +905,7 @@ async function runPhase4Tests() {
     }
   } catch (err) {
     console.error('💥 Fatal error running Phase 4 test suite:', err);
+    await reapFixtures().catch(() => {});
     process.exit(1);
   }
 }

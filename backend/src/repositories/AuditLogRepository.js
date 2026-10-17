@@ -34,6 +34,25 @@ class AuditLogRepository {
   }
 
   /**
+   * The live/offline split used to be read straight off the module bindings at call time,
+   * which left the offline branch of `list()` unreachable from a live process — and that
+   * branch is the one Decision 6 in docs/OWNER_SECURITY_DECISIONS.md rules on. Same answer
+   * in production, substitutable in a test, on the pattern `adRepo.live` already uses.
+   */
+  get live() {
+    return isLivePostgres && Boolean(supabaseAdmin);
+  }
+
+  get client() {
+    return supabaseAdmin;
+  }
+
+  /** Exposed so `initPostgres` can map boot rows through the same shape a read returns. */
+  mapRowToDTO(row) {
+    return mapRowToDTO(row);
+  }
+
+  /**
    * Create an immutable audit log entry.
    * In live PostgreSQL mode, this writes directly and synchronously to public.audit_logs.
    * If PostgreSQL fails, it fails closed by throwing an Error.
@@ -65,8 +84,8 @@ class AuditLogRepository {
       failure_reason: entry.failureReason || entry.failure_reason || null
     };
 
-    if (isLivePostgres && supabaseAdmin) {
-      const { data, error } = await supabaseAdmin
+    if (this.live) {
+      const { data, error } = await this.client
         .from('audit_logs')
         .insert([row])
         .select()
@@ -107,8 +126,8 @@ class AuditLogRepository {
     const limit = Math.min(Math.max(Number(filters.limit) || 100, 1), 500);
     const offset = Math.max(Number(filters.offset) || 0, 0);
 
-    if (isLivePostgres && supabaseAdmin) {
-      let query = supabaseAdmin
+    if (this.live) {
+      let query = this.client
         .from('audit_logs')
         .select('*', { count: 'exact' });
 
@@ -151,9 +170,21 @@ class AuditLogRepository {
       }
 
       const logs = (data || []).map(mapRowToDTO);
+      // A page length is not the size of the trail. `count: 'exact'` is asked for on every
+      // live read, so if the server withholds it the answer is "unknown", never the count of
+      // rows this one call happened to carry.
       return {
         logs,
-        total: count !== null ? count : logs.length
+        total: count !== null ? count : null,
+        totalIsExact: count !== null,
+        dataSource: 'postgresql',
+        degraded: false,
+        stale: false,
+        storeRows: count,
+        mirroredRows: null,
+        hydrationLimit: null,
+        readAt: new Date().toISOString(),
+        notice: null
       };
     }
 
@@ -167,6 +198,12 @@ class AuditLogRepository {
     }
     if (filters.adminId && filters.adminId !== 'ALL') {
       list = list.filter(l => (l.adminId || l.admin_id) === filters.adminId);
+    }
+    if (filters.targetEntityType) {
+      list = list.filter(l => (l.targetEntityType || l.target_entity_type) === filters.targetEntityType);
+    }
+    if (filters.targetEntityId) {
+      list = list.filter(l => (l.targetEntityId || l.target_entity_id) === filters.targetEntityId);
     }
     if (filters.applicationId) {
       list = list.filter(l => (l.targetEntityId || l.id) === filters.applicationId);
@@ -182,11 +219,37 @@ class AuditLogRepository {
       );
     }
     list.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-    const total = list.length;
     const paginated = list.slice(offset, offset + limit);
+    // Decision 6 (docs/OWNER_SECURITY_DECISIONS.md:228) allows this copy to answer, and
+    // forbids it answering as if it were the trail. Two different copies reach this branch,
+    // and the honest marker differs between them, so the label is derived from what boot
+    // recorded rather than asserted from here:
+    //   - a live store was read at boot: this is a newest-page window plus what the process
+    //     wrote. A record the store holds and this copy does not is invisible here, so
+    //     `total` stays unknown instead of becoming the length of a page.
+    //   - no store is attached at all: the array is everything there is, and `total` may be
+    //     its length, but it is still not durable and says so.
+    const mirror = this.db?.auditMirror || {};
+    const fromStore = mirror.source === 'postgres';
     return {
       logs: paginated,
-      total
+      total: fromStore ? null : list.length,
+      totalIsExact: !fromStore,
+      dataSource: 'memory',
+      degraded: fromStore,
+      stale: fromStore,
+      storeRows: fromStore && mirror.storeRows != null ? mirror.storeRows : null,
+      mirroredRows: list.length,
+      hydrationLimit: fromStore && mirror.limit != null ? mirror.limit : null,
+      hydratedAt: fromStore ? (mirror.readAt || null) : null,
+      hydrationError: fromStore ? (mirror.error || null) : null,
+      notice: fromStore
+        ? 'Served from this process\'s in-memory audit mirror, not from the audit trail. '
+          + 'It holds the newest page the store handed boot plus the records this process '
+          + 'wrote itself; a record missing here may exist in the store. Absence is not evidence.'
+        : 'Served from this process\'s in-memory records: no PostgreSQL audit store is '
+          + 'attached, so nothing here survives a restart and none of it is the durable '
+          + 'audit trail.'
     };
   }
 
@@ -196,8 +259,8 @@ class AuditLogRepository {
   async getById(id) {
     if (!id) return null;
 
-    if (isLivePostgres && supabaseAdmin) {
-      const { data, error } = await supabaseAdmin
+    if (this.live) {
+      const { data, error } = await this.client
         .from('audit_logs')
         .select('*')
         .eq('id', id)

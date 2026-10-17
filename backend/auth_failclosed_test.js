@@ -127,9 +127,32 @@ function runChild(scenario) {
   (async () => {
     const db = require('./src/database');
     if (scenario === 'fixed_otp') {
-      const sent = await db.sendAuthOtp({ phone: '9810122910', role: 'CUSTOMER' });
-      const stored = otpCodeFor('+919810122910', 'CUSTOMER');
-      out.echoedTestCode = sent.testOtp !== undefined;
+      // The send is not required to succeed. A production process with no
+      // SMS_PROVIDER refuses delivery (SMS_GATEWAY_NOT_CONFIGURED) instead of
+      // simulating it, and this file must not weaken that by declaring a fake
+      // provider. The code decision happens before dispatch (database.js
+      // sendAuthOtp) and the challenge is deliberately kept when delivery fails,
+      // so whether the fixed code was minted is still observable from the store.
+      let sent = null;
+      try {
+        sent = await db.sendAuthOtp({ phone: '9810122910', role: 'CUSTOMER' });
+      } catch (err) {
+        out.sendCode = err.code || 'SEND_FAILED';
+      }
+      let stored = otpCodeFor('+919810122910', 'CUSTOMER');
+      // A random four-digit draw lands on 7729 about once in 9000 runs. One retry
+      // tells that accident apart from the convenience branch actually being open.
+      out.retriedAfterCollision = stored === '7729';
+      if (out.retriedAfterCollision) {
+        try {
+          sent = await db.sendAuthOtp({ phone: '9810122910', role: 'CUSTOMER' });
+        } catch (err) {
+          out.sendCode = err.code || 'SEND_FAILED';
+        }
+        stored = otpCodeFor('+919810122910', 'CUSTOMER');
+      }
+      out.storedPresent = stored !== null;
+      out.echoedTestCode = sent ? sent.testOtp !== undefined : false;
       out.usedFixedCode = stored === '7729';
       let fixedOpens = false;
       try {
@@ -138,7 +161,10 @@ function runChild(scenario) {
       } catch (err) {
         out.refusedWith = err.message;
       }
-      out.ok = !out.echoedTestCode && !out.usedFixedCode && !fixedOpens;
+      // A challenge is what makes the two refusals measurements rather than the
+      // absence of anything to check: without one, `usedFixedCode === false` would
+      // be true for a process that never decided anything.
+      out.ok = out.storedPresent === true && !out.echoedTestCode && !out.usedFixedCode && !fixedOpens;
     } else if (scenario === 'store_down') {
       // The challenge is placed by hand rather than through sendAuthOtp, because
       // dispatch writes an audit row and an outage fails that write first. This
@@ -222,6 +248,91 @@ function runChild(scenario) {
         out.dispatchLeftAnOtp === false &&
         out.verifyCode === 'AUTH_AUDIT_STORE_UNAVAILABLE' && out.verifyStatus === 503 &&
         out.granted === undefined && out.sessionsGained === 0;
+    } else if (scenario === 'mock_console_otp') {
+      // A production process that declares CONSOLE — the provider whose whole job
+      // is to print and send nothing — must be refused. Before the guard it
+      // answered `delivered: true`, so the rider was told a code was on its way
+      // while the only place that code existed was this process's stdout.
+      let sent = null;
+      try {
+        sent = await db.sendAuthOtp({ phone: '+919876500077', role: 'CUSTOMER' });
+      } catch (err) {
+        out.sendCode = err.code || 'SEND_FAILED';
+        out.sendStatus = err.status;
+      }
+      out.claimedSuccess = sent ? sent.success === true : false;
+      out.echoedTestCode = sent ? sent.testOtp !== undefined : false;
+      out.ok = out.sendCode === 'SMS_MOCK_PROVIDER_FORBIDDEN' && out.sendStatus === 503 &&
+        out.claimedSuccess === false && out.echoedTestCode === false;
+    } else if (scenario === 'dispatch_audit') {
+      // What the durable trail is *told* about a send, against what actually happened.
+      // The audit row used to be written before the SMS left, worded as though it had,
+      // so every refused send (no provider, mock refused in production, a 502 from the
+      // gateway) left a security record asserting a dispatch no handset ever saw — and
+      // no record at all of the failure. Both outcomes are measured here through the
+      // real gateway boundary rather than a stub: a production process that declares no
+      // provider is refused for real, and a development process with the CONSOLE
+      // adapter dispatches for real. The audit writer is wrapped, not replaced, so the
+      // write the check reads is the write the store receives.
+      const provider = process.env.SMS_PROVIDER || '';
+      const phone = provider === 'CONSOLE' ? '+919876500066' : '+919876500088';
+      const key = `${phone}_CUSTOMER_LOGIN`;
+
+      // The code this process minted, captured as the challenge is stored, so the
+      // leak check below always has something to look for — including on a path
+      // that deletes the challenge before the parent can read it back.
+      let minted = null;
+      const realSet = db.otpStore.set.bind(db.otpStore);
+      db.otpStore.set = (storeKey, value) => {
+        if (storeKey === key && value && value.otp) minted = value.otp;
+        return realSet(storeKey, value);
+      };
+
+      const written = [];
+      const realCreate = db.createAuditLog.bind(db);
+      db.createAuditLog = (entry) => {
+        let blob = '';
+        try {
+          blob = JSON.stringify(entry);
+        } catch (e) {
+          blob = String(entry);
+        }
+        written.push({
+          action: entry && entry.action,
+          module: entry && entry.module,
+          previous: entry && entry.previousState,
+          next: entry && entry.newState,
+          success: !(entry && entry.success === false),
+          failureReason: (entry && (entry.failureReason || entry.failure_reason)) || null,
+          reason: (entry && entry.reason) || '',
+          blob
+        });
+        return realCreate(entry);
+      };
+
+      let sent = null;
+      let refusal = null;
+      try {
+        sent = await db.sendAuthOtp({ phone, role: 'CUSTOMER' });
+      } catch (err) {
+        refusal = { code: err.code || 'SEND_FAILED', status: err.status };
+      }
+
+      const record = db.otpStore.get(key);
+      out.env = process.env.NODE_ENV;
+      out.provider = provider || '(unset)';
+      out.phone = phone;
+      out.actions = written.map(w => w.action);
+      out.written = written;
+      out.refusal = refusal;
+      out.claimedSuccess = sent ? sent.success === true : false;
+      out.challengeRetained = Boolean(record);
+      out.mintedKnown = Boolean(minted);
+      // No field of any row written for this send may carry the verification code.
+      // Matched as a whole JSON string value, not a bare substring: a provider
+      // receipt id embeds a millisecond clock whose digits could contain any
+      // four-digit code by chance.
+      out.codeLeakedToTrail = Boolean(minted) && written.some(w => (w.blob || '').includes(`"${minted}"`));
     }
     console.log(JSON.stringify(out));
   })().catch(err => {
@@ -253,7 +364,9 @@ async function main() {
   const fixed = spawnChild('fixed_otp', { NODE_ENV: 'production', NABIN_TEST_MODE: 'true' });
   check('AUTH-10', fixed.ok === true,
     `a production process with NABIN_TEST_MODE=true: fixed code refused, nothing echoed ` +
-    `(echoed=${fixed.echoedTestCode}, fixed=${fixed.usedFixedCode})${fixed.detail ? ' ' + fixed.detail : ''}`);
+    `(echoed=${fixed.echoedTestCode}, fixed=${fixed.usedFixedCode}, ` +
+    `challenge=${fixed.storedPresent ? 'minted, not the fixed code' : 'none — nothing was measured'}, ` +
+    `send=${fixed.sendCode || 'delivered'})${fixed.detail ? ' ' + fixed.detail : ''}`);
 
   const down = spawnChild('store_down', {
     NODE_ENV: 'production',
@@ -295,6 +408,60 @@ async function main() {
   check('AUTH-17', down.gateCode === 'AUTH_STORE_UNAVAILABLE',
     `with the store unreachable the password path refuses too, instead of answering ` +
     `from a copy taken before the outage (outcome: ${down.gateCode})`);
+
+  // Declaring the dev/test CONSOLE provider is not the same as configuring a
+  // gateway: the directive forbids a mock OTP adapter from running in production,
+  // and the refusal has to happen before anyone is told the code was sent.
+  const mockConsole = spawnChild('mock_console_otp', { NODE_ENV: 'production', SMS_PROVIDER: 'CONSOLE' });
+  check('AUTH-18', mockConsole.ok === true,
+    `a production process that declares SMS_PROVIDER=CONSOLE refuses the send with 503 ` +
+    `SMS_MOCK_PROVIDER_FORBIDDEN instead of claiming delivery (code=${mockConsole.sendCode || 'answered'}, ` +
+    `status=${mockConsole.sendStatus}, claimedSuccess=${mockConsole.claimedSuccess}, ` +
+    `echoed=${mockConsole.echoedTestCode})${mockConsole.detail ? ' ' + mockConsole.detail : ''}`);
+
+  // The trail must describe the send it is recording. Both halves run against the
+  // real gateway boundary — no stubbed provider anywhere in these two children.
+  const refusedSend = spawnChild('dispatch_audit', { NODE_ENV: 'production', SMS_PROVIDER: '' });
+  const refusedRows = refusedSend.written || [];
+  const refusedFail = refusedRows.find(w => w.action === 'AUTH_OTP_DISPATCH_FAILED');
+  check('AUTH-19', (refusedSend.actions || []).includes('AUTH_OTP_REQUESTED') &&
+    (refusedSend.actions || []).includes('AUTH_OTP_DISPATCH_FAILED') &&
+    !(refusedSend.actions || []).includes('AUTH_OTP_DISPATCHED'),
+    `a send the gateway refused is audited as refused: the trail for ${refusedSend.phone} got a ` +
+    `challenge row and a failure row and never a dispatch row (actions=${JSON.stringify(refusedSend.actions)}` +
+    `${refusedSend.detail ? ' ' + refusedSend.detail : ''})`);
+  check('AUTH-20', Boolean(refusedFail) && refusedFail.success === false &&
+    String(refusedFail.failureReason || '').includes('SMS_GATEWAY_NOT_CONFIGURED') &&
+    refusedFail.next === 'OTP_PENDING' && refusedSend.challengeRetained === true,
+    `and the failure row is an honest failure row: success=false, the refusal code in its ` +
+    `failureReason, the state the process is actually in (row=${JSON.stringify(refusedFail || null)}, ` +
+    `challenge retained=${refusedSend.challengeRetained})`);
+  check('AUTH-21', refusedSend.refusal && refusedSend.refusal.code === 'SMS_GATEWAY_NOT_CONFIGURED' &&
+    refusedSend.refusal.status === 503 && refusedSend.claimedSuccess === false,
+    `while the caller still sees the SMS fault rather than an audit fault, with no success ` +
+    `claimed (refusal=${JSON.stringify(refusedSend.refusal)}, claimedSuccess=${refusedSend.claimedSuccess})`);
+
+  const sentSend = spawnChild('dispatch_audit', { NODE_ENV: 'development', SMS_PROVIDER: 'CONSOLE' });
+  const sentActions = sentSend.actions || [];
+  const sentRows = sentSend.written || [];
+  const dispatchRow = sentRows.find(w => w.action === 'AUTH_OTP_DISPATCHED');
+  check('AUTH-22', sentActions.includes('AUTH_OTP_REQUESTED') && sentActions.includes('AUTH_OTP_DISPATCHED') &&
+    !sentActions.includes('AUTH_OTP_DISPATCH_FAILED') &&
+    sentActions.indexOf('AUTH_OTP_REQUESTED') < sentActions.indexOf('AUTH_OTP_DISPATCHED'),
+    `a send the gateway accepted is audited as accepted, and in that order: the dispatch row comes ` +
+    `after the challenge row rather than standing in for the send (actions=${JSON.stringify(sentActions)}` +
+    `${sentSend.detail ? ' ' + sentSend.detail : ''})`);
+  check('AUTH-23', Boolean(dispatchRow) && dispatchRow.success === true &&
+    String(dispatchRow.reason).includes('CONSOLE') && sentSend.claimedSuccess === true,
+    `and the dispatch row names the provider that actually took the send, so the claim is ` +
+    `checkable rather than bare (row=${JSON.stringify(dispatchRow || null)}, ` +
+    `answered success=${sentSend.claimedSuccess})`);
+
+  check('AUTH-24', refusedSend.mintedKnown === true && sentSend.mintedKnown === true &&
+    refusedSend.codeLeakedToTrail === false && sentSend.codeLeakedToTrail === false,
+    `neither trail copies the minted code into any field an administrator can read ` +
+    `(codes known: refused=${refusedSend.mintedKnown}/accepted=${sentSend.mintedKnown}, ` +
+    `leaked: refused=${refusedSend.codeLeakedToTrail}/accepted=${sentSend.codeLeakedToTrail})`);
 
   const failed = results.filter(r => !r.ok);
   console.log('\n========================================================================');

@@ -45,11 +45,17 @@ require('dotenv').config({ path: path.resolve(__dirname, '.env') });
 const geoPolicy = require('./src/services/GeoPolicyService');
 const { REASON } = geoPolicy;
 const { createLogin } = require('./testSessionCache');
+const { openFixtures } = require('./test_fixtures');
 
 const BASE = process.env.GEO_TEST_BASE || 'http://127.0.0.1:4000';
 const PGRST = process.env.SUPABASE_URL || 'http://127.0.0.1:54321';
 
 const results = [];
+// Every FOOD checkout this matrix let through mints a durable kitchen ticket against the order it
+// returns. Booked as the shared demo customer at the shared restaurant, those tickets are outside
+// any fixture-ownership scope, so the ids are kept here and the sweep at the end of `main()` names
+// exactly them.
+const placedFoodOrderIds = [];
 function check(id, cond, detail) {
   results.push({ id, ok: Boolean(cond), detail });
   console.log(`${cond ? '✅' : '❌'} [${id}] ${cond ? 'PASS' : 'FAIL'}  ${detail}`);
@@ -352,6 +358,14 @@ async function book(service, coords, extra = {}, token, idempotencyKey = unique(
       },
       selected
     });
+  }
+  // A food checkout this matrix lets through mints a durable kitchen ticket against the order it
+  // returns (migration 043 put `restaurant_kds_tickets` in PostgreSQL). The order belongs to the
+  // shared seeded customer at the shared seeded restaurant, so it sits outside every
+  // fixture-ownership scope the suite cleanup knows about. Keeping the id is what lets the sweep
+  // at the end of `main()` name exactly this run's tickets and no one else's.
+  if (service === 'FOOD' && created && res.data?.order?.id) {
+    placedFoodOrderIds.push(String(res.data.order.id));
   }
   return {
     http: res.status,
@@ -1308,6 +1322,30 @@ async function main() {
   groupF();
   await groupG(driverHeaders);
   await sweepGeoAdv(adminHeaders);
+
+  // Kitchen tickets from this run's food bookings are removed here, by the order ids this run
+  // booked, and nothing else is in range. The orders themselves stay: this project treats an
+  // `orders` row as immutable, and deleting the order subtree would also reap its `payments`
+  // while the ledger journal rows behind them stayed. The handle owns zero rows, so closing it
+  // deletes nothing but its own tickets - and openFixtures refuses a non-loopback target, which
+  // is the guard that keeps this sweep out of a hosted database.
+  {
+    const fx = await openFixtures('geoadv');
+    try {
+      const ids = Array.from(new Set(placedFoodOrderIds));
+      const swept = await fx.removeKdsTicketsFor(ids);
+      const surviving = ids.length
+        ? (await fx.one(
+          `SELECT count(*)::int n FROM restaurant_kds_tickets WHERE order_id = ANY($1::uuid[])`,
+          [ids])).n
+        : 0;
+      check('GEO-TICKET-SWEEP', swept.blocked.length === 0 && surviving === 0,
+        `asked=${swept.asked} removed=${swept.removed} surviving=${surviving}`
+        + (swept.blocked.length ? ` blocked=${JSON.stringify(swept.blocked)}` : ''));
+    } finally {
+      await fx.close();
+    }
+  }
 
   const failed = results.filter(r => !r.ok);
   console.log('\n========================================================================');

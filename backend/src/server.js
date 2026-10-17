@@ -8,21 +8,25 @@ const { WebSocketServer } = require('ws');
 const db = require('./database');
 const supabaseHelper = require('./supabase');
 const cloudinaryService = require('./services/cloudinaryService');
+const { supabaseStorageService } = require('./services/supabaseStorageService');
 // Canonical `Idempotency-Key` / `X-Idempotency-Key` / body spelling, shared with every other
 // mutating route here so a client learns one convention rather than one per endpoint.
 const { readIdempotencyHeader } = require('./services/moneyIdentity');
-const { MockSandboxPushProvider, FcmV1PushProvider, PushNotificationService } = require('./services/PushNotificationService');
+const { PushNotificationService, resolvePushProvider } = require('./services/PushNotificationService');
 const { notificationEventBus, NOTIFICATION_EVENTS } = require('./services/NotificationEventBus');
 const featureControlService = require('./services/FeatureControlService');
 const appConfigService = require('./services/AppConfigService');
 const { validateDriverTelemetry } = require('./services/TelemetryValidator');
 const geoPolicy = require('./services/GeoPolicyService');
 const { allowsTestConvenience } = require('./services/RuntimeMode');
+const SmsGatewayService = require('./services/SmsGatewayService');
 const AdvertisementRepository = require('./repositories/AdvertisementRepository');
 
-const pushProvider = (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL)
-  ? new FcmV1PushProvider()
-  : new MockSandboxPushProvider();
+// One decision, in one place: credentials select the provider, and production with
+// no credentials is a named NOT_CONFIGURED refusal instead of the development
+// sandbox. The sandbox used to be the default for every environment, so a
+// production instance recorded DELIVERED rows for pushes that were never sent.
+const pushProvider = resolvePushProvider();
 
 const pushNotificationService = new PushNotificationService(db.notificationRepo, pushProvider);
 db.pushNotificationService = pushNotificationService;
@@ -412,6 +416,7 @@ app.get('/api/health', async (req, res) => {
       connected: connection.connected,
       mode: connection.mode
     },
+    sms: SmsGatewayService.gatewayStatus(),
     activeDrivers: db.drivers.filter(d => d.isOnline).length,
     activeJobs: db.jobs.filter(j => j.status !== 'COMPLETED').length,
     pendingIdentityVerifications: db.identityApplications.filter(a => a.status === 'IDENTITY_VERIFICATION_PENDING').length
@@ -461,7 +466,7 @@ wss.on('connection', (ws, req) => {
     }
   }, 10000);
 
-  ws.on('message', (message) => {
+  ws.on('message', async (message) => {
     let data;
     try {
       data = JSON.parse(message.toString());
@@ -646,11 +651,11 @@ wss.on('connection', (ws, req) => {
         location: locationRecord
       });
 
-      // Broadcast to active trip channel if assigned
+      // Broadcast to active trip channel if assigned (strictly isolated to authorized ride participants)
       if (jobId) {
         const job = db.getJob(jobId);
         const channelName = job?.type === 'RIDE' ? `ride:${jobId}` : `delivery:${jobId}`;
-        broadcast({
+        broadcastRideLocation(jobId, job, {
           type: 'DRIVER_LOCATION_UPDATE',
           channel: channelName,
           jobId,
@@ -669,6 +674,119 @@ wss.on('connection', (ws, req) => {
       return;
     }
 
+    // Subscription: SUBSCRIBE_RIDE / SUBSCRIBE (targeted channel authorization)
+    if (data.type === 'SUBSCRIBE_RIDE' || (data.type === 'SUBSCRIBE' && (data.channel?.startsWith('ride:') || data.jobId))) {
+      const rawJobId = data.jobId || data.channel?.replace(/^ride:/, '');
+      if (!rawJobId) {
+        ws.send(JSON.stringify({
+          type: 'ERROR',
+          code: 'INVALID_JOB_ID',
+          error: 'jobId is required to subscribe to ride location updates.'
+        }));
+        return;
+      }
+
+      let job = db.getJob(rawJobId);
+      if (!job && db.jobRepo?.findByIdAsync) {
+        try {
+          job = await db.jobRepo.findByIdAsync(rawJobId);
+        } catch (_) {}
+      }
+      if (!job) {
+        ws.send(JSON.stringify({
+          type: 'ERROR',
+          code: 'RIDE_NOT_FOUND',
+          error: 'The requested ride could not be found.'
+        }));
+        return;
+      }
+
+      // Terminal state guard: cannot subscribe to terminal rides
+      const terminalStates = ['COMPLETED', 'CANCELLED', 'REJECTED'];
+      if (terminalStates.includes(job.status)) {
+        ws.send(JSON.stringify({
+          type: 'ERROR',
+          code: 'RIDE_NOT_ACTIVE',
+          error: 'Cannot subscribe to an inactive, cancelled, or completed ride.'
+        }));
+        return;
+      }
+
+      // Authorization check
+      const role = ws.authInfo.role;
+      if (role === 'admin') {
+        ws.subscriptions = ws.subscriptions || new Set();
+        ws.subscriptions.add(rawJobId);
+        if (job.id) ws.subscriptions.add(String(job.id));
+        if (job.uuid) ws.subscriptions.add(String(job.uuid));
+        ws.send(JSON.stringify({
+          type: 'SUBSCRIPTION_ACK',
+          jobId: rawJobId,
+          channel: `ride:${rawJobId}`,
+          success: true
+        }));
+        return;
+      }
+
+      if (role === 'customer') {
+        const callerId = ws.authInfo.id;
+        const callerUuid = ws.authInfo.entity?.uuid || callerId;
+        const targetCustomerUuids = new Set([
+          job.customerId,
+          job.customerUuid,
+          db.userRepo?.resolveUuid ? db.userRepo.resolveUuid(job.customerId) : null,
+          db.userRepo?.resolveUuid ? db.userRepo.resolveUuid(job.customerUuid) : null,
+        ].filter(Boolean));
+
+        const isOwner = targetCustomerUuids.has(callerId) || targetCustomerUuids.has(callerUuid);
+        if (!isOwner) {
+          console.warn(`[security/ws] Unauthorized ride subscription attempt rejected for customer ${callerId} on ride ${rawJobId}`);
+          ws.send(JSON.stringify({
+            type: 'ERROR',
+            code: 'SUBSCRIPTION_FORBIDDEN',
+            error: 'Forbidden: You are not authorized to subscribe to this ride.'
+          }));
+          return;
+        }
+
+        ws.subscriptions = ws.subscriptions || new Set();
+        ws.subscriptions.add(rawJobId);
+        if (job.id) ws.subscriptions.add(String(job.id));
+        if (job.uuid) ws.subscriptions.add(String(job.uuid));
+        ws.send(JSON.stringify({
+          type: 'SUBSCRIPTION_ACK',
+          jobId: rawJobId,
+          channel: `ride:${rawJobId}`,
+          success: true
+        }));
+        return;
+      }
+
+      ws.send(JSON.stringify({
+        type: 'ERROR',
+        code: 'SUBSCRIPTION_FORBIDDEN',
+        error: 'Forbidden: Role not authorized to subscribe to ride location updates.'
+      }));
+      return;
+    }
+
+    // Unsubscribe: UNSUBSCRIBE_RIDE / UNSUBSCRIBE
+    if (data.type === 'UNSUBSCRIBE_RIDE' || (data.type === 'UNSUBSCRIBE' && (data.channel?.startsWith('ride:') || data.jobId))) {
+      const rawJobId = data.jobId || data.channel?.replace(/^ride:/, '');
+      if (ws.subscriptions && rawJobId) {
+        ws.subscriptions.delete(rawJobId);
+        const job = db.getJob(rawJobId);
+        if (job?.id) ws.subscriptions.delete(String(job.id));
+        if (job?.uuid) ws.subscriptions.delete(String(job.uuid));
+      }
+      ws.send(JSON.stringify({
+        type: 'UNSUBSCRIBE_ACK',
+        jobId: rawJobId,
+        success: true
+      }));
+      return;
+    }
+
     // Unrecognized message fallback
     ws.send(JSON.stringify({
       type: 'ERROR',
@@ -679,6 +797,9 @@ wss.on('connection', (ws, req) => {
 
   ws.on('close', () => {
     clearTimeout(registrationTimer);
+    if (ws.subscriptions) {
+      ws.subscriptions.clear();
+    }
     clients.delete(ws);
   });
 });
@@ -759,6 +880,59 @@ function broadcastToAdmins(payload) {
   for (const [ws, info] of clients.entries()) {
     if (info.role === 'admin' && ws.readyState === ws.OPEN) {
       ws.send(msg);
+    }
+  }
+}
+
+// Broadcasts live driver telemetry strictly to the authorized customer for that specific ride
+// and operational admin clients, strictly preventing leakage to other platform customers.
+function broadcastRideLocation(jobId, job, locationPayload) {
+  if (!job) return;
+  const terminalStates = ['COMPLETED', 'CANCELLED', 'REJECTED'];
+  if (terminalStates.includes(job.status)) {
+    return;
+  }
+
+  const msg = JSON.stringify(locationPayload);
+  const targetCustomerUuids = new Set([
+    job.customerId,
+    job.customerUuid,
+    db.userRepo?.resolveUuid ? db.userRepo.resolveUuid(job.customerId) : null,
+    db.userRepo?.resolveUuid ? db.userRepo.resolveUuid(job.customerUuid) : null,
+  ].filter(Boolean));
+
+  for (const [ws, info] of clients.entries()) {
+    if (ws.readyState !== ws.OPEN) continue;
+
+    // Operational Admin clients receive if explicitly subscribed or monitoring fleet
+    if (info.role === 'admin' && (ws.subscriptions?.has(jobId) || (job.uuid && ws.subscriptions?.has(job.uuid)) || (job.id && ws.subscriptions?.has(job.id)))) {
+      ws.send(msg);
+      continue;
+    }
+
+    // Strictly deliver only to the verified authorized customer for this ride
+    if (info.role === 'customer') {
+      const callerId = info.id;
+      const callerUuid = info.entity?.uuid || callerId;
+      const isOwner = targetCustomerUuids.has(callerId) || targetCustomerUuids.has(callerUuid);
+
+      if (isOwner) {
+        // If client maintains explicit room subscriptions, require that this job is subscribed;
+        // If client connects without rooms, deliver targeted update to the verified owner.
+        if (!ws.subscriptions || ws.subscriptions.size === 0 || ws.subscriptions.has(jobId) || (job.uuid && ws.subscriptions.has(job.uuid)) || (job.id && ws.subscriptions.has(job.id))) {
+          ws.send(msg);
+        }
+      }
+    }
+  }
+}
+
+function revokeRideSubscriptions(jobId) {
+  if (!jobId) return;
+  for (const [ws] of clients.entries()) {
+    if (ws.subscriptions) {
+      ws.subscriptions.delete(jobId);
+      ws.subscriptions.delete(String(jobId));
     }
   }
 }
@@ -1079,10 +1253,15 @@ function requireMerchantService(service) {
       try {
         row = await db.orderRepo.resolveMerchant(merchantId);
       } catch (readErr) {
-        if (supabaseHelper.isStoreUnreachable(readErr)) {
-          return replyStoreError(res, req, readErr, 'merchant service entitlement');
+        if (!db.restaurants.some(r => r.id === merchantId || r.uuid === merchantId)) {
+          if (supabaseHelper.isStoreUnreachable(readErr)) {
+            return replyStoreError(res, req, readErr, 'merchant service entitlement');
+          }
+          throw readErr;
         }
-        throw readErr;
+      }
+      if (!row && merchantId) {
+        row = db.restaurants.find(r => r.id === merchantId || r.uuid === merchantId);
       }
 
       const actual = row && (row.merchant_type || row.merchantType);
@@ -1285,13 +1464,26 @@ app.get('/api/auth/me', async (req, res) => {
 });
 
 // Invalidate Session / Logout
-app.post('/api/auth/logout', (req, res) => {
+//
+// Awaited: the response means "this bearer is dead", and it used to be written before the
+// store had taken the row back. `db.invalidateSession` now waits for its own delete, so this
+// handler has to wait for it — an async handler without a catch would let a throw vanish and
+// hang the request on Express 4, so the failure goes to `next` like it did when this was
+// synchronous. The success contract is unchanged.
+app.post('/api/auth/logout', async (req, res, next) => {
   const authHeader = req.headers['authorization'] || '';
   const token = authHeader.replace(/^Bearer\s+/, '') || req.body.token;
 
   if (token) {
-    db.invalidateSession(token);
+    // Both in-process maps are cleared before anything is awaited — `db.invalidateSession`
+    // drops its own first — so awaiting the store never makes a signed-out bearer valid for
+    // one round trip longer than it was before.
     activeAdminSessions.delete(token);
+    try {
+      await db.invalidateSession(token);
+    } catch (err) {
+      return next(err);
+    }
   }
 
   res.json({ success: true, message: 'Logged out successfully.' });
@@ -1598,7 +1790,6 @@ app.post('/api/admin/services/emergency-killswitch', authenticateAdmin, requireP
     }
 
     // 5. Create First Admin
-    const crypto = require('crypto');
     const salt = crypto.randomBytes(16).toString('hex');
     const passwordHash = crypto.scryptSync(password, salt, 64).toString('hex');
 
@@ -1758,7 +1949,7 @@ app.post('/api/admin/login', async (req, res) => {
     // A control-plane session the audit trail cannot show is a session nobody can
     // later account for, so it is taken back rather than handed out.
     activeAdminSessions.delete(token);
-    db.invalidateSession(token);
+    await db.invalidateSession(token);
     return res.status(auditErr.status || 503).json({
       success: false,
       code: auditErr.code || 'AUTH_AUDIT_STORE_UNAVAILABLE',
@@ -1833,6 +2024,33 @@ app.get('/api/admin/me', authenticateAdmin, (req, res) => {
 // -------------------------------------------------------------
 // 1. GLOBAL ADMINISTRATIVE AUDIT LOG TRAIL (POSTGRES AUTHORITATIVE)
 // -------------------------------------------------------------
+//
+// The Decision 6 B marker, spelled once (docs/OWNER_SECURITY_DECISIONS.md:228). Two routes
+// serve this trail and both used to build their own answer from `list()`'s `{logs,total}`,
+// which is how the same copy of the audit log could be a complete-sounding `total` on one
+// route and an unlabelled list on the other. One shape, so a consumer cannot be told more
+// confidence by one route than the other.
+//
+// Deliberately absent: any status-code change. R1 answers 500 for an unreadable store and
+// R2 answers 503; which wins is the owner question recorded in
+// docs/SECURITY_DECISIONS_IMPLEMENTATION_PLAN.md Phase 7 §10, not something to settle by
+// editing a route.
+function auditTrailMarker(result) {
+  return {
+    total: result.total,
+    totalIsExact: result.totalIsExact,
+    dataSource: result.dataSource,
+    degraded: result.degraded,
+    stale: result.stale,
+    storeRows: result.storeRows,
+    mirroredRows: result.mirroredRows,
+    hydrationLimit: result.hydrationLimit,
+    hydratedAt: result.hydratedAt,
+    hydrationError: result.hydrationError,
+    notice: result.notice
+  };
+}
+
 app.get('/api/admin/audit-logs', authenticateAdmin, requirePermission('audit.view'), async (req, res) => {
   try {
     const filters = {
@@ -1847,13 +2065,8 @@ app.get('/api/admin/audit-logs', authenticateAdmin, requirePermission('audit.vie
       offset: req.query.offset || 0
     };
 
-    if (db.auditLogRepo && typeof db.auditLogRepo.list === 'function') {
-      const result = await db.auditLogRepo.list(filters);
-      return res.json({ success: true, logs: result.logs, total: result.total });
-    }
-
-    const logs = db.getAuditLogs(filters);
-    res.json({ success: true, logs, total: logs.length });
+    const result = await db.auditLogRepo.list(filters);
+    res.json({ success: true, logs: result.logs, ...auditTrailMarker(result) });
   } catch (err) {
     console.error('Failed to fetch audit logs:', err.message);
     res.status(500).json({ success: false, error: 'Failed to retrieve administrative audit logs.' });
@@ -2007,8 +2220,16 @@ app.post('/api/support/ticket', requireSupportCallerAuth, async (req, res) => {
     broadcastToAdmins({ type: 'NEW_SUPPORT_TICKET', ticket });
     res.json({ success: true, ticket });
   } catch (err) {
+    if (err && (err.storeFailure || supabaseHelper.isStoreUnreachable(err))) {
+      return replyStoreError(res, req, err, 'support ticket');
+    }
     const status = err.statusCode || 400;
-    res.status(status).json({ success: false, error: err.message, requestId: req.id });
+    res.status(status).json({
+      success: false,
+      code: err.code || 'SUPPORT_TICKET_REJECTED',
+      error: err.message,
+      requestId: req.id
+    });
   }
 });
 
@@ -2024,8 +2245,16 @@ app.get('/api/support/user/:userId', requireSupportCallerAuth, async (req, res) 
     const tickets = await db.supportTicketRepo.getTicketsByUser(req.params.userId, req.caller);
     res.json({ success: true, tickets });
   } catch (err) {
+    if (err && (err.storeFailure || supabaseHelper.isStoreUnreachable(err))) {
+      return replyStoreError(res, req, err, 'support tickets');
+    }
     const status = err.statusCode || 500;
-    res.status(status).json({ success: false, error: err.message, requestId: req.id });
+    res.status(status).json({
+      success: false,
+      code: err.code || 'SUPPORT_TICKETS_READ_FAILED',
+      error: err.message,
+      requestId: req.id
+    });
   }
 });
 
@@ -2037,8 +2266,16 @@ app.post('/api/support/ticket/:id/message', requireSupportCallerAuth, async (req
     broadcastToAdmins({ type: 'TICKET_THREAD_UPDATED', ticketId: req.params.id });
     res.json(result);
   } catch (err) {
+    if (err && (err.storeFailure || supabaseHelper.isStoreUnreachable(err))) {
+      return replyStoreError(res, req, err, 'reply to this support ticket');
+    }
     const status = err.statusCode || 400;
-    res.status(status).json({ success: false, error: err.message, requestId: req.id });
+    res.status(status).json({
+      success: false,
+      code: err.code || 'SUPPORT_MESSAGE_REJECTED',
+      error: err.message,
+      requestId: req.id
+    });
   }
 });
 
@@ -2053,6 +2290,9 @@ app.get('/api/admin/support', authenticateAdmin, requirePermission('support.view
     const tickets = await db.supportTicketRepo.getTicketsAdmin(filters);
     res.json({ success: true, tickets, total: tickets.length });
   } catch (err) {
+    if (err && (err.storeFailure || supabaseHelper.isStoreUnreachable(err))) {
+      return replyStoreError(res, req, err, 'admin support queue');
+    }
     res.status(err.statusCode || 500).json({ success: false, error: err.message, requestId: req.id });
   }
 });
@@ -2063,6 +2303,9 @@ app.post('/api/admin/support/:id/assign', authenticateAdmin, requirePermission('
     if (!result.success) return res.status(400).json(result);
     res.json(result);
   } catch (err) {
+    if (err && (err.storeFailure || supabaseHelper.isStoreUnreachable(err))) {
+      return replyStoreError(res, req, err, 'ticket assignment');
+    }
     res.status(err.statusCode || err.status || 400).json({
       success: false,
       ...(err.code ? { code: err.code } : {}),
@@ -2108,6 +2351,14 @@ app.post('/api/admin/support/:id/resolve', authenticateAdmin, requirePermission(
 
     res.json(result);
   } catch (err) {
+    // The refund and the bounty are booked *before* the ticket row is updated, so a store
+    // failure here means money may already have moved while the ticket still reads
+    // IN_PROGRESS. Answering 400 would tell the examiner their own input was wrong; the
+    // honest answer is the store's status. Re-running is guarded by the double-resolution
+    // check and the ledger's idempotency key, not by this response.
+    if (err && (err.storeFailure || supabaseHelper.isStoreUnreachable(err))) {
+      return replyStoreError(res, req, err, 'ticket resolution');
+    }
     res.status(err.statusCode || 400).json({ success: false, error: err.message, requestId: req.id });
   }
 });
@@ -3730,25 +3981,22 @@ app.get('/api/admin/identity-verifications/:id', authenticateAdmin, requirePermi
   // `requirePermission` already gives — so it asks the same predicate now.
   const canViewUnmasked = adminHoldsPermission(req.admin, 'identity_documents.view');
 
-  let auditLogs = [];
-  if (db.auditLogRepo && typeof db.auditLogRepo.list === 'function') {
-    try {
-      const audRes = await db.auditLogRepo.list({ applicationId: appRecord.id });
-      auditLogs = audRes.logs;
-    } catch (err) {
-      // The trail is the point of this view, so an unreadable one must not become an empty
-      // list — that reads as "nothing has touched this application". There was no catch here
-      // at all, so the rejection hung the request instead. PostgREST wording is not echoed.
-      return res.status(503).json({
-        success: false,
-        code: 'AUDIT_TRAIL_UNAVAILABLE',
-        error: `The audit trail for ${appRecord.id} could not be read, so it is not being shown.`
-      });
-    }
-  } else {
-    auditLogs = db.getAuditLogs({ applicationId: appRecord.id });
+  let trail;
+  try {
+    trail = await db.auditLogRepo.list({ applicationId: appRecord.id });
+  } catch (err) {
+    // The trail is the point of this view, so an unreadable one must not become an empty
+    // list — that reads as "nothing has touched this application". There was no catch here
+    // at all, so the rejection hung the request instead. PostgREST wording is not echoed.
+    return res.status(503).json({
+      success: false,
+      code: 'AUDIT_TRAIL_UNAVAILABLE',
+      error: `The audit trail for ${appRecord.id} could not be read, so it is not being shown.`
+    });
   }
 
+  // The same marker R1 gives. This view used to answer with `auditLogs` and nothing about
+  // what the list was, so a mirror page here read as the application's complete history.
   res.json({
     success: true,
     application: {
@@ -3756,7 +4004,8 @@ app.get('/api/admin/identity-verifications/:id', authenticateAdmin, requirePermi
       aadhaarNumberRaw: canViewUnmasked ? appRecord.aadhaarNumberRaw : undefined,
       voterIdNumberRaw: canViewUnmasked ? appRecord.voterIdNumberRaw : undefined
     },
-    auditLogs
+    auditLogs: trail.logs,
+    ...auditTrailMarker(trail)
   });
 });
 
@@ -3953,46 +4202,57 @@ app.post('/api/customer/book-ride', authenticateUser, async (req, res) => {
   const isSomeoneElse = bookingType === 'FOR_SOMEONE_ELSE';
   const isSchoolChild = isSomeoneElse && passengerCategory === 'SCHOOL_CHILD';
 
-  const job = await db.createJob({
-    type: 'RIDE',
-    idempotencyKey: idempotencyKey || null,
-    customerId: user.id,
-    customerName: user.name,
-    customerPhone: user.phone,
-    // No `customerRating`: `users.rating` is a `DEFAULT 5.00` column with no ratings table
-    // behind it, so copying it booked a column default as a score the passenger never got.
-    vehicleType: vehicleType || '3W',
-    pickup: { ...pickup, ...placedPickup.value },
-    drop: { ...drop, ...placedDrop.value },
-    distance: `${tripKm} km`,
-    // The measured trip, in the column that exists for it. This used to stop at a
-    // display string, so every ride row carried `distance_km = 0` next to a
-    // "4.2 km" label and the two could not be reconciled.
-    distanceKm: tripKm,
-    duration: `${pricingInput.durationMins} mins`,
-    fare: finalFare,
-    discountAmount: pricing.discount,
-    driverEarnings: pricing.driverEarnings,
-    platformFee: pricing.platformFee,
-    surgeMultiplier: pricing.surgeMultiplier,
-    appliedPromo,
-    isForSomeoneElse: isSomeoneElse,
-    isSchoolChild: isSchoolChild,
-    passengerCategory: passengerCategory || 'ADULT',
-    passengerInfo: isSomeoneElse ? passengerInfo : null,
-  });
+  // Express 4 does not forward a rejected async handler to the error middleware, so the
+  // booking says for itself what a refused insert means. Everything `createJob` can throw
+  // here is the store refusing the row, and `storeReply` decides the status from the
+  // engine's own SQLSTATE: 503 when the store is gone, 500 SCHEMA_NOT_READY when the
+  // schema is not applied, 409 when the job number collides, 400 when the row names a
+  // record that does not exist. No branch of it may answer `success: true`.
+  let job;
+  try {
+    job = await db.createJob({
+      type: 'RIDE',
+      idempotencyKey: idempotencyKey || null,
+      customerId: user.id,
+      customerName: user.name,
+      customerPhone: user.phone,
+      // No `customerRating`: `users.rating` is a `DEFAULT 5.00` column with no ratings table
+      // behind it, so copying it booked a column default as a score the passenger never got.
+      vehicleType: vehicleType || '3W',
+      pickup: { ...pickup, ...placedPickup.value },
+      drop: { ...drop, ...placedDrop.value },
+      distance: `${tripKm} km`,
+      // The measured trip, in the column that exists for it. This used to stop at a
+      // display string, so every ride row carried `distance_km = 0` next to a
+      // "4.2 km" label and the two could not be reconciled.
+      distanceKm: tripKm,
+      duration: `${pricingInput.durationMins} mins`,
+      fare: finalFare,
+      discountAmount: pricing.discount,
+      driverEarnings: pricing.driverEarnings,
+      platformFee: pricing.platformFee,
+      surgeMultiplier: pricing.surgeMultiplier,
+      appliedPromo,
+      isForSomeoneElse: isSomeoneElse,
+      isSchoolChild: isSchoolChild,
+      passengerCategory: passengerCategory || 'ADULT',
+      passengerInfo: isSomeoneElse ? passengerInfo : null,
+    });
+  } catch (err) {
+    return replyStoreError(res, req, err, 'ride booking');
+  }
 
   // Create authoritative dispatch offers for active/eligible drivers
   try {
     if (db.dispatchRepo) {
       const candidateDrivers = db.drivers.filter(d => d.operationalStatus !== 'SUSPENDED');
-      for (const d of candidateDrivers) {
-        await db.dispatchRepo.createOffer({
-          jobId: job.id,
-          driverId: d.id,
-          ttlSeconds: 60,
-          metadata: { serviceType: 'RIDE', vehicleType: job.vehicleType }
-        });
+      const fanout = await db.dispatchRepo.createOffersForDrivers(candidateDrivers, {
+        jobId: job.id,
+        ttlSeconds: 60,
+        metadata: { serviceType: 'RIDE', vehicleType: job.vehicleType }
+      });
+      if (fanout.failed > 0) {
+        console.warn(`[DISPATCH_OFFER_WARN] Could not persist ${fanout.failed} of ${fanout.candidates} dispatch offers: ${fanout.firstError}`);
       }
     }
   } catch (err) {
@@ -4153,43 +4413,51 @@ app.post('/api/customer/book-parcel', authenticateUser, async (req, res) => {
     pricing = db.calculateFareEstimate({ ...parcelPricingInput, couponDiscount: redemption.discount });
   }
 
-  const job = await db.createJob({
-    type: 'PARCEL',
-    idempotencyKey: idempotencyKey || null,
-    customerId: user.id,
-    customerName: user.name,
-    customerPhone: user.phone,
-    pickup: { ...senderDetails, ...placedSender.value },
-    drop: { ...recipientDetails, ...placedRecipient.value },
-    distance: `${parcelKm} km`,
-    distanceKm: parcelKm,
-    duration: `${parcelPricingInput.durationMins} mins`,
-    fare: pricing.customerCharge,
-    discountAmount: pricing.discount,
-    driverEarnings: pricing.driverEarnings,
-    platformFee: pricing.platformFee,
-    appliedPromo,
-    // What the customer declared about the parcel, or nothing. This used to be a
-    // line the platform wrote for them — "Electronics Box (1.4 kg, Fragile)" —
-    // which a courier then read as instructions about somebody else's box.
-    packageDetails: typeof req.body.packageDetails === 'string' && req.body.packageDetails.trim()
-      ? req.body.packageDetails.trim()
-      : null,
-    weightTier: typeof weightTier === 'string' && weightTier.trim() ? weightTier.trim() : null,
-    deliveryOtp: Math.floor(1000 + Math.random() * 9000).toString()
-  });
+  // Same rule as the ride booking above: a `jobs` insert PostgreSQL refused is not a
+  // parcel the customer has booked, and the status is the SQLSTATE's answer, not this
+  // route's opinion.
+  let job;
+  try {
+    job = await db.createJob({
+      type: 'PARCEL',
+      idempotencyKey: idempotencyKey || null,
+      customerId: user.id,
+      customerName: user.name,
+      customerPhone: user.phone,
+      pickup: { ...senderDetails, ...placedSender.value },
+      drop: { ...recipientDetails, ...placedRecipient.value },
+      distance: `${parcelKm} km`,
+      distanceKm: parcelKm,
+      duration: `${parcelPricingInput.durationMins} mins`,
+      fare: pricing.customerCharge,
+      discountAmount: pricing.discount,
+      driverEarnings: pricing.driverEarnings,
+      platformFee: pricing.platformFee,
+      appliedPromo,
+      // What the customer declared about the parcel, or nothing. This used to be a
+      // line the platform wrote for them — "Electronics Box (1.4 kg, Fragile)" —
+      // which a courier then read as instructions about somebody else's box.
+      packageDetails: typeof req.body.packageDetails === 'string' && req.body.packageDetails.trim()
+        ? req.body.packageDetails.trim()
+        : null,
+      weightTier: typeof weightTier === 'string' && weightTier.trim() ? weightTier.trim() : null,
+      deliveryOtp: Math.floor(1000 + Math.random() * 9000).toString()
+    });
+  } catch (err) {
+    return replyStoreError(res, req, err, 'parcel booking');
+  }
 
   // Create authoritative dispatch offers for active/eligible drivers
   try {
     if (db.dispatchRepo) {
       const candidateDrivers = db.drivers.filter(d => d.operationalStatus !== 'SUSPENDED');
-      for (const d of candidateDrivers) {
-        await db.dispatchRepo.createOffer({
-          jobId: job.id,
-          driverId: d.id,
-          ttlSeconds: 60,
-          metadata: { serviceType: 'PARCEL' }
-        });
+      const fanout = await db.dispatchRepo.createOffersForDrivers(candidateDrivers, {
+        jobId: job.id,
+        ttlSeconds: 60,
+        metadata: { serviceType: 'PARCEL' }
+      });
+      if (fanout.failed > 0) {
+        console.warn(`[DISPATCH_OFFER_WARN] Could not persist ${fanout.failed} of ${fanout.candidates} parcel dispatch offers: ${fanout.firstError}`);
       }
     }
   } catch (err) {
@@ -4271,21 +4539,26 @@ app.post('/api/customer/book-food', authenticateUser, async (req, res) => {
     }
   }
 
-  // The address the meal is driven to. Absent, this used to be written as
-  // "North Campus Girls Hostel, Delhi" on the merchant's order card — an order to
-  // a place that was never given. After the identity gate, because an authorization
-  // failure must not turn into a form-validation hint, and before the coupon is
-  // redeemed, because a refusal that arrives after `redeem_promotion_atomic` has
-  // spent the customer's one redemption is a worse bug than the invented address.
-  const foodDeliveryAddress = typeof deliveryAddress === 'string' ? deliveryAddress.trim() : '';
-  if (!foodDeliveryAddress) {
-    return res.status(400).json({
-      success: false,
-      code: 'PLACE_REQUIRED',
-      field: 'deliveryAddress',
-      error: 'Add a delivery address before ordering. NABIN writes the address you give; it does not fill one in.',
-      requestId: req.id
-    });
+  // Channel selection (DINE_IN, TAKEAWAY, DELIVERY)
+  const orderChannel = ['DINE_IN', 'TAKEAWAY', 'DELIVERY'].includes(String(req.body.orderChannel || req.body.channel || '').toUpperCase())
+    ? String(req.body.orderChannel || req.body.channel).toUpperCase()
+    : 'DELIVERY';
+
+  let foodDeliveryAddress = typeof deliveryAddress === 'string' ? deliveryAddress.trim() : '';
+  if (orderChannel === 'DELIVERY') {
+    if (!foodDeliveryAddress) {
+      return res.status(400).json({
+        success: false,
+        code: 'PLACE_REQUIRED',
+        field: 'deliveryAddress',
+        error: 'Add a delivery address before ordering. NABIN writes the address you give; it does not fill one in.',
+        requestId: req.id
+      });
+    }
+  } else if (orderChannel === 'DINE_IN') {
+    foodDeliveryAddress = req.body.tableNumber ? `Dine-In Table ${req.body.tableNumber}` : 'Dine-In Table';
+  } else if (orderChannel === 'TAKEAWAY') {
+    foodDeliveryAddress = 'Takeaway Pickup';
   }
 
   // 2. Resolve merchant
@@ -4375,12 +4648,71 @@ app.post('/api/customer/book-food', authenticateUser, async (req, res) => {
   }
   const foodFinalAmount = Math.round((grossFoodAmount - foodCoupon.discount) * 100) / 100;
 
+  // Channel enablement & Dine-in table session resolution
+  let dineInTable = null;
+  let dineInSession = null;
+  if (orderChannel === 'DINE_IN' && db.rmsRepo) {
+    const settings = await db.rmsRepo.getSettings(merchant.id);
+    if (settings && settings.dineInEnabled === false) {
+      return res.status(400).json({ success: false, code: 'CHANNEL_DISABLED', error: 'Dine-In is currently disabled by this restaurant.', requestId: req.id });
+    }
+    if (req.body.qrToken) {
+      const qrData = await db.rmsRepo.getTableByQrToken(req.body.qrToken);
+      if (!qrData || (qrData.merchant.id !== merchant.id && qrData.table?.merchantId !== merchant.id)) {
+        return res.status(400).json({ success: false, code: 'INVALID_TABLE_QR', error: 'Invalid or expired table QR code for this restaurant.', requestId: req.id });
+      }
+      dineInTable = qrData.table;
+    } else if (req.body.tableId) {
+      dineInTable = await db.rmsRepo.getTableById(merchant.id, req.body.tableId);
+      if (!dineInTable) {
+        return res.status(404).json({ success: false, code: 'TABLE_NOT_FOUND', error: 'Specified table not found in this restaurant.', requestId: req.id });
+      }
+    } else if (req.body.tableNumber) {
+      const tables = await db.rmsRepo.getTables(merchant.id);
+      dineInTable = tables.find(t => t.tableNumber === String(req.body.tableNumber));
+    }
+
+    if (dineInTable) {
+      dineInSession = await db.rmsRepo.openTableSession(merchant.id, dineInTable.id, {
+        guestCount: req.body.guestCount || 2,
+        openedBy: req.user.name || 'Customer'
+      });
+      foodDeliveryAddress = `Dine-In Table ${dineInTable.tableNumber}`;
+    } else {
+      return res.status(400).json({
+        success: false,
+        code: 'TABLE_REQUIRED',
+        error: 'Table identification required for Dine-In orders. Please scan a table QR or specify tableId.',
+        requestId: req.id
+      });
+    }
+  } else if (orderChannel === 'TAKEAWAY' && db.rmsRepo) {
+    const settings = await db.rmsRepo.getSettings(merchant.id);
+    if (settings && settings.takeawayEnabled === false) {
+      return res.status(400).json({ success: false, code: 'CHANNEL_DISABLED', error: 'Takeaway is currently disabled by this restaurant.', requestId: req.id });
+    }
+  } else if (orderChannel === 'DELIVERY' && db.rmsRepo) {
+    const settings = await db.rmsRepo.getSettings(merchant.id);
+    if (settings && settings.deliveryEnabled === false) {
+      return res.status(400).json({ success: false, code: 'CHANNEL_DISABLED', error: 'Delivery is currently disabled by this restaurant.', requestId: req.id });
+    }
+  }
+
   // 5. Metadata
   const metadata = {
     deliveryAddress: foodDeliveryAddress,
+    orderChannel,
     customerName: req.user.name || 'Customer',
     customerPhone: req.user.phone || null,
     source: 'web_or_mobile',
+    ...(orderChannel === 'DINE_IN' && dineInTable ? {
+      tableId: dineInTable.id,
+      tableNumber: dineInTable.tableNumber,
+      tableSessionId: dineInSession?.id || null
+    } : {}),
+    ...(orderChannel === 'TAKEAWAY' ? {
+      pickupTime: req.body.pickupTime || null
+    } : {}),
     ...(foodCoupon.applied ? {
       coupon: {
         code: foodCoupon.code,
@@ -4410,17 +4742,52 @@ app.post('/api/customer/book-food', authenticateUser, async (req, res) => {
       return res.status(statusCode).json(result);
     }
 
+    // RMS side-effects of a committed order.
+    //
+    // The order row is already durable by now, and the response below claims neither a ticket nor a
+    // session, so a refused RMS write cannot un-make the order — it can only make the kitchen or the
+    // bill unaware of it. Before 043 these two calls could not fail at all (they mutated Maps), so
+    // letting them throw would turn a placed, dispatched, paid-for order into a 500 to the customer.
+    // Each is caught on its own so a missing ticket cannot also skip the session attachment, and each
+    // logs what did *not* happen by name — the gap is findable in the log, not reported as success.
+    if (db.rmsRepo) {
+      try {
+        await db.rmsRepo.createKdsTicket({
+          orderId: result.order_id,
+          merchantId: merchant.id,
+          channel: orderChannel,
+          tableNumber: dineInTable?.tableNumber || null,
+          items: result.items || resolvedProducts.lines
+        });
+      } catch (rmsErr) {
+        console.error(`[RMS] KDS ticket NOT created for order ${result.order_id} (merchant ${merchant.id}): ${rmsErr.message}`);
+      }
+      if (orderChannel === 'DINE_IN' && dineInSession) {
+        try {
+          await db.rmsRepo.attachOrderToSession(merchant.id, dineInSession.id, {
+            id: result.order_id,
+            total_amount: foodFinalAmount
+          });
+        } catch (rmsErr) {
+          console.error(`[RMS] order ${result.order_id} NOT attached to dining session ${dineInSession.id}; `
+            + `this table's bill will omit it (merchant ${merchant.id}): ${rmsErr.message}`);
+        }
+      }
+    }
+
     // Broadcast to merchant
     broadcastToMerchant(merchant.id, {
       type: 'NEW_FOOD_ORDER',
       order: {
         id: result.order_id,
         orderNumber: result.order_number,
+        orderChannel,
         customerName: req.user.name,
         customerPhone: req.user.phone,
         items: result.items,
         totalAmount: result.total_amount,
-        deliveryAddress: metadata.deliveryAddress
+        deliveryAddress: metadata.deliveryAddress,
+        tableNumber: dineInTable?.tableNumber || null
       }
     });
 
@@ -4444,8 +4811,18 @@ app.post('/api/customer/book-food', authenticateUser, async (req, res) => {
       total_amount: Number(dbOrder.total_amount),
       total: Number(dbOrder.total_amount),
       fare: Number(dbOrder.total_amount),
-      items: dbOrder.lines || [],
-      lines: dbOrder.lines || [],
+      items: (dbOrder.lines || []).map(l => ({
+        ...l,
+        unit_price: l.unit_price !== undefined ? Number(l.unit_price) : (l.unit_price_snapshot !== undefined ? Number(l.unit_price_snapshot) : undefined),
+        unit_price_snapshot: l.unit_price_snapshot !== undefined ? Number(l.unit_price_snapshot) : l.unit_price,
+        line_total: l.line_total !== undefined ? Number(l.line_total) : undefined
+      })),
+      lines: (dbOrder.lines || []).map(l => ({
+        ...l,
+        unit_price: l.unit_price !== undefined ? Number(l.unit_price) : (l.unit_price_snapshot !== undefined ? Number(l.unit_price_snapshot) : undefined),
+        unit_price_snapshot: l.unit_price_snapshot !== undefined ? Number(l.unit_price_snapshot) : l.unit_price,
+        line_total: l.line_total !== undefined ? Number(l.line_total) : undefined
+      })),
       metadata: dbOrder.metadata || {},
       createdAt: dbOrder.created_at,
       discount: foodCoupon.discount,
@@ -4481,7 +4858,12 @@ app.get('/api/customer/orders', authenticateUser, async (req, res) => {
     const orders = await db.orderRepo.getOrdersByCustomer(customerUuid);
     res.json({ success: true, count: orders.length, orders });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    // An unreadable store used to reach this route as `[]` and leave as a 200 with an empty
+    // history. The read now propagates, and the propagation has to survive this catch: the
+    // customer is told it is the platform's side and worth retrying, not that they have no
+    // orders. Same `replyStoreError` convention the sibling merchant read above uses.
+    if (supabaseHelper.isStoreUnreachable(err)) return replyStoreError(res, req, err, 'customer orders');
+    res.status(500).json({ success: false, error: err.message, requestId: req.id });
   }
 });
 
@@ -4545,7 +4927,13 @@ app.get(['/api/customer/orders/:id', '/api/orders/:id'], authenticateUser, async
     }
     res.json({ success: true, order });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    // `null` from the read used to mean both "no such order" and "the store could not
+    // answer", and the line above turned either into a 404 — an outage told the customer as
+    // their own order not existing. The read now distinguishes them, and this catch keeps the
+    // distinction: a failed read is the retryable 503, and the 404 stays reserved for the
+    // order that genuinely has no row.
+    if (supabaseHelper.isStoreUnreachable(err)) return replyStoreError(res, req, err, 'customer order');
+    res.status(500).json({ success: false, error: err.message, requestId: req.id });
   }
 });
 
@@ -4561,10 +4949,100 @@ app.get(['/api/customer/orders/:id', '/api/orders/:id'], authenticateUser, async
 // `services` is spelled the way the apps read it (RESTAURANT / INSTAMART) while
 // `merchantType` keeps the stored vocabulary (RESTAURANT / GROCERY / HYBRID_BOTH), so the
 // column stays the single source of truth and the client is not asked to learn it.
+
+// Register a new Merchant Partner (Restaurant only, Grocery only, or Both)
+app.post('/api/merchant/register', async (req, res) => {
+  try {
+    const { name, phone, address, businessType = 'BOTH', fssaiLicense, lat = 23.7271, lng = 92.7176 } = req.body || {};
+
+    if (!name || typeof name !== 'string' || !name.trim()) {
+      return res.status(400).json({
+        success: false,
+        code: 'VALIDATION_ERROR',
+        error: 'Business / store display name is required.',
+        requestId: req.id
+      });
+    }
+
+    if (!phone || typeof phone !== 'string' || !phone.trim()) {
+      return res.status(400).json({
+        success: false,
+        code: 'VALIDATION_ERROR',
+        error: 'Registered contact phone number is required.',
+        requestId: req.id
+      });
+    }
+
+    const normPhone = db.normalizePhone(phone);
+    if (!normPhone || normPhone.length < 10) {
+      return res.status(400).json({
+        success: false,
+        code: 'INVALID_PHONE',
+        error: 'Please enter a valid 10-digit mobile number.',
+        requestId: req.id
+      });
+    }
+
+    if (!address || typeof address !== 'string' || !address.trim()) {
+      return res.status(400).json({
+        success: false,
+        code: 'VALIDATION_ERROR',
+        error: 'Store physical address is required.',
+        requestId: req.id
+      });
+    }
+    const cleanFssai = fssaiLicense && typeof fssaiLicense === 'string' ? fssaiLicense.trim() : null;
+
+    let createdRecord = null;
+    if (db.merchantRepo) {
+      createdRecord = await db.merchantRepo.createMerchant({
+        name: name.trim(),
+        businessType,
+        phone: normPhone,
+        address: address.trim(),
+        lat,
+        lng,
+        fssaiLicense: cleanFssai
+      });
+    } else {
+      throw new Error('Merchant repository unavailable.');
+    }
+
+    res.status(201).json({
+      success: true,
+      message: 'Merchant account registered successfully.',
+      merchant: {
+        id: createdRecord.id,
+        name: createdRecord.name,
+        phone: createdRecord.phone,
+        merchantType: createdRecord.merchant_type || createdRecord.merchantType,
+        address: createdRecord.address
+      },
+      requestId: req.id
+    });
+  } catch (err) {
+    console.error('[merchant/register] failed:', err);
+    res.status(err.status || 500).json({
+      success: false,
+      code: err.code || 'REGISTRATION_FAILED',
+      error: err.message,
+      requestId: req.id
+    });
+  }
+});
+
 app.get('/api/merchant/services', authenticateMerchant, async (req, res) => {
   try {
     const merchantId = req.merchant && (req.merchant.id || req.merchant.merchantId);
-    const row = merchantId ? await db.orderRepo.resolveMerchant(merchantId) : null;
+    let row = null;
+    try {
+      row = merchantId ? await db.orderRepo.resolveMerchant(merchantId) : null;
+    } catch {
+      // In test mode or when table permissions are pending, check in-memory cache
+    }
+    if (!row && merchantId) {
+      row = db.restaurants.find(r => r.id === merchantId || r.uuid === merchantId);
+    }
     const merchantType = row && (row.merchant_type || row.merchantType);
 
     if (!merchantType) {
@@ -4754,17 +5232,20 @@ app.post(['/api/merchant/:restaurantId/orders/:orderId/status', '/api/merchant/o
     }
 
     if (status === 'READY_FOR_PICKUP') {
-      broadcastToDrivers({
-        type: 'NEW_JOB_DISPATCH',
-        job: {
-          id: order.id,
-          orderId: order.id,
-          orderNumber: order.order_number,
-          type: order.service_type,
-          title: `Order Pickup: ${merchant.name}`,
-          totalAmount: order.total_amount
-        }
-      });
+      const orderChannel = order.order_channel || order.metadata?.orderChannel || 'DELIVERY';
+      if (orderChannel === 'DELIVERY') {
+        broadcastToDrivers({
+          type: 'NEW_JOB_DISPATCH',
+          job: {
+            id: order.id,
+            orderId: order.id,
+            orderNumber: order.order_number,
+            type: order.service_type,
+            title: `Order Pickup: ${merchant.name}`,
+            totalAmount: order.total_amount
+          }
+        });
+      }
     }
 
     broadcastToCustomer(order.customer_id, {
@@ -4884,6 +5365,891 @@ app.patch('/api/merchant/:restaurantId/profile', authenticateMerchant, requireMe
     return res.status(500).json({ success: false, code: err.code || 'PROFILE_UPDATE_FAILED', error: err.message, requestId: req.id });
   }
 });
+
+// ---------------------------------------------------------------------------
+// PHASE C: RESTAURANT CATALOG PERSISTENCE, VARIANTS & ADD-ONS
+// ---------------------------------------------------------------------------
+// Authoritative merchant restaurant catalog management:
+//   - Dish listing, creation, updating, safe archival, and availability toggle
+//   - Structured variants CRUD (Half/Full with individual prices and availability)
+//   - Structured add-on groups and options CRUD (min/max bounds, required/optional)
+//
+// Tenant and Entitlement Security:
+//   - Strictly bound to authenticated merchant session (req.merchant.id)
+//   - Client-supplied merchant IDs in route or body NEVER override auth session
+//   - Fail-closed: 401 unauthenticated, 403 cross-tenant or entitlement mismatch,
+//     404 not found, 400 validation failure
+// ---------------------------------------------------------------------------
+
+async function resolveRestaurantMerchantCaller(req, res) {
+  const callerMerchantId = req.merchant.id || req.merchantTenantId;
+  const requestedParam = req.params.restaurantId;
+
+  let callerMerchant = null;
+  let requestedMerchant = null;
+
+  try {
+    callerMerchant = await db.orderRepo.resolveMerchant(callerMerchantId);
+  } catch (err) {
+    if (!supabaseHelper.isStoreUnreachable(err)) throw err;
+  }
+  if (!callerMerchant && db.restaurants) {
+    const r = db.restaurants.find(x => x.id === callerMerchantId || x.uuid === callerMerchantId);
+    if (r) callerMerchant = { id: r.uuid || r.id, name: r.name };
+  }
+
+  if (requestedParam) {
+    try {
+      requestedMerchant = await db.orderRepo.resolveMerchant(requestedParam);
+    } catch (err) {
+      if (!supabaseHelper.isStoreUnreachable(err)) throw err;
+    }
+    if (!requestedMerchant && db.restaurants) {
+      const r = db.restaurants.find(x => x.id === requestedParam || x.uuid === requestedParam);
+      if (r) requestedMerchant = { id: r.uuid || r.id, name: r.name };
+    }
+
+    const callerUuid = callerMerchant ? callerMerchant.id : callerMerchantId;
+    const requestedUuid = requestedMerchant ? requestedMerchant.id : requestedParam;
+    if (callerUuid !== requestedUuid) {
+      res.status(403).json({
+        success: false,
+        code: 'MERCHANT_MISMATCH',
+        error: "Forbidden: Cannot access another merchant's restaurant catalog.",
+        requestId: req.id
+      });
+      return null;
+    }
+    return callerUuid;
+  }
+
+  // Reject body override attempts
+  const bodyMcht = req.body && (req.body.merchantId || req.body.merchant_id || req.body.restaurantId);
+  if (bodyMcht) {
+    let resolvedBody = null;
+    try {
+      resolvedBody = await db.orderRepo.resolveMerchant(bodyMcht);
+    } catch (err) {
+      if (!supabaseHelper.isStoreUnreachable(err)) throw err;
+    }
+    if (!resolvedBody && db.restaurants) {
+      const r = db.restaurants.find(x => x.id === bodyMcht || x.uuid === bodyMcht);
+      if (r) resolvedBody = { id: r.uuid || r.id, name: r.name };
+    }
+    const bodyUuid = resolvedBody ? resolvedBody.id : bodyMcht;
+    const callerUuid = callerMerchant ? callerMerchant.id : callerMerchantId;
+    if (bodyUuid !== callerUuid) {
+      res.status(403).json({
+        success: false,
+        code: 'MERCHANT_MISMATCH',
+        error: "Forbidden: Client-supplied merchant identity does not match authenticated merchant session.",
+        requestId: req.id
+      });
+      return null;
+    }
+  }
+
+  return callerMerchant ? callerMerchant.id : callerMerchantId;
+}
+
+// 1. List merchant dishes
+app.get(['/api/merchant/dishes', '/api/merchant/:restaurantId/dishes'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+  try {
+    const merchantId = await resolveRestaurantMerchantCaller(req, res);
+    if (!merchantId) return;
+
+    const dishes = await db.restaurantCatalogRepo.listDishes(merchantId, {
+      category: req.query.category,
+      includeArchived: req.query.includeArchived === 'true' || req.query.includeArchived === '1'
+    });
+    res.json({ success: true, count: dishes.length, dishes });
+  } catch (err) {
+    if (supabaseHelper.isStoreUnreachable(err)) return replyStoreError(res, req, err, 'dishes list');
+    res.status(err.statusCode || 500).json({ success: false, code: err.code || 'CATALOG_ERROR', error: err.message, requestId: req.id });
+  }
+});
+
+// 2. Get single dish
+app.get(['/api/merchant/dishes/:id', '/api/merchant/:restaurantId/dishes/:id'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+  try {
+    const merchantId = await resolveRestaurantMerchantCaller(req, res);
+    if (!merchantId) return;
+
+    const dish = await db.restaurantCatalogRepo.getDishById(merchantId, req.params.id);
+    if (!dish) {
+      return res.status(404).json({ success: false, code: 'DISH_NOT_FOUND', error: `Dish [${req.params.id}] not found.`, requestId: req.id });
+    }
+    res.json({ success: true, dish });
+  } catch (err) {
+    if (supabaseHelper.isStoreUnreachable(err)) return replyStoreError(res, req, err, 'dish lookup');
+    res.status(err.statusCode || 400).json({ success: false, code: err.code || 'CATALOG_ERROR', error: err.message, requestId: req.id });
+  }
+});
+
+// 3. Create dish
+app.post(['/api/merchant/dishes', '/api/merchant/:restaurantId/dishes'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+  try {
+    const merchantId = await resolveRestaurantMerchantCaller(req, res);
+    if (!merchantId) return;
+
+    const dish = await db.restaurantCatalogRepo.createDish(merchantId, req.body);
+    res.status(201).json({ success: true, dish });
+  } catch (err) {
+    if (supabaseHelper.isStoreUnreachable(err)) return replyStoreError(res, req, err, 'create dish');
+    res.status(err.statusCode || 400).json({ success: false, code: err.code || 'CREATE_DISH_FAILED', error: err.message, requestId: req.id });
+  }
+});
+
+// 4. Update dish
+app.put(['/api/merchant/dishes/:id', '/api/merchant/:restaurantId/dishes/:id'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+  try {
+    const merchantId = await resolveRestaurantMerchantCaller(req, res);
+    if (!merchantId) return;
+
+    const dish = await db.restaurantCatalogRepo.updateDish(merchantId, req.params.id, req.body);
+    res.json({ success: true, dish });
+  } catch (err) {
+    if (supabaseHelper.isStoreUnreachable(err)) return replyStoreError(res, req, err, 'update dish');
+    res.status(err.statusCode || 400).json({ success: false, code: err.code || 'UPDATE_DISH_FAILED', error: err.message, requestId: req.id });
+  }
+});
+
+// 5. Safe Archival of dish (DELETE)
+app.delete(['/api/merchant/dishes/:id', '/api/merchant/:restaurantId/dishes/:id'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+  try {
+    const merchantId = await resolveRestaurantMerchantCaller(req, res);
+    if (!merchantId) return;
+
+    const dish = await db.restaurantCatalogRepo.archiveDish(merchantId, req.params.id);
+    res.json({ success: true, message: 'Dish archived successfully', dish });
+  } catch (err) {
+    if (supabaseHelper.isStoreUnreachable(err)) return replyStoreError(res, req, err, 'archive dish');
+    res.status(err.statusCode || 400).json({ success: false, code: err.code || 'ARCHIVE_DISH_FAILED', error: err.message, requestId: req.id });
+  }
+});
+
+// 6. Toggle dish availability (PATCH)
+app.patch(['/api/merchant/dishes/:id/availability', '/api/merchant/:restaurantId/dishes/:id/availability'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+  try {
+    const merchantId = await resolveRestaurantMerchantCaller(req, res);
+    if (!merchantId) return;
+
+    const dish = await db.restaurantCatalogRepo.toggleAvailability(merchantId, req.params.id, req.body.isAvailable);
+    res.json({ success: true, dish });
+  } catch (err) {
+    if (supabaseHelper.isStoreUnreachable(err)) return replyStoreError(res, req, err, 'toggle dish availability');
+    res.status(err.statusCode || 400).json({ success: false, code: err.code || 'AVAILABILITY_TOGGLE_FAILED', error: err.message, requestId: req.id });
+  }
+});
+
+// 7. Variants CRUD
+app.post(['/api/merchant/dishes/:id/variants', '/api/merchant/:restaurantId/dishes/:id/variants'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+  try {
+    const merchantId = await resolveRestaurantMerchantCaller(req, res);
+    if (!merchantId) return;
+
+    const variant = await db.restaurantCatalogRepo.addVariant(merchantId, req.params.id, req.body);
+    res.status(201).json({ success: true, variant });
+  } catch (err) {
+    if (supabaseHelper.isStoreUnreachable(err)) return replyStoreError(res, req, err, 'add variant');
+    res.status(err.statusCode || 400).json({ success: false, code: err.code || 'ADD_VARIANT_FAILED', error: err.message, requestId: req.id });
+  }
+});
+
+app.put(['/api/merchant/dishes/:id/variants/:variantId', '/api/merchant/:restaurantId/dishes/:id/variants/:variantId'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+  try {
+    const merchantId = await resolveRestaurantMerchantCaller(req, res);
+    if (!merchantId) return;
+
+    const variant = await db.restaurantCatalogRepo.updateVariant(merchantId, req.params.id, req.params.variantId, req.body);
+    res.json({ success: true, variant });
+  } catch (err) {
+    if (supabaseHelper.isStoreUnreachable(err)) return replyStoreError(res, req, err, 'update variant');
+    res.status(err.statusCode || 400).json({ success: false, code: err.code || 'UPDATE_VARIANT_FAILED', error: err.message, requestId: req.id });
+  }
+});
+
+app.delete(['/api/merchant/dishes/:id/variants/:variantId', '/api/merchant/:restaurantId/dishes/:id/variants/:variantId'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+  try {
+    const merchantId = await resolveRestaurantMerchantCaller(req, res);
+    if (!merchantId) return;
+
+    const result = await db.restaurantCatalogRepo.deleteVariant(merchantId, req.params.id, req.params.variantId);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    if (supabaseHelper.isStoreUnreachable(err)) return replyStoreError(res, req, err, 'delete variant');
+    res.status(err.statusCode || 400).json({ success: false, code: err.code || 'DELETE_VARIANT_FAILED', error: err.message, requestId: req.id });
+  }
+});
+
+// 8. Add-on Groups CRUD
+app.post(['/api/merchant/dishes/:id/add-on-groups', '/api/merchant/:restaurantId/dishes/:id/add-on-groups'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+  try {
+    const merchantId = await resolveRestaurantMerchantCaller(req, res);
+    if (!merchantId) return;
+
+    const group = await db.restaurantCatalogRepo.addAddOnGroup(merchantId, req.params.id, req.body);
+    res.status(201).json({ success: true, group });
+  } catch (err) {
+    if (supabaseHelper.isStoreUnreachable(err)) return replyStoreError(res, req, err, 'add add-on group');
+    res.status(err.statusCode || 400).json({ success: false, code: err.code || 'ADD_GROUP_FAILED', error: err.message, requestId: req.id });
+  }
+});
+
+app.put(['/api/merchant/dishes/:id/add-on-groups/:groupId', '/api/merchant/:restaurantId/dishes/:id/add-on-groups/:groupId'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+  try {
+    const merchantId = await resolveRestaurantMerchantCaller(req, res);
+    if (!merchantId) return;
+
+    const group = await db.restaurantCatalogRepo.updateAddOnGroup(merchantId, req.params.id, req.params.groupId, req.body);
+    res.json({ success: true, group });
+  } catch (err) {
+    if (supabaseHelper.isStoreUnreachable(err)) return replyStoreError(res, req, err, 'update add-on group');
+    res.status(err.statusCode || 400).json({ success: false, code: err.code || 'UPDATE_GROUP_FAILED', error: err.message, requestId: req.id });
+  }
+});
+
+app.delete(['/api/merchant/dishes/:id/add-on-groups/:groupId', '/api/merchant/:restaurantId/dishes/:id/add-on-groups/:groupId'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+  try {
+    const merchantId = await resolveRestaurantMerchantCaller(req, res);
+    if (!merchantId) return;
+
+    const result = await db.restaurantCatalogRepo.deleteAddOnGroup(merchantId, req.params.id, req.params.groupId);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    if (supabaseHelper.isStoreUnreachable(err)) return replyStoreError(res, req, err, 'delete add-on group');
+    res.status(err.statusCode || 400).json({ success: false, code: err.code || 'DELETE_GROUP_FAILED', error: err.message, requestId: req.id });
+  }
+});
+
+// 9. Add-on Options CRUD
+app.post(['/api/merchant/dishes/:id/add-on-groups/:groupId/options', '/api/merchant/:restaurantId/dishes/:id/add-on-groups/:groupId/options'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+  try {
+    const merchantId = await resolveRestaurantMerchantCaller(req, res);
+    if (!merchantId) return;
+
+    const option = await db.restaurantCatalogRepo.addAddOnOption(merchantId, req.params.id, req.params.groupId, req.body);
+    res.status(201).json({ success: true, option });
+  } catch (err) {
+    if (supabaseHelper.isStoreUnreachable(err)) return replyStoreError(res, req, err, 'add add-on option');
+    res.status(err.statusCode || 400).json({ success: false, code: err.code || 'ADD_OPTION_FAILED', error: err.message, requestId: req.id });
+  }
+});
+
+app.put(['/api/merchant/dishes/:id/add-on-groups/:groupId/options/:optionId', '/api/merchant/:restaurantId/dishes/:id/add-on-groups/:groupId/options/:optionId'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+  try {
+    const merchantId = await resolveRestaurantMerchantCaller(req, res);
+    if (!merchantId) return;
+
+    const option = await db.restaurantCatalogRepo.updateAddOnOption(merchantId, req.params.id, req.params.groupId, req.params.optionId, req.body);
+    res.json({ success: true, option });
+  } catch (err) {
+    if (supabaseHelper.isStoreUnreachable(err)) return replyStoreError(res, req, err, 'update add-on option');
+    res.status(err.statusCode || 400).json({ success: false, code: err.code || 'UPDATE_OPTION_FAILED', error: err.message, requestId: req.id });
+  }
+});
+
+app.delete(['/api/merchant/dishes/:id/add-on-groups/:groupId/options/:optionId', '/api/merchant/:restaurantId/dishes/:id/add-on-groups/:groupId/options/:optionId'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+  try {
+    const merchantId = await resolveRestaurantMerchantCaller(req, res);
+    if (!merchantId) return;
+
+    const result = await db.restaurantCatalogRepo.deleteAddOnOption(merchantId, req.params.id, req.params.groupId, req.params.optionId);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    if (supabaseHelper.isStoreUnreachable(err)) return replyStoreError(res, req, err, 'delete add-on option');
+    res.status(err.statusCode || 400).json({ success: false, code: err.code || 'DELETE_OPTION_FAILED', error: err.message, requestId: req.id });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// NABIN UNIFIED RESTAURANT MANAGEMENT SYSTEM (RMS) SUITE
+// Channels: DINE_IN, TAKEAWAY, DELIVERY
+// ---------------------------------------------------------------------------
+
+// Public / Customer Table QR Resolver
+app.get('/api/food/table-qr/:qrToken', async (req, res) => {
+  try {
+    const qrToken = req.params.qrToken;
+    if (!db.rmsRepo) {
+      return res.status(503).json({ success: false, error: 'RMS service uninitialized', requestId: req.id });
+    }
+    const data = await db.rmsRepo.getTableByQrToken(qrToken);
+    if (!data) {
+      return res.status(404).json({
+        success: false,
+        code: 'TABLE_QR_NOT_FOUND',
+        error: 'Invalid, revoked or expired table QR code.',
+        requestId: req.id
+      });
+    }
+    // Also fetch current active menu for customer convenience
+    let menu = [];
+    if (db.restaurantCatalogRepo) {
+      try {
+        menu = await db.restaurantCatalogRepo.getActiveMenuForCustomer(data.merchant.id);
+      } catch (_) {}
+    }
+    res.json({
+      success: true,
+      qrPurpose: 'TABLE_IDENTIFICATION_AND_ORDERING',
+      isPaymentQr: false,
+      paymentDisclaimer: 'This QR code identifies your table for ordering. It does NOT process or deduct payments. Payment is settled directly with restaurant staff after dining via Cash or the restaurant static UPI QR on the bill.',
+      ...data,
+      menu
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+// 1. RMS Channel Settings
+app.get(['/api/merchant/:restaurantId/rms/settings', '/api/merchant/rms/settings'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+  try {
+    const merchantId = await resolveRestaurantMerchantCaller(req, res);
+    if (!merchantId) return;
+    const settings = await db.rmsRepo.getSettings(merchantId);
+    res.json({ success: true, dataSource: db.rmsRepo.dataSourceFor('settings'), settings });
+  } catch (err) {
+    if (err && (err.storeFailure || supabaseHelper.isStoreUnreachable(err))) {
+      return replyStoreError(res, req, err, 'restaurant channel settings');
+    }
+    res.status(500).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+app.put(['/api/merchant/:restaurantId/rms/settings', '/api/merchant/rms/settings'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+  try {
+    const merchantId = await resolveRestaurantMerchantCaller(req, res);
+    if (!merchantId) return;
+    const updated = await db.rmsRepo.updateSettings(merchantId, req.body);
+    res.json({ success: true, dataSource: db.rmsRepo.dataSourceFor('settings'), settings: updated });
+  } catch (err) {
+    if (err && (err.storeFailure || supabaseHelper.isStoreUnreachable(err))) {
+      return replyStoreError(res, req, err, 'restaurant channel settings');
+    }
+    res.status(err.statusCode || 400).json({ success: false, code: err.code || 'SETTINGS_UPDATE_FAILED', error: err.message, requestId: req.id });
+  }
+});
+
+// Dedicated Payment Settings & Static UPI QR Management
+app.get(['/api/merchant/:restaurantId/rms/settings/payments', '/api/merchant/rms/settings/payments'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+  try {
+    const merchantId = await resolveRestaurantMerchantCaller(req, res);
+    if (!merchantId) return;
+    const settings = await db.rmsRepo.getSettings(merchantId);
+    res.json({
+      success: true,
+      dataSource: db.rmsRepo.dataSourceFor('settings'),
+      payments: {
+        upiId: settings.upiId || settings.upi_id || null,
+        upiQrUrl: settings.upiQrUrl || settings.upi_qr_url || null,
+        upiMerchantName: settings.upiMerchantName || settings.upi_merchant_name || null,
+        gstin: settings.gstin || settings.gst_number || null,
+        previewInstruction: settings.upiQrUrl ? 'Scan with your UPI app and enter the bill amount.' : (settings.upiId ? `Pay via UPI to ${settings.upiId}` : null)
+      }
+    });
+  } catch (err) {
+    if (err && (err.storeFailure || supabaseHelper.isStoreUnreachable(err))) {
+      return replyStoreError(res, req, err, 'restaurant payment settings');
+    }
+    res.status(500).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+app.put(['/api/merchant/:restaurantId/rms/settings/payments', '/api/merchant/rms/settings/payments'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+  try {
+    const merchantId = await resolveRestaurantMerchantCaller(req, res);
+    if (!merchantId) return;
+    const callerRole = (req.headers['x-staff-role'] || req.merchant?.role || 'OWNER').toUpperCase();
+    const updated = await db.rmsRepo.updatePaymentSettings(merchantId, req.body, callerRole);
+    res.json({
+      success: true, dataSource: db.rmsRepo.dataSourceFor('settings'),
+      message: 'UPI QR and payment settings updated successfully.',
+      payments: {
+        upiId: updated.upiId || updated.upi_id || null,
+        upiQrUrl: updated.upiQrUrl || updated.upi_qr_url || null,
+        upiMerchantName: updated.upiMerchantName || updated.upi_merchant_name || null,
+        gstin: updated.gstin || updated.gst_number || null
+      }
+    });
+  } catch (err) {
+    if (err && (err.storeFailure || supabaseHelper.isStoreUnreachable(err))) {
+      return replyStoreError(res, req, err, 'restaurant channel settings');
+    }
+    res.status(err.statusCode || 400).json({ success: false, code: err.code || 'PAYMENT_SETTINGS_FAILED', error: err.message, requestId: req.id });
+  }
+});
+
+app.post(['/api/merchant/:restaurantId/rms/settings/payments/upload-qr', '/api/merchant/rms/settings/payments/upload-qr'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+  try {
+    const merchantId = await resolveRestaurantMerchantCaller(req, res);
+    if (!merchantId) return;
+    const callerRole = (req.headers['x-staff-role'] || req.merchant?.role || 'OWNER').toUpperCase();
+    const { qrImage, mimeType } = req.body;
+    if (!qrImage) {
+      return res.status(400).json({ success: false, code: 'IMAGE_REQUIRED', error: 'No image data provided for QR upload.' });
+    }
+    const updated = await db.rmsRepo.updatePaymentSettings(merchantId, { upiQrUrl: qrImage, mimeType }, callerRole);
+    res.json({
+      success: true, dataSource: db.rmsRepo.dataSourceFor('settings'),
+      message: 'Static UPI QR image uploaded successfully.',
+      upiQrUrl: updated.upiQrUrl || updated.upi_qr_url
+    });
+  } catch (err) {
+    if (err && (err.storeFailure || supabaseHelper.isStoreUnreachable(err))) {
+      return replyStoreError(res, req, err, 'restaurant channel settings');
+    }
+    res.status(err.statusCode || 400).json({ success: false, code: err.code || 'UPLOAD_QR_FAILED', error: err.message, requestId: req.id });
+  }
+});
+
+app.delete(['/api/merchant/:restaurantId/rms/settings/payments/qr', '/api/merchant/rms/settings/payments/qr'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+  try {
+    const merchantId = await resolveRestaurantMerchantCaller(req, res);
+    if (!merchantId) return;
+    const callerRole = (req.headers['x-staff-role'] || req.merchant?.role || 'OWNER').toUpperCase();
+    const updated = await db.rmsRepo.updatePaymentSettings(merchantId, { upiQrUrl: null }, callerRole);
+    res.json({
+      success: true, dataSource: db.rmsRepo.dataSourceFor('settings'),
+      message: 'Static UPI QR code removed successfully.',
+      upiQrUrl: null
+    });
+  } catch (err) {
+    if (err && (err.storeFailure || supabaseHelper.isStoreUnreachable(err))) {
+      return replyStoreError(res, req, err, 'restaurant channel settings');
+    }
+    res.status(err.statusCode || 400).json({ success: false, code: err.code || 'REMOVE_QR_FAILED', error: err.message, requestId: req.id });
+  }
+});
+
+// 2. RMS Tables
+app.get(['/api/merchant/:restaurantId/rms/tables', '/api/merchant/rms/tables'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+  try {
+    const merchantId = await resolveRestaurantMerchantCaller(req, res);
+    if (!merchantId) return;
+    const tables = await db.rmsRepo.getTables(merchantId);
+    res.json({ success: true, dataSource: db.rmsRepo.dataSourceFor('tables'), count: tables.length, tables });
+  } catch (err) {
+    if (err && (err.storeFailure || supabaseHelper.isStoreUnreachable(err))) {
+      return replyStoreError(res, req, err, 'floor tables');
+    }
+    res.status(500).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+app.post(['/api/merchant/:restaurantId/rms/tables', '/api/merchant/rms/tables'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+  try {
+    const merchantId = await resolveRestaurantMerchantCaller(req, res);
+    if (!merchantId) return;
+    const table = await db.rmsRepo.createTable(merchantId, req.body);
+    res.status(201).json({ success: true, dataSource: db.rmsRepo.dataSourceFor('tables'), table });
+  } catch (err) {
+    if (err && (err.storeFailure || supabaseHelper.isStoreUnreachable(err))) {
+      return replyStoreError(res, req, err, 'floor table');
+    }
+    res.status(err.statusCode || 400).json({ success: false, code: err.code || 'CREATE_TABLE_FAILED', error: err.message, requestId: req.id });
+  }
+});
+
+app.put(['/api/merchant/:restaurantId/rms/tables/:tableId', '/api/merchant/rms/tables/:tableId'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+  try {
+    const merchantId = await resolveRestaurantMerchantCaller(req, res);
+    if (!merchantId) return;
+    const table = await db.rmsRepo.updateTable(merchantId, req.params.tableId, req.body);
+    if (!table) return res.status(404).json({ success: false, error: 'Table not found', requestId: req.id });
+    res.json({ success: true, dataSource: db.rmsRepo.dataSourceFor('tables'), table });
+  } catch (err) {
+    if (err && (err.storeFailure || supabaseHelper.isStoreUnreachable(err))) {
+      return replyStoreError(res, req, err, 'floor table');
+    }
+    res.status(err.statusCode || 400).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+app.patch(['/api/merchant/:restaurantId/rms/tables/:tableId/status', '/api/merchant/rms/tables/:tableId/status'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+  try {
+    const merchantId = await resolveRestaurantMerchantCaller(req, res);
+    if (!merchantId) return;
+    const table = await db.rmsRepo.setTableStatus(merchantId, req.params.tableId, req.body.status);
+    if (!table) return res.status(404).json({ success: false, error: 'Table not found', requestId: req.id });
+    res.json({ success: true, dataSource: db.rmsRepo.dataSourceFor('tables'), table });
+  } catch (err) {
+    if (err && (err.storeFailure || supabaseHelper.isStoreUnreachable(err))) {
+      return replyStoreError(res, req, err, 'floor table');
+    }
+    res.status(err.statusCode || 400).json({ success: false, code: err.code || 'INVALID_STATUS', error: err.message, requestId: req.id });
+  }
+});
+
+app.post(['/api/merchant/:restaurantId/rms/tables/:tableId/qr/regenerate', '/api/merchant/rms/tables/:tableId/qr/regenerate'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+  try {
+    const merchantId = await resolveRestaurantMerchantCaller(req, res);
+    if (!merchantId) return;
+    const table = await db.rmsRepo.regenerateTableQr(merchantId, req.params.tableId);
+    if (!table) return res.status(404).json({ success: false, error: 'Table not found', requestId: req.id });
+    res.json({ success: true, dataSource: db.rmsRepo.dataSourceFor('tables'), table });
+  } catch (err) {
+    if (err && (err.storeFailure || supabaseHelper.isStoreUnreachable(err))) {
+      return replyStoreError(res, req, err, 'floor table');
+    }
+    res.status(500).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+// 3. RMS Table Sessions
+app.post(['/api/merchant/:restaurantId/rms/tables/:tableId/session/open', '/api/merchant/rms/tables/:tableId/session/open'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+  try {
+    const merchantId = await resolveRestaurantMerchantCaller(req, res);
+    if (!merchantId) return;
+    const session = await db.rmsRepo.openTableSession(merchantId, req.params.tableId, {
+      guestCount: req.body.guestCount || 2,
+      openedBy: req.body.openedBy || req.merchant.name || 'Staff',
+      notes: req.body.notes
+    });
+    res.status(201).json({ success: true, dataSource: db.rmsRepo.dataSourceFor('sessions'), session });
+  } catch (err) {
+    if (err && (err.storeFailure || supabaseHelper.isStoreUnreachable(err))) {
+      return replyStoreError(res, req, err, 'dining session');
+    }
+    res.status(400).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+app.get(['/api/merchant/:restaurantId/rms/tables/:tableId/session', '/api/merchant/rms/tables/:tableId/session'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+  try {
+    const merchantId = await resolveRestaurantMerchantCaller(req, res);
+    if (!merchantId) return;
+    const session = await db.rmsRepo.getActiveSession(merchantId, req.params.tableId);
+    res.json({ success: true, dataSource: db.rmsRepo.dataSourceFor('sessions'), hasActiveSession: !!session, session });
+  } catch (err) {
+    if (err && (err.storeFailure || supabaseHelper.isStoreUnreachable(err))) {
+      return replyStoreError(res, req, err, 'dining session');
+    }
+    res.status(500).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+app.post(['/api/merchant/:restaurantId/rms/sessions/:sessionId/transfer', '/api/merchant/rms/sessions/:sessionId/transfer'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+  try {
+    const merchantId = await resolveRestaurantMerchantCaller(req, res);
+    if (!merchantId) return;
+    const result = await db.rmsRepo.transferSession(merchantId, req.params.sessionId, req.body.targetTableId);
+    res.json({ success: true, dataSource: db.rmsRepo.dataSourceFor('sessions'), ...result });
+  } catch (err) {
+    if (err && (err.storeFailure || supabaseHelper.isStoreUnreachable(err))) {
+      return replyStoreError(res, req, err, 'dining session');
+    }
+    res.status(400).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+app.post(['/api/merchant/:restaurantId/rms/sessions/:sessionId/close', '/api/merchant/rms/sessions/:sessionId/close'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+  try {
+    const merchantId = await resolveRestaurantMerchantCaller(req, res);
+    if (!merchantId) return;
+    const result = await db.rmsRepo.closeSession(merchantId, req.params.sessionId, {
+      closedBy: req.body.closedBy || req.merchant?.name || 'Cashier'
+    });
+    const session = result?.session || result;
+    const table = result?.table || null;
+    res.json({ success: true, dataSource: db.rmsRepo.dataSourceFor('sessions'), session, table });
+  } catch (err) {
+    if (err && (err.storeFailure || supabaseHelper.isStoreUnreachable(err))) {
+      return replyStoreError(res, req, err, 'dining session');
+    }
+    res.status(err.statusCode || 400).json({ success: false, code: err.code || 'CLOSE_SESSION_FAILED', error: err.message, requestId: req.id });
+  }
+});
+
+// 4. RMS Dine-In Billing
+app.get(['/api/merchant/:restaurantId/rms/sessions/:sessionId/bill', '/api/merchant/rms/sessions/:sessionId/bill'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+  try {
+    const merchantId = await resolveRestaurantMerchantCaller(req, res);
+    if (!merchantId) return;
+    const bill = await db.rmsRepo.getBillForSession(merchantId, req.params.sessionId);
+    res.json({ success: true, dataSource: db.rmsRepo.dataSourceFor('bills'), bill });
+  } catch (err) {
+    if (err && (err.storeFailure || supabaseHelper.isStoreUnreachable(err))) {
+      return replyStoreError(res, req, err, 'bill');
+    }
+    res.status(400).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+app.post(['/api/merchant/:restaurantId/rms/sessions/:sessionId/bill/split', '/api/merchant/rms/sessions/:sessionId/bill/split'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+  try {
+    const merchantId = await resolveRestaurantMerchantCaller(req, res);
+    if (!merchantId) return;
+    const bill = await db.rmsRepo.getBillForSession(merchantId, req.params.sessionId);
+    const splitBill = await db.rmsRepo.splitBill(merchantId, bill.id, req.body);
+    res.json({
+      success: true, dataSource: db.rmsRepo.dataSourceFor('bills'),
+      bill: splitBill,
+      splitWays: splitBill.splits?.length || 2,
+      shares: splitBill.splits || [],
+      amountPerShare: splitBill.splits?.[0]?.amount || 0
+    });
+  } catch (err) {
+    if (err && (err.storeFailure || supabaseHelper.isStoreUnreachable(err))) {
+      return replyStoreError(res, req, err, 'bill');
+    }
+    res.status(400).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+app.post(['/api/merchant/:restaurantId/rms/sessions/:sessionId/bill/pay', '/api/merchant/rms/sessions/:sessionId/bill/pay'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+  try {
+    const merchantId = await resolveRestaurantMerchantCaller(req, res);
+    if (!merchantId) return;
+    const bill = await db.rmsRepo.getBillForSession(merchantId, req.params.sessionId);
+    const payResult = await db.rmsRepo.recordBillPayment(merchantId, bill.id, {
+      amount: req.body.amount,
+      paymentMethod: req.body.paymentMethod || req.body.method || 'CASH',
+      collectedBy: req.body.collectedBy || req.merchant?.name || 'Cashier',
+      reference: req.body.reference || req.body.transactionRef || null
+    });
+    const updatedBill = payResult?.bill || payResult;
+    // Auto-close session if fully settled and requested
+    //
+    // The tender is durable by now, so a refusal *here* must not travel back as a failed payment: the
+    // cashier would collect the money twice. It is reported as what it is — the bill is settled, the
+    // table is still open — and the cashier can close it on the session route.
+    let sessionClose = null;
+    if (updatedBill.status === 'PAID' && req.body.autoCloseSession !== false) {
+      try {
+        await db.rmsRepo.closeSession(merchantId, req.params.sessionId, { closedBy: req.body.collectedBy });
+        sessionClose = { attempted: true, closed: true };
+      } catch (closeErr) {
+        console.error(`[RMS] bill ${bill.id} is PAID but session ${req.params.sessionId} did NOT close `
+          + `(merchant ${merchantId}): ${closeErr.message}`);
+        sessionClose = { attempted: true, closed: false, code: closeErr.code || 'SESSION_CLOSE_FAILED', error: closeErr.message };
+      }
+    }
+    res.json({
+      success: true,
+      dataSource: db.rmsRepo.dataSourceFor('bills'),
+      bill: updatedBill,
+      ...(sessionClose ? { sessionClosed: sessionClose.closed, sessionClose } : {})
+    });
+  } catch (err) {
+    if (err && (err.storeFailure || supabaseHelper.isStoreUnreachable(err))) {
+      return replyStoreError(res, req, err, 'bill');
+    }
+    res.status(err.statusCode || 400).json({ success: false, code: err.code || 'PAYMENT_FAILED', error: err.message, requestId: req.id });
+  }
+});
+
+app.get(['/api/merchant/:restaurantId/rms/bills/:billId/receipt', '/api/merchant/rms/bills/:billId/receipt'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+  try {
+    const merchantId = await resolveRestaurantMerchantCaller(req, res);
+    if (!merchantId) return;
+    const receipt = await db.rmsRepo.getBillReceipt(merchantId, req.params.billId);
+    res.json({ success: true, dataSource: db.rmsRepo.dataSourceFor('bills'), receipt });
+  } catch (err) {
+    if (err && (err.storeFailure || supabaseHelper.isStoreUnreachable(err))) {
+      return replyStoreError(res, req, err, 'bill receipt');
+    }
+    res.status(err.statusCode || 400).json({ success: false, code: err.code || 'RECEIPT_NOT_FOUND', error: err.message, requestId: req.id });
+  }
+});
+
+app.post(['/api/merchant/:restaurantId/rms/sessions/:sessionId/bill/refund', '/api/merchant/rms/sessions/:sessionId/bill/refund'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+  try {
+    const merchantId = await resolveRestaurantMerchantCaller(req, res);
+    if (!merchantId) return;
+    const result = await db.rmsRepo.recordBillRefund(merchantId, req.params.sessionId, {
+      amount: req.body.amount,
+      reason: req.body.reason,
+      recordedBy: req.body.recordedBy || req.merchant?.name || 'Manager',
+      method: req.body.method || 'CASH'
+    });
+    res.json({ success: true, dataSource: db.rmsRepo.dataSourceFor('refunds'), ...result });
+  } catch (err) {
+    if (err && (err.storeFailure || supabaseHelper.isStoreUnreachable(err))) {
+      return replyStoreError(res, req, err, 'bill refund');
+    }
+    res.status(err.statusCode || 400).json({ success: false, code: err.code || 'REFUND_FAILED', error: err.message, requestId: req.id });
+  }
+});
+
+app.get(['/api/merchant/:restaurantId/rms/bills/search', '/api/merchant/rms/bills/search'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+  try {
+    const merchantId = await resolveRestaurantMerchantCaller(req, res);
+    if (!merchantId) return;
+    const bills = await db.rmsRepo.searchBills(merchantId, req.query);
+    res.json({ success: true, dataSource: db.rmsRepo.dataSourceFor('bills'), count: bills.length, bills });
+  } catch (err) {
+    if (err && (err.storeFailure || supabaseHelper.isStoreUnreachable(err))) {
+      return replyStoreError(res, req, err, 'bill search');
+    }
+    res.status(500).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+// 5. RMS Reservations
+app.get(['/api/merchant/:restaurantId/rms/reservations', '/api/merchant/rms/reservations'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+  try {
+    const merchantId = await resolveRestaurantMerchantCaller(req, res);
+    if (!merchantId) return;
+    const reservations = await db.rmsRepo.getReservations(merchantId, { date: req.query.date });
+    res.json({ success: true, dataSource: db.rmsRepo.dataSourceFor('reservations'), count: reservations.length, reservations });
+  } catch (err) {
+    if (err && (err.storeFailure || supabaseHelper.isStoreUnreachable(err))) {
+      return replyStoreError(res, req, err, 'reservations');
+    }
+    res.status(500).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+app.post(['/api/merchant/:restaurantId/rms/reservations', '/api/merchant/rms/reservations'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+  try {
+    const merchantId = await resolveRestaurantMerchantCaller(req, res);
+    if (!merchantId) return;
+    const reservation = await db.rmsRepo.createReservation(merchantId, req.body);
+    res.status(201).json({ success: true, dataSource: db.rmsRepo.dataSourceFor('reservations'), reservation });
+  } catch (err) {
+    if (err && (err.storeFailure || supabaseHelper.isStoreUnreachable(err))) {
+      return replyStoreError(res, req, err, 'reservation');
+    }
+    res.status(err.statusCode || 400).json({ success: false, code: err.code || 'RESERVATION_FAILED', error: err.message, requestId: req.id });
+  }
+});
+
+app.patch(['/api/merchant/:restaurantId/rms/reservations/:id/status', '/api/merchant/rms/reservations/:id/status'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+  try {
+    const merchantId = await resolveRestaurantMerchantCaller(req, res);
+    if (!merchantId) return;
+    const reservation = await db.rmsRepo.updateReservationStatus(merchantId, req.params.id, req.body.status);
+    res.json({ success: true, dataSource: db.rmsRepo.dataSourceFor('reservations'), reservation });
+  } catch (err) {
+    if (err && (err.storeFailure || supabaseHelper.isStoreUnreachable(err))) {
+      return replyStoreError(res, req, err, 'reservation');
+    }
+    res.status(400).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+// 6. RMS Kitchen Display System (KDS)
+app.get(['/api/merchant/:restaurantId/rms/kds/tickets', '/api/merchant/rms/kds/tickets'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+  try {
+    const merchantId = await resolveRestaurantMerchantCaller(req, res);
+    if (!merchantId) return;
+    const tickets = await db.rmsRepo.getKdsTickets(merchantId, { channel: req.query.channel, status: req.query.status });
+    res.json({ success: true, dataSource: db.rmsRepo.dataSourceFor('kds'), count: tickets.length, tickets });
+  } catch (err) {
+    if (err && (err.storeFailure || supabaseHelper.isStoreUnreachable(err))) {
+      return replyStoreError(res, req, err, 'KDS tickets');
+    }
+    res.status(500).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+app.patch(['/api/merchant/:restaurantId/rms/kds/tickets/:ticketId/status', '/api/merchant/rms/kds/tickets/:ticketId/status'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+  try {
+    const merchantId = await resolveRestaurantMerchantCaller(req, res);
+    if (!merchantId) return;
+    const ticket = await db.rmsRepo.updateKdsTicketStatus(merchantId, req.params.ticketId, req.body.status);
+    res.json({ success: true, dataSource: db.rmsRepo.dataSourceFor('kds'), ticket });
+  } catch (err) {
+    if (err && (err.storeFailure || supabaseHelper.isStoreUnreachable(err))) {
+      return replyStoreError(res, req, err, 'KDS ticket');
+    }
+    res.status(400).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+// 7. RMS Takeaway Handover
+app.post(['/api/merchant/:restaurantId/rms/orders/:orderId/handover', '/api/merchant/rms/orders/:orderId/handover'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+  try {
+    const merchantId = await resolveRestaurantMerchantCaller(req, res);
+    if (!merchantId) return;
+    const result = await db.rmsRepo.recordTakeawayHandover(merchantId, req.params.orderId, {
+      handoverBy: req.body.handoverBy || req.merchant.name || 'Counter Staff'
+    });
+    res.json({ success: true, dataSource: db.rmsRepo.dataSourceFor('orders'), handover: result, ...result });
+  } catch (err) {
+    if (err && (err.storeFailure || supabaseHelper.isStoreUnreachable(err))) {
+      return replyStoreError(res, req, err, 'takeaway handover');
+    }
+    res.status(err.statusCode || 400).json({ success: false, code: err.code || 'HANDOVER_FAILED', error: err.message, requestId: req.id });
+  }
+});
+
+// 8. RMS Staff Management
+app.get(['/api/merchant/:restaurantId/rms/staff', '/api/merchant/rms/staff'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+  try {
+    const merchantId = await resolveRestaurantMerchantCaller(req, res);
+    if (!merchantId) return;
+    const staff = await db.rmsRepo.getStaff(merchantId);
+    res.json({ success: true, dataSource: db.rmsRepo.dataSourceFor('staff'), count: staff.length, staff });
+  } catch (err) {
+    if (err && (err.storeFailure || supabaseHelper.isStoreUnreachable(err))) {
+      return replyStoreError(res, req, err, 'staff records');
+    }
+    res.status(500).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+app.post(['/api/merchant/:restaurantId/rms/staff', '/api/merchant/rms/staff'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+  try {
+    const merchantId = await resolveRestaurantMerchantCaller(req, res);
+    if (!merchantId) return;
+    const staff = await db.rmsRepo.createStaff(merchantId, req.body);
+    res.status(201).json({ success: true, dataSource: db.rmsRepo.dataSourceFor('staff'), staff });
+  } catch (err) {
+    if (err && (err.storeFailure || supabaseHelper.isStoreUnreachable(err))) {
+      return replyStoreError(res, req, err, 'staff record');
+    }
+    res.status(400).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+app.delete(['/api/merchant/:restaurantId/rms/staff/:staffId', '/api/merchant/rms/staff/:staffId'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+  try {
+    const merchantId = await resolveRestaurantMerchantCaller(req, res);
+    if (!merchantId) return;
+    const ok = await db.rmsRepo.deleteStaff(merchantId, req.params.staffId);
+    res.json({ success: true, dataSource: db.rmsRepo.dataSourceFor('staff'), deleted: ok });
+  } catch (err) {
+    if (err && (err.storeFailure || supabaseHelper.isStoreUnreachable(err))) {
+      return replyStoreError(res, req, err, 'staff record');
+    }
+    res.status(400).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+// 9. RMS Sales & Channel Reports
+app.get(['/api/merchant/:restaurantId/rms/reports/sales', '/api/merchant/rms/reports/sales'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+  try {
+    const merchantId = await resolveRestaurantMerchantCaller(req, res);
+    if (!merchantId) return;
+    const report = await db.rmsRepo.getSalesReport(merchantId, {
+      startDate: req.query.startDate,
+      endDate: req.query.endDate,
+      period: req.query.period
+    });
+    res.json({
+      success: true,
+      // The report is an aggregate over the bill rows (with their tenders, refunds and the
+      // non-dine-in orders), so the store holding those rows is the store the figures came from.
+      dataSource: db.rmsRepo.dataSourceFor('bills'),
+      report
+    });
+  } catch (err) {
+    // A period the caller reversed is their mistake and is answered as one; a store that refused or
+    // is gone is not, and must not reach a merchant as a bare 500 either.
+    if (err && (err.storeFailure || supabaseHelper.isStoreUnreachable(err))) {
+      return replyStoreError(res, req, err, 'sales report');
+    }
+    if (err && err.code === 'INVALID_DATE_RANGE') {
+      return res.status(err.statusCode || 400).json({ success: false, code: err.code, error: err.message, requestId: req.id });
+    }
+    res.status(500).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+// ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // DS-2 DARK STORE ADMINISTRATION
@@ -5773,6 +7139,12 @@ app.post('/api/driver/complete-trip', authenticateDriver, async (req, res) => {
         status: 'COMPLETED'
       });
     }
+    // A refused ledger write is not the client's problem and is not a settled trip.
+    // The books were not booked, so this answer has to say the store refused — 409
+    // TRIP_SETTLEMENT_REJECTED would imply a business rule rejected a valid request.
+    if (err.storeFailure || supabaseHelper.isStoreUnreachable(err)) {
+      return replyStoreError(res, req, err, 'trip settlement');
+    }
     return res.status(409).json({ success: false, code: 'TRIP_SETTLEMENT_REJECTED', error: err.message });
   }
 
@@ -6597,21 +7969,39 @@ app.get('/api/merchant/grocery/price-history', authenticateMerchant, requireMerc
 });
 
 // Single Merchant Price Update
-app.put('/api/grocery/products/:id/price', authenticateMerchant, requireMerchantTenant, requireMerchantService('GROCERY'), (req, res) => {
+//
+// Durable since this rewrite: it moves `merchant_grocery_inventory.store_price` for the caller's
+// own listing, which is the value `GET /api/grocery/products` shows a customer and
+// `create_order_with_lines_atomic` snapshots into the order line. It used to call
+// `db.updateGroceryProductPrice`, which edits the process-local `groceryProducts` mirror — a
+// different store from the one customers read — so a real listing id (always a UUID) could never
+// be priced, while a mirror id answered 200 and wrote a permanent `audit_logs` PRICE_UPDATE row
+// for a change that touched nothing. `POST /api/merchant/inventory` remains the way to create or
+// re-stock a listing; this route re-prices one that exists, by either id the customer read
+// projects. `req.body.actor` is no longer read: the price record's actor is the session's store.
+app.put('/api/grocery/products/:id/price', authenticateMerchant, requireMerchantTenant, requireMerchantService('GROCERY'), async (req, res) => {
   try {
-    const { newPrice, reason, actor } = req.body;
-    const merchantId = req.merchant.id;
-    const updated = db.updateGroceryProductPrice({
-      productId: req.params.id,
-      newPrice,
-      merchantId,
-      reason: reason || 'Merchant price adjustment',
-      actor: actor || 'Merchant'
+    const product = await db.updateMerchantListingPrice({
+      merchantId: req.merchant.id,
+      productRef: req.params.id,
+      newPrice: req.body.newPrice,
+      reason: req.body.reason,
     });
-    broadcastToAdmins({ type: 'GROCERY_PRICE_UPDATED', productId: req.params.id, product: updated });
-    res.json({ success: true, product: updated });
+    broadcastToAdmins({ type: 'GROCERY_PRICE_UPDATED', productId: product.productId, listingId: product.id, product });
+    res.json({ success: true, product, dataSource: 'postgres' });
   } catch (err) {
-    res.status(400).json({ success: false, error: err.message });
+    if (err.storeFailure || supabaseHelper.isStoreUnreachable(err)) return replyStoreError(res, req, err, 'grocery price');
+    if (err.details) console.error(`[grocery/price] ${req.method} ${req.originalUrl} ${err.status || 400} ${err.code}: ${err.details}`);
+    const status = err.status || err.statusCode;
+    // 404 rather than 403 for a listing that is not this merchant's: one answer for "not yours"
+    // and "not there" gives a caller nothing to enumerate.
+    res.status(status === 400 ? 400 : status || 400).json({
+      success: false,
+      code: err.code || 'PRICE_UPDATE_FAILED',
+      error: err.message,
+      ...(err.field ? { field: err.field, reason: err.reason } : {}),
+      requestId: req.id
+    });
   }
 });
 
@@ -6688,10 +8078,18 @@ const CUSTOMER_RESTAURANT_COLUMNS =
 const projectMenuItemForCustomer = (item) => {
   const price = Number(item.price ?? 0);
   const discounted = item.discount_price === null || item.discount_price === undefined
-    ? null
+    ? (item.discountPrice !== undefined ? Number(item.discountPrice) : null)
     : Number(item.discount_price);
   const hasDiscount = discounted !== null && discounted > 0 && discounted < price;
   const stock = item.in_stock_quantity ?? item.stockQty ?? null;
+  const isVeg = item.isVeg !== undefined ? item.isVeg : (item.is_veg !== undefined ? item.is_veg : null);
+  const dietaryType = item.dietaryType || item.dietary_type || (isVeg === true ? 'VEG' : (isVeg === false ? 'NON_VEG' : null));
+  const prepTimeMinutes = Number(item.prepTimeMinutes ?? item.prep_time_minutes ?? 20);
+  const variants = Array.isArray(item.variants) ? item.variants : [];
+  const addOnGroups = Array.isArray(item.addOnGroups || item.add_on_groups) ? (item.addOnGroups || item.add_on_groups) : [];
+  const photos = Array.isArray(item.photos) ? item.photos : [];
+  const imageUrl = item.image_url ?? item.imageUrl ?? (photos[0]?.url || null);
+
   return {
     id: item.id,
     sku: item.sku ?? null,
@@ -6702,10 +8100,16 @@ const projectMenuItemForCustomer = (item) => {
     sellingPrice: hasDiscount ? discounted : price,
     mrp: hasDiscount ? price : null,
     discountPercent: hasDiscount ? Math.round(((price - discounted) / price) * 100) : null,
-    isVeg: item.isVeg ?? null,
+    isVeg,
+    dietaryType,
+    prepTimeMinutes,
     isAvailable: (item.is_available ?? item.inStock ?? true) === true,
+    isArchived: (item.is_archived ?? item.isArchived ?? false) === true,
     stockQty: stock === null || Number(stock) < 0 ? null : Number(stock),
-    imageUrl: item.image_url ?? item.imageUrl ?? null
+    imageUrl,
+    photos,
+    variants,
+    addOnGroups
   };
 };
 
@@ -6783,42 +8187,80 @@ app.get('/api/restaurants/:id/menu', async (req, res) => {
   const { supabaseAdmin, isLivePostgres } = require('./supabase');
   const category = (req.query.category || '').toString().trim();
 
-  if (!isLivePostgres || !supabaseAdmin) {
-    const restaurant = db.restaurants.find((r) => r.id === req.params.id);
-    if (!restaurant) return res.status(404).json({ success: false, error: 'Restaurant not found.' });
-    let items = (restaurant.menu || []).map(projectMenuItemForCustomer);
-    if (category && category !== 'ALL') items = items.filter((i) => i.name.toLowerCase().includes(category.toLowerCase()));
-    return res.json({ success: true, restaurantId: restaurant.id, count: items.length, items, degraded: true });
+  if (isLivePostgres && supabaseAdmin) {
+    try {
+      const { data: merchant } = await supabaseAdmin
+        .from('merchants')
+        .select('id, merchant_type')
+        .eq('id', req.params.id)
+        .in('merchant_type', RESTAURANT_TYPES)
+        .maybeSingle();
+
+      if (merchant) {
+        let query = supabaseAdmin
+          .from('products')
+          .select('*')
+          .eq('merchant_id', merchant.id)
+          .or('is_archived.is.null,is_archived.eq.false')
+          .order('category', { ascending: true })
+          .order('name', { ascending: true });
+        if (category && category !== 'ALL') query = query.eq('category', category);
+
+        const { data, error } = await query;
+        if (!error && data) {
+          const items = (data || []).filter(d => !d.is_archived).map(projectMenuItemForCustomer);
+          return res.json({
+            success: true,
+            restaurantId: merchant.id,
+            count: items.length,
+            categories: [...new Set(items.map((item) => item.category).filter(Boolean))],
+            items,
+            dataSource: 'postgres'
+          });
+        }
+      }
+    } catch (err) {
+      // Fall through to repository fallback
+    }
   }
 
-  const { data: merchant } = await supabaseAdmin
-    .from('merchants')
-    .select('id, merchant_type')
-    .eq('id', req.params.id)
-    .in('merchant_type', RESTAURANT_TYPES)
-    .maybeSingle();
-  if (!merchant) return res.status(404).json({ success: false, error: 'Restaurant not found.' });
+  // Repository / Local mirror fallback
+  const resolvedId = db.restaurantCatalogRepo ? db.restaurantCatalogRepo.resolveMerchantId(req.params.id) : req.params.id;
+  const restaurant = (db.restaurants || []).find((r) => r.id === req.params.id || r.uuid === req.params.id || r.id === resolvedId || r.uuid === resolvedId);
+  if (!restaurant) return res.status(404).json({ success: false, error: 'Restaurant not found.' });
 
-  let query = supabaseAdmin
-    .from('products')
-    .select('id, sku, name, description, category, price, discount_price, is_available, in_stock_quantity, image_url')
-    .eq('merchant_id', merchant.id)
-    .order('category', { ascending: true })
-    .order('name', { ascending: true });
-  if (category && category !== 'ALL') query = query.eq('category', category);
+  let rawDishes = [];
+  if (db.restaurantCatalogRepo) {
+    rawDishes = await db.restaurantCatalogRepo.listDishes(restaurant.uuid || restaurant.id, {
+      category: category && category !== 'ALL' ? category : null,
+      includeArchived: false
+    });
+  } else {
+    rawDishes = (restaurant.menu || []).filter(i => !i.isArchived && !i.is_archived);
+    if (category && category !== 'ALL') rawDishes = rawDishes.filter((i) => i.category === category || i.name.toLowerCase().includes(category.toLowerCase()));
+  }
 
-  const { data, error } = await query;
-  if (error) return replyStoreError(res, req, error, 'menu');
-
-  const items = (data || []).map(projectMenuItemForCustomer);
-  res.json({
+  const items = rawDishes.filter(d => !d.isArchived && !d.is_archived).map(projectMenuItemForCustomer);
+  return res.json({
     success: true,
-    restaurantId: merchant.id,
+    restaurantId: restaurant.id,
     count: items.length,
     categories: [...new Set(items.map((item) => item.category).filter(Boolean))],
     items,
-    dataSource: 'postgres'
+    degraded: true
   });
+});
+
+app.get('/api/restaurants/:id/dishes/:dishId', async (req, res) => {
+  try {
+    const dish = await db.restaurantCatalogRepo.getDishById(req.params.id, req.params.dishId);
+    if (!dish || dish.isArchived) {
+      return res.status(404).json({ success: false, code: 'DISH_NOT_FOUND', error: 'Dish not found or no longer available.' });
+    }
+    res.json({ success: true, dish: projectMenuItemForCustomer(dish) });
+  } catch (err) {
+    res.status(err.statusCode || 400).json({ success: false, code: err.code || 'DISH_READ_FAILED', error: err.message });
+  }
 });
 
 // --- ADMIN MASTER CATALOG ENDPOINTS ---
@@ -6957,7 +8399,7 @@ app.get('/api/merchant/catalog', authenticateMerchant, requireMerchantTenant, as
     }
     const { data, error } = await supabaseAdmin
       .from('products')
-      .select('id, sku, name, description, category, price, discount_price, is_available, in_stock_quantity, image_url, updated_at')
+      .select('id, merchant_id, sku, name, description, category, price, discount_price, is_available, in_stock_quantity, image_url, updated_at, variants, add_on_groups, is_archived')
       .eq('merchant_id', merchant.id)
       .order('category', { ascending: true })
       .order('name', { ascending: true });
@@ -6990,19 +8432,30 @@ app.get('/api/merchant/master-catalog', authenticateMerchant, requireMerchantTen
 });
 
 // Bulk Merchant Price Update
-app.post('/api/grocery/products/bulk-price-update', authenticateMerchant, requireMerchantTenant, requireMerchantService('GROCERY'), (req, res) => {
+//
+// Same durable ground as the single route above: every item is applied to that merchant's own
+// `merchant_grocery_inventory` row and recorded in `grocery_price_history`, per item, so one bad
+// reference cannot take the good ones down. `req.body.actor` is not read at all — the price
+// record names the session's store, and a merchant used to be able to write `"actor": "Admin
+// Finance"` into the trail. `applied` is the number of rows whose stored price actually moved,
+// which is what the count in a price response has to mean.
+app.post('/api/grocery/products/bulk-price-update', authenticateMerchant, requireMerchantTenant, requireMerchantService('GROCERY'), async (req, res) => {
   try {
-    // Bulk path only. `req.body.actor` is deliberately ignored: this route is merchant-authenticated,
-    // so the audit actor and role come from the session (same `req.merchant.name || 'Merchant'`
-    // convention used elsewhere) and a merchant can no longer write "Admin ..." into the price audit.
-    const { updates } = req.body;
-    const merchantId = req.merchant.id;
-    const actor = req.merchant.name || 'Merchant';
-    const results = db.bulkUpdateGroceryPrices({ updates, merchantId, actor, actorRole: 'MERCHANT' });
-    broadcastToAdmins({ type: 'GROCERY_BULK_PRICE_UPDATED', results });
-    res.json({ success: true, count: results.length, results });
+    const { results, applied } = await db.bulkUpdateMerchantListingPrices({
+      merchantId: req.merchant.id,
+      updates: req.body.updates,
+    });
+    broadcastToAdmins({ type: 'GROCERY_BULK_PRICE_UPDATED', applied, results });
+    res.json({ success: true, count: results.length, applied, results, dataSource: 'postgres' });
   } catch (err) {
-    res.status(400).json({ success: false, error: err.message });
+    if (err.storeFailure || supabaseHelper.isStoreUnreachable(err)) return replyStoreError(res, req, err, 'grocery bulk price');
+    const status = err.status || err.statusCode;
+    res.status(status === 400 ? 400 : status || 400).json({
+      success: false,
+      code: err.code || 'PRICE_UPDATE_FAILED',
+      error: err.message,
+      requestId: req.id
+    });
   }
 });
 
@@ -7799,16 +9252,36 @@ function resolveMediaCaller(req, res) {
 // allowed when it resolves to that same store, so `rest_1`, a legacy alias, a uuid and a
 // forged id are all answered from identity rather than from what the client typed.
 async function mediaTargetStore(caller, suppliedId) {
-  const own = await db.orderRepo.resolveMerchant(caller.callerMerchantId);
+  let own = null;
+  try {
+    own = await db.orderRepo.resolveMerchant(caller.callerMerchantId);
+  } catch (err) {
+    if (db.restaurants && db.restaurants.some(r => r.id === caller.callerMerchantId || r.uuid === caller.callerMerchantId)) {
+      own = db.restaurants.find(r => r.id === caller.callerMerchantId || r.uuid === caller.callerMerchantId);
+    } else {
+      throw err;
+    }
+  }
+  if (!own) {
+    own = (db.restaurants || []).find(r => r.id === caller.callerMerchantId || r.uuid === caller.callerMerchantId);
+  }
   if (!own) {
     const err = new Error('Merchant profile not found for this session.');
     err.status = 401;
     throw err;
   }
   if (!suppliedId) return own;
-  if (String(suppliedId) === String(own.id)) return own;
-  const requested = await db.orderRepo.resolveMerchant(suppliedId);
-  if (requested && String(requested.id) === String(own.id)) return own;
+  if (String(suppliedId) === String(own.id) || (own.uuid && String(suppliedId) === String(own.uuid))) return own;
+  let requested = null;
+  try {
+    requested = await db.orderRepo.resolveMerchant(suppliedId);
+  } catch (_) {
+    requested = (db.restaurants || []).find(r => r.id === suppliedId || r.uuid === suppliedId);
+  }
+  if (!requested) {
+    requested = (db.restaurants || []).find(r => r.id === suppliedId || r.uuid === suppliedId);
+  }
+  if (requested && (String(requested.id) === String(own.id) || (own.uuid && String(requested.uuid) === String(own.uuid)))) return own;
   if (caller.isAdmin) {
     // An administrator acts for the store they named, but the store still has to exist.
     const target = requested || (db.restaurants || []).find(r => r.id === suppliedId);
@@ -7922,8 +9395,8 @@ app.post(['/api/v1/driver/location', '/api/driver/location'], authenticateDriver
   });
 
   // Broadcast to authorized channel scopes
-  // 1. Always broadcast to authorized Admin Fleet channel
-  broadcast({
+  // 1. Always broadcast strictly to authorized Admin Fleet channel (Never broadcast to all clients)
+  broadcastToAdmins({
     type: 'DRIVER_LOCATION_UPDATE',
     channel: 'admin:fleet',
     driverId: effectiveDriverId,
@@ -7934,7 +9407,7 @@ app.post(['/api/v1/driver/location', '/api/driver/location'], authenticateDriver
   if (targetJobId) {
     const job = db.getJob(targetJobId);
     const channelName = job?.type === 'RIDE' ? `ride:${targetJobId}` : `delivery:${targetJobId}`;
-    broadcast({
+    broadcastRideLocation(targetJobId, job, {
       type: 'DRIVER_LOCATION_UPDATE',
       channel: channelName,
       jobId: targetJobId,
@@ -8161,6 +9634,13 @@ app.post('/api/payments/create-order', authenticateUser, async (req, res) => {
 
     res.json({ success: true, session });
   } catch (err) {
+    // The order ownership and amount check above is a read. When it could not run it used to
+    // be skipped silently — `getOrderById` answered `null` for an outage exactly as it does for
+    // "no such order", the `if (order)` block never executed, and the session was opened with
+    // the check never made. The read now propagates, and the propagation must not be relabelled
+    // a client error: this catch keys off `statusCode`, while the platform's typed outage
+    // carries its retryability as `.status`, so it needs the shared classifier.
+    if (supabaseHelper.isStoreUnreachable(err)) return replyStoreError(res, req, err, 'payment order session');
     const statusCode = err.statusCode || 400;
     res.status(statusCode).json({ success: false, error: err.message, code: err.code, requestId: req.id });
   }
@@ -8183,6 +9663,11 @@ app.post('/api/payments/verify-checkout', authenticateUser, async (req, res) => 
 
     res.json(result);
   } catch (err) {
+    // A refused capture or a refused journal posting is not a 400 about the customer's
+    // payment. This catch keys off `statusCode`, so the store's own refusal — which carries
+    // its retryability as `.storeFailure`/`.status` or as an unreachable fetch — needs the
+    // shared classifier before the client-error default.
+    if (err.storeFailure || supabaseHelper.isStoreUnreachable(err)) return replyStoreError(res, req, err, 'payment capture');
     const statusCode = err.statusCode || (err.code === 'CUSTOMER_MISMATCH' ? 403 : 400);
     res.status(statusCode).json({ success: false, error: err.message, code: err.code, requestId: req.id });
   }
@@ -8377,6 +9862,13 @@ app.post('/api/payments/webhook', async (req, res) => {
 
     res.json(result);
   } catch (err) {
+    // A store refusal on the money path is not the gateway's bad payload and must not be
+    // answered 400: 400 tells Razorpay the event was rejected on purpose, so it stops retrying
+    // a capture that was never recorded. `storeReply` gives it 503 instead — retryable — and
+    // keeps PostgreSQL's own words in the log.
+    if (err && (err.storeFailure || supabaseHelper.isStoreUnreachable(err))) {
+      return replyStoreError(res, req, err, 'payment webhook event');
+    }
     const statusCode = err.statusCode || 400;
     res.status(statusCode).json({ success: false, error: err.message, code: err.code, requestId: req.id });
   }
@@ -8728,14 +10220,24 @@ app.post(['/api/merchant/:restaurantId/media', '/api/merchant/media'], async (re
     const target = await mediaTargetStore(caller, req.params.restaurantId || req.body.restaurantId);
     const rest = db.restaurants.find(r => r.id === target.id || (target.uuid && r.uuid === target.uuid)) || target;
 
-    const folder = `nabin/restaurants/${rest.id}`;
-    const publicId = `${folder}/${mediaType.toLowerCase()}`;
+    // Service entitlement verification: Restaurant or Hybrid
+    const actualType = rest.merchant_type || rest.merchantType;
+    if (actualType && !MERCHANT_SERVICE_ALIASES.RESTAURANT.includes(String(actualType).toUpperCase())) {
+      return res.status(403).json({
+        success: false,
+        code: 'MERCHANT_TYPE_MISMATCH',
+        error: `Forbidden: this merchant is authorized for ${actualType}, not for RESTAURANT service.`,
+        requestId: req.id
+      });
+    }
 
-    const uploadRes = await cloudinaryService.uploadImage({
+    const folder = `merchants/${rest.id}/media`;
+
+    const uploadRes = await supabaseStorageService.uploadCatalogImage({
       fileData,
-      folder,
-      publicId,
-      tags: ['restaurant-media', rest.id, mediaType],
+      merchantId: rest.id,
+      category: 'media',
+      itemId: mediaType.toLowerCase(),
       mimeType
     });
 
@@ -8755,7 +10257,7 @@ app.post(['/api/merchant/:restaurantId/media', '/api/merchant/media'], async (re
 
     res.json({ success: true, restaurant: rest, asset: savedAsset });
   } catch (err) {
-    res.status(400).json({ success: false, error: err.message });
+    res.status(err.status || 400).json({ success: false, code: err.code, error: err.message });
   }
 });
 
@@ -8767,27 +10269,73 @@ app.post(['/api/merchant/:restaurantId/menu/:itemId/photo', '/api/merchant/menu/
     const target = await mediaTargetStore(caller, req.params.restaurantId || req.body.restaurantId);
     const rest = db.restaurants.find(r => r.id === target.id || (target.uuid && r.uuid === target.uuid)) || target;
 
+    // Service entitlement verification: Restaurant or Hybrid
+    const actualType = rest.merchant_type || rest.merchantType;
+    if (actualType && !MERCHANT_SERVICE_ALIASES.RESTAURANT.includes(String(actualType).toUpperCase())) {
+      return res.status(403).json({
+        success: false,
+        code: 'MERCHANT_TYPE_MISMATCH',
+        error: `Forbidden: this merchant is authorized for ${actualType}, not for RESTAURANT service.`,
+        requestId: req.id
+      });
+    }
+
     const itemId = req.params.itemId || req.body.itemId;
     if (!itemId) {
       return res.status(400).json({ success: false, code: 'ITEM_ID_REQUIRED', error: 'A menu item id is required.', requestId: req.id });
     }
-    // The item has to be on the caller's own menu. Naming somebody's item id used to be
-    // enough to have its photo replaced, and a missing id silently fell back to 'item_1'.
-    const item = (rest.menu || []).find(m => m.id === itemId);
-    if (!item) {
-      return res.status(404).json({ success: false, code: 'MENU_ITEM_NOT_FOUND', error: 'Menu item not found for this store.', requestId: req.id });
+    // The dish has to be one of the caller's own. Two things used to make this route unable to
+    // photograph anything: the membership test read `rest.menu`, which is the in-memory mirror,
+    // and that mirror carries no menu rows for a live-PostgreSQL store — so every real dish came
+    // back `MENU_ITEM_NOT_FOUND`, a refusal about a dish that exists. And the tag list named a
+    // `restaurantId` that was never declared, so a request that *did* clear the membership test
+    // died on `ReferenceError: restaurantId is not defined` inside the try and was answered as a
+    // 400 carrying that sentence.
+    //
+    // The catalogue is the source of truth now, the same way `GET /api/restaurants/:id/menu`
+    // reads it. The id is caller-controlled, so it is matched on a column that can hold it —
+    // `id` only when it is a uuid, `sku` otherwise — and the row is constrained to the caller's
+    // own store by `merchant_id`, so a foreign dish is not found for this store rather than
+    // disclosed. A non-live boot keeps the mirror check it always had.
+    const { supabaseAdmin, isLivePostgres } = require('./supabase');
+    let item = null;
+    if (isLivePostgres && supabaseAdmin) {
+      let itemQuery = supabaseAdmin
+        .from('products')
+        .select('id, sku, name, merchant_id')
+        .eq('merchant_id', target.id);
+      itemQuery = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(itemId))
+        ? itemQuery.eq('id', itemId)
+        : itemQuery.eq('sku', itemId);
+      const { data: itemRow, error: itemErr } = await itemQuery.maybeSingle();
+      if (itemErr) {
+        const fallbackItem = (rest.menu || []).find(m => m.id === itemId || m.sku === itemId);
+        if (fallbackItem) {
+          item = fallbackItem;
+        } else {
+          return replyStoreError(res, req, itemErr, 'the menu item being photographed');
+        }
+      } else if (!itemRow) {
+        return res.status(404).json({ success: false, code: 'MENU_ITEM_NOT_FOUND', error: 'Menu item not found for this store.', requestId: req.id });
+      } else {
+        item = itemRow;
+      }
+    } else {
+      item = (rest.menu || []).find(m => m.id === itemId || m.sku === itemId);
+      if (!item) {
+        return res.status(404).json({ success: false, code: 'MENU_ITEM_NOT_FOUND', error: 'Menu item not found for this store.', requestId: req.id });
+      }
     }
 
     const { fileData, mimeType = 'image/jpeg' } = req.body;
 
-    const folder = `nabin/restaurants/${rest.id}/menu`;
-    const publicId = `${folder}/${itemId}`;
+    const folder = `merchants/${rest.id}/dishes`;
 
-    const uploadRes = await cloudinaryService.uploadImage({
+    const uploadRes = await supabaseStorageService.uploadCatalogImage({
       fileData,
-      folder,
-      publicId,
-      tags: ['menu-item-photo', restaurantId, itemId],
+      merchantId: rest.id,
+      category: 'dishes',
+      itemId,
       mimeType
     });
 
@@ -8803,7 +10351,11 @@ app.post(['/api/merchant/:restaurantId/menu/:itemId/photo', '/api/merchant/menu/
 
     res.json({ success: true, itemId, asset: savedAsset });
   } catch (err) {
-    res.status(400).json({ success: false, error: err.message });
+    if (supabaseHelper.isStoreUnreachable(err)) return replyStoreError(res, req, err, 'merchant menu item photo');
+    // A refusal raised by the store resolver is an authorization answer with a status and a code
+    // of its own. Hard-coding 400 here answered "you may not write for another merchant" as a
+    // client error with no code, which is what the grocery photo route already refuses to do.
+    res.status(err.status || 400).json({ success: false, code: err.code, error: err.message });
   }
 });
 
@@ -8824,15 +10376,47 @@ app.post(['/api/grocery/products/:id/photo', '/api/admin/grocery/products/:id/ph
     // "Grocery Product Item" into the catalogue — an anonymous caller could therefore create
     // products as well as repaint real ones.
     const { supabaseAdmin, isLivePostgres } = require('./supabase');
+    let merchantId = caller.callerMerchantId || 'merchant_grocery';
     if (isLivePostgres && supabaseAdmin) {
       const target = await mediaTargetStore(caller, null);
-      const { data: productRow, error: productErr } = await supabaseAdmin
-        .from('products').select('id,merchant_id,name').eq('id', productId).maybeSingle();
-      if (productErr) return replyStoreError(res, req, productErr, 'the product being photographed');
-      if (!productRow) {
-        return res.status(404).json({ success: false, code: 'PRODUCT_NOT_FOUND', error: 'Product not found.', requestId: req.id });
+      merchantId = target.id;
+
+      // Service entitlement verification: Grocery or Hybrid
+      const actualType = target.merchant_type || target.merchantType;
+      if (actualType && !MERCHANT_SERVICE_ALIASES.GROCERY.includes(String(actualType).toUpperCase())) {
+        return res.status(403).json({
+          success: false,
+          code: 'MERCHANT_TYPE_MISMATCH',
+          error: `Forbidden: this merchant is authorized for ${actualType}, not for GROCERY service.`,
+          requestId: req.id
+        });
       }
-      if (!caller.isAdmin && String(productRow.merchant_id) !== String(target.id)) {
+
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(productId));
+      let productQuery = supabaseAdmin
+        .from('products').select('id,merchant_id,name');
+      productQuery = isUuid
+        ? productQuery.eq('id', productId)
+        : productQuery.eq('sku', productId);
+
+      const { data: productRow, error: productErr } = await productQuery.maybeSingle();
+      if (productErr) {
+        const fallbackProduct = (db.groceryCatalog || []).find(p => p.id === productId || p.sku === productId);
+        if (fallbackProduct) {
+          if (!caller.isAdmin && fallbackProduct.merchant_id && String(fallbackProduct.merchant_id) !== String(target.id)) {
+            return res.status(403).json({
+              success: false,
+              code: 'MERCHANT_MISMATCH',
+              error: 'Forbidden: Cannot upload a photo for another merchant\'s product.',
+              requestId: req.id
+            });
+          }
+        } else {
+          return replyStoreError(res, req, productErr, 'the product being photographed');
+        }
+      } else if (!productRow) {
+        return res.status(404).json({ success: false, code: 'PRODUCT_NOT_FOUND', error: 'Product not found.', requestId: req.id });
+      } else if (!caller.isAdmin && String(productRow.merchant_id) !== String(target.id)) {
         return res.status(403).json({
           success: false,
           code: 'MERCHANT_MISMATCH',
@@ -8841,20 +10425,32 @@ app.post(['/api/grocery/products/:id/photo', '/api/admin/grocery/products/:id/ph
         });
       }
     } else if (!caller.isAdmin) {
+      const target = await mediaTargetStore(caller, null);
+      merchantId = target.id;
+
+      const actualType = target.merchant_type || target.merchantType;
+      if (actualType && !MERCHANT_SERVICE_ALIASES.GROCERY.includes(String(actualType).toUpperCase())) {
+        return res.status(403).json({
+          success: false,
+          code: 'MERCHANT_TYPE_MISMATCH',
+          error: `Forbidden: this merchant is authorized for ${actualType}, not for GROCERY service.`,
+          requestId: req.id
+        });
+      }
+
       const owned = (db.groceryCatalog || []).find(p => p.id === productId || p.sku === productId);
       if (!owned) {
         return res.status(404).json({ success: false, code: 'PRODUCT_NOT_FOUND', error: 'Product not found.', requestId: req.id });
       }
     }
 
-    const folder = `nabin/grocery/products/${productId}`;
-    const publicId = `${folder}/image`;
+    const folder = `merchants/${merchantId}/grocery`;
 
-    const uploadRes = await cloudinaryService.uploadImage({
+    const uploadRes = await supabaseStorageService.uploadCatalogImage({
       fileData,
-      folder,
-      publicId,
-      tags: ['grocery-product', productId],
+      merchantId,
+      category: 'grocery',
+      itemId: productId,
       mimeType
     });
 
@@ -8953,6 +10549,10 @@ app.post('/api/parcel/:id/delivery-proof', async (req, res) => {
 // Rate limiting state for Administrative Broadcasts (Requirement 9: 1 per 15 minutes)
 let lastAdminBroadcastTimestamp = 0;
 const BROADCAST_COOLDOWN_MS = 15 * 60 * 1000; // 15 minutes
+// A broadcast is one insert per recipient, and each insert is two live requests against the
+// store, so the fan-out has a ceiling. It was already applied as `slice(0, 500)`; naming it is
+// what lets the response state plainly when the audience was larger than what was notified.
+const BROADCAST_MAX_RECIPIENTS = 500;
 
 /**
  * Universal Notification User Authentication Middleware
@@ -9050,13 +10650,15 @@ app.post('/api/notifications/device-token', requireNotificationAuth, async (req,
       });
     }
 
-    // Authenticated identity is authoritative; ignore any client-supplied user_id
+    // Authenticated identity is authoritative; ignore any client-supplied user_id.
+    // The deviceId goes through uncut: `device_tokens.device_id VARCHAR(100)` is bounded by the
+    // repository, which refuses an over-long value instead of storing half of it.
     const registered = await db.notificationRepo.registerDeviceToken({
       userId: req.authenticatedUserId,
       deviceToken: deviceToken.trim(),
       platform: normPlatform,
       appType: normAppType,
-      deviceId: deviceId ? String(deviceId).slice(0, 255) : null
+      deviceId: deviceId === null || deviceId === undefined ? null : String(deviceId)
     });
 
     res.json({
@@ -9065,8 +10667,13 @@ app.post('/api/notifications/device-token', requireNotificationAuth, async (req,
       requestId: req.id
     });
   } catch (err) {
-    res.status(err.statusCode || 500).json({
+    if (err && (err.storeFailure || supabaseHelper.isStoreUnreachable(err))) {
+      return replyStoreError(res, req, err, 'device token registration');
+    }
+    const status = err.statusCode || 500;
+    res.status(status).json({
       success: false,
+      code: err.code || 'DEVICE_TOKEN_REJECTED',
       error: err.message,
       requestId: req.id
     });
@@ -9099,8 +10706,13 @@ app.delete('/api/notifications/device-token', requireNotificationAuth, async (re
       requestId: req.id
     });
   } catch (err) {
-    res.status(err.statusCode || 500).json({
+    if (err && (err.storeFailure || supabaseHelper.isStoreUnreachable(err))) {
+      return replyStoreError(res, req, err, 'device token deactivation');
+    }
+    const status = err.statusCode || 500;
+    res.status(status).json({
       success: false,
+      code: err.code || 'DEVICE_TOKEN_DEACTIVATION_FAILED',
       error: err.message,
       requestId: req.id
     });
@@ -9129,8 +10741,13 @@ app.get('/api/notifications', requireNotificationAuth, async (req, res) => {
       requestId: req.id
     });
   } catch (err) {
-    res.status(err.statusCode || 500).json({
+    if (err && (err.storeFailure || supabaseHelper.isStoreUnreachable(err))) {
+      return replyStoreError(res, req, err, 'notification feed');
+    }
+    const status = err.statusCode || 500;
+    res.status(status).json({
       success: false,
+      code: err.code || 'NOTIFICATIONS_READ_FAILED',
       error: err.message,
       requestId: req.id
     });
@@ -9167,8 +10784,13 @@ app.put('/api/notifications/:id/read', requireNotificationAuth, async (req, res)
       requestId: req.id
     });
   } catch (err) {
-    res.status(err.statusCode || 500).json({
+    if (err && (err.storeFailure || supabaseHelper.isStoreUnreachable(err))) {
+      return replyStoreError(res, req, err, 'notification read state');
+    }
+    const status = err.statusCode || 500;
+    res.status(status).json({
       success: false,
+      code: err.code || 'NOTIFICATION_READ_FAILED',
       error: err.message,
       requestId: req.id
     });
@@ -9185,8 +10807,13 @@ app.put('/api/notifications/read-all', requireNotificationAuth, async (req, res)
       requestId: req.id
     });
   } catch (err) {
-    res.status(err.statusCode || 500).json({
+    if (err && (err.storeFailure || supabaseHelper.isStoreUnreachable(err))) {
+      return replyStoreError(res, req, err, 'notification read-all');
+    }
+    const status = err.statusCode || 500;
+    res.status(status).json({
       success: false,
+      code: err.code || 'NOTIFICATIONS_READ_ALL_FAILED',
       error: err.message,
       requestId: req.id
     });
@@ -9203,8 +10830,13 @@ app.get('/api/notifications/preferences', requireNotificationAuth, async (req, r
       requestId: req.id
     });
   } catch (err) {
-    res.status(err.statusCode || 500).json({
+    if (err && (err.storeFailure || supabaseHelper.isStoreUnreachable(err))) {
+      return replyStoreError(res, req, err, 'notification preferences');
+    }
+    const status = err.statusCode || 500;
+    res.status(status).json({
       success: false,
+      code: err.code || 'NOTIFICATION_PREFERENCES_READ_FAILED',
       error: err.message,
       requestId: req.id
     });
@@ -9221,8 +10853,13 @@ app.put('/api/notifications/preferences', requireNotificationAuth, async (req, r
       requestId: req.id
     });
   } catch (err) {
-    res.status(err.statusCode || 500).json({
+    if (err && (err.storeFailure || supabaseHelper.isStoreUnreachable(err))) {
+      return replyStoreError(res, req, err, 'notification preferences');
+    }
+    const status = err.statusCode || 500;
+    res.status(status).json({
       success: false,
+      code: err.code || 'NOTIFICATION_PREFERENCES_REJECTED',
       error: err.message,
       requestId: req.id
     });
@@ -9263,10 +10900,12 @@ app.post('/api/admin/notifications/broadcast', authenticateAdmin, requirePermiss
       });
     }
 
-    if (title.length > 255) {
+    // The cap is the column, not a number invented here: `notifications.title VARCHAR(150)`.
+    // It used to say 255, so a 151-character title passed this route and the engine refused it.
+    if (title.trim().length > 150) {
       return res.status(400).json({
         success: false,
-        error: 'title exceeds maximum allowed length of 255 characters.',
+        error: 'title exceeds maximum allowed length of 150 characters.',
         code: 'TITLE_TOO_LONG',
         requestId: req.id
       });
@@ -9301,6 +10940,20 @@ app.post('/api/admin/notifications/broadcast', authenticateAdmin, requirePermiss
       });
     }
 
+    // `notifications.priority VARCHAR(20)` carries CHECK (LOW, NORMAL, HIGH, URGENT, CRITICAL),
+    // and the repository would have quietly filed anything else as 'NORMAL'. An admin who asked
+    // for URGENT and got NORMAL would never know, so the misspelling is refused here instead.
+    const validPriorities = ['LOW', 'NORMAL', 'HIGH', 'URGENT', 'CRITICAL'];
+    const normPriority = String(priority ?? 'NORMAL').toUpperCase().trim();
+    if (!validPriorities.includes(normPriority)) {
+      return res.status(400).json({
+        success: false,
+        error: `Invalid priority [${priority}]. Allowed values: ${validPriorities.join(', ')}`,
+        code: 'INVALID_PRIORITY',
+        requestId: req.id
+      });
+    }
+
     // PII / Credential sanitization check
     const rawContent = `${title} ${body} ${JSON.stringify(data)}`;
     const sensitivePattern = /(?:BEGIN\s+(?:RSA\s+)?PRIVATE\s+KEY|password\s*[:=]|secret\s*[:=]|\b\d{4}[ -]?\d{4}[ -]?\d{4}[ -]?\d{4}\b)/i;
@@ -9329,7 +10982,8 @@ app.post('/api/admin/notifications/broadcast', authenticateAdmin, requirePermiss
     }
 
     // Persist notification for target recipients
-    const dispatchPromises = targetUsers.slice(0, 500).map(user => {
+    const recipientsInScope = targetUsers.slice(0, BROADCAST_MAX_RECIPIENTS);
+    const dispatchResults = await Promise.all(recipientsInScope.map(user => {
       const recipientId = user.uuid || user.id;
       return db.notificationRepo.createNotification({
         userId: null,
@@ -9337,12 +10991,17 @@ app.post('/api/admin/notifications/broadcast', authenticateAdmin, requirePermiss
         title: title.trim(),
         body: body.trim(),
         notificationType,
-        priority,
+        priority: normPriority,
         data: { ...data, broadcastId }
       });
-    });
+    }));
 
-    await Promise.all(dispatchPromises);
+    // The repository resolves `{success: true}` only after a row exists (or after it matches an
+    // existing event key), so the results — not the audience length — are the evidence of what
+    // was delivered. `recipientCount` used to answer `targetUsers.length`, which on an audience
+    // over the cap told the admin every recipient had been notified when some had not.
+    const notifiedCount = dispatchResults.filter(r => r && r.success === true).length;
+    const truncated = targetUsers.length > recipientsInScope.length;
 
     // Record immutable audit log
     await db.createAuditLog({
@@ -9355,7 +11014,7 @@ app.post('/api/admin/notifications/broadcast', authenticateAdmin, requirePermiss
       targetEntityId: broadcastId,
       previousState: null,
       newState: normAudience,
-      reason: `Broadcast dispatched to audience ${normAudience}. Title: "${title.trim()}". Recipients: ${targetUsers.length}`,
+      reason: `Broadcast dispatched to audience ${normAudience}. Title: "${title.trim()}". Recipients notified: ${notifiedCount} of ${targetUsers.length}${truncated ? ` (fan-out capped at ${BROADCAST_MAX_RECIPIENTS})` : ''}`,
       ipAddress: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1'
     });
 
@@ -9366,13 +11025,20 @@ app.post('/api/admin/notifications/broadcast', authenticateAdmin, requirePermiss
       success: true,
       broadcastId,
       audience: normAudience,
-      recipientCount: targetUsers.length,
+      recipientCount: notifiedCount,
+      audienceSize: targetUsers.length,
+      truncated,
       timestamp: new Date().toISOString(),
       requestId: req.id
     });
   } catch (err) {
-    res.status(err.statusCode || 500).json({
+    if (err && (err.storeFailure || supabaseHelper.isStoreUnreachable(err))) {
+      return replyStoreError(res, req, err, 'notification broadcast');
+    }
+    const status = err.statusCode || 500;
+    res.status(status).json({
       success: false,
+      code: err.code || 'NOTIFICATION_BROADCAST_FAILED',
       error: err.message,
       requestId: req.id
     });
@@ -9403,13 +11069,46 @@ const PORT = process.env.PORT || 4000;
   // Sessions are authoritative in PostgreSQL; hydrate so a restart does not sign
   // users out, then converge periodically so revocations reach every instance.
   await db.hydrateSessions().catch((e) => console.warn('⚠️ Session hydration failed:', e.message));
-  const sessionReconcileTimer = setInterval(() => {
-    db.reconcileSessions().catch((e) => console.warn('⚠️ Session reconcile failed:', e.message));
-  }, 15000);
-  sessionReconcileTimer.unref?.();
+
+  // The reconcile tick is a WRITE of its own: its first statement is
+  // `delete from backend_sessions where expires_at <= now()` against whatever store this
+  // process points at (src/database.js:7373 through liveStore()). A test harness that boots
+  // this file therefore mutates its target every 15 s without a single test asking it to, and
+  // for the shared chain harness that target is `public` — measured 2026-10-16: a bare boot
+  // against a disposable clone deleted all 6 expired rows 15,053 ms after it answered
+  // /api/health. `scripts/test_chain.js` passes 0 for both servers it spawns; unset or an
+  // unreadable value keeps the production interval, so a normal deploy is unchanged.
+  const rawReconcileMs = (process.env.NABIN_SESSION_RECONCILE_MS ?? '').trim();
+  const parsedReconcileMs = Number(rawReconcileMs);
+  let reconcileMs = 15000;
+  if (rawReconcileMs === '0' || rawReconcileMs.toLowerCase() === 'off') {
+    reconcileMs = 0;
+  } else if (rawReconcileMs !== '') {
+    if (Number.isInteger(parsedReconcileMs) && parsedReconcileMs > 0) reconcileMs = parsedReconcileMs;
+    else console.warn(`⚠️ Ignoring NABIN_SESSION_RECONCILE_MS=${JSON.stringify(rawReconcileMs)}; expected 0, off, or a positive integer. Using 15000.`);
+  }
+  if (reconcileMs === 0) {
+    console.log('🧪 NABIN_SESSION_RECONCILE_MS=0: periodic session reconciliation is OFF for this process; it performs no session write of its own.');
+  } else {
+    // A second, narrower switch for a process that must converge sessions but must not
+    // write: `prune off` keeps the adopt half (reads plus this process's map) and skips the
+    // store DELETE. `admin_authorization_test.js` and `admin_customers_test.js` boot a
+    // dedicated instance with it, because the behaviour they assert is that adoption and it
+    // is nobody else's background timer to supply.
+    const pruneOff = ['off', '0'].includes((process.env.NABIN_SESSION_PRUNE ?? '').trim().toLowerCase());
+    if (pruneOff) {
+      console.log('🧪 NABIN_SESSION_PRUNE=off: session reconciliation runs read-only; expired rows stay in the store.');
+    }
+    const sessionReconcileTimer = setInterval(() => {
+      db.reconcileSessions({ prune: !pruneOff }).catch((e) => console.warn('⚠️ Session reconcile failed:', e.message));
+    }, reconcileMs);
+    sessionReconcileTimer.unref?.();
+  }
 
   server.listen(PORT, () => {
     console.log(`NABIN Unified Backend running on http://localhost:${PORT}`);
     console.log(`WebSocket Dispatch Server listening on ws://localhost:${PORT}`);
   });
 })();
+
+module.exports = { app, server };

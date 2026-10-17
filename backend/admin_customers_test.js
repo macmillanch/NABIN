@@ -41,7 +41,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
 // Reap the backend this run starts, and only that one — scripts/spawned_server.js.
-const { trackServer } = require('./scripts/spawned_server');
+const { trackServer, spawnConvergingInstance } = require('./scripts/spawned_server');
 
 process.env.PAYMENT_WEBHOOK_SECRET ||= 'test_webhook_secret_not_for_deployment';
 process.env.PAYMENT_KEY_SECRET ||= 'test_key_secret_not_for_deployment';
@@ -59,9 +59,9 @@ function check(id, cond, detail) {
   console.log(`${cond ? '✅' : '❌'} [${id}] ${cond ? 'PASS' : 'FAIL'}  ${detail}`);
 }
 
-function request(method, route, body = null, headers = {}) {
+function request(method, route, body = null, headers = {}, base = BASE_URL) {
   return new Promise((resolve, reject) => {
-    const url = new URL(route, BASE_URL);
+    const url = new URL(route, base);
     const bodyStr = body !== null && body !== undefined ? JSON.stringify(body) : null;
     const req = http.request({
       method,
@@ -645,6 +645,25 @@ async function main() {
   const lateSuspend = await request('POST', `/api/admin/customers/${fixtureId}/status`,
     { status: 'SUSPENDED', reason: 'Phase D harness: bearer-time guard probe on a foreign session.' },
     bearer(superToken));
+
+  // The bearer is then presented to an instance this suite booted, not to :4000.
+  //
+  // `getSessionByToken` reads only this process's map — no store fallback — so a row written
+  // elsewhere becomes honourable through exactly one path: `src/server.js`'s periodic reconcile
+  // tick. Under F-13 the chain runner boots the shared harness with that timer OFF (measured
+  // 2026-10-16: its first statement deletes expired rows from whatever store the process points
+  // at, which for the harness is `public`), so the 25-second wait below was waiting for a write
+  // that no longer happens on a supervised process. `spawnConvergingInstance` boots one with the
+  // tick on a short explicit interval and the store DELETE switched off, so this link proves the
+  // cross-instance path without touching anyone else's rows.
+  //
+  // The order is load-bearing twice over. The instance boots AFTER the suspension, so its
+  // boot-hydrated copy of the account says SUSPENDED — an instance that hydrated it while open
+  // answers from that stale copy and lets the bearer through, which is the exposure INP-26
+  // measures on purpose. And the row is inserted AFTER that boot's hydration has answered
+  // `/api/health`, so hydration is ruled out by ordering and a tick is the only bridge left.
+  const converging = await spawnConvergingInstance({ tickMs: 1500 });
+
   const lateHandle = crypto.randomBytes(32).toString('hex');
   const lateInsert = await supabaseAdmin.from('backend_sessions').insert({
     token_hash: crypto.createHash('sha256').update(lateHandle).digest('hex'),
@@ -655,28 +674,37 @@ async function main() {
   check('INP-20', lateSuspend.status === 200 && !lateInsert.error,
     `the setup stands: the account is closed here (${lateSuspend.data.status}) and a foreign session row exists (${lateInsert.error ? lateInsert.error.message : 'inserted'})`);
 
-  // `getSessionByToken` reads this process's map, and `reconcileSessions` is what pulls a
-  // foreign row into it, so the bearer is not honourable until that tick runs. Wait for it
-  // on /api/auth/me: 401 means the session is still unknown, anything else means it landed.
+  // `getSessionByToken` reads this instance's map, and `reconcileSessions` is what pulls a
+  // foreign row into it, so the bearer is not honourable until that tick runs. Wait for it on
+  // /api/auth/me: 401 means the session is still unknown, anything else means it landed.
   let foreign = null;
-  for (let attempt = 0; attempt < 25; attempt++) {
-    foreign = await request('GET', '/api/auth/me', null, bearer(lateHandle));
-    if (foreign.status !== 401) break;
-    await new Promise(r => setTimeout(r, 1000));
+  if (converging.ready) {
+    for (let attempt = 0; attempt < 25; attempt++) {
+      foreign = await request('GET', '/api/auth/me', null, bearer(lateHandle), converging.baseUrl);
+      if (foreign.status !== 401) break;
+      await new Promise(r => setTimeout(r, 1000));
+    }
   }
   check('INP-21', foreign && foreign.status === 403 && foreign.data.code === 'ACCOUNT_SUSPENDED',
-    `a bearer this instance never issued is honoured by it after the reconcile tick, and refused by the account (${foreign && foreign.status} ${foreign && foreign.data.code})`);
+    `a bearer this instance never issued is honoured by it after the reconcile tick, and refused by the account `
+    + `(${!converging.ready ? `the instance never answered /api/health within ${converging.readyWindowMs} ms`
+      : `${foreign ? foreign.status : 'no probe'} ${foreign && foreign.data.code}`} on :${converging.port}, `
+    + `NABIN_SESSION_RECONCILE_MS=${converging.tickMs}, NABIN_SESSION_PRUNE=off)`);
 
   const closedAnswers = [];
-  for (const [method, route, body] of bearerProbes) {
-    const probe = await request(method, route, body, bearer(lateHandle));
-    closedAnswers.push({ method, route, status: probe.status, code: probe.data && probe.data.code });
+  if (converging.ready) {
+    for (const [method, route, body] of bearerProbes) {
+      const probe = await request(method, route, body, bearer(lateHandle), converging.baseUrl);
+      closedAnswers.push({ method, route, status: probe.status, code: probe.data && probe.data.code });
+    }
   }
   const served = closedAnswers.filter(a => a.status !== 403 || a.code !== 'ACCOUNT_SUSPENDED');
-  check('INP-22', served.length === 0,
-    served.length === 0
+  check('INP-22', closedAnswers.length === bearerProbes.length && served.length === 0,
+    served.length === 0 && closedAnswers.length === bearerProbes.length
       ? `all four routes refuse that bearer by name — cancel, payment session, media delete and profile photo (${closedAnswers.map(a => `${a.status}/${a.code}`).join(', ')})`
-      : `NOT guarded over HTTP: ${served.map(a => `${a.method} ${a.route} → ${a.status}/${a.code}`).join(', ')}`);
+      : served.length
+        ? `NOT guarded over HTTP: ${served.map(a => `${a.method} ${a.route} → ${a.status}/${a.code}`).join(', ')}`
+        : `only ${closedAnswers.length} of ${bearerProbes.length} routes were probed — the converging instance on :${converging.port} ${converging.ready ? 'answered health' : 'never answered /api/health'}, so the four refusals were not measured`);
 
   await supabaseAdmin.from('backend_sessions').delete()
     .eq('token_hash', crypto.createHash('sha256').update(lateHandle).digest('hex'));
@@ -730,7 +758,45 @@ async function main() {
 
   const idx = db.users.indexOf(hydratedCopy);
   if (idx >= 0) db.users.splice(idx, 1);
-  db.invalidateSession(foreignToken);
+
+  // --- 8e. The sign-out over HTTP ---------------------------------------------------
+  //
+  // `session_reconcile_pagination_test` RC-23..RC-28 pin the *window* against a store whose
+  // delete is deliberately late. This is the other half, and the one the window cannot show:
+  // `/api/auth/logout` is now an async handler that waits for that delete, so it has to still
+  // answer, with the same body, and leave the row back. On loopback the delete is
+  // sub-millisecond, so nothing below asserts timing — what would be caught is a route that
+  // hangs, 500s, or says "Logged out successfully." over a session that outlives the response.
+  const liveLogout = await request('POST', '/api/auth/logout', null, bearer(foreignToken));
+  const rowAfterLogout = await supabaseAdmin.from('backend_sessions')
+    .select('token_hash').eq('token_hash', crypto.createHash('sha256').update(foreignToken).digest('hex')).maybeSingle();
+  check('INP-27', liveLogout.status === 200 && liveLogout.data?.success === true
+    && liveLogout.data?.message === 'Logged out successfully.',
+    `the sign-out still answers with the unchanged contract (${liveLogout.status}, `
+    + `${JSON.stringify(liveLogout.data?.message || liveLogout.data?.code || liveLogout.data)})`);
+  check('INP-28', !rowAfterLogout.data,
+    `and the route took the durable row back itself, rather than leaving it for the harness to `
+    + `clean up (${rowAfterLogout.data ? 'still present' : 'gone'}${rowAfterLogout.error ? `, read error=${rowAfterLogout.error.message}` : ''})`);
+
+  // The blast radius, stated rather than assumed away. That sign-out ran in the spawned server
+  // (`src/server.js` is a child process here), and this harness holds its own copy of the bearer
+  // in its own `db.activeSessions` — the same two-process picture INP-25 measures after a
+  // suspension. A sign-out clears the memory of the process that ran it, never every process
+  // holding a copy, and this change does not alter that. Asserting the opposite here would have
+  // been an assertion aimed at the wrong process's map.
+  check('INP-29', Boolean(db.getSessionByToken(foreignToken)),
+    'and this process still honours the bearer the *other* process signed out, because only the '
+    + 'durable row crossed the process boundary — the in-process map belongs to whoever ran the '
+    + 'sign-out. Awaiting the delete makes the revocation durable before the response; it does not '
+    + 'reach another instance\'s memory, and that gap is INP-25/INP-26\'s finding, not this fix.');
+
+  // Same call the route just made, but in this process and against the real store rather than the
+  // deliberately-late fake in the pagination suite: the awaited boolean, and the memory drop.
+  // This line also is the fixture's cleanup — the bearer this harness minted has to leave with it.
+  const localSignout = await db.invalidateSession(foreignToken);
+  check('INP-30', localSignout === true && !db.getSessionByToken(foreignToken),
+    `but this process's own sign-out does drop it, and only after the store delete lands `
+    + `(awaited return=${String(localSignout)}, honours after=${String(Boolean(db.getSessionByToken(foreignToken)))})`);
 
   // --- 9. The harness leaves nothing behind ------------------------------
   const cleanup = await teardown(fixtureId);

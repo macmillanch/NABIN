@@ -37,6 +37,40 @@ async function liveRequest(fn) {
   }
 }
 
+// The notification path used to answer a store refusal with the engine's own sentence:
+// `throw new Error(\`Failed to persist notification in PostgreSQL: ${insErr.message}\`)`, and the
+// routes put that straight into `error`. Two things were wrong with that. The sentence names
+// tables, columns and constraints, so an authenticated stranger reading a 500 gets a map of the
+// schema. And wrapping destroyed the SQLSTATE, so `storeReply` — which chooses the status from
+// the code — saw no code and called every failure an unclassified 500: a duplicate device token
+// that should have been a 409, and a missing table that should have been SCHEMA_NOT_READY, both
+// answered as internal errors. The marker keeps the code, parks the engine's words in `details`
+// for the log, and deliberately leaves `status` unset on the way in so an outage cannot be
+// mistaken for the caller's mistake. Same contract as `replyStoreError` and link 58's
+// support-ticket guard; `notification_write_guard_test.js` is the check that it stays that way.
+function storeFailure(what, error) {
+  const err = new Error(`The ${what} could not be completed because the notification store refused it.`);
+  err.storeFailure = true;
+  err.code = (error && error.code) || 'STORE_ERROR';
+  err.details = error ? String(error.message || error.code || error) : 'unknown store failure';
+  if (error && error.hint) err.hint = String(error.hint);
+  const wireStatus = error && (error.status || error.statusCode);
+  if (wireStatus) err.status = Number(wireStatus);
+  if (error && error.cause) err.cause = error.cause;
+  return err;
+}
+
+// `notifications.notification_type VARCHAR(60)` (Migration 012) carries no CHECK, so this line is
+// the only barrier between a caller's string and the column. Without it an over-long type is
+// refused by the engine with SQLSTATE 22001, and the refusal arrives as an unclassified error.
+const NOTIFICATION_TYPE_MAX_LENGTH = 60;
+// `notifications.title VARCHAR(150)`: the admin broadcast route bounded its own title at 255, which
+// is not this column, so a 151-character title passed the route and came back from the engine.
+const NOTIFICATION_TITLE_MAX_LENGTH = 150;
+// `device_tokens.device_id VARCHAR(100)`. The registration route used to `slice(0, 255)` it, which
+// is neither this length nor a refusal — a caller would get a stored id silently cut in half.
+const DEVICE_ID_MAX_LENGTH = 100;
+
 const LEGACY_USER_MAP = {
   'usr_1': '00000000-0000-0000-0000-000000000001',
   'usr_2': '00000000-0000-0000-0000-000000000002',
@@ -170,6 +204,12 @@ class NotificationRepository {
     if (!deviceToken || typeof deviceToken !== 'string' || !deviceToken.trim()) {
       throw new Error('Non-empty device token string required.');
     }
+    if (deviceId !== null && deviceId !== undefined && String(deviceId).length > DEVICE_ID_MAX_LENGTH) {
+      const err = new Error(`deviceId exceeds maximum allowed length of ${DEVICE_ID_MAX_LENGTH} characters`);
+      err.statusCode = 400;
+      err.code = 'DEVICE_ID_TOO_LONG';
+      throw err;
+    }
 
     const cleanToken = deviceToken.trim();
     const cleanPlatform = ['ANDROID', 'IOS', 'WEB', 'OTHER'].includes(platform?.toUpperCase()) ? platform.toUpperCase() : 'ANDROID';
@@ -200,7 +240,7 @@ class NotificationRepository {
           .select('*')
           .single();
 
-        if (error) throw new Error(`Failed to refresh device token: ${error.message}`);
+        if (error) throw storeFailure('device token registration', error);
         return mapRowToDeviceToken(updated);
       }
 
@@ -240,9 +280,12 @@ class NotificationRepository {
             .eq('app_type', cleanAppType)
             .select('*')
             .single();
-          return mapRowToDeviceToken(conflictRow);
+          // The recovery read has to actually find the row. Returning null here made the route
+          // answer `200 {success: true, deviceToken: null}` — a registration the store never
+          // confirmed. `createNotification` already guards this same fallback below.
+          if (conflictRow) return mapRowToDeviceToken(conflictRow);
         }
-        throw new Error(`Failed to register device token in PostgreSQL: ${insErr.message}`);
+        throw storeFailure('device token registration', insErr);
       }
 
       return mapRowToDeviceToken(inserted);
@@ -289,7 +332,7 @@ class NotificationRepository {
         .eq('user_id', userUuid)
         .eq('device_token', cleanToken);
 
-      if (error) throw new Error(`Failed to deactivate device token: ${error.message}`);
+      if (error) throw storeFailure('device token deactivation', error);
       return true;
     }
 
@@ -318,7 +361,7 @@ class NotificationRepository {
       }
 
       const { data, error } = await query;
-      if (error) throw new Error(`Failed to fetch active device tokens: ${error.message}`);
+      if (error) throw storeFailure('active device tokens', error);
       return (data || []).map(mapRowToDeviceToken);
     }
 
@@ -351,6 +394,18 @@ class NotificationRepository {
     }
     if (!title || !body) {
       throw new Error('Notification title and body are required.');
+    }
+    if (typeof notificationType === 'string' && notificationType.length > NOTIFICATION_TYPE_MAX_LENGTH) {
+      const err = new Error(`notificationType exceeds maximum allowed length of ${NOTIFICATION_TYPE_MAX_LENGTH} characters`);
+      err.statusCode = 400;
+      err.code = 'TYPE_TOO_LONG';
+      throw err;
+    }
+    if (typeof title === 'string' && title.trim().length > NOTIFICATION_TITLE_MAX_LENGTH) {
+      const err = new Error(`title exceeds maximum allowed length of ${NOTIFICATION_TITLE_MAX_LENGTH} characters`);
+      err.statusCode = 400;
+      err.code = 'TITLE_TOO_LONG';
+      throw err;
     }
 
     const senderUuid = userId ? this.resolveUuid(userId) : recipientUuid;
@@ -417,7 +472,7 @@ class NotificationRepository {
             return { success: true, duplicate: true, notification: mapRowToNotification(conflictRow) };
           }
         }
-        throw new Error(`Failed to persist notification in PostgreSQL: ${insErr.message}`);
+        throw storeFailure('notification', insErr);
       }
 
       return { success: true, duplicate: false, notification: mapRowToNotification(inserted) };
@@ -480,7 +535,7 @@ class NotificationRepository {
       }
 
       const { data, count, error } = await query;
-      if (error) throw new Error(`Failed to fetch notifications: ${error.message}`);
+      if (error) throw storeFailure('notification feed', error);
 
       // Also get unread count
       const { count: unreadCount, error: unreadErr } = await supabaseAdmin
@@ -526,7 +581,7 @@ class NotificationRepository {
         .or(`recipient_user_id.eq.${userUuid},and(user_id.eq.${userUuid},recipient_user_id.is.null)`)
         .eq('is_read', false);
 
-      if (error) throw new Error(`Failed to count unread notifications: ${error.message}`);
+      if (error) throw storeFailure('unread notification count', error);
       return count || 0;
     }
 
@@ -556,7 +611,7 @@ class NotificationRepository {
         .select('*')
         .maybeSingle();
 
-      if (error) throw new Error(`Failed to mark notification as read: ${error.message}`);
+      if (error) throw storeFailure('notification read state', error);
       if (!data) {
         return { success: false, error: 'Notification not found or access denied.', code: 'NOT_FOUND_OR_FORBIDDEN' };
       }
@@ -595,7 +650,7 @@ class NotificationRepository {
         .eq('is_read', false)
         .select('id');
 
-      if (error) throw new Error(`Failed to mark all notifications as read: ${error.message}`);
+      if (error) throw storeFailure('notification read-all', error);
       return { success: true, updatedCount: (data || []).length };
     }
 
@@ -629,7 +684,7 @@ class NotificationRepository {
         .eq('user_id', userUuid)
         .maybeSingle();
 
-      if (selErr) throw new Error(`Failed to fetch notification preferences: ${selErr.message}`);
+      if (selErr) throw storeFailure('notification preferences', selErr);
       if (existing) return mapRowToPreferences(existing);
 
       // Seed default preferences if not yet existing
@@ -666,7 +721,7 @@ class NotificationRepository {
           .eq('user_id', userUuid)
           .maybeSingle();
         if (fallback) return mapRowToPreferences(fallback);
-        throw new Error(`Failed to initialize notification preferences: ${insErr.message}`);
+        throw storeFailure('notification preferences', insErr);
       }
 
       return mapRowToPreferences(inserted);
@@ -727,7 +782,7 @@ class NotificationRepository {
         .select('*')
         .single();
 
-      if (error) throw new Error(`Failed to update notification preferences: ${error.message}`);
+      if (error) throw storeFailure('notification preferences', error);
       return mapRowToPreferences(updated);
     }
 
@@ -785,7 +840,7 @@ class NotificationRepository {
         .select('*')
         .single();
 
-      if (error) throw new Error(`Failed to create notification delivery record: ${error.message}`);
+      if (error) throw storeFailure('notification delivery record', error);
       return mapRowToDelivery(inserted);
     }
 
@@ -825,7 +880,7 @@ class NotificationRepository {
       }
       let query = supabaseAdmin.from('notification_deliveries').update(dbUpdates).eq('id', deliveryId);
       const { data, error } = await query.select('*').single();
-      if (error) throw new Error(`Failed to update delivery status: ${error.message}`);
+      if (error) throw storeFailure('notification delivery status', error);
       return mapRowToDelivery(data);
     }
 
@@ -852,7 +907,7 @@ class NotificationRepository {
         .eq('notification_id', notificationId)
         .order('created_at', { ascending: false });
 
-      if (error) throw new Error(`Failed to retrieve delivery records: ${error.message}`);
+      if (error) throw storeFailure('notification delivery records', error);
       return (data || []).map(mapRowToDelivery);
     }
 
@@ -874,7 +929,7 @@ class NotificationRepository {
         .eq('is_active', true)
         .maybeSingle();
 
-      if (error) throw new Error(`Failed to fetch notification template: ${error.message}`);
+      if (error) throw storeFailure('notification template', error);
       return data;
     }
 
@@ -889,7 +944,7 @@ class NotificationRepository {
         .eq('is_active', true)
         .order('category', { ascending: true });
 
-      if (error) throw new Error(`Failed to list notification templates: ${error.message}`);
+      if (error) throw storeFailure('notification templates', error);
       return data || [];
     }
 

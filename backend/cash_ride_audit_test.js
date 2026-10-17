@@ -40,9 +40,42 @@ const BASE = process.env.NABIN_TEST_BASE_URL || 'http://127.0.0.1:4000';
 const envText = (() => {
   try { return fs.readFileSync(path.join(__dirname, '.env'), 'utf8'); } catch { return ''; }
 })();
-const envOf = (k) => (envText.match(new RegExp('^' + k + '=(.*)$', 'm')) || [])[1];
+// Resolve the target from the *process* first, and only fall back to the file. `src/supabase.js` and
+// every other suite in this repo follow the same precedence, and `scripts/with_local_target.js`
+// retargets a run by injecting into the environment while leaving `backend/.env` untouched. Reading
+// the file alone made this audit query a different database than the server it is auditing —
+// measured 2026-10-09: the direct `jobs` read went to hosted TEST and died with 42501 permission
+// denied while the harness under test was the local Docker instance.
+const envOf = (k) => (process.env[k] !== undefined && process.env[k] !== ''
+  ? process.env[k]
+  : (envText.match(new RegExp('^' + k + '=(.*)$', 'm')) || [])[1]);
 const { createClient } = require('@supabase/supabase-js');
-const supabaseAdmin = createClient(envOf('SUPABASE_URL') || 'http://127.0.0.1:54321',
+/* ONE DATABASE, OR REFUSE (#283). This audit's proof is split across three targets: the
+ * harness it drives over HTTP, the PostgREST read-back that names the durable `jobs` row
+ * (CR-05…CR-08) plus the schema reads (CR-12, CR-14), and the direct PostgreSQL catalog scan
+ * behind CR-10/CR-11/CR-15. `envOf` falls back to `backend/.env`, which names the hosted TEST
+ * project on a bare run, while the `pg` default is the loopback stack — measured 2026-10-12:
+ * CR-05 was red standalone (`row=null`) and green under `scripts/with_local_target.js`
+ * (`row=JOB-71632652-864`). That split is not a flaky assertion; it means the read judged a
+ * store the write never touched, so a green there proves nothing about the audited server.
+ * Refuse at module scope, before a single request, and name every target that is off-stack. */
+const LOOPBACK_HOST = /^(?:127\.\d{1,3}\.\d{1,3}\.\d{1,3}|localhost|::1)$/i;
+const SUPABASE_URL = envOf('SUPABASE_URL') || 'http://127.0.0.1:54321';
+const targetGuard = require('./scripts/chain_target_guard');
+// F-C1-1: this suite writes and asserts through this handle, so its store must be a target
+// something DECLARED (shell, then backend/.env) and loopback - never an address typed into
+// this file, which is what let a run write one store and assert against another (#283).
+const PG_TARGET = targetGuard.requireLoopbackPgTarget({ label: 'cash_ride_audit_test' });
+const PG_URL = PG_TARGET.connectionString;
+const offStack = [['harness', BASE], ['supabase', SUPABASE_URL], ['pg', PG_URL]]
+  .filter(([, url]) => !LOOPBACK_HOST.test(new URL(url).hostname))
+  .map(([label, url]) => `${label}=${new URL(url).hostname}`);
+if (offStack.length) {
+  console.error(`CR REFUSED (#283): ${offStack.join(', ')} — this audit reads and writes one local`
+    + ' stack end to end. Run it through scripts/with_local_target.js.');
+  process.exit(1);
+}
+const supabaseAdmin = createClient(SUPABASE_URL,
   envOf('SUPABASE_SERVICE_ROLE_KEY'), { auth: { persistSession: false } });
 
 const RUN = `P14-${Date.now()}`;
@@ -177,9 +210,7 @@ test('NABIN Phase 14 cash-ride and driver obligation audit', async () => {
    * exists to make that failure mode impossible: it reddens unless the scan
    * itself is non-trivial. */
   const { Client } = require('pg');
-  const pgClient = new Client({
-    connectionString: process.env.NABIN_PG_NOTIFY || 'postgres://postgres:postgres@127.0.0.1:54322/postgres',
-  });
+  const pgClient = new Client({ connectionString: PG_URL });
   let pgErr = null;
   let scanned = 0;
   let cashCols = [];

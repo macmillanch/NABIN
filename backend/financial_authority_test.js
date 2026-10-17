@@ -53,9 +53,23 @@ const path = require('path');
 const { Client } = require('pg');
 const { createClient } = require('@supabase/supabase-js');
 
-const PG = process.env.NABIN_PG_NOTIFY || 'postgres://postgres:postgres@127.0.0.1:54322/postgres';
+const targetGuard = require('./scripts/chain_target_guard');
+// F-C1-1: this suite writes and asserts through this handle, so its store must be a target
+// something DECLARED (shell, then backend/.env) and loopback - never an address typed into
+// this file, which is what let a run write one store and assert against another (#283).
+const PG_TARGET = targetGuard.requireLoopbackPgTarget({ label: 'financial_authority_test' });
+const PG = PG_TARGET.connectionString;
 const envText = (() => { try { return fs.readFileSync(path.join(__dirname, '.env'), 'utf8'); } catch { return ''; } })();
-const envOf = (k) => (envText.match(new RegExp('^' + k + '=(.*)$', 'm')) || [])[1];
+// The target this measurement is allowed to run against is the one the *process* resolved, not the
+// one the file happens to show. `scripts/with_local_target.js` injects the local-Docker section into
+// the environment and leaves `backend/.env` exactly as the owner wrote it, so reading only the file
+// made this suite judge a different database than the server under test — measured 2026-10-09: the
+// file's hosted `SUPABASE_URL` paired with the loopback `PG` default, which FIN15B-00 below then
+// refused (correctly). The file stays the fallback, so a run with no injection is still judged
+// against what `src/supabase.js` would itself load.
+const envOf = (k) => (process.env[k] !== undefined && process.env[k] !== ''
+  ? process.env[k]
+  : (envText.match(new RegExp('^' + k + '=(.*)$', 'm')) || [])[1]);
 const supabaseAdmin = createClient(envOf('SUPABASE_URL') || 'http://127.0.0.1:54321',
   envOf('SUPABASE_SERVICE_ROLE_KEY'), { auth: { persistSession: false } });
 
@@ -302,6 +316,9 @@ test('NABIN Phase 15B financial authority evidence', async () => {
    * draft of this file did exactly that and reported it as evidence. Phase 13's
    * moneyIdentity therefore has to be verified where it actually lands:
    * transaction_id. */
+  /* schemaname is pinned because pg_indexes is not search_path-scoped: the chain's disposable
+   * `chain_scratch` clone carries the same table and the same two UNIQUE indexes, so an unfiltered
+   * count reads 2 and this assertion reddens on the clone instead of on the audited schema. */
   const keys = (await c.query(`
     SELECT COUNT(*) tx, COUNT(idempotency_key) key_populated,
            COUNT(*) FILTER (WHERE idempotency_key IS NULL) nulls,
@@ -310,15 +327,17 @@ test('NABIN Phase 15B financial authority evidence', async () => {
               WHERE idempotency_key IS NOT NULL GROUP BY 1 HAVING COUNT(*) > 1) d) dup_key_groups,
            (SELECT COUNT(*) FROM (SELECT transaction_id FROM journal_transactions
               GROUP BY 1 HAVING COUNT(*) > 1) e) dup_txid,
-           (SELECT COUNT(*) FROM pg_indexes WHERE tablename = 'journal_transactions'
+           (SELECT COUNT(*) FROM pg_indexes WHERE schemaname = 'public'
+              AND tablename = 'journal_transactions'
               AND indexdef ILIKE '%idempotency_key%') idx_on_key,
-           (SELECT COUNT(*) FROM pg_indexes WHERE tablename = 'journal_transactions'
+           (SELECT COUNT(*) FROM pg_indexes WHERE schemaname = 'public'
+              AND tablename = 'journal_transactions'
               AND (indexdef ILIKE 'UNIQUE%transaction_id%' OR indexdef ILIKE '%unique%transaction_id%')) idx_on_txid,
            COUNT(DISTINCT transaction_id) distinct_txids
       FROM journal_transactions`)).rows[0];
   check('FIN15B-15a BOTH identity columns carry a UNIQUE index',
     Number(keys.idx_on_key) === 1 && Number(keys.idx_on_txid) === 1,
-    `unique indexes: transaction_id=${keys.idx_on_txid} idempotency_key=${keys.idx_on_key} (Phase 16 asserted neither existed; that was wrong - see PHASE 17/18 CORRECTIONS)`);
+    `unique indexes on public.journal_transactions: transaction_id=${keys.idx_on_txid} idempotency_key=${keys.idx_on_key} (Phase 16 asserted neither existed; that was wrong - see PHASE 17/18 CORRECTIONS)`);
   const barrier = await (async () => {
     const cc = new Client({ connectionString: PG });
     await cc.connect();

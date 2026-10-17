@@ -45,12 +45,24 @@ process.env.NODE_ENV = process.env.NODE_ENV || 'local';
 const fs = require('fs');
 const path = require('path');
 const { Client } = require('pg');
+const { openFixtures } = require('./test_fixtures');
+const targetGuard = require('./scripts/chain_target_guard');
 
 const BASE = process.env.NABIN_TEST_BASE || process.env.NABIN_TEST_BASE_URL || 'http://127.0.0.1:4000';
-const PG = process.env.NABIN_PG_NOTIFY || 'postgres://postgres:postgres@127.0.0.1:54322/postgres';
+// F-C1-1: this is an `isolated` laneServer link, so the split this guard removes is the worst kind —
+// the suite's own reads resolved to `public` while the server it booked through wrote the scratch
+// clone (#283). The store must be a target something DECLARED (shell, then backend/.env) and loopback,
+// never an address typed into this file; `openFixtures` below resolves from the same declaration.
+const PG_TARGET = targetGuard.requireLoopbackPgTarget({ label: 'place_substitution_test' });
+const PG = PG_TARGET.connectionString;
 const ADMIN = { username: 'superadmin', password: 'AdminPassword123!' };
 const PHONE_C1 = '9845011982';   // the seeded KYC-verified customer the other suites book as
 const OTP = process.env.NABIN_TEST_OTP || '7729';
+
+// The order this run books, by the id the booking route returned. 043 made a kitchen ticket a
+// durable row, so a successful food checkout leaves one behind; this is what the sweep at the
+// end of `main()` deletes by, and nothing else is ever in range.
+const placedFoodOrderIds = [];
 
 for (const url of [BASE, PG]) {
   if (!/^(?:127\.\d{1,3}\.\d{1,3}\.\d{1,3}|localhost|::1)$/i.test(new URL(url).hostname)) {
@@ -81,6 +93,9 @@ async function api(method, route, body, token) {
   return { status: res.status, data };
 }
 
+// Every statement here names tables unqualified on purpose: under a lane the connection's
+// search_path is the clone, and a `public.`-qualified read would measure the shared store while the
+// booking it asserts on landed in the lane.
 async function withDb(fn) {
   const c = new Client({ connectionString: PG });
   await c.connect();
@@ -204,7 +219,7 @@ async function groupC(customerToken) {
 
   const fixture = await withDb(async (c) => {
     const r = await c.query(`select m.id::text as merchant_id, p.id::text as product_id
-      from public.products p join public.merchants m on m.id = p.merchant_id
+      from products p join merchants m on m.id = p.merchant_id
       where p.is_available is distinct from false and m.merchant_type in ('RESTAURANT','HYBRID_BOTH')
       order by p.created_at limit 1`);
     return r.rows[0] || null;
@@ -214,12 +229,12 @@ async function groupC(customerToken) {
     return;
   }
 
-  const before = await withDb((c) => c.query('select count(*)::int n from public.orders'));
+  const before = await withDb((c) => c.query('select count(*)::int n from orders'));
   const refused = await api('POST', '/api/customer/book-food', {
     restaurantId: fixture.merchant_id,
     items: [{ productId: fixture.product_id, quantity: 1 }]
   }, customerToken);
-  const afterRefusal = await withDb((c) => c.query('select count(*)::int n from public.orders'));
+  const afterRefusal = await withDb((c) => c.query('select count(*)::int n from orders'));
 
   check('ADDR-01', refused.status === 400 && refused.data.code === 'PLACE_REQUIRED' &&
     refused.data.field === 'deliveryAddress' && afterRefusal.rows[0].n === before.rows[0].n,
@@ -235,9 +250,10 @@ async function groupC(customerToken) {
   check('ADDR-02', booked.status === 200 && !!orderId,
     `the same order with an address is accepted (${booked.status} ${booked.data.code || booked.data.error || 'ok'})`);
   if (!orderId) return;
+  placedFoodOrderIds.push(String(orderId));
 
   const stored = await withDb((c) => c.query(
-    `select metadata->>'deliveryAddress' as addr from public.orders where id = $1::uuid`, [orderId]));
+    `select metadata->>'deliveryAddress' as addr from orders where id = $1::uuid`, [orderId]));
   check('ADDR-03', stored.rows[0] && stored.rows[0].addr === probeAddress,
     `the row the merchant's order card reads holds exactly the address the customer typed, not a ` +
     `default (${JSON.stringify(stored.rows[0] && stored.rows[0].addr).slice(0, 70)})`);
@@ -264,7 +280,7 @@ async function groupD() {
   console.log('\n--- D. Null geography survives the write and the read ---');
 
   const row = await withDb((c) => c.query(
-    `select job_number, pickup_address, drop_address from public.jobs
+    `select job_number, pickup_address, drop_address from jobs
       where pickup_lat is null and drop_lat is null order by created_at limit 1`));
   if (!row.rows[0]) {
     check('NULL-01', false, 'no coordinate-free job row exists to read — the proof needs a row, not a fixture');
@@ -329,6 +345,29 @@ async function main() {
   await groupB(customerToken);
   await groupC(customerToken);
   await groupD();
+
+  // ADDR-02's successful checkout mints a durable kitchen ticket for its order (that is what 043
+  // made the KDS queue). The ticket is removed here, keyed only by the order id this run booked,
+  // so the run leaves no ticket behind for the next one to attribute. The `orders` row stays:
+  // this project treats an order as immutable, and deleting its subtree would also reap its
+  // payments while the ledger rows behind them stayed. openFixtures defaults to the same loopback
+  // target as `PG` above and refuses anything else, so this delete cannot aim at a hosted store.
+  if (placedFoodOrderIds.length) {
+    const fx = await openFixtures('placesub');
+    try {
+      const ids = Array.from(new Set(placedFoodOrderIds));
+      const swept = await fx.removeKdsTicketsFor(ids);
+      const surviving = (await fx.one(
+        `SELECT count(*)::int n FROM restaurant_kds_tickets WHERE order_id = ANY($1::uuid[])`,
+        [ids])).n;
+      check('PLACE-TICKET-SWEEP', swept.blocked.length === 0 && surviving === 0,
+        `the kitchen ticket this run's booking minted is gone and its order was left alone ` +
+        `(asked=${swept.asked} removed=${swept.removed} surviving=${surviving}` +
+        (swept.blocked.length ? ` blocked=${JSON.stringify(swept.blocked)}` : '') + ')');
+    } finally {
+      await fx.close();
+    }
+  }
 
   console.log('\n========================================================================');
   console.log(`📊 PLACE SUBSTITUTION: ${pass} PASSED, ${fail} FAILED (Total: ${pass + fail})` +

@@ -29,6 +29,7 @@ const path = require('path');
 const { spawn } = require('child_process');
 const { Client } = require('pg');
 const { operationKey, stableRecordId } = require('./src/services/moneyIdentity');
+const dbTls = require('./src/services/dbTls');
 
 const BASE_URL = process.env.NABIN_TEST_BASE_URL || 'http://127.0.0.1:4000';
 const SUPER = { username: 'superadmin', password: 'AdminPassword123!' };
@@ -138,7 +139,18 @@ async function main() {
   // row survives. This is the claim "duplicate requests cannot create two payout records".
   let pg;
   try {
-    pg = new Client({ connectionString: process.env.DATABASE_URL, ssl: false });
+    // The header of this file promises it never runs against a hosted project, and this is the
+    // place that promise is either kept or broken — so it is checked, not assumed. `sslConfig`
+    // is the same policy `scripts/migrate.js` uses: loopback needs no TLS (unchanged here), and
+    // anything else is refused rather than reached over a socket carrying a database password.
+    const dbTarget = process.env.DATABASE_URL;
+    if (!dbTls.isLocalTarget(dbTarget)) {
+      throw new Error(
+        `Refused: DATABASE_URL targets ${dbTls.hostOf(dbTarget) || 'an unreadable or unset host'} — this suite writes `
+        + 'money rows, so it runs only against the local Docker stack (see scripts/with_local_target.js).'
+      );
+    }
+    pg = new Client({ connectionString: dbTarget, ssl: dbTls.sslConfig(dbTarget) });
     await pg.connect();
     const barrierKey = `${RUN}_barrier`;
     // A real driver uuid: `driver_payouts.driver_id` has a foreign key to `drivers(id)`, and a

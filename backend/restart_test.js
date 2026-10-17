@@ -63,6 +63,19 @@ function webhookHeaders(body) {
   return { 'x-razorpay-signature': crypto.createHmac('sha256', secret).update(JSON.stringify(body)).digest('hex') };
 }
 
+// A persistence fixture must never be able to land on a row an earlier run left behind, because
+// this file deliberately writes rows that survive the restart. Both mints below kept only the last
+// 4 digits of Date.now(), which repeats on a 10-second period, and `promotions.code` is UNIQUE with
+// an upsert on conflict — so a collided coupon silently rewrote the 2026-10-06 row instead of
+// creating a fresh one, and the post-restart read found that row's two older redemptions. Measured
+// 2026-10-09: chain link 7 failed `usage_count = 1` exactly this way. Full millisecond plus entropy
+// keeps every mint inside the VARCHAR(30) `promotions.code` and VARCHAR(40) `geo_fences.zone_code`.
+// Uppercase because the promotion repository stores `code.toUpperCase()`, and the post-restart read
+// compares the code back as text — a lowercase mint is a fixture that can never be found again.
+function uniqueFixtureToken() {
+  return `${Date.now()}${crypto.randomBytes(2).toString('hex')}`.toUpperCase();
+}
+
 function request(method, pathName, body = null, headers = {}) {
   return new Promise((resolve, reject) => {
     const url = new URL(pathName, BASE_URL);
@@ -283,7 +296,7 @@ async function runRestartTest() {
     await request('POST', '/api/payments/webhook', restartWebhookPayload, webhookHeaders(restartWebhookPayload));
 
     // 6b. Create a persistent promotion and redeem it before restart
-    const restartPromoCode = `RESTART_${Date.now().toString().slice(-4)}`;
+    const restartPromoCode = `RESTART_${uniqueFixtureToken()}`;
     const createRestartPromo = await request('POST', '/api/admin/promotions', {
       code: restartPromoCode,
       name: 'Cold-start Persistence Test Coupon',
@@ -331,7 +344,7 @@ async function runRestartTest() {
     // property this file exists to prove.
     geoRun.token = adminToken;
 
-    const restartFenceCode = `ZONE_RST_${Date.now().toString().slice(-4)}`;
+    const restartFenceCode = `ZONE_RST_${uniqueFixtureToken()}`;
     const preRestartFence = await request('POST', '/api/admin/geofences', {
       name: 'Restart Test Aero City Zone',
       code: restartFenceCode,

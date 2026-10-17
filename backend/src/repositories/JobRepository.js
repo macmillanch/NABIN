@@ -2,6 +2,29 @@ const { supabaseAdmin, isLivePostgres } = require('../supabase');
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/**
+ * Mark a PostgreSQL refusal of a write this repository attempted.
+ *
+ * `jobs` is the row a customer is told exists when a booking succeeds, so a refusal
+ * cannot be an opinion. The refusal travels with the parts `storeReply`
+ * (src/supabase.js:162) classifies, in the shape src/repositories/LedgerRepository.js:57
+ * already uses: the `storeFailure` flag the routes read, the engine's own `code` so
+ * 503 / 409 / 400 / 500 is decided by the SQLSTATE and not by wording, and the engine's
+ * text on `details`, which routes log and never echo. The status stays unset on
+ * purpose: a store failure is not a 400.
+ */
+function storeFailure(what, error) {
+  const err = new Error(`The ${what} could not be completed because the job store refused it.`);
+  err.storeFailure = true;
+  err.code = (error && error.code) || 'STORE_ERROR';
+  err.details = error ? String(error.message || error.code || error) : 'unknown store failure';
+  if (error && error.hint) err.hint = String(error.hint);
+  const wireStatus = error && (error.status || error.statusCode);
+  if (wireStatus) err.status = Number(wireStatus);
+  if (error && error.cause) err.cause = error.cause;
+  return err;
+}
+
 const VALID_JOB_TRANSITIONS = {
   'REQUESTED': [],
   'SEARCHING': ['REQUESTED'],
@@ -43,6 +66,27 @@ function coordinateOrNull(raw) {
   if (raw === null || raw === undefined || raw === '') return null;
   const value = Number(raw);
   return Number.isFinite(value) ? value : null;
+}
+
+/**
+ * Shape a store refusal so `replyStoreError` in server.js can classify it.
+ *
+ * Money and bookings are the two places where a refusal cannot be an opinion: a booking
+ * the database rejected must never be reported as created.
+ * We carry the engine's own `code` and wire status, with engine text on `details`.
+ * The status stays unset (or >= 500) so a store outage or constraint refusal is never
+ * marked as caller error here; `replyStoreError` decides status based on SQLSTATE.
+ */
+function storeFailure(what, error) {
+  const err = new Error(`The ${what} could not be completed because the database store refused it.`);
+  err.storeFailure = true;
+  err.code = (error && error.code) || 'STORE_ERROR';
+  err.details = error ? String(error.message || error.code || error) : 'unknown store failure';
+  if (error && error.hint) err.hint = String(error.hint);
+  const wireStatus = error && (error.status || error.statusCode);
+  if (wireStatus && Number(wireStatus) >= 500) err.status = Number(wireStatus);
+  if (error && error.cause) err.cause = error.cause;
+  return err;
 }
 
 function mapRowToJob(row) {
@@ -147,7 +191,7 @@ class JobRepository {
           if (idx !== -1) {
             this.db.jobs[idx] = job;
           } else {
-            this.db.jobs.unshift(job);
+            this.db.jobs.push(job);
           }
         }
         return job;
@@ -310,14 +354,20 @@ class JobRepository {
         .single();
 
       if (error) {
-        throw new Error(`Failed to create job in PostgreSQL: ${error.message}`);
+        // Every refusal here is a booking that did not happen: an unmigrated schema
+        // (42P01), a `customer_id` no longer in `users` (23503), a `job_number` over
+        // VARCHAR(80) (22001), a `jobs_job_number_key` collision (23505). Classified
+        // rather than a codeless Error so the route answers with the SQLSTATE's verdict
+        // instead of the engine's sentence about itself.
+        throw storeFailure('job booking', error);
       }
 
-      const createdJob = mapRowToJob(data);
-      if (this.db.jobs) {
-        this.db.jobs.unshift(createdJob);
-      }
-      return createdJob;
+      // The mirror is the facade's to write, exactly once, after this returns. The
+      // repository used to push its own copy on top of that, so one accepted booking left
+      // two `db.jobs` objects for one trip — carrying different fields, because only the
+      // facade's copy keeps the route-only values (`idempotencyKey`, `appliedPromo`,
+      // `passengerInfo`) the durable payload never carries.
+      return mapRowToJob(data);
     }
 
     // Fallback for non-postgres mode
@@ -335,7 +385,6 @@ class JobRepository {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
-    if (this.db.jobs) this.db.jobs.unshift(fallbackJob);
     return fallbackJob;
   }
 

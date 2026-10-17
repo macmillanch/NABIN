@@ -2,6 +2,10 @@ const { supabaseAdmin, isLivePostgres } = require('../supabase');
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// Bounds a booking's offer writes so latency stops scaling with the fleet. Each write is a
+// store round trip, so raising this trades request time for concurrent load on the database.
+const DISPATCH_FANOUT_CONCURRENCY = 16;
+
 function mapRowToOffer(row) {
   if (!row) return null;
   return {
@@ -117,6 +121,46 @@ class DispatchRepository {
     };
     this.offers.unshift(fallbackOffer);
     return { success: true, duplicate: false, offer: fallbackOffer };
+  }
+
+  /**
+   * Fan offers out to the candidate drivers a booking is offered to. Who is in the audience
+   * is the caller's decision (docs/GEOFENCING_SECURITY_AUDIT.md §14-1); this only writes it.
+   *
+   * The fan-out used to await one round trip per driver back to back, so booking latency was
+   * a function of fleet size: measured 11,840ms for one ride against 1,320 drivers, straddling
+   * the 15,000ms timeout the client suites use, so the same request passed or failed on timing.
+   *
+   * Two properties here are load-bearing:
+   * 1. It completes before the response. `driver_operations_test.js` OPS-20 books a ride and
+   *    immediately reads `/api/driver/offers` for two drivers; fire-and-forget loses that race.
+   * 2. One driver's failure does not cancel the rest. Sequential writes aborted at the first
+   *    error, so one rejecting driver silently truncated every offer queued behind them.
+   */
+  async createOffersForDrivers(candidateDrivers, { jobId, ttlSeconds = 30, metadata = {}, concurrency = DISPATCH_FANOUT_CONCURRENCY }) {
+    const queue = Array.isArray(candidateDrivers) ? candidateDrivers.slice() : [];
+    let written = 0;
+    let duplicates = 0;
+    let failed = 0;
+    let firstError = null;
+
+    const worker = async () => {
+      for (let d = queue.shift(); d; d = queue.shift()) {
+        try {
+          const result = await this.createOffer({ jobId, driverId: d.id, ttlSeconds, metadata });
+          if (result && result.duplicate) duplicates += 1;
+          else written += 1;
+        } catch (err) {
+          failed += 1;
+          if (!firstError) firstError = err.message;
+        }
+      }
+    };
+
+    const active = Math.min(concurrency, queue.length);
+    await Promise.all(Array.from({ length: active }, () => worker()));
+
+    return { candidates: written + duplicates + failed, written, duplicates, failed, firstError };
   }
 
   /**

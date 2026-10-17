@@ -25,18 +25,10 @@ function migrationsDir() {
   return path.resolve(process.env.MIGRATIONS_DIR || path.join(__dirname, '..', '..', 'supabase', 'migrations'));
 }
 
-// node-postgres ignores an `sslmode` query parameter, so TLS is decided here.
-// DATABASE_SSL=disable|no-verify|require overrides host detection; hosted projects
-// verify certificates by default.
-const LOCAL_HOST_PATTERN = /(?:^|@)(?:localhost|127\.0\.0\.1|::1|0\.0\.0\.0|host\.docker\.internal|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(?:1[6-9]|2\d|3[01])\.\d+\.\d+)(?::\d+)?(?:\/|$)/i;
-
-function sslConfig(connectionString) {
-  const mode = (process.env.DATABASE_SSL || '').toLowerCase();
-  if (mode === 'disable' || mode === 'false') return false;
-  if (mode === 'no-verify') return { rejectUnauthorized: false };
-  if (mode) return { rejectUnauthorized: true };
-  return LOCAL_HOST_PATTERN.test(connectionString) ? false : { rejectUnauthorized: true };
-}
+// node-postgres ignores an `sslmode` query parameter, so TLS has to be decided in code —
+// and it is decided by the one policy every direct Postgres client shares, not by this
+// file. See src/services/dbTls.js: a hosted target verifies, and a bypass is refused.
+const { sslConfig, describe: describeTls } = require('../src/services/dbTls');
 
 function discover(dir) {
   if (!fs.existsSync(dir)) {
@@ -100,7 +92,20 @@ function describeError(err, connectionString) {
   );
 
   const pendingPreview = discover(migrationsDir());
-  const client = new Client({ connectionString, ssl: sslConfig(connectionString) });
+
+  // TLS is decided before the socket opens, and a bypass request is a refusal rather than
+  // a warning — this is the one script in the repo that can mutate a hosted schema.
+  let ssl;
+  try {
+    ssl = sslConfig(connectionString);
+  } catch (err) {
+    console.error(`❌ ${err.message}`);
+    process.exit(1);
+  }
+  const tls = describeTls(connectionString);
+  console.log(`🔒 TLS: ${tls.verification} against ${tls.host} (trust anchor: ${tls.trustAnchor})`);
+
+  const client = new Client({ connectionString, ssl });
   try {
     await client.connect();
   } catch (err) {

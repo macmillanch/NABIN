@@ -24,13 +24,22 @@
  * Local/test only; refuses any non-loopback target.
  */
 const { Client } = require('pg');
-const PG = process.env.NABIN_PG_NOTIFY || 'postgres://postgres:postgres@127.0.0.1:54322/postgres';
+const targetGuard = require('./scripts/chain_target_guard');
+// F-C1-1: every journal posting this suite writes and asserts goes through this handle, so its store
+// must be a target something DECLARED (shell, then backend/.env) and loopback - never an address typed
+// into this file, which is what let a run write one store and assert against another (#283).
+const PG_TARGET = targetGuard.requireLoopbackPgTarget({ label: 'finance_ledger_double_entry_authority_test' });
+const PG = PG_TARGET.connectionString;
 const BASE = process.env.NABIN_TEST_BASE || 'http://127.0.0.1:4000';
 if (!/^(?:127\.\d{1,3}\.\d{1,3}\.\d{1,3}|localhost|::1)$/i.test(new URL(PG).hostname)
   || !/^(?:127\.\d{1,3}\.\d{1,3}\.\d{1,3}|localhost|::1)$/i.test(new URL(BASE).hostname)) {
   console.error('F5 REFUSED: non-loopback target'); process.exit(1);
 }
 const { supabaseAdmin, isLivePostgres } = require('./src/supabase');
+if (process.env.SUPABASE_URL && !/^(?:127\.\d{1,3}\.\d{1,3}\.\d{1,3}|localhost|::1)$/i.test(new URL(process.env.SUPABASE_URL).hostname)) {
+  console.error('F5 REFUSED: SUPABASE_URL points to a non-loopback host (' + new URL(process.env.SUPABASE_URL).hostname + '), while PG reads 127.0.0.1. Run through scripts/with_local_target.js.');
+  process.exit(1);
+}
 
 const STAMP = Date.now();
 const KEY = `F5:${STAMP}:DRIVER_EARNINGS`;

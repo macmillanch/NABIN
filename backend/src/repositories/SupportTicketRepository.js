@@ -2,6 +2,17 @@ const { supabaseAdmin, isLivePostgres } = require('../supabase');
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// Measured from the live DDL, not guessed: `support_tickets` declares `subject varchar(200)`
+// and `category varchar(50)`, while `description` is `text`. `subject` and `category` are the
+// two the caller writes, so pasting a longer string used to reach PostgreSQL and come back as
+// `400 value too long for type character varying(200)` — the schema drawn for a stranger, and
+// no hint of which field to fix. `description` has no column cap, so its bound is the one the
+// sibling thread path already enforces (see `addMessage`); a 2 MB description would otherwise
+// land whole in every admin's queue and in the `messages` jsonb copy of itself.
+const SUBJECT_MAX_LENGTH = 200;
+const CATEGORY_MAX_LENGTH = 50;
+const DESCRIPTION_MAX_LENGTH = 4000;
+
 const LEGACY_USER_MAP = {
   'usr_1': '00000000-0000-0000-0000-000000000001',
   'usr_2': '00000000-0000-0000-0000-000000000002',
@@ -18,6 +29,34 @@ function generateTicketNumber() {
   const datePart = new Date().toISOString().slice(2, 10).replace(/-/g, '');
   const randPart = Math.floor(100000 + Math.random() * 900000);
   return `TCK-${datePart}-${randPart}`;
+}
+
+/**
+ * The store refused, and PostgreSQL's sentence about itself is not the caller's to read.
+ *
+ * Every failure in this repository used to be rethrown as
+ * `new Error(\`Failed to … in PostgreSQL: ${error.message}\`)` with no status, so the route's
+ * `err.statusCode || 400` printed the database's words to whoever asked and blamed them for it.
+ * That is a schema diagram sent to a stranger — `duplicate key value violates unique constraint
+ * "support_tickets_ticket_number_key"`, `value too long for type character varying(200)`,
+ * `relation … does not exist` — and it hides the one thing the caller needs: whether to retry.
+ *
+ * So carry the parts `storeReply` (supabase.js) classifies — the engine's own `code`, the wire
+ * `status` when there is one, and the engine's text as `details`, which is the field the route
+ * logs and never echoes. The status stays unset on purpose: a store failure is not a 400, and
+ * `storeReply` decides what it is (503 when the store is gone, 409 on a collision, 500 when the
+ * schema is not ready) from the code, not from the wording of a message.
+ */
+function storeFailure(what, error) {
+  const err = new Error(`The ${what} could not be completed because the support store refused it.`);
+  err.storeFailure = true;
+  err.code = (error && error.code) || 'STORE_ERROR';
+  err.details = error ? String(error.message || error.code || error) : 'unknown store failure';
+  if (error && error.hint) err.hint = String(error.hint);
+  const wireStatus = error && (error.status || error.statusCode);
+  if (wireStatus) err.status = Number(wireStatus);
+  if (error && error.cause) err.cause = error.cause;
+  return err;
 }
 
 function mapRowToTicket(row) {
@@ -192,6 +231,12 @@ class SupportTicketRepository {
       err.statusCode = 400;
       throw err;
     }
+    if (subject.length > SUBJECT_MAX_LENGTH) {
+      const err = new Error(`title exceeds maximum allowed length of ${SUBJECT_MAX_LENGTH} characters`);
+      err.statusCode = 400;
+      err.code = 'TITLE_TOO_LONG';
+      throw err;
+    }
 
     const description = String(payload.description || '').trim();
     if (!description) {
@@ -199,8 +244,20 @@ class SupportTicketRepository {
       err.statusCode = 400;
       throw err;
     }
+    if (description.length > DESCRIPTION_MAX_LENGTH) {
+      const err = new Error(`description exceeds maximum allowed length of ${DESCRIPTION_MAX_LENGTH} characters`);
+      err.statusCode = 400;
+      err.code = 'DESCRIPTION_TOO_LONG';
+      throw err;
+    }
 
     const category = String(payload.category || 'GENERAL').trim().toUpperCase();
+    if (category.length > CATEGORY_MAX_LENGTH) {
+      const err = new Error(`category exceeds maximum allowed length of ${CATEGORY_MAX_LENGTH} characters`);
+      err.statusCode = 400;
+      err.code = 'CATEGORY_TOO_LONG';
+      throw err;
+    }
     let priority = String(payload.priority || 'NORMAL').trim().toUpperCase();
     if (!['LOW', 'NORMAL', 'HIGH', 'CRITICAL'].includes(priority)) {
       priority = 'NORMAL';
@@ -303,7 +360,7 @@ class SupportTicketRepository {
           if (attempt < 3) continue;
         }
 
-        throw new Error(`Failed to create support ticket in PostgreSQL: ${error.message}`);
+        throw storeFailure('support ticket', error);
       }
       throw new Error('Failed to generate a unique ticket number after 3 attempts.');
     }
@@ -377,7 +434,7 @@ class SupportTicketRepository {
 
       const { data, error } = await query;
       if (error) {
-        throw new Error(`Failed to fetch user support tickets: ${error.message}`);
+        throw storeFailure('support tickets', error);
       }
 
       return (data || []).map(r => mapRowToTicket(r));
@@ -408,7 +465,7 @@ class SupportTicketRepository {
 
       const { data, error } = await query.maybeSingle();
       if (error) {
-        throw new Error(`Failed to query support ticket: ${error.message}`);
+        throw storeFailure('support ticket lookup', error);
       }
       if (!data) return null;
 
@@ -460,7 +517,7 @@ class SupportTicketRepository {
 
       const { data, error } = await query;
       if (error) {
-        throw new Error(`Failed to fetch admin support queue: ${error.message}`);
+        throw storeFailure('admin support queue', error);
       }
 
       return (data || []).map(r => mapRowToTicket(r));
@@ -530,7 +587,7 @@ class SupportTicketRepository {
       }
 
       const { data: row, error: fetchErr } = await fetchQuery.maybeSingle();
-      if (fetchErr) throw new Error(`Database error fetching ticket: ${fetchErr.message}`);
+      if (fetchErr) throw storeFailure('support ticket thread', fetchErr);
       if (!row) {
         const err = new Error('Ticket not found');
         err.statusCode = 404;
@@ -569,7 +626,7 @@ class SupportTicketRepository {
         .single();
 
       if (updateErr) {
-        throw new Error(`Failed to append message to ticket in PostgreSQL: ${updateErr.message}`);
+        throw storeFailure('reply to this support ticket', updateErr);
       }
 
       const mappedTicket = mapRowToTicket(updatedRow);
@@ -627,7 +684,7 @@ class SupportTicketRepository {
       }
 
       const { data: row, error: fetchErr } = await fetchQuery.maybeSingle();
-      if (fetchErr) throw new Error(`Database error fetching ticket: ${fetchErr.message}`);
+      if (fetchErr) throw storeFailure('ticket assignment', fetchErr);
       if (!row) {
         return { success: false, error: 'Ticket not found' };
       }
@@ -648,7 +705,7 @@ class SupportTicketRepository {
         .single();
 
       if (updateErr) {
-        throw new Error(`Failed to assign ticket in PostgreSQL: ${updateErr.message}`);
+        throw storeFailure('ticket assignment', updateErr);
       }
 
       // Step 4: Write durable audit record via the fail-closed audit path.
@@ -706,7 +763,7 @@ class SupportTicketRepository {
       }
 
       const { data: row, error: fetchErr } = await fetchQuery.maybeSingle();
-      if (fetchErr) throw new Error(`Database error fetching ticket: ${fetchErr.message}`);
+      if (fetchErr) throw storeFailure('ticket resolution', fetchErr);
       if (!row) {
         return { success: false, error: 'Ticket not found' };
       }
@@ -927,7 +984,7 @@ class SupportTicketRepository {
         .single();
 
       if (updateErr) {
-        throw new Error(`Failed to update ticket resolution in PostgreSQL: ${updateErr.message}`);
+        throw storeFailure('ticket resolution', updateErr);
       }
 
       // STEP 4: Record the privileged audit log through the fail-closed audit path.

@@ -32,11 +32,21 @@
 //                 refuses, and a page ceiling.
 //   BM-12..BM-18  geography's ways the store can answer — healthy, refusal, truncated,
 //                 delayed inside budget, hung past it — and the copy it hands back.
+//   BM-19         teardown hands the process back the store's own geography.
+//   BM-20..BM-27  the audit mirror: it is a window over a 225,571-row trail and must record
+//                 that as numbers (BM-20..BM-22), enter rows through the same mapper a read
+//                 returns (BM-23), merge rather than append on a retry (BM-24), name a
+//                 refused page (BM-25, BM-26), and leave the size unknown rather than
+//                 guessed when only the count is refused (BM-27).
+//                 Decision 6 B in docs/OWNER_SECURITY_DECISIONS.md:228 — serve the mirror,
+//                 but say so — and "say so" is these fields, not a sentence.
 //
 // Read-only against the live store, plus proxy stores that only ever wrap it. Nothing
 // here writes a row, and nothing here needs a server on :4000.
 // =========================================================================
 
+const fs = require('fs');
+const path = require('path');
 const db = require('./src/database');
 const supabaseModule = require('./src/supabase');
 const geoPolicy = require('./src/services/GeoPolicyService');
@@ -62,9 +72,12 @@ const expectedPages = (n) => Math.floor(n / PAGE) + 1;
  * `truncate` clamps the page body while still reporting the true count — which is
  * `max_rows` in the case a page size cannot be assumed to sit under. `ignoreCursor`
  * answers every page with the first page. `fail` answers with an error. `hangMs`
- * answers late; `'never'` never answers, which is FI-09.
+ * answers late; `'never'` never answers, which is FI-09. `failCount` answers an
+ * uncounted page fine and refuses only the request that asks for a count — the audit
+ * mirror needs that shape, because a window it cannot size is a different answer from
+ * a window it could not read.
  */
-function makeProxy({ truncate = null, ignoreCursor = false, fail = false, hangMs = null, hideCount = false } = {}) {
+function makeProxy({ truncate = null, ignoreCursor = false, fail = false, hangMs = null, hideCount = false, failCount = false } = {}) {
   const real = supabaseModule.supabaseAdmin;
   const calls = [];
   function builderFor(table) {
@@ -81,6 +94,7 @@ function makeProxy({ truncate = null, ignoreCursor = false, fail = false, hangMs
       then: (resolve, reject) => {
         calls.push({ table, ...state });
         if (fail) return Promise.resolve({ data: null, error: { message: 'simulated store refusal' } }).then(resolve, reject);
+        if (failCount && state.count) return Promise.resolve({ data: null, error: { message: 'simulated count refusal' } }).then(resolve, reject);
         if (hangMs === 'never') return new Promise(() => {}).then(resolve, reject);
         let settled = real
           .from(table)
@@ -110,6 +124,22 @@ async function withProxy(proxy, fn) {
     return await fn();
   } finally {
     supabaseModule.supabaseAdmin = real;
+  }
+}
+
+/**
+ * Run one call with `console.warn` collected instead of printed. The audit mirror's promise is
+ * that a failed read is *said*, so the saying is part of what has to be asserted — a state
+ * object alone cannot tell a named error from a silently absent one.
+ */
+async function withWarnCapture(fn) {
+  const real = console.warn;
+  const lines = [];
+  console.warn = (...args) => { lines.push(args.map(String).join(' ')); };
+  try {
+    return { value: await fn(), lines };
+  } finally {
+    console.warn = real;
   }
 }
 
@@ -223,6 +253,74 @@ async function main() {
   const restored = await db.hydrateGeoStore('test teardown');
   check('BM-19', restored.refreshed === true && db.geoFences.length === fenceTotal && db.surgeZones.length === ruleTotal,
     `teardown hands back the store's own geography, not this file's fixtures: ${db.geoFences.length} fences / ${db.surgeZones.length} rules, UNREADABLE=${db.geoStore.fences === GEO_STATE.UNREADABLE}`);
+
+  // --- The audit mirror, which is a window and must say so.
+  //
+  // `docs/OWNER_SECURITY_DECISIONS.md` Decision 6 chose option B: the mirror may answer during
+  // an outage, but only with an explicit degraded/stale marker. A marker has to be *facts*, or
+  // it is a second piece of prose — so this group pins the record boot writes (`hydrateAuditMirror`)
+  // rather than the sentence a reader eventually renders.
+  //
+  // It also pins the two defects that made the marker impossible: the swallowed `audErr` (a
+  // mirror that failed to hydrate was indistinguishable from one that hydrated to nothing) and
+  // the boot row mapping that reached for `mapRowToDTO` by a name out of scope, so every
+  // mirrored row kept snake_case keys and every camelCase reader skipped it silently — the
+  // admin trail showing `Invalid Date` and `System` for records the store held in full.
+  //
+  // `witnessTotal` is the store's own `audit_logs` count, taken at BM-00.
+  const auditMirrorBefore = db.auditLogs.length;
+
+  const auditHydrated = await db.hydrateAuditMirror();
+  check('BM-20', auditHydrated.source === 'postgres' && auditHydrated.windowRows === 200
+      && auditHydrated.storeRows === witnessTotal && auditHydrated.complete === false,
+    `a ${witnessTotal}-row trail copies ${auditHydrated.windowRows} rows and records it as a window, not as the whole: complete=${auditHydrated.complete}, error="${auditHydrated.error}"`);
+  check('BM-21', /newest .* of .* rows/.test(auditHydrated.error || ''),
+    `the incompleteness is stated in numbers a reader can use: "${auditHydrated.error}"`);
+  check('BM-22', auditHydrated.windowRows < auditHydrated.storeRows
+      && db.auditLogs.length > auditMirrorBefore && db.auditLogs.length !== auditHydrated.storeRows,
+    `the mirror grew by the window (${auditMirrorBefore} → ${db.auditLogs.length}) and still is not the store's ${auditHydrated.storeRows} — the length of the array is not a count of the trail`);
+  const lengthAfterFirst = db.auditLogs.length;
+
+  const newestStoreRow = (await supabaseModule.supabaseAdmin
+    .from('audit_logs').select('*').order('created_at', { ascending: false }).limit(1)).data[0];
+  const mirroredNewest = db.auditLogs.find(a => a.id === newestStoreRow.id);
+  check('BM-23', Boolean(mirroredNewest) && mirroredNewest.timestamp === newestStoreRow.created_at
+      && mirroredNewest.adminName === newestStoreRow.admin_name
+      && mirroredNewest.created_at === undefined && mirroredNewest.admin_id === undefined,
+    `a hydrated row enters the mirror through the same mapper a read returns (${newestStoreRow.id}: timestamp=${Boolean(mirroredNewest && mirroredNewest.timestamp)}, adminName=${mirroredNewest && mirroredNewest.adminName}, raw store keys carried=${mirroredNewest && (mirroredNewest.created_at !== undefined || mirroredNewest.admin_id !== undefined)})`);
+
+  const again = await db.hydrateAuditMirror();
+  const distinct = new Set(db.auditLogs.map(a => a.id)).size;
+  check('BM-24', again.windowRows === 200 && db.auditLogs.length === lengthAfterFirst && distinct === db.auditLogs.length,
+    `a second hydration merges by id instead of appending: ${db.auditLogs.length} rows, ${distinct} distinct ids — a reader that retried would otherwise double the trail`);
+
+  const auditRefused = await withWarnCapture(() => withProxy(makeProxy({ fail: true }), () => db.hydrateAuditMirror()));
+  check('BM-25', auditRefused.value.complete === false && /simulated store refusal/.test(auditRefused.value.error || '')
+      && auditRefused.value.windowRows === 0,
+    `a store that refuses the page read names its error instead of swallowing it: error="${auditRefused.value.error}"`);
+  check('BM-26', auditRefused.lines.some(l => /audit_logs mirror NOT hydrated/.test(l)),
+    `and says it out loud at boot, where an operator is looking: ${JSON.stringify(auditRefused.lines[0] || '')}`);
+
+  // The page answered and the count did not. `windowRows` is asserted as non-zero rather than
+  // as 200 because this proxy re-issues the read without the `.limit()` it was given — it was
+  // written for the geo walk, where the page size is the caller's, not the store's — so the
+  // window it hands back is PostgREST's own cap. The 200-row bound is BM-20's job, on the
+  // unproxied path. What BM-27 pins is that an unknown size stays unknown instead of being
+  // inferred from however many rows came back.
+  const countBlind = await withWarnCapture(() => withProxy(makeProxy({ failCount: true }), () => db.hydrateAuditMirror()));
+  check('BM-27', countBlind.value.windowRows > 0 && countBlind.value.storeRows === null
+      && countBlind.value.complete === false && countBlind.lines.some(l => /store row count unavailable/.test(l)),
+      `a store that answers the page but not the count leaves the size unknown rather than guessed, and calls that a warning: `
+      + `windowRows=${countBlind.value.windowRows}, storeRows=${countBlind.value.storeRows}, complete=${countBlind.value.complete}, `
+      + `warned=${JSON.stringify(countBlind.lines)}`);
+
+  // The claim the boot report makes. It cannot be exercised without booting, so it is read as
+  // written: the audit window must appear in the same list that names `users` and `promotions`,
+  // which is what `docs/POSTGREST_MAX_ROWS_AUDIT.md` §4.4 found missing.
+  const bootSource = fs.readFileSync(path.join(__dirname, 'src', 'database.js'), 'utf8');
+  check('BM-28', /partialMirrors\.push\(`audit_logs: /.test(bootSource)
+      && /audit_logs mirror NOT hydrated/.test(bootSource),
+    'initPostgres names an incomplete audit window in its INCOMPLETE MIRROR report — the table is no longer excluded from the list that admits truncation');
 
   const failed = results.filter(r => !r.ok);
   console.log(`\n📊 ${results.length - failed.length} PASSED, ${failed.length} FAILED of ${results.length}`);

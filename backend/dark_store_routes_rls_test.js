@@ -17,7 +17,12 @@
  * Local/test only; refuses any non-loopback target.
  */
 const { Client } = require('pg');
-const PG = process.env.NABIN_PG_NOTIFY || 'postgres://postgres:postgres@127.0.0.1:54322/postgres';
+const targetGuard = require('./scripts/chain_target_guard');
+// F-C1-1: this suite writes and asserts through this handle, so its store must be a target
+// something DECLARED (shell, then backend/.env) and loopback - never an address typed into
+// this file, which is what let a run write one store and assert against another (#283).
+const PG_TARGET = targetGuard.requireLoopbackPgTarget({ label: 'dark_store_routes_rls_test' });
+const PG = PG_TARGET.connectionString;
 const BASE = process.env.NABIN_TEST_BASE || 'http://127.0.0.1:4000';
 if (!/^(?:127\.\d{1,3}\.\d{1,3}\.\d{1,3}|localhost|::1)$/i.test(new URL(PG).hostname)
   || !/^(?:127\.\d{1,3}\.\d{1,3}\.\d{1,3}|localhost|::1)$/i.test(new URL(BASE).hostname)) {
@@ -89,7 +94,8 @@ const PROTECTED = ['merchants', 'merchant_grocery_inventory', 'master_grocery_ca
       WHERE cl.relname = ANY($1::text[])`, [TABLES])).rows[0];
   check('RLS-zero-policies', 'no policy was quietly added to make the app work (still zero)',
     Number(pols.n) === 0, { policies: pols.n });
-  const rlsOn = (await c.query(`SELECT count(*)::text n FROM pg_class WHERE relname = ANY($1::text[]) AND relrowsecurity`, [TABLES])).rows[0];
+  const rlsOn = (await c.query(`SELECT count(*)::text n FROM pg_class
+      WHERE relnamespace = 'public'::regnamespace AND relname = ANY($1::text[]) AND relrowsecurity`, [TABLES])).rows[0];
   check('RLS-enabled', 'RLS remains enabled on all three tables', Number(rlsOn.n) === 3, { enabled_on: rlsOn.n });
 
   // ================= admin routes =================

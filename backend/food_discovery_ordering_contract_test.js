@@ -29,7 +29,12 @@ const { Client } = require('pg');
 const BASE = process.env.NABIN_TEST_BASE || process.env.NABIN_TEST_BASE_URL || 'http://127.0.0.1:4000';
 // The durable read-back half of the profile checks needs the same loopback guard as BASE:
 // pointing a test database handle at a hosted project is how a suite rewrites production.
-const PG = process.env.NABIN_PG_NOTIFY || 'postgres://postgres:postgres@127.0.0.1:54322/postgres';
+const targetGuard = require('./scripts/chain_target_guard');
+// F-C1-1: this suite writes and asserts through this handle, so its store must be a target
+// something DECLARED (shell, then backend/.env) and loopback - never an address typed into
+// this file, which is what let a run write one store and assert against another (#283).
+const PG_TARGET = targetGuard.requireLoopbackPgTarget({ label: 'food_discovery_ordering_contract_test' });
+const PG = PG_TARGET.connectionString;
 if (!/^(?:127\.\d+\.\d+\.\d+|localhost|::1)$/i.test(new URL(BASE).hostname)
   || !/^(?:127\.\d+\.\d+\.\d+|localhost|::1)$/i.test(new URL(PG).hostname)) {
   console.error('REFUSED: non-loopback target'); process.exit(1);
@@ -434,12 +439,22 @@ const api = async (method, p, { body, token } = {}) => {
     // token row that has nothing to do with this request.
     const couponKey = `idemp_fd_coupon_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
     const couponCode = `FD_NO_SUCH_CODE_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+    const testItem = menuRes.data.items[0];
+    const selected_add_ons = [];
+    const groups = Array.isArray(testItem.addOnGroups || testItem.add_on_groups) ? (testItem.addOnGroups || testItem.add_on_groups) : [];
+    for (const group of groups) {
+      const isRequired = Boolean(group.isRequired || (group.minSelections && group.minSelections > 0));
+      if (isRequired && Array.isArray(group.options) && group.options.length > 0) {
+        const opt = group.options.find((o) => o.isAvailable !== false) || group.options[0];
+        if (opt && opt.id) selected_add_ons.push(opt.id);
+      }
+    }
     const couponRes = await api('POST', '/api/customer/book-food', {
       token: custToken,
       body: {
         restaurantId: chosen.id,
         deliveryAddress: 'Test address',
-        items: [{ productId: menuRes.data.items[0].id, quantity: 1 }],
+        items: [{ productId: testItem.id, quantity: 1, selected_add_ons }],
         couponCode,
         idempotencyKey: couponKey,
       },

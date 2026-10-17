@@ -1,8 +1,17 @@
 const crypto = require('crypto');
+const { isProduction } = require('./RuntimeMode');
 
 /**
  * Mock Sandbox Push Provider for Local Development & Automated Testing
  * Zero external network dependencies; zero cloud credentials required.
+ *
+ * It refuses to run in production, rather than relying on the wiring that hands
+ * it to the service. `push_delivery_truthfulness_test.js` PDT-C20 is the witness:
+ * with the sandbox chosen by environment alone, a production instance with no
+ * Firebase credentials recorded DELIVERED rows for notifications that were never
+ * sent. The delivery table is an audit trail, so a fabricated row is worse than a
+ * failure — and production is decided by NODE_ENV alone, the same rule
+ * RuntimeMode.js exists to enforce.
  */
 class MockSandboxPushProvider {
   constructor(options = {}) {
@@ -16,6 +25,15 @@ class MockSandboxPushProvider {
   }
 
   async sendPush({ token, platform = 'ANDROID', title, body, data = {}, priority = 'NORMAL' }) {
+    if (isProduction()) {
+      return {
+        success: false,
+        isTransient: false,
+        error: 'PUSH_GATEWAY_NOT_CONFIGURED: the MOCK_SANDBOX push adapter does not run in production.',
+        errorCode: 'PUSH_GATEWAY_NOT_CONFIGURED'
+      };
+    }
+
     const dispatchRecord = {
       token,
       platform,
@@ -73,9 +91,10 @@ class MockSandboxPushProvider {
 }
 
 /**
- * Production FCM v1 Push Provider
- * Configuration-driven; reads credentials exclusively from environment variables.
- * Never hardcodes secrets or private keys.
+ * FCM v1 Push Provider — credential reader, NOT a dispatcher.
+ * Reads credentials exclusively from environment variables and never hardcodes
+ * a secret, but has no network path yet (see sendPush). It must not be described
+ * as a working production provider until that dispatch exists.
  */
 class FcmV1PushProvider {
   constructor() {
@@ -86,45 +105,59 @@ class FcmV1PushProvider {
     this.isConfigured = Boolean(this.projectId && (this.privateKey || process.env.FIREBASE_SERVICE_ACCOUNT_KEY));
   }
 
-  async sendPush({ token, platform = 'ANDROID', title, body, data = {}, priority = 'NORMAL' }) {
+  async sendPush() {
     if (!this.isConfigured) {
       throw new Error('FCM v1 Push Provider is not configured. Set FIREBASE_PROJECT_ID and credentials in environment variables.');
     }
 
-    // Build standard FCM v1 request payload
-    const isHighPriority = priority === 'HIGH' || priority === 'URGENT' || priority === 'CRITICAL';
-    const message = {
-      token,
-      notification: { title, body },
-      data: Object.fromEntries(Object.entries(data).map(([k, v]) => [k, String(v)])),
-      android: {
-        priority: isHighPriority ? 'high' : 'normal',
-        notification: {
-          channel_id: 'nabin_operational',
-          sound: 'default'
-        }
-      },
-      apns: {
-        headers: {
-          'apns-priority': isHighPriority ? '10' : '5'
-        },
-        payload: {
-          aps: {
-            'content-available': 1,
-            sound: 'default'
-          }
-        }
-      }
-    };
-
-    // Note: Actual OAuth2 token generation and HTTP dispatch occurs when credentials are live in production.
+    // No path in this repo mints the FCM OAuth2 token or POSTs to
+    // fcm.googleapis.com — push_delivery_truthfulness_test.js PDT-A0 reads this
+    // file to prove it, and goes red the day someone implements the dispatch.
+    // Until then `success: true` would be a fabrication: it used to return a
+    // message id minted from Date.now(), and the caller wrote a DELIVERED audit
+    // row for a device that was never contacted. A refusal names what is missing
+    // and lands the row FAILED.
     return {
-      success: true,
-      providerMessageId: `fcm_v1_${Date.now()}`,
-      deliveredAt: new Date().toISOString(),
-      payload: message
+      success: false,
+      isTransient: false,
+      error: 'PUSH_DELIVERY_NOT_IMPLEMENTED: this build has no FCM dispatch path, so no device was contacted.',
+      errorCode: 'PUSH_DELIVERY_NOT_IMPLEMENTED'
     };
   }
+}
+
+/**
+ * The adapter a production instance gets when it has no Firebase credentials.
+ * It exists so "not configured" is a named state in the delivery audit trail
+ * instead of a sandbox pretending to be a gateway.
+ */
+class NotConfiguredPushProvider {
+  constructor() {
+    this.name = 'NOT_CONFIGURED';
+  }
+
+  async sendPush() {
+    return {
+      success: false,
+      isTransient: false,
+      error: 'PUSH_GATEWAY_NOT_CONFIGURED: set FIREBASE_PROJECT_ID and FIREBASE_CLIENT_EMAIL to enable push.',
+      errorCode: 'PUSH_GATEWAY_NOT_CONFIGURED'
+    };
+  }
+}
+
+/**
+ * Single place that decides which push adapter this process may use.
+ *
+ * Mirrors SmsGatewayService.resolveProvider: credentials select the real
+ * provider, and production with no credentials is a named refusal rather than a
+ * silent fallback to the development adapter.
+ */
+function resolvePushProvider(env = process.env) {
+  const hasFcm = Boolean(env.FIREBASE_PROJECT_ID && env.FIREBASE_CLIENT_EMAIL);
+  if (hasFcm) return new FcmV1PushProvider();
+  if (isProduction()) return new NotConfiguredPushProvider();
+  return new MockSandboxPushProvider();
 }
 
 /**
@@ -333,5 +366,7 @@ class PushNotificationService {
 module.exports = {
   MockSandboxPushProvider,
   FcmV1PushProvider,
+  NotConfiguredPushProvider,
+  resolvePushProvider,
   PushNotificationService
 };

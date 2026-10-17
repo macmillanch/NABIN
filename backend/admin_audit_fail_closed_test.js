@@ -12,7 +12,7 @@
 // that point, so the message says "reconcile this", never "nothing happened" — a refusal
 // shape would be a lie, and a retry after a real change can double-apply it.
 //
-// Three rules this file pins:
+// Five rules this file pins:
 //   1. For every converted control-plane method: a refused trail rejects with the 503
 //      shape, the mutation really did land, and a resolved trail returns normally.
 //   2. Awaiting is only half of it. Express 4 does not forward a rejected async handler to
@@ -21,6 +21,15 @@
 //   3. The financial and dispatch paths deliberately NOT converted stay unconverted: this
 //      file asserts their shape too, so a later edit cannot quietly fail-close a wallet
 //      adjustment whose retry key is derived from the clock.
+//   4. AF-12..AF-19 — the read side. Decision 6 of docs/OWNER_SECURITY_DECISIONS.md chose
+//      option B: the in-memory audit mirror may answer while the trail cannot be reached,
+//      but only labelled degraded/stale and with a `total` that is not the length of a
+//      window. A marker has to be derived from what boot recorded, and the two routes'
+//      differing status codes are a recorded owner question, so they are pinned as they are.
+//   5. AR-01..AR-08 — the input side of the same rule. `adminReviewPrice` implemented three
+//      actions and accepted any other word as if it were one of them, so a request that
+//      changed nothing still produced a durable trail naming it. An action that did not
+//      happen may not be recorded as if it had.
 //
 // The audit store is replaced with one that refuses, in this process only. The accepting
 // stub never contacts PostgreSQL, so no audit row is written by this file and nothing is
@@ -418,6 +427,19 @@ function staticChecks(sources) {
     && !adjClock && !payClock && adjIdentity && payIdentity,
     `neither money identity may be derived from the clock (identities found: adjustment=${adjAssign.length}, payout=${payAssign.length}; `
     + `clock in identity: adjustment=${adjClock}, payout=${payClock}; stable identity used: adjustment=${adjIdentity}, payout=${payIdentity})`);
+
+  // ST-07 — the shape of the AR guard, not just its current verdict. The refusal has to sit
+  // ahead of the first write, because a guard that runs after the trail was written is
+  // decoration: the row is already durable and the operator has already been answered. Same
+  // reason rule 1 gives for the store side ("a refusal that runs after the write is not a
+  // refusal"), applied to the input.
+  const reviewBody = (dbText.match(/async adminReviewPrice\([\s\S]*?\n  \}\n/) || [''])[0];
+  const guardAt = reviewBody.indexOf('GROCERY_PRICE_REVIEW_ACTION_INVALID');
+  const firstMutation = reviewBody.search(/product\.priceStatus\s*=/);
+  const trailAt = reviewBody.indexOf('auditAppliedChange(');
+  check('ST-07', reviewBody.length > 0 && guardAt !== -1 && firstMutation !== -1 && trailAt !== -1
+      && guardAt < firstMutation && guardAt < trailAt,
+    `the action guard runs before adminReviewPrice mutates state or writes its trail (guard@${guardAt}, first priceStatus write@${firstMutation}, trail@${trailAt})`);
 }
 
 async function main() {
@@ -442,6 +464,231 @@ async function main() {
     `the helper sets both status spellings, because admin catches read err.status and repository catches read err.statusCode (${describeError(helperErr)})`);
   check('AF-11-b', /HARNESS\/HELPER_CONTRACT/.test(helperErr.message), 'the rejection names the module and action it belongs to');
   restoreStoreToNeutral();
+
+  // --- AR-01..AR-08: the input side — an action that did not happen may not be recorded ---
+  //
+  // `adminReviewPrice` has three branches: FREEZE, UNFREEZE and CORRECT-with-a-price. Every
+  // other `action` value fell through all three, so the method wrote a durable
+  // `ADMIN_PRICE_<whatever the caller sent>` trail for a change that never took place and the
+  // route answered `{ success: true, product }`. `CORRECT` with no `newPrice` fell through the
+  // same way. The admin was told the review happened, and the audit trail agreed with it.
+  //
+  // Two precedents already in this file and one in the pricing path rule the fix: rule 1 above
+  // says a mutation must not report success without its trail, and the mirror of that is that a
+  // non-mutation must not produce one; `reviewIdentityApplication` refuses an unknown decision
+  // on the merits rather than falling through; DECISION C1 (`grocery_reference_and_degraded_
+  // pricing_test.js`) states the outcome shape — "no state and no audit record are produced".
+  //
+  // The store here is the accepting stub, so a fall-through row is captured in `accepted`
+  // instead of reaching PostgreSQL. This group proves the record is absent and leaves none.
+  if (groceryProduct) {
+    const statusBefore = groceryProduct.priceStatus;
+
+    let collect = acceptStore();
+    let arErr = null;
+    let arValue;
+    try {
+      arValue = await db.adminReviewPrice({
+        productId: groceryProduct.id, action: 'APPROVE', reason: 'AR probe', adminUser: HARNESS_ADMIN
+      });
+    } catch (e) { arErr = e; }
+    check('AR-01', Boolean(arErr) && arErr.code === 'GROCERY_PRICE_REVIEW_ACTION_INVALID'
+      && arErr.status === 400 && arErr.applied !== true,
+      `an action this method does not implement refuses instead of answering success (${describeError(arErr)})`);
+    check('AR-02', collect().length === 0,
+      `nothing was written to the trail for it (${collect().length} write(s); before the guard this was a durable ADMIN_PRICE_APPROVE row for an action that changed nothing)`);
+    check('AR-03', arValue === undefined && groceryProduct.priceStatus === statusBefore,
+      `no product was handed back and the price status is untouched (returned=${JSON.stringify(arValue)}, priceStatus=${groceryProduct.priceStatus})`);
+    const reflected = Boolean(arErr) && String(arErr.message).includes('APPROVE');
+    check('AR-04', Boolean(arErr) && !reflected,
+      `the client-facing message names the allowed actions without echoing the caller's own string back ("${arErr ? arErr.message : 'no rejection'}")`);
+
+    // A missing action is the same fall-through, and used to mint `ADMIN_PRICE_UNDEFINED`.
+    collect = acceptStore();
+    let arMissing = null;
+    try {
+      await db.adminReviewPrice({ productId: groceryProduct.id, reason: 'AR probe', adminUser: HARNESS_ADMIN });
+    } catch (e) { arMissing = e; }
+    check('AR-05', Boolean(arMissing) && arMissing.code === 'GROCERY_PRICE_REVIEW_ACTION_INVALID' && collect().length === 0,
+      `an absent action refuses with the same code and leaves no ADMIN_PRICE_UNDEFINED trail (${describeError(arMissing)}, ${collect().length} write(s))`);
+
+    // A lower-case word is a malformed client, not a freeze. Silently answering 200 for it
+    // was the failure; the refusal is the truth, and it says which word was wanted.
+    collect = acceptStore();
+    let arCase = null;
+    try {
+      await db.adminReviewPrice({ productId: groceryProduct.id, action: 'freeze', reason: 'AR probe', adminUser: HARNESS_ADMIN });
+    } catch (e) { arCase = e; }
+    check('AR-06', Boolean(arCase) && arCase.code === 'GROCERY_PRICE_REVIEW_ACTION_INVALID' && collect().length === 0
+      && groceryProduct.priceStatus === statusBefore,
+      `"freeze" is refused as an unknown action rather than reported as a freeze that never froze (${describeError(arCase)}, priceStatus=${groceryProduct.priceStatus})`);
+
+    // CORRECT with no price to correct: the branch condition was `action === 'CORRECT' &&
+    // newPrice`, so the request skipped every write, was audited as ADMIN_PRICE_CORRECT and
+    // answered 200 — the sharpest form of the defect, because the action name is legitimate.
+    collect = acceptStore();
+    let arCorrect = null;
+    let arCorrectValue;
+    try {
+      arCorrectValue = await db.adminReviewPrice({
+        productId: groceryProduct.id, action: 'CORRECT', reason: 'AR probe', adminUser: HARNESS_ADMIN
+      });
+    } catch (e) { arCorrect = e; }
+    check('AR-07', Boolean(arCorrect) && arCorrect.code === 'GROCERY_PRICE_REVIEW_CORRECT_PRICE_REQUIRED'
+      && arCorrect.status === 400 && collect().length === 0 && arCorrectValue === undefined,
+      `CORRECT with no newPrice refuses instead of being audited as a correction (${describeError(arCorrect)}, ${collect().length} write(s), returned=${JSON.stringify(arCorrectValue)})`);
+
+    // The guard must not cost the admin the actions that do work — AF-07 covers the refused-
+    // trail shape of FREEZE; this is its accepted-trail half over the same fixture.
+    collect = acceptStore();
+    let arFreezeErr = null;
+    let arFrozen = null;
+    try {
+      arFrozen = await db.adminReviewPrice({
+        productId: groceryProduct.id, action: 'FREEZE', reason: 'AR probe', adminUser: HARNESS_ADMIN
+      });
+    } catch (e) { arFreezeErr = e; }
+    check('AR-08', !arFreezeErr && arFrozen && arFrozen.priceStatus === 'FROZEN' && collect().length === 1,
+      `FREEZE still lands and still writes exactly one trail (${describeError(arFreezeErr)}, priceStatus=${arFrozen && arFrozen.priceStatus}, ${collect().length} write(s))`);
+    groceryProduct.priceStatus = statusBefore;
+    restoreStoreToNeutral();
+  } else {
+    console.log('⏭️  AR group skipped: no grocery price fixture in this process');
+  }
+
+  // --- AF-12..AF-19: the read side of Decision 6 B --------------------------
+  //
+  // Everything above is a write that must not report success without its trail. This group is
+  // its mirror image: a read that must not report a page as if it were the trail.
+  //
+  // `docs/OWNER_SECURITY_DECISIONS.md` Decision 2 chose B — an outage may be answered from
+  // this process's audit copy, but only with an explicit degraded/stale marker. A marker is
+  // only worth having if it is derived from facts the process recorded, so this group pins
+  // the derivation: what boot wrote into `db.auditMirror` decides the labels a reader gets,
+  // and `total` stays unknown when the only number available is the length of a window.
+  //
+  // The branch is steered by shadowing the repository's own `live`/`client` getters with
+  // instance properties — the same technique `setAdLive` uses above, for the same reason
+  // (`live` is a prototype getter, so assigning to it is a silent no-op). `client` is
+  // injected too, so a live-branch case never contacts the store: no read, no write, no
+  // residue. Cases that need a `live` answer use a fake client that refuses.
+  const auditRepo = realAuditRepo;
+
+  function shadowAuditBranch({ live, client }, fn) {
+    const ownsClient = client !== undefined;
+    Object.defineProperty(auditRepo, 'live', { configurable: true, get: () => live });
+    if (ownsClient) Object.defineProperty(auditRepo, 'client', { configurable: true, get: () => client });
+    return (async () => {
+      try { return await fn(); } finally {
+        delete auditRepo.live;
+        if (ownsClient) delete auditRepo.client;
+      }
+    })();
+  }
+
+  // A client shaped like the PostgREST builder: every method chains, and awaiting the last
+  // one hands back a refusal instead of rows.
+  function refusingClient(message, { insert = false } = {}) {
+    const refused = { data: null, count: null, error: { message } };
+    const b = {
+      select: () => b, eq: () => b, or: () => b, order: () => b, range: () => b,
+      insert: () => b, upsert: () => b,
+      single: () => Promise.resolve(insert ? refused : { data: null, error: refused.error }),
+      then: (resolve) => Promise.resolve(refused).then(resolve)
+    };
+    return { from: () => b };
+  }
+
+  const mirrorSnap = db.auditMirror;
+  const mirrorRowsSnap = Array.isArray(db.auditLogs) ? db.auditLogs.length : 0;
+  const hydratedAt = '2026-10-10T00:00:00.000Z';
+  const storeWindow = {
+    source: 'postgres', limit: 200, readAt: hydratedAt, windowRows: 200,
+    storeRows: 225571, complete: false, error: 'the mirror holds the newest 200 of 225571 rows'
+  };
+
+  // AF-12 — no store attached at all. The array is everything there is, so its length may be
+  // reported as a total, but the answer still cannot be called the durable trail.
+  db.auditMirror = { source: 'memory', limit: null, readAt: null, windowRows: mirrorRowsSnap, storeRows: null, complete: true, error: null };
+  const memRead = await shadowAuditBranch({ live: false }, () => auditRepo.list({ limit: 5 }));
+  check('AF-12', memRead.dataSource === 'memory' && memRead.degraded === false && memRead.stale === false
+      && memRead.totalIsExact === true && memRead.total === memRead.mirroredRows
+      && /no PostgreSQL audit store is attached/.test(memRead.notice),
+    `a process with no audit store labels itself as memory without claiming to be stale: source=${memRead.dataSource}, degraded=${memRead.degraded}, total=${memRead.total}/${memRead.mirroredRows}, notice="${memRead.notice}"`);
+
+  // AF-13 — a store window is what's being served, so the trail's size is not the page's size.
+  db.auditMirror = { ...storeWindow };
+  const mirrorRead = await shadowAuditBranch({ live: false }, () => auditRepo.list({ limit: 5 }));
+  check('AF-13-a', mirrorRead.dataSource === 'memory' && mirrorRead.degraded === true && mirrorRead.stale === true
+      && mirrorRead.totalIsExact === false && mirrorRead.total === null,
+    `a mirror hydrated from the store is served labelled, and its length is never presented as the trail's size: source=${mirrorRead.dataSource}, degraded=${mirrorRead.degraded}, stale=${mirrorRead.stale}, total=${JSON.stringify(mirrorRead.total)}`);
+  check('AF-13-b', mirrorRead.storeRows === storeWindow.storeRows && mirrorRead.mirroredRows === db.auditLogs.length
+      && mirrorRead.hydrationLimit === 200 && mirrorRead.hydratedAt === hydratedAt,
+    `every number behind the label is the one boot recorded: storeRows=${mirrorRead.storeRows}, mirroredRows=${mirrorRead.mirroredRows}, hydrationLimit=${mirrorRead.hydrationLimit}, hydratedAt=${mirrorRead.hydratedAt}`);
+  check('AF-13-c', /in-memory audit mirror/.test(mirrorRead.notice) && /Absence is not evidence/.test(mirrorRead.notice),
+    `the notice says what the page cannot support: "${mirrorRead.notice}"`);
+
+  // AF-14 — the count was refused, so the size is unknown. Guessing it from the rows present
+  // is the failure mode Decision 2 was ruling on, so this is the sharpest check in the group.
+  db.auditMirror = { source: 'postgres', limit: 200, readAt: hydratedAt, windowRows: 200, storeRows: null, complete: false, error: null };
+  const blindRead = await shadowAuditBranch({ live: false }, () => auditRepo.list({ limit: 5 }));
+  check('AF-14', blindRead.total === null && blindRead.storeRows === null && blindRead.degraded === true
+      && blindRead.stale === true && blindRead.logs.length > 0,
+    `an unknown store size stays unknown rather than becoming the length of this page: total=${JSON.stringify(blindRead.total)}, storeRows=${JSON.stringify(blindRead.storeRows)}, rows handed back=${blindRead.logs.length}`);
+
+  // AF-15 — the live branch refusing is a refusal, not a silent demotion to the mirror.
+  // Decision 2 permits the copy to answer when the trail cannot be reached; it does not
+  // permit a route that asked the trail to answer from the copy without saying so. R1/R2
+  // answer that case with a status code, and the repository's job is to let them.
+  let outageErr = null;
+  try {
+    await shadowAuditBranch({ live: true, client: refusingClient('simulated trail outage') }, () => auditRepo.list({ limit: 5 }));
+  } catch (e) { outageErr = e; }
+  check('AF-15', Boolean(outageErr) && /Failed to query audit logs/.test(outageErr.message),
+    `a live read that the store refuses rejects instead of answering with mirror rows (${outageErr ? outageErr.message : 'no rejection — the refusal was swallowed'})`);
+
+  // AF-16 — filters still bind during an outage. An investigator narrowing by application must
+  // not be shown the newest window and told it is that application's trail.
+  const PROBE_TARGET = 'APP-FAILCLOSED-PROBE';
+  db.auditMirror = { ...storeWindow };
+  db.auditLogs.push({ id: 'AUD-HARNESS-READ-PROBE', timestamp: new Date().toISOString(), module: 'IDENTITY', action: 'PROBE', targetEntityId: PROBE_TARGET, targetEntityType: 'IDENTITY_APPLICATION' });
+  const filtered = await shadowAuditBranch({ live: false }, () => auditRepo.list({ applicationId: PROBE_TARGET, limit: 50 }));
+  const allMatch = filtered.logs.length === 1 && filtered.logs[0].targetEntityId === PROBE_TARGET;
+  db.auditLogs.splice(db.auditLogs.findIndex(a => a.id === 'AUD-HARNESS-READ-PROBE'), 1);
+  check('AF-16', allMatch && filtered.degraded === true && filtered.dataSource === 'memory',
+    `a filtered outage read returns only matching rows (${filtered.logs.length}) and is still labelled degraded=${filtered.degraded}`);
+
+  // AF-17 — a refused store write must not enter the mirror. If it did, the copy would record
+  // an action the durable trail does not hold, and the two directions of the lie would fight.
+  const rowsBeforeWrite = db.auditLogs.length;
+  let writeErr = null;
+  try {
+    await shadowAuditBranch({ live: true, client: refusingClient('simulated insert refusal', { insert: true }) },
+      () => auditRepo.create({ adminId: HARNESS_ADMIN.id, adminName: HARNESS_ADMIN.name, role: 'SUPER_ADMIN', module: 'HARNESS', action: 'AF_17_PROBE' }));
+  } catch (e) { writeErr = e; }
+  check('AF-17', Boolean(writeErr) && db.auditLogs.length === rowsBeforeWrite,
+    `a write the store refused rejects (${writeErr ? writeErr.message : 'no rejection'}) and left the in-process trail at ${db.auditLogs.length} rows — it was ${rowsBeforeWrite} before`);
+
+  // AF-18 — one marker helper, both routes, and neither answers from the unlabelled accessor.
+  const serverText = fs.readFileSync(path.join(SRC, 'src', 'server.js'), 'utf8');
+  const markerUses = (serverText.match(/\.\.\.auditTrailMarker\(/g) || []).length;
+  check('AF-18-a', markerUses === 2 && /function auditTrailMarker\(/.test(serverText),
+    `both audit read routes carry the marker through the same helper (${markerUses} use(s) of one definition) — R1 and R2 cannot drift into two different contracts`);
+  check('AF-18-b', !/db\.getAuditLogs\(/.test(serverText),
+    `no route answers with the unlabelled in-process accessor (${(serverText.match(/db\.getAuditLogs\(/g) || []).length} reference(s) in server.js) — it returns rows with no statement about what they are`);
+
+  // AF-19 — the status-code difference between the two refusals is an OPEN OWNER QUESTION, not
+  // a resolved design. Pinned as-is so a change is a decision, not an accident.
+  const r1 = (serverText.match(/app\.get\('\/api\/admin\/audit-logs'[\s\S]*?\n\}\);/) || [''])[0];
+  const r2 = (serverText.match(/app\.get\('\/api\/admin\/identity-verifications\/:id'[\s\S]*?\n\}\);/) || [''])[0];
+  check('AF-19', /status\(500\)/.test(r1) && !/AUDIT_TRAIL_UNAVAILABLE/.test(r1)
+      && /status\(503\)/.test(r2) && /AUDIT_TRAIL_UNAVAILABLE/.test(r2),
+    'the two refusals still differ (R1 500 unlabelled, R2 503 coded). Which one is right is a recorded owner clarification, so neither is silently changed here — this check exists to make that visible.');
+
+  db.auditMirror = mirrorSnap;
+  if (Array.isArray(db.auditLogs) && db.auditLogs.length !== mirrorRowsSnap) {
+    db.auditLogs.splice(0, db.auditLogs.length - mirrorRowsSnap);
+  }
 
   staticChecks(readSources());
 

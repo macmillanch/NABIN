@@ -278,7 +278,9 @@ class AppConfigService {
     await featureControlService.refreshCache();
     const features = {};
     for (const [key, value] of featureControlService.cache.entries()) {
-      features[key] = { enabled: value?.enabled === true };
+      const publicControl = featureControlService.getPublicEnvControl(key);
+      const isEnabled = publicControl !== null ? publicControl : (value?.enabled === true);
+      features[key] = { enabled: isEnabled };
     }
     return { source: 'platform_settings', features };
   }

@@ -15,14 +15,26 @@ const NotificationRepository = require('./repositories/NotificationRepository');
 const OrderRepository = require('./repositories/OrderRepository');
 const DispatchRepository = require('./repositories/DispatchRepository');
 const AdvertisementRepository = require('./repositories/AdvertisementRepository');
+const MerchantRepository = require('./repositories/MerchantRepository');
 const { CampaignRepository } = require('./repositories/CampaignRepository');
+const RestaurantCatalogRepository = require('./repositories/RestaurantCatalogRepository');
+const RestaurantManagementRepository = require('./repositories/RestaurantManagementRepository');
 const { allowsTestConvenience } = require('./services/RuntimeMode');
+const SmsGatewayService = require('./services/SmsGatewayService');
 const geoPolicy = require('./services/GeoPolicyService');
 const GEO_STORE_STATE = geoPolicy.STORE_STATE;
 
 // How long boot may spend on geography before it serves without it. See
 // `hydrateGeoStore`, where the trade this number makes is written out.
 const GEO_READ_TIMEOUT_MS = 10000;
+
+// How many audit rows boot copies into this process. Deliberately a page, not the trail:
+// widening it is Option D of the gate in docs/GEO_SECURITY_DECISION_GATE.md, which the
+// owner has not chosen. What was chosen is Decision 6 B in
+// docs/OWNER_SECURITY_DECISIONS.md — the page may answer, but only labelled as a page — so
+// `hydrateAuditMirror` records the facts behind that label instead of leaving the reader to
+// infer completeness from a length.
+const AUDIT_MIRROR_LIMIT = 200;
 
 // -------------------------------------------------------------
 // CUSTOMER ACCOUNT SURFACE (admin area 4)
@@ -50,6 +62,36 @@ const CUSTOMER_ACCOUNT_PROJECTION =
 const SESSION_HANDLE_PATTERN = /^[0-9a-f]{64}$/;
 const USER_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const LEGACY_USER_ID_PATTERN = /^usr_[A-Za-z0-9_-]{1,32}$/;
+
+// A durable grocery listing is addressed by `merchant_grocery_inventory.id` or its
+// `product_id`, and both are UUIDs — which is also exactly what `GET /api/grocery/products`
+// projects as `id`/`productId`. Anything else (the in-process mirror's `gprod_1`) is not a
+// reference to anything a customer or order can read, so it is refused by shape at the
+// boundary rather than resolved and answered with a success that describes no row.
+// Same 36-character shape as `USER_UUID_PATTERN` above.
+const GROCERY_LISTING_REF_PATTERN = USER_UUID_PATTERN;
+
+// A bulk re-price is one read plus one write per item against the durable store, so it is
+// bounded: 100 listings is a wide merchant sweep, and an unbounded array would let a single
+// authenticated request occupy the server for minutes.
+const MAX_BULK_PRICE_UPDATES = 100;
+
+// Same contract as `storeFailure` in SupportTicketRepository: a grocery price write that the
+// store refused gets a message a merchant can act on ("this did not save") plus the fields
+// `storeReply` classifies, and the engine's own words travel as `details` — which the route
+// logs and never echoes. `relation … does not exist` and `value too long for type character
+// varying(50)` are a schema diagram, and this route is reachable by any merchant token.
+function groceryPriceStoreFailure(what, error) {
+  const err = new Error(`The ${what} could not be completed because the grocery store refused it.`);
+  err.storeFailure = true;
+  err.code = (error && error.code) || 'STORE_ERROR';
+  err.details = error ? String(error.message || error.code || error) : 'unknown store failure';
+  if (error && error.hint) err.hint = String(error.hint);
+  const wireStatus = error && (error.status || error.statusCode);
+  if (wireStatus) err.status = Number(wireStatus);
+  if (error && error.cause) err.cause = error.cause;
+  return err;
+}
 
 // Single source for "is this session one of this customer's". Login resolves a customer by
 // phone, and `entity_id` is written from whatever id the resolution happened to have, so
@@ -118,6 +160,12 @@ class NabinDatabase {
     this.otpStore = new Map();
     this.activeSessions = new Map();
     this.rateLimitRecords = new Map();
+    // Bumped by every revocation this process performs, through `dropRevokedSession`.
+    // `reconcileSessions` reads it before its paginated walk and refuses to adopt if it
+    // moved: the walk is a series of awaited round trips, so a sign-out can commit
+    // between the page that still contained that row and the adopt half that runs after
+    // the whole walk — which would write a revoked session back into this process.
+    this.revocationSeq = 0;
 
     // High-Frequency Redis / Memory Fleet Location Store (Never write raw GPS streams directly to PostgreSQL)
     this.fleetLocations = new Map();
@@ -1062,6 +1110,21 @@ class NabinDatabase {
       }
     ];
 
+    // What `auditLogs` currently is, as far as this process can tell. The reader labels its
+    // answer from these fields (`AuditLogRepository.list`), so they describe the copy rather
+    // than a constant — a marker copied from a template states nothing. `hydrateAuditMirror`
+    // replaces it once boot has read the store; until then the honest statement is that no
+    // store has been read.
+    this.auditMirror = {
+      source: 'memory',
+      limit: null,
+      readAt: null,
+      windowRows: this.auditLogs.length,
+      storeRows: null,
+      complete: false,
+      error: 'the audit mirror has not been read from the store yet'
+    };
+
     this.savedSchools = [
       {
         id: 'sch_1',
@@ -1124,10 +1187,13 @@ class NabinDatabase {
     this.restaurants = [
       {
         id: 'rest_1',
+        uuid: '00000000-0000-0000-0000-000000000201',
         name: 'Dilli Darbar Mughlai Kitchen',
         address: 'Shop 14, Main Market, Kamla Nagar, Delhi',
         location: { lat: 28.6900, lng: 77.2150 },
         phone: '+91 98110 29381',
+        merchant_type: 'RESTAURANT',
+        merchantType: 'RESTAURANT',
         isOpen: true,
         operationalStatus: 'APPROVED',
         suspensionReason: '',
@@ -1644,6 +1710,9 @@ class NabinDatabase {
     this.dispatchRepo = new DispatchRepository(this);
     this.adRepo = new AdvertisementRepository(this);
     this.campaignRepo = new CampaignRepository(this);
+    this.merchantRepo = new MerchantRepository(this);
+    this.restaurantCatalogRepo = new RestaurantCatalogRepository(this);
+    this.rmsRepo = new RestaurantManagementRepository(this);
 
     // -------------------------------------------------------------
     // GEOGRAPHIC AUTHORITY
@@ -1968,24 +2037,8 @@ class NabinDatabase {
         await supabaseAdmin.from('support_tickets').insert(rowsToInsert);
       }
 
-      // 7. Hydrate Audit Logs from PostgreSQL
-      const { data: dbAudit, error: audErr } = await supabaseAdmin
-        .from('audit_logs')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(200);
-
-      if (!audErr && dbAudit && dbAudit.length > 0) {
-        for (const row of dbAudit) {
-          const mapped = this.auditLogRepo ? this.auditLogRepo.mapRowToDTO ? this.auditLogRepo.mapRowToDTO(row) : row : row;
-          const existingIdx = this.auditLogs.findIndex(a => a.id === row.id);
-          if (existingIdx !== -1) {
-            this.auditLogs[existingIdx] = { ...this.auditLogs[existingIdx], ...mapped };
-          } else {
-            this.auditLogs.push(mapped);
-          }
-        }
-      }
+      // 7. Hydrate Audit Logs from PostgreSQL (a labelled window — see hydrateAuditMirror).
+      await this.hydrateAuditMirror();
 
       // 8. Hydrate Promotions from PostgreSQL
       const promoRead = await this.readAllRows(supabaseAdmin, { table: 'promotions', orderDesc: 'created_at' });
@@ -2038,6 +2091,16 @@ class NabinDatabase {
       const partialMirrors = [['users', userRead], ['drivers', driverRead], ['admin_accounts', adminRead], ['promotions', promoRead]]
         .filter(([, read]) => read && !read.complete)
         .map(([name, read]) => `${name}: ${read.error}`);
+
+      // `audit_logs` belongs in this list for the same reason the others do: the number
+      // printed below is the size of a window, not of the trail. It gets there by a
+      // different route — the window is chosen, not truncated — so it is named with its
+      // own facts rather than folded into the `readAllRows` results above.
+      if (this.auditMirror && this.auditMirror.source === 'postgres' && !this.auditMirror.complete) {
+        partialMirrors.push(`audit_logs: ${this.auditMirror.error
+          || `newest ${this.auditMirror.windowRows} copied and the store count was unavailable`}`);
+      }
+
       const geoStateNote = this.geoStore.fences === GEO_STORE_STATE.UNREADABLE || this.geoStore.rules === GEO_STORE_STATE.UNREADABLE
         ? ' geography=UNREADABLE'
         : '';
@@ -2316,6 +2379,94 @@ class NabinDatabase {
   // read is a finding about us that helps them.
   geoStoreStatus() {
     return geoPolicy.inventory();
+  }
+
+  // Step 7 of the boot synchronisation: the audit mirror, and the record of what it is.
+  //
+  // `audit_logs` is the one mirrored table whose reader can be asked a question the mirror
+  // cannot answer. An investigator opens the trail to prove something did or did not happen;
+  // a page of the newest 200 rows presented with no label invites the conclusion that its
+  // silence is the store's silence. Decision 6 in docs/OWNER_SECURITY_DECISIONS.md:228 chose
+  // option B — serve it, but say so — and saying so needs numbers this process actually
+  // knows: how many rows the store holds, how many boot put here, and the error when even
+  // the page could not be read.
+  //
+  // The previous version of this step swallowed its error (`if (!audErr && dbAudit.length`)
+  // and mapped rows through a nested ternary whose middle branch could not execute, so
+  // `mapRowToDTO` was never reached and the mirror filled with snake_case rows that every
+  // camelCase reader silently skipped. Both are defects, not design; the page staying at 200
+  // is the design, and it is kept.
+  //
+  // This never throws. Boot has other mirrors to fill and a port to open; a trail that
+  // cannot be read at boot is a labelled empty mirror, not a server that refuses to start.
+  async hydrateAuditMirror() {
+    const { isLivePostgres, supabaseAdmin } = require('./supabase');
+    const state = {
+      source: 'memory',
+      limit: AUDIT_MIRROR_LIMIT,
+      readAt: new Date().toISOString(),
+      windowRows: 0,
+      storeRows: null,
+      complete: true,
+      error: null
+    };
+
+    if (!isLivePostgres || !supabaseAdmin) {
+      // Memory mode has no store to be a window on: the array is the whole trail this
+      // process will ever hold. `complete` is true in the narrow sense and the reader's
+      // notice says what that costs — nothing here is durable.
+      state.windowRows = this.auditLogs.length;
+      state.storeRows = this.auditLogs.length;
+      state.limit = null;
+      this.auditMirror = state;
+      return state;
+    }
+
+    state.source = 'postgres';
+    const { data: rows, error } = await supabaseAdmin
+      .from('audit_logs')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(AUDIT_MIRROR_LIMIT);
+
+    if (error) {
+      state.complete = false;
+      state.error = error.message;
+      this.auditMirror = state;
+      console.warn(`⚠️ audit_logs mirror NOT hydrated (${error.message}) — the in-process trail is only what this process writes`);
+      return state;
+    }
+
+    const dbAudit = rows || [];
+    for (const row of dbAudit) {
+      const mapped = this.auditLogRepo ? this.auditLogRepo.mapRowToDTO(row) : row;
+      const existingIdx = this.auditLogs.findIndex(a => a.id === row.id);
+      if (existingIdx !== -1) {
+        this.auditLogs[existingIdx] = { ...this.auditLogs[existingIdx], ...mapped };
+      } else {
+        this.auditLogs.push(mapped);
+      }
+    }
+    state.windowRows = dbAudit.length;
+
+    // One exact head count, so the label can state "200 of 41,900" rather than "200".
+    // Its failure is not the mirror's failure: the rows above were read, and a mirror whose
+    // size is unknown is still more truthful than one that guesses.
+    const counted = await supabaseAdmin
+      .from('audit_logs')
+      .select('id', { count: 'exact', head: true });
+    if (counted.error) {
+      console.warn(`⚠️ audit_logs store row count unavailable (${counted.error.message})`);
+    } else {
+      state.storeRows = counted.count;
+    }
+
+    state.complete = state.storeRows !== null && dbAudit.length >= state.storeRows;
+    if (!state.complete && state.storeRows !== null) {
+      state.error = `the mirror holds the newest ${dbAudit.length} of ${state.storeRows} rows`;
+    }
+    this.auditMirror = state;
+    return state;
   }
 
   // Steps 10 and 11 of the boot synchronisation, reachable on their own.
@@ -2607,6 +2758,10 @@ class NabinDatabase {
     }
   }
 
+  // The in-process mirror, filtered. It answers with rows and no statement about what the
+  // rows are, so it must not stand behind an API response: `AuditLogRepository.list()` is
+  // the read that carries the Decision 6 marker, and a route that reaches for this one
+  // instead would re-create the unlabelled page this phase removed from both audit routes.
   getAuditLogs(filters = {}) {
     let logs = [...this.auditLogs];
 
@@ -4050,13 +4205,15 @@ class NabinDatabase {
       createdAt: new Date().toISOString(),
       ...jobData
     };
+    // A `jobs` insert the store refused is not a booking. The refusal carries
+    // `storeFailure` plus the engine's SQLSTATE (JobRepository.storeFailure); the
+    // booking routes classify it into 503 / 409 / 400 / 500. It used to be caught,
+    // warned about, and then mirrored — so the customer held a job number, an OTP and a
+    // fare for a trip PostgreSQL never accepted, and this process's own idempotency
+    // replay answered the retry `duplicate: true` from that row.
     if (this.jobRepo) {
-      try {
-        const created = await this.jobRepo.create(newJob);
-        if (created) Object.assign(newJob, created);
-      } catch (e) {
-        console.warn('⚠️ JobRepository.create async notice:', e.message);
-      }
+      const created = await this.jobRepo.create(newJob);
+      if (created) Object.assign(newJob, created);
     }
     this.jobs.unshift(newJob);
     this.save();
@@ -4187,6 +4344,7 @@ class NabinDatabase {
   }
 
   async updateJobStatus(jobId, status, driverId = null) {
+    const { isLivePostgres } = require('./supabase');
     const job = this.getJob(jobId);
     if (!job) return null;
 
@@ -4253,14 +4411,18 @@ class NabinDatabase {
         // already seen and the UNIQUE index on journal_transactions turns it away.
         const netKey = `RIDE_SETTLEMENT:${settlementRef}:DRIVER_EARNINGS`;
         const commissionKey = `RIDE_SETTLEMENT:${settlementRef}:PLATFORM_COMMISSION`;
+        const txnId = `RIDE-SETTLEMENT-${settlementRef}`;
 
+        // Every throw out of `updateEarnings` is a deliberate refusal — DRIVER_NOT_FOUND,
+        // MONEY_OPERATION_IDENTITY_REQUIRED, DRIVER_NOT_DURABLE, the idempotency conflict, or
+        // the wallet store's own failure — so it has to abort here. Read as a notice it left
+        // `earnings` at `{duplicate:false, posted:false}`, which is exactly the offline-mirror
+        // answer, and the settlement went on to book the NET journal entry the refused RPC never
+        // made, credit the cached wallet, count the trip and debit the customer for a movement
+        // that did not happen.
         let earnings = { duplicate: false, posted: false };
         if (this.driverRepo) {
-          try {
-            earnings = (await this.driverRepo.updateEarnings(driver.id, netEarnings, settlementRef)) || earnings;
-          } catch (e) {
-            console.warn('⚠️ driverRepo.updateEarnings notice:', e.message);
-          }
+          earnings = await this.driverRepo.updateEarnings(driver.id, netEarnings, settlementRef);
         }
 
         if (earnings.duplicate) {
@@ -4270,47 +4432,11 @@ class NabinDatabase {
           return job;
         }
 
-        if (!earnings.posted) {
-          // No durable wallet movement happened, so the cache carries it. When
-          // adjust_wallet_atomic did run it already returned the authoritative
-          // balance and applied todayEarnings, and adding them again here is what
-          // used to double-count the driver's mirror.
-          driver.walletBalance += netEarnings;
-          driver.todayEarnings += netEarnings;
-        }
-        driver.todayTrips += 1;
-        driver.commissionPaidToday += comm;
-        if (job.paymentMode === 'Cash') {
-          driver.cashCollectedToday += job.fare;
-        } else {
-          driver.onlinePaidToday += job.fare;
-        }
-        driver.activeJobId = null;
-
-        const txnId = `RIDE-SETTLEMENT-${settlementRef}`;
-        this.transactions.unshift({
-          id: txnId,
-          type: 'TRIP_EARNING',
-          jobId: job.id,
-          userId: user ? user.id : 'usr_1',
-          userRole: 'CUSTOMER',
-          driverId: driver.id,
-          title: `${job.type}: ${job.pickup?.address?.slice(0, 20) || 'Pickup'} → ${job.drop?.address?.slice(0, 20) || 'Drop'}`,
-          amount: job.fare,
-          platformFee: comm,
-          commission: comm,
-          deliveryFee: job.deliveryFee || 0,
-          net: netEarnings,
-          paymentMode: job.paymentMode || 'ONLINE',
-          paymentStatus: 'SUCCESS',
-          settlementStatus: 'PENDING',
-          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ' Today'
-        });
-
-        // adjust_wallet_atomic posts the balanced double-entry for the earnings
-        // movement itself, so the settlement posts only what it did not: the
-        // platform's commission. Posting both here booked the same ₹net twice on
-        // every single trip, durable or not.
+        // adjust_wallet_atomic posts the balanced double-entry for the earnings movement
+        // itself, so the settlement posts only what it did not: the platform's commission.
+        // Both postings happen BEFORE any in-memory counter moves, because either one can be
+        // refused by the store and must abort here — crediting the cached wallet first and
+        // then failing the books left a mirror that claimed money the journal never booked.
         if (!earnings.posted) {
           await this.recordLedgerEntry({
             transactionId: `${txnId}-NET`,
@@ -4337,8 +4463,53 @@ class NabinDatabase {
           jobId: job.id,
           idempotencyKey: commissionKey
         });
+
+        if (!earnings.posted) {
+          // No durable wallet movement happened, so the cache carries it. When
+          // adjust_wallet_atomic did run it already returned the authoritative
+          // balance and applied todayEarnings, and adding them again here is what
+          // used to double-count the driver's mirror.
+          driver.walletBalance += netEarnings;
+          driver.todayEarnings += netEarnings;
+        }
+        driver.todayTrips += 1;
+        driver.commissionPaidToday += comm;
+        if (job.paymentMode === 'Cash') {
+          driver.cashCollectedToday += job.fare;
+        } else {
+          driver.onlinePaidToday += job.fare;
+        }
+        driver.activeJobId = null;
+
+        this.transactions.unshift({
+          id: txnId,
+          type: 'TRIP_EARNING',
+          jobId: job.id,
+          userId: user ? user.id : 'usr_1',
+          userRole: 'CUSTOMER',
+          driverId: driver.id,
+          title: `${job.type}: ${job.pickup?.address?.slice(0, 20) || 'Pickup'} → ${job.drop?.address?.slice(0, 20) || 'Drop'}`,
+          amount: job.fare,
+          platformFee: comm,
+          commission: comm,
+          deliveryFee: job.deliveryFee || 0,
+          net: netEarnings,
+          paymentMode: job.paymentMode || 'ONLINE',
+          paymentStatus: 'SUCCESS',
+          settlementStatus: 'PENDING',
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ' Today'
+        });
       }
-      if (user && user.walletBalance >= job.fare && job.paymentMode !== 'Cash') {
+      // DEC-004 (see `processFinancialAdjustment`) puts every wallet mutation behind the
+      // PostgreSQL atomic ledger RPC, and a settled ride has no durable counterpart for a
+      // rider-side debit: the fare already crossed the gateway at capture (`capture_payment_atomic`,
+      // migration 006) against the liability accounts, and `users.wallet_balance` is untouched by
+      // design. This line debited the in-memory mirror anyway, and that mirror is what
+      // `GET /api/auth/me` reports to the customer's wallet screen — so the balance dropped by the
+      // fare on every ride and reflowed back to the stored value at the next restart's hydration.
+      // The arithmetic is real only where the mirror is the store, the same discriminator the
+      // payout path uses below.
+      if (!isLivePostgres && user && user.walletBalance >= job.fare && job.paymentMode !== 'Cash') {
         user.walletBalance -= job.fare;
       }
     }
@@ -5159,6 +5330,182 @@ class NabinDatabase {
     return inv;
   }
 
+  // Money validation for the two merchant price routes. `inventoryDomain` names the field
+  // `currentPrice` because that is what `POST /api/merchant/inventory` calls it; these routes
+  // call it `newPrice`, so the refusal is rebuilt under the name the caller actually sent — a
+  // merchant's form cannot point at the wrong field and still be telling the truth.
+  validateGroceryListingPrice(raw) {
+    const { validateStorePrice, InventoryValueError } = require('./services/inventoryDomain');
+    if (raw === undefined) throw new InventoryValueError('newPrice', 'is required', raw);
+    try {
+      return validateStorePrice(raw);
+    } catch (err) {
+      if (!(err instanceof InventoryValueError)) throw err;
+      throw new InventoryValueError('newPrice', err.reason, err.received);
+    }
+  }
+
+  /**
+   * Price a listing this merchant already stocks, in the store the customer read actually
+   * reads: `merchant_grocery_inventory.store_price`, the value
+   * `create_order_with_lines_atomic` snapshots into `order_lines.unit_price_snapshot`.
+   *
+   * This replaces the pair of routes that called `updateGroceryProductPrice`, which mutates the
+   * process-local `groceryProducts` mirror. The two stores never met, so a live listing id could
+   * never be priced (the mirror holds fixture ids like `gprod_1`, and the customer read projects
+   * UUIDs) while a fixture id answered 200 and wrote a durable `audit_logs` PRICE_UPDATE row
+   * about a product that exists only in this process — a silent success in the permanent trail.
+   * `grocery_price_history` is the merchant price record here, exactly as it is for
+   * `updateMerchantInventoryItem` above, so nothing in this method writes `audit_logs`.
+   *
+   * There is no degraded branch: without a durable store there is no row to move and no history
+   * to write, so the mutation is refused before anything changes (the same DECISION C1 rule the
+   * mirror path follows) rather than editing process-local state and reporting a price change.
+   */
+  async updateMerchantListingPrice({ merchantId, productRef, newPrice, reason = 'Merchant price adjustment' } = {}) {
+    const price = this.validateGroceryListingPrice(newPrice);
+    const ref = String(productRef === undefined || productRef === null ? '' : productRef).trim();
+    if (!GROCERY_LISTING_REF_PATTERN.test(ref)) {
+      const err = new Error('That reference is not a grocery listing id or a master catalogue product id, so it reaches no stored price.');
+      err.code = 'INVALID_PRODUCT_REFERENCE';
+      err.status = 400;
+      throw err;
+    }
+
+    const { supabaseAdmin, isLivePostgres } = require('./supabase');
+    if (!isLivePostgres || !supabaseAdmin) {
+      const err = new Error('Grocery pricing is unavailable while the durable store is unavailable; the price was not changed.');
+      err.code = 'GROCERY_DEGRADED_READ_ONLY';
+      err.status = 503;
+      throw err;
+    }
+
+    // `ref` is hex-and-dashes by the test above, so it cannot restructure the `.or()` filter.
+    // A merchant may address their own listing by either id, because the customer read
+    // projects both — and one scoped query means a foreign listing answers the same 404 as a
+    // nonexistent one, so the route cannot be used to enumerate other stores' rows.
+    const { data: listing, error: readErr } = await supabaseAdmin
+      .from('merchant_grocery_inventory')
+      .select('id, merchant_id, product_id, store_price, stock_quantity, is_available, status, updated_at, master_grocery_catalog(id, name, standard_unit)')
+      .eq('merchant_id', merchantId)
+      .or(`id.eq.${ref},product_id.eq.${ref}`)
+      .maybeSingle();
+    // A store failure travels as a classified refusal, not as engine text: the route answers
+    // from `storeReply`, so an outage is a 503 the merchant should retry and only a constraint
+    // PostgreSQL blames on the row is a 4xx.
+    if (readErr) throw groceryPriceStoreFailure('grocery listing lookup', readErr);
+    if (!listing) {
+      const err = new Error('You do not stock a grocery listing with that reference. The price was not changed.');
+      err.code = 'GROCERY_LISTING_NOT_FOUND';
+      err.status = 404;
+      throw err;
+    }
+
+    const previousPrice = Number(listing.store_price);
+    const { data: row, error: writeErr } = await supabaseAdmin
+      .from('merchant_grocery_inventory')
+      .update({ store_price: price, updated_at: new Date().toISOString() })
+      .eq('id', listing.id)
+      .eq('merchant_id', merchantId)
+      .select('id, merchant_id, product_id, store_price, stock_quantity, is_available, status, updated_at, master_grocery_catalog(id, name, standard_unit)')
+      .maybeSingle();
+    // Both halves of a failed write are refusals, not successes: an engine error, and the
+    // row having vanished between the read and the update. Either way the response says the
+    // price is not what it was asked to be.
+    if (writeErr) throw groceryPriceStoreFailure('grocery price update', writeErr);
+    if (!row) {
+      const err = new Error('That listing was removed while the price was being saved. The price was not changed.');
+      err.code = 'GROCERY_LISTING_NOT_FOUND';
+      err.status = 404;
+      throw err;
+    }
+
+    const storedPrice = Number(row.store_price);
+    const priceChanged = previousPrice !== storedPrice;
+    if (priceChanged) {
+      const clampReason = String(reason || 'Merchant price adjustment').slice(0, 500);
+      const { error: historyErr } = await supabaseAdmin.from('grocery_price_history').insert({
+        merchant_id: merchantId,
+        product_id: row.product_id,
+        previous_price: previousPrice,
+        new_price: storedPrice,
+        unit: (row.master_grocery_catalog && row.master_grocery_catalog.standard_unit) || 'pack',
+        // The session's store, never a name typed into the body: a price record has to say
+        // which merchant moved the price, and only the token knows that.
+        changed_by: `merchant:${merchantId}`.slice(0, 50),
+        reason: clampReason,
+      });
+      // The price HAS moved at this point, so the refusal says so instead of implying a
+      // rollback this store cannot offer. What PostgreSQL printed goes to the log with the
+      // code, not into the merchant's answer.
+      if (historyErr) {
+        const err = new Error(`The price was saved as ₹${storedPrice}, but its price-history record failed to write. The change is live.`);
+        err.code = 'GROCERY_PRICE_HISTORY_WRITE_FAILED';
+        err.status = 500;
+        err.details = historyErr.message;
+        throw err;
+      }
+    }
+
+    const master = row.master_grocery_catalog || {};
+    return {
+      id: row.id,
+      inventoryId: row.id,
+      productId: row.product_id,
+      merchantId: row.merchant_id,
+      name: master.name ?? null,
+      unit: master.standard_unit ?? null,
+      previousPrice,
+      currentPrice: storedPrice,
+      priceChanged,
+      stockQty: row.stock_quantity,
+      isAvailable: row.is_available,
+      status: row.status,
+      lastPriceUpdate: row.updated_at,
+    };
+  }
+
+  // Per-item bulk re-price over the caller's own shelf. Every item is refused or applied on
+  // its own, and `applied` counts only the items whose stored price actually moved — so the
+  // count the response reports is the number of rows that changed, not the number accepted.
+  async bulkUpdateMerchantListingPrices({ merchantId, updates } = {}) {
+    if (!Array.isArray(updates)) {
+      const err = new Error('`updates` must be an array of { productId, newPrice, reason? } objects.');
+      err.code = 'INVALID_PRICE_UPDATE_LIST';
+      err.status = 400;
+      throw err;
+    }
+    if (updates.length > MAX_BULK_PRICE_UPDATES) {
+      const err = new Error(`A bulk price update is limited to ${MAX_BULK_PRICE_UPDATES} listings.`);
+      err.code = 'PRICE_UPDATE_TOO_LARGE';
+      err.status = 400;
+      throw err;
+    }
+
+    const results = [];
+    for (const entry of updates) {
+      const item = entry && typeof entry === 'object' ? entry : {};
+      const ref = String(item.productId === undefined || item.productId === null ? '' : item.productId).trim();
+      try {
+        const product = await this.updateMerchantListingPrice({
+          merchantId,
+          productRef: ref,
+          newPrice: item.newPrice,
+          reason: item.reason || 'Bulk price update',
+        });
+        results.push({ productId: ref, success: true, priceChanged: product.priceChanged, product });
+      } catch (err) {
+        results.push({
+          productId: ref,
+          success: false,
+          code: err.code || 'PRICE_UPDATE_FAILED',
+          error: err.message,
+        });
+      }
+    }
+    return { results, applied: results.filter((r) => r.success && r.priceChanged).length };
+  }
+
   // Removing a merchant's own listing. `order_lines.grocery_inventory_id` is
   // ON DELETE RESTRICT, so a product that has already been sold cannot be
   // deleted — the merchant hides it with `isAvailable: false` instead, and the
@@ -5420,6 +5767,31 @@ class NabinDatabase {
   }
 
   async adminReviewPrice({ productId, action, newPrice = null, reason = '', adminUser = {} }) {
+    // FREEZE, UNFREEZE and CORRECT are the only actions this method implements. Every other word
+    // used to fall through all three branches, so the caller changed nothing, the durable trail
+    // recorded `ADMIN_PRICE_<whatever was sent>` as if a review had happened, and the route
+    // answered `{ success: true, product }`. `CORRECT` with no `newPrice` did the same under a
+    // legitimate-looking name. Rule 1 of `admin_audit_fail_closed_test.js` is that a mutation may
+    // not report success without its trail; this is that rule's mirror — an action that did not
+    // happen may not be recorded as though it had — and it is the outcome shape DECISION C1
+    // already chose for the degraded pricing path ("no state and no audit record are produced").
+    // It sits before the product lookup so no read, write or trail can precede the refusal, and
+    // the message names the allowed words instead of quoting the caller's, because the route
+    // puts this string on the wire.
+    const REVIEW_ACTIONS = ['FREEZE', 'UNFREEZE', 'CORRECT'];
+    if (!REVIEW_ACTIONS.includes(action)) {
+      const err = new Error(`Unknown grocery price review action. Expected ${REVIEW_ACTIONS.join(', ')}.`);
+      err.code = 'GROCERY_PRICE_REVIEW_ACTION_INVALID';
+      err.status = 400;
+      throw err;
+    }
+    if (action === 'CORRECT' && (newPrice === null || newPrice === undefined || String(newPrice).trim() === '')) {
+      const err = new Error('CORRECT needs a newPrice to set the listing to.');
+      err.code = 'GROCERY_PRICE_REVIEW_CORRECT_PRICE_REQUIRED';
+      err.status = 400;
+      throw err;
+    }
+
     const product = this.getGroceryProductById(productId);
     if (!product) throw new Error('Product not found');
 
@@ -6181,6 +6553,84 @@ class NabinDatabase {
       createdAt: new Date().toISOString()
     });
 
+    // Two rows, and each is worded to say only what had happened when it was
+    // written. The challenge now exists and the gateway has not been called, so
+    // this row is a request. A row calling itself "dispatched" here asserted a
+    // send that the dispatch below had not yet attempted — and when the gateway
+    // refused, the trail was left claiming a delivery that never happened.
+    try {
+      await this.auditAuthoritative({
+        adminId: 'SYSTEM_AUTH',
+        adminName: 'NABIN Auth Gateway',
+        role,
+        action: 'AUTH_OTP_REQUESTED',
+        module: 'AUTH',
+        targetEntityType: 'USER_PHONE',
+        targetEntityId: normPhone,
+        previousState: 'UNAUTHENTICATED',
+        newState: 'OTP_PENDING',
+        reason: `Verification OTP challenge created for ${role} ${purpose} flow; dispatch not yet attempted. Expires in 5 minutes.`
+      });
+    } catch (err) {
+      // A challenge the caller was told about is one thing; a challenge that
+      // exists only in this process's memory and has no record anywhere is a
+      // loose end, so the refusal removes it.
+      this.otpStore.delete(key);
+      throw err;
+    }
+
+    // Dispatch the OTP via the configured SMS gateway.
+    // The challenge is audited above, so a failure here means the OTP exists in
+    // memory but the user was never told it. That is a transient infrastructure
+    // fault (502/503), not a user error (400).
+    // The otpStore entry is NOT removed on SMS failure: the OTP stays valid for
+    // its 5-minute window so a retry of this endpoint immediately succeeds
+    // without burning another audit slot.
+    let receipt = null;
+    try {
+      receipt = await SmsGatewayService.dispatch(normPhone, otp);
+    } catch (smsErr) {
+      // Propagate as a structured error so server.js returns the right HTTP
+      // status and the client can distinguish a transient outage from a bad
+      // request. The code is deliberately SMS_DISPATCH_FAILED rather than
+      // OTP_DISPATCH_FAILED so monitoring can filter SMS failures from OTP
+      // logic failures.
+      const failureCode = smsErr.code || 'SMS_DISPATCH_FAILED';
+
+      // The gateway's own refusal is the contract with the caller, so recording
+      // this row is best-effort: an audit-store outage must not overwrite the
+      // reason the send failed with a more confusing one. createAuditLog already
+      // reports a trail it could not write, so the drop is not silent. The
+      // Promise.resolve wrapper is because the in-memory store answers with a
+      // plain object rather than a promise.
+      await Promise.resolve(this.createAuditLog({
+        adminId: 'SYSTEM_AUTH',
+        adminName: 'NABIN Auth Gateway',
+        role,
+        action: 'AUTH_OTP_DISPATCH_FAILED',
+        module: 'AUTH',
+        targetEntityType: 'USER_PHONE',
+        targetEntityId: normPhone,
+        previousState: 'OTP_PENDING',
+        newState: 'OTP_PENDING',
+        success: false,
+        failureReason: `${failureCode}: ${smsErr.message}`,
+        reason: `The ${role} ${purpose} OTP challenge was created but no code was sent. The challenge is retained for its remaining window.`
+      })).catch(() => {});
+
+      const wrapped = new Error(`OTP generated but SMS delivery failed: ${smsErr.message}`);
+      wrapped.code = failureCode;
+      wrapped.status = smsErr.status || 502;
+      throw wrapped;
+    }
+
+    // The gateway took the send. That is a separate fact from the challenge
+    // existing, so it gets its own row and carries the provider's receipt —
+    // "a code was handed to CONSOLE" is checkable, "OTP dispatched" bare is not.
+    // Unlike the SMS failure above, an unwritable record here refuses the
+    // request and drops the challenge: a usable code the trail cannot account
+    // for is the loose end this path exists to avoid.
+    const dispatchedProvider = (receipt && receipt.provider) || 'SMS gateway';
     try {
       await this.auditAuthoritative({
         adminId: 'SYSTEM_AUTH',
@@ -6190,14 +6640,16 @@ class NabinDatabase {
         module: 'AUTH',
         targetEntityType: 'USER_PHONE',
         targetEntityId: normPhone,
-        previousState: 'UNAUTHENTICATED',
+        previousState: 'OTP_PENDING',
         newState: 'OTP_PENDING',
-        reason: `Verification OTP dispatched for ${role} ${purpose} flow. Expires in 5 minutes.`
+        reason: `Verification OTP dispatched for ${role} ${purpose} flow via ${dispatchedProvider}. Expires in 5 minutes.`,
+        details: `Provider ${dispatchedProvider} accepted the ${purpose} OTP for ${normPhone}.`,
+        metadata: {
+          provider: dispatchedProvider,
+          providerMessageId: (receipt && receipt.messageId) || null
+        }
       });
     } catch (err) {
-      // A challenge the caller was told about is one thing; a challenge that
-      // exists only in this process's memory and has no record anywhere is a
-      // loose end, so the refusal removes it.
       this.otpStore.delete(key);
       throw err;
     }
@@ -6443,20 +6895,24 @@ class NabinDatabase {
     } else if (role === 'MERCHANT') {
       entity = this.restaurants.find(r => this.normalizePhone(r.phone) === normPhone);
       if (isLivePostgres && supabaseAdmin) {
-        const merchantRows = await this.authoritativeRead(
-          supabaseAdmin
-            .from('merchants')
-            .select('*')
-            .eq('phone', normPhone)
-            .order('created_at', { ascending: true })
-            .limit(1),
-          { what: 'the merchant store for this number' }
-        );
-        if (merchantRows && merchantRows[0]) {
-          // The PostgreSQL row is authoritative: the session must carry this store's own
-          // uuid, otherwise every tenant guard and order broadcast resolves to the seeded
-          // `rest_1` restaurant and merchants can read each other's orders.
-          entity = { ...entity, ...merchantRows[0] };
+        try {
+          const merchantRows = await this.authoritativeRead(
+            supabaseAdmin
+              .from('merchants')
+              .select('*')
+              .eq('phone', normPhone)
+              .order('created_at', { ascending: true })
+              .limit(1),
+            { what: 'the merchant store for this number' }
+          );
+          if (merchantRows && merchantRows[0]) {
+            // The PostgreSQL row is authoritative: the session must carry this store's own
+            // uuid, otherwise every tenant guard and order broadcast resolves to the seeded
+            // `rest_1` restaurant and merchants can read each other's orders.
+            entity = { ...entity, ...merchantRows[0] };
+          }
+        } catch (readErr) {
+          if (!entity) throw readErr;
         }
       }
       if (!entity) {
@@ -6527,7 +6983,7 @@ class NabinDatabase {
       // registerSession above is in-memory first, so refusing this login has to
       // take the bearer token back with it — a token that exists but was never
       // answered to anyone is a credential nobody is watching.
-      this.invalidateSession(token);
+      await this.invalidateSession(token);
       throw err;
     }
 
@@ -6557,12 +7013,41 @@ class NabinDatabase {
     return found;
   }
 
-  invalidateSession(token) {
+  async invalidateSession(token) {
     if (!token) return false;
     const clean = token.replace(/^Bearer\s+/, '').trim();
-    this.forgetSession(clean);
-    const removed = this.activeSessions.delete(this.hashSessionToken(clean));
-    this.activeSessions.delete(clean);
+    // Local entries first, so the bearer stops being honoured in this process immediately, then
+    // the store delete awaited before returning. It used to be fired un-awaited — the one
+    // revocation in the platform that was — which left the row in `backend_sessions` for a round
+    // trip after `/api/auth/logout` had already answered, and a reconcile walk started inside
+    // that window still saw the row and its adopt half handed the signed-out session back to
+    // this process, with nothing to take it off (the prune skips hash-keyed entries) and the
+    // `revocationSeq` guard unable to refuse it, because the bump predates the walk. Narrow and
+    // specific to this path: every revocation an operator triggers
+    // (`revokeCustomerSessions`, `revokeAdminSession`, `revokeAdminSessionsForAccount`) already
+    // awaits the store delete before dropping memory, so those were covered.
+    //
+    // Awaiting is not the same as requiring: `forgetSession` still swallows a store error, so
+    // logout answers exactly as it did before whether or not the row actually went away.
+    const removed = this.dropRevokedSession(this.hashSessionToken(clean));
+    this.dropRevokedSession(clean);
+    await this.forgetSession(clean);
+    return removed;
+  }
+
+  /**
+   * Take a session out of this process because it was revoked.
+   *
+   * Every revocation path drops its local entries through here instead of a bare
+   * `activeSessions.delete`, because the reconcile tick has to be able to tell that a
+   * revocation happened while its walk was in flight. A site that deleted quietly would
+   * have the same session handed back to it by that walk's adopt half, and the prune half
+   * never takes a hash-keyed entry back off — the signed-out bearer would keep working
+   * until its token happened to expire.
+   */
+  dropRevokedSession(key) {
+    const removed = this.activeSessions.delete(key);
+    if (removed) this.revocationSeq += 1;
     return removed;
   }
 
@@ -6881,29 +7366,47 @@ class NabinDatabase {
     });
   }
 
-  async reconcileSessions({ store = this.liveStore(), pageSize } = {}) {
+  async reconcileSessions({ store = this.liveStore(), pageSize, prune = true } = {}) {
     if (!store) return { adopted: 0, pruned: 0, complete: false, skipped: 'no store' };
     const nowIso = new Date().toISOString();
 
-    const { error: pruneError } = await store.from('backend_sessions').delete().lte('expires_at', nowIso);
-    if (pruneError) console.error('⚠️ Session prune failed:', pruneError.message);
+    // The store DELETE is the only write this tick performs, and it is the half that makes an
+    // idle server dangerous: a test harness that boots `src/server.js` then prunes its target
+    // every interval without any test asking it to (measured 2026-10-16 against a disposable
+    // clone: 6 expired rows gone 15,053 ms after /api/health answered). Adoption and the
+    // memory prune below read the store and change only this process's map, so a caller that
+    // wants convergence without the write can have it — `prune: false`. Unset keeps production
+    // exactly as shipped.
+    if (prune) {
+      const { error: pruneError } = await store.from('backend_sessions').delete().lte('expires_at', nowIso);
+      if (pruneError) console.error('⚠️ Session prune failed:', pruneError.message);
+    }
 
+    // Captured immediately before the walk. Everything below is a picture of the store as
+    // it looked *during* a series of awaited round trips, and the picture is only safe to
+    // act on if nothing this process revoked landed while it was being taken.
+    const seqBeforeWalk = this.revocationSeq;
     const { rows, hashes: live, complete, error } = await this.readAllActiveSessions(store, { pageSize });
+    const revokedDuringWalk = this.revocationSeq - seqBeforeWalk;
+
     if (!complete) {
       // Half the tick is safe on a partial set and half is not. Adopting what this process
-      // can see only adds sessions, so that half runs; the prune answers "is this session
-      // still in the store?" from the same set, and a row the walk never reached is
-      // indistinguishable from a deleted one. Pruning on that reading is what signs a
-      // working user out, so the destructive half is skipped until a complete read lands.
-      for (const row of rows) {
-        if (!this.activeSessions.has(row.token_hash)) this.restoreSession(row);
-      }
+      // can see only adds sessions, so that half runs when its own picture is current; the
+      // prune answers "is this session still in the store?" from the same set, and a row the
+      // walk never reached is indistinguishable from a deleted one. Pruning on that reading
+      // is what signs a working user out, so the destructive half is skipped until a
+      // complete read lands.
       let adopted = 0;
-      for (const row of rows) {
-        if (!this.activeSessions.has(row.token_hash)) { this.restoreSession(row); adopted += 1; }
+      if (revokedDuringWalk === 0) {
+        for (const row of rows) {
+          if (!this.activeSessions.has(row.token_hash)) { this.restoreSession(row); adopted += 1; }
+        }
       }
       console.error(`⚠️ Session reconcile incomplete, prune skipped: ${error}`);
-      return { adopted, pruned: 0, complete: false, error };
+      if (revokedDuringWalk > 0) {
+        console.warn(`⚠️ Session reconcile adoption skipped: ${revokedDuringWalk} revocation(s) committed during the walk`);
+      }
+      return { adopted, pruned: 0, complete: false, error, revokedDuringWalk };
     }
 
     let pruned = 0;
@@ -6921,14 +7424,28 @@ class NabinDatabase {
       }
     }
 
+    // The adopt half is where a mid-walk revocation does its damage. `admin_customers_test`
+    // CU-28 went red on one run in sixteen with this sequence in the log: "ends every
+    // session it just made invalid — 2 signed out", then the very next read of the same
+    // account says "1 left". The sign-out deleted two store rows and two memory entries;
+    // the tick that was walking `backend_sessions` at the time had already read the page
+    // holding the first handle, so its row set still carried a session this process had
+    // just revoked, and the adopt loop handed it back. Nothing takes it off again — the
+    // prune above skips hash-keyed entries by design, so the bearer keeps working until
+    // its token expires. Deferring the tick costs one 15 second round, after which the
+    // delete sits behind the cursor and the row is simply not there to adopt.
     let adopted = 0;
-    for (const row of rows) {
-      if (!this.activeSessions.has(row.token_hash)) {
-        this.restoreSession(row);
-        adopted += 1;
+    if (revokedDuringWalk === 0) {
+      for (const row of rows) {
+        if (!this.activeSessions.has(row.token_hash)) {
+          this.restoreSession(row);
+          adopted += 1;
+        }
       }
+    } else {
+      console.warn(`⚠️ Session reconcile adoption skipped: ${revokedDuringWalk} revocation(s) committed during the walk`);
     }
-    return { adopted, pruned, complete: true, rows: rows.length };
+    return { adopted, pruned, complete: true, rows: rows.length, revokedDuringWalk };
   }
 
   // --- Administrator session surface (area 34) --------------------------------
@@ -7313,7 +7830,7 @@ class NabinDatabase {
       owner = (deleted || [])[0] || null;
     }
 
-    const stillHere = this.activeSessions.delete(handle);
+    const stillHere = this.dropRevokedSession(handle);
     if (!revokedInStore && !stillHere) {
       const refusal = new Error('No administrator session carries that id. It may have expired or been revoked already.');
       refusal.code = 'SESSION_NOT_FOUND';
@@ -7360,7 +7877,7 @@ class NabinDatabase {
     for (const [key, session] of Array.from(this.activeSessions.entries())) {
       if (!this.isAdminSessionRole(session && session.role)) continue;
       if (String(session.entityId) !== id) continue;
-      this.activeSessions.delete(key);
+      this.dropRevokedSession(key);
       sessionIds.push(/^[0-9a-f]{64}$/.test(key) ? key : this.hashSessionToken(key));
     }
     return {
@@ -7483,7 +8000,7 @@ class NabinDatabase {
     let revokedInMemory = 0;
     for (const [key, session] of Array.from(this.activeSessions.entries())) {
       if (!isCustomerSessionOf(session, { userIds: ids, phone })) continue;
-      this.activeSessions.delete(key);
+      this.dropRevokedSession(key);
       revokedInMemory += 1;
     }
 
@@ -8754,41 +9271,37 @@ class NabinDatabase {
   // =========================================================================
 
   async recordLedgerEntry({ transactionId, debitAccount, creditAccount, amount, currency = 'INR', description = '', referenceId = null, jobId = null, idempotencyKey = null }) {
-    const entry = {
-      id: transactionId || `LEDGER-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-      transactionId: transactionId || `TXN-${Date.now()}`,
+    // The repository owns the only durable answer, so it owns the failure too. This method
+    // used to wrap the call in `catch (e) { console.warn(...) }` and then unshift a second
+    // mirror entry and return it — so a rejected posting was reported to the settlement as a
+    // booked entry, and a store outage read as a successful one. The rule is already written
+    // on the money transition above (see the COMPLETED guard in updateJobStatus): a
+    // persistence write the database rejected must abort the caller, not proceed on
+    // in-memory state.
+    if (!this.ledgerRepo) {
+      const err = new Error('Refusing a double-entry posting: no ledger repository is wired, so nothing could be booked.');
+      err.code = 'LEDGER_STORE_UNAVAILABLE';
+      err.status = 503;
+      throw err;
+    }
+    const repoEntry = await this.ledgerRepo.recordDoubleEntry({
+      category: 'RIDE_SETTLEMENT',
       debitAccount,
       creditAccount,
-      amount: Number(amount) || 0,
-      currency,
+      amount,
       description,
       referenceId,
-      timestamp: new Date().toISOString()
-    };
-    if (this.ledgerRepo) {
-      try {
-        const repoEntry = await this.ledgerRepo.recordDoubleEntry({
-          category: 'RIDE_SETTLEMENT',
-          debitAccount,
-          creditAccount,
-          amount,
-          description,
-          referenceId,
-          jobId,
-          transactionId: entry.transactionId,
-          idempotencyKey
-        });
-        if (repoEntry) {
-          this.save();
-          return repoEntry;
-        }
-      } catch (e) {
-        console.warn('⚠️ ledgerRepo.recordDoubleEntry notice:', e.message);
-      }
+      jobId,
+      transactionId: transactionId || `TXN-${Date.now()}`,
+      idempotencyKey
+    });
+    if (!repoEntry) {
+      const err = new Error('The ledger repository answered a posting with nothing, so no entry was booked.');
+      err.code = 'LEDGER_POSTING_UNCONFIRMED';
+      throw err;
     }
-    this.ledgerEntries.unshift(entry);
     this.save();
-    return entry;
+    return repoEntry;
   }
 
   getLedgerEntries(filters = {}) {

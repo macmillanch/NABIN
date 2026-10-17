@@ -13,33 +13,42 @@
  * boundary and the service function directly, and pins that legitimate registered merchants
  * keep authenticating unchanged.
  *
- * Fixtures are the repository's own registered merchants (no invented identities, no forged
- * tokens, no inserted session rows). Duplicate-phone behaviour is only OBSERVED and recorded
- * here, not changed - that remains a separate product decision.
+ * Fixtures are created by this suite through the shared isolated-fixture helper: one registered
+ * merchant per service context, each with a phone proven unused before the insert, plus a
+ * duplicate-phone pair for the observation below. Nothing is forged, no session row is inserted,
+ * and no shared seeded row is asserted about or overwritten - that dependency is what made this
+ * link fail whenever another suite restyled merchant 00000000-…-0201. Every row created here is
+ * deleted again by the same handle before the suite exits.
  *
  * Local/test only; refuses any non-loopback target.
  */
 const { Client } = require('pg');
 const { spawnSync } = require('child_process');
 const path = require('path');
-const PG = process.env.NABIN_PG_NOTIFY || 'postgres://postgres:postgres@127.0.0.1:54322/postgres';
+const { openFixtures } = require('./test_fixtures');
+const targetGuard = require('./scripts/chain_target_guard');
+// F-C1-1: this suite writes and asserts through this handle, so its store must be a target
+// something DECLARED (shell, then backend/.env) and loopback - never an address typed into
+// this file, which is what let a run write one store and assert against another (#283).
+const PG_TARGET = targetGuard.requireLoopbackPgTarget({ label: 'merchant_auth_failclosed_test' });
+const PG = PG_TARGET.connectionString;
 const BASE = process.env.NABIN_TEST_BASE || 'http://127.0.0.1:4000';
 if (!/^(?:127\.\d{1,3}\.\d{1,3}\.\d{1,3}|localhost|::1)$/i.test(new URL(PG).hostname)
   || !/^(?:127\.\d{1,3}\.\d{1,3}\.\d{1,3}|localhost|::1)$/i.test(new URL(BASE).hostname)) {
   console.error('MAFC REFUSED: non-loopback target'); process.exit(1);
 }
 const OTP = process.env.NABIN_TEST_OTP || '7729';
-// registered fixtures, taken from the repository's own merchant rows
-const FIXTURES = [
-  { key: 'RESTAURANT_HYBRID', phone: '9811223344', uuid: '00000000-0000-0000-0000-000000000201', type: 'HYBRID_BOTH' },
-  { key: 'RESTAURANT', phone: '9871133479', uuid: '2699ade3-e014-4731-95dc-c79b095def40', type: 'RESTAURANT' },
-  { key: 'GROCERY', phone: '9888000002', uuid: null, type: 'GROCERY' },
+// one registered merchant per service context the auth boundary has to answer for
+const FIXTURE_PLAN = [
+  { key: 'RESTAURANT_HYBRID', type: 'HYBRID_BOTH', name: 'hybrid' },
+  { key: 'RESTAURANT', type: 'RESTAURANT', name: 'restaurant' },
+  { key: 'GROCERY', type: 'GROCERY', name: 'grocery' },
 ];
 // never registered for any merchant row; verified below against the durable table
 const UNREGISTERED = '9840000001';
-const DUPLICATE = '9999999999';
 const norm = (p) => { const d = String(p || '').replace(/\D/g, ''); return d.length > 10 ? d.slice(-10) : d; };
 const results = [];
+let fxHandle = null;
 function check(id, name, cond, detail) {
   results.push({ id, pass: cond === true });
   console.log(`[${cond === true ? 'PASS' : 'FAIL'}] ${id} ${name}`
@@ -60,18 +69,34 @@ const otpLogin = (phone) => api('POST', '/api/auth/verify-otp', { phone, otp: OT
   const c = new Client({ connectionString: PG });
   await c.connect();
   const one = async (sql, p) => (await c.query(sql, p)).rows[0];
+  const fx = await openFixtures('mafc', { connectionString: PG });
+  fxHandle = fx;
+  const FIXTURES = [];
+  for (const plan of FIXTURE_PLAN) {
+    const m = await fx.merchant({ type: plan.type, name: plan.name });
+    FIXTURES.push({ key: plan.key, phone: m.phone, uuid: m.id, type: plan.type });
+  }
+  // two merchants on one number, created here so the observation below has a real pair
+  const DUPLICATE = (await fx.freePhone('merchants')).slice(-10);
+  await fx.merchant({ type: 'RESTAURANT', name: 'duplicate-a', phone: DUPLICATE });
+  await fx.merchant({ type: 'RESTAURANT', name: 'duplicate-b', phone: DUPLICATE });
+  // the shared seeded row this suite used to depend on: read once, never written
+  const SEED_ROW = '00000000-0000-0000-0000-000000000201';
+  const seedTypeAt = async () => ((await one(
+    'SELECT merchant_type t FROM merchants WHERE id = $1::uuid', [SEED_ROW])) || {}).t ?? '(no row)';
+  const seedTypeStart = await seedTypeAt();
   const merchantIds = (await c.query('SELECT id::text id, phone, merchant_type FROM merchants')).rows;
   const byPhone = (p) => merchantIds.filter(m => norm(m.phone) === norm(p));
   const startMerchants = Number((await one('SELECT count(*)::text n FROM merchants')).n);
   const startJournal = await one(`SELECT (SELECT count(*) FROM journal_transactions)::text jt,
       (SELECT count(*) FROM journal_lines)::text jl, (SELECT count(*) FROM driver_payouts)::text po`);
 
-  // ---- 0. the fixture set is what we claim it is (no invented identities) ----
+  // ---- 0. this suite's own fixtures are what they claim to be ----
   for (const f of FIXTURES) {
     const rows = byPhone(f.phone);
-    check('MAFC-00.' + f.key, `${f.key} fixture ${f.phone} maps to exactly one registered merchant`,
-      rows.length === 1 && rows[0].merchant_type === f.type, { found: rows.length, type: rows[0] && rows[0].merchant_type });
-    f.uuid = f.uuid || (rows[0] && rows[0].id);
+    check('MAFC-00.' + f.key, `${f.key} fixture ${f.phone} is one registered merchant of that type`,
+      rows.length === 1 && rows[0].merchant_type === f.type && String(rows[0].id) === String(f.uuid),
+      { found: rows.length, type: rows[0] && rows[0].merchant_type });
   }
   check('MAFC-00.UNREG', `${UNREGISTERED} is genuinely unregistered for every merchant`,
     byPhone(UNREGISTERED).length === 0, { matches: byPhone(UNREGISTERED).length });
@@ -178,20 +203,35 @@ const otpLogin = (phone) => api('POST', '/api/auth/verify-otp', { phone, otp: OT
   check('MAFC-H', 'production mode refuses the unregistered phone (preserved, not newly introduced)',
     prodThrew && !prodIssued, { threw: prodThrew, code: prodCode });
 
-  // ---- integrity: nothing durable moved ----
+  // ---- integrity: the shared seeded row was never touched, and these fixtures go away ----
+  const seedTypeEnd = await seedTypeAt();
+  check('MAFC-Y', 'the shared seeded merchant keeps the service type it had at start',
+    seedTypeEnd === seedTypeStart, { seed_type: `${seedTypeStart}->${seedTypeEnd}` });
+  const createdCount = fx.created.merchants.length;
+  const removed = await fx.cleanup();
   const endMerchants = Number((await one('SELECT count(*)::text n FROM merchants')).n);
   const endJournal = await one(`SELECT (SELECT count(*) FROM journal_transactions)::text jt,
       (SELECT count(*) FROM journal_lines)::text jl, (SELECT count(*) FROM driver_payouts)::text po`);
-  check('MAFC-Z', 'no merchant row was created or converted and no money moved',
-    endMerchants === startMerchants && endJournal.jt === startJournal.jt
+  check('MAFC-Z', 'every fixture merchant created here is deleted again, no other row moved, no money moved',
+    createdCount === 5 && removed.merchants === createdCount
+      && endMerchants === startMerchants - createdCount
+      && endJournal.jt === startJournal.jt
       && endJournal.jl === startJournal.jl && endJournal.po === startJournal.po,
-    { merchants: `${startMerchants}->${endMerchants}`, journal: `${startJournal.jt}->${endJournal.jt}` });
+    { created: createdCount, removed: removed.merchants,
+      merchants: `${startMerchants}->${endMerchants}`, journal: `${startJournal.jt}->${endJournal.jt}` });
 
   await c.end();
+  await fx.close();
   const failed = results.filter(r => !r.pass);
   const skipped = results.filter(r => r.pass !== true && r.pass !== false).length;
   console.log(`\n=== MERCHANT AUTH FAIL-CLOSED: ${results.length - failed.length}/${results.length} passed, `
     + `${failed.length} failed, ${skipped} skipped ===`);
   if (failed.length) console.log('  failed: ' + failed.map(f => f.id).join(', '));
   process.exitCode = failed.length ? 1 : 0;
-})().catch(e => { console.error('FATAL', e.message); process.exitCode = 1; });
+})().catch((e) => {
+  console.error('FATAL', e.message);
+  // A crash halfway must not leave this suite's fixture rows behind for the next run to trip on.
+  Promise.resolve(fxHandle && fxHandle.close())
+    .catch(() => {})
+    .finally(() => { process.exitCode = 1; });
+});

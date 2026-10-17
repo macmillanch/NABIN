@@ -260,39 +260,187 @@ function writeLinkEnv() {
   return file;
 }
 
-/** Money/integrity tables to protect. Names are verified against information_schema, never assumed. */
-const PROTECTED = ['orders', 'jobs', 'payments', 'payment_sessions', 'payment_webhooks',
-  'ledger_entries', 'journal_transactions', 'journal_lines', 'driver_payouts', 'wallets', 'audit_logs'];
+/**
+ * Tables an isolated link must not be able to move in the guarded schema.
+ *
+ * The list lives in `scripts/protected_tables.js` — the same module `scripts/test_store_census.js`
+ * reads — so a census line that moves an uncovered name can be REPORTED as uncovered instead of
+ * being a human inference. #329 widened it twice: first to the identity/catalogue/restaurant names a
+ * link could restyle, then to the ten tables the 2026-10-15 census saw move with no per-link owner
+ * (dispatch offers, backend sessions, drivers, notifications, notification deliveries, admin
+ * accounts, refund authorizations and the promotion pair).
+ *
+ * Bulk accumulators are guarded by an append probe rather than a full COUNT, and the difference in
+ * what each proves is written out in that module's comment. Detection is proven without touching
+ * `public`: point NABIN_GUARD_SCHEMA at a disposable schema (see GUARD_SCHEMA below).
+ *
+ * Names are verified against information_schema before they are counted, never assumed to exist.
+ */
+const { PROTECTED, APPEND_PROBED } = require('./protected_tables');
 
-function publicCounts() {
+// Which schema the guard reads. `public` in a real run; a proof run names a throwaway schema so
+// detection can be demonstrated by writing there. This cannot redirect the guard off the local
+// stack: every read below goes through `psqlQuery`, which execs into DB_CONTAINER, so the only
+// degrees of freedom are the schema name and the table names, and both are validated.
+const GUARD_SCHEMA = process.env.NABIN_GUARD_SCHEMA || 'public';
+const SCHEMA_IDENT = /^[a-z_][a-z0-9_]*$/i;
+
+function assertGuardSchema() {
+  if (!SCHEMA_IDENT.test(GUARD_SCHEMA)) {
+    console.error(`REFUSED: NABIN_GUARD_SCHEMA=${JSON.stringify(GUARD_SCHEMA)} is not a plain identifier`);
+    process.exit(1);
+  }
+  if (GUARD_SCHEMA !== 'public') {
+    // F-C1-3: a redirect must be stated TWICE — the schema it names and the intent to be in proof mode.
+    // Both runners hand `process.env` straight to their children, so one value left in a reused shell by a
+    // proof session re-aimed the per-link hard guard at that schema and the link still read CLEAN against a
+    // store the run was never responsible for. The single declaration this file used to trust is the defect.
+    if (process.env.NABIN_GUARD_PROOF !== '1') {
+      console.error(`REFUSED: NABIN_GUARD_SCHEMA=${GUARD_SCHEMA} moves the hard guard off \`public\` while `
+        + 'NABIN_GUARD_PROOF is not 1. An inherited value from an earlier proof session redirects the guard '
+        + 'silently, which is what this refusal closes. Set NABIN_GUARD_PROOF=1 when the redirect is intended '
+        + '(scripts/guard_detection_probe.js does), or unset NABIN_GUARD_SCHEMA to guard public.');
+      process.exit(1);
+    }
+    console.log(`⚠ GUARD SCHEMA = ${GUARD_SCHEMA} — PROOF MODE (NABIN_GUARD_PROOF=1), this is NOT the shared \`public\` store`);
+  }
+}
+
+// The baseline is taken from the database clock, never this process's: a host/container skew of even
+// a second would either invent appended rows or hide real ones.
+function dbNow() {
+  return psqlQuery(`SELECT now()`).trim();
+}
+
+function safeStamp(iso) {
+  return String(iso || '').replace(/[^0-9T:+. -]/g, '');
+}
+
+// Two docker/psql invocations per snapshot for the exact names regardless of list length: one to
+// find which protected names actually exist, one to count them all in a single UNION ALL. The
+// per-table loop this replaces cost one round-trip per name. Append probes cost one indexed COUNT
+// each, against the baseline timestamp.
+function publicCounts(appendBaseline) {
+  const allNames = [...PROTECTED, ...APPEND_PROBED.map((p) => p.table)];
+  const list = allNames.map((t) => `'${t}'`).join(',');
   const existing = psqlQuery(
-    `SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('${PROTECTED.join("','")}')`
+    `SELECT table_name FROM information_schema.tables WHERE table_schema='${GUARD_SCHEMA}' AND table_name IN (${list}) ORDER BY 1`
   ).split('\n').map((s) => s.trim()).filter(Boolean);
-  const missing = PROTECTED.filter((t) => !existing.includes(t));
+  const missing = allNames.filter((t) => !existing.includes(t));
+  if (!existing.length) {
+    // A guard that counted nothing still reports "CLEAN, 0 tables unchanged" unless it refuses here,
+    // and a proof run aimed at a schema that does not exist looks exactly like a passing isolation
+    // check. Measured 2026-10-15: NABIN_GUARD_SCHEMA pointing at a missing schema produced an empty
+    // baseline and exit 0. Names legitimately absent (today: `wallets`) are still a NOTE, not a
+    // refusal - only "not one protected name exists where you told me to look" is fatal.
+    throw new Error(`guard REFUSED: no protected table exists in ${GUARD_SCHEMA} - `
+      + 'the guard would have measured nothing');
+  }
   const counts = {};
-  for (const t of existing) counts[t] = Number(psqlQuery(`SELECT count(*) FROM public.${t}`).trim());
-  return { counts, missing };
+  const exact = existing.filter((t) => PROTECTED.includes(t));
+  if (exact.length) {
+    const query = exact
+      .map((t) => `SELECT '${t}' t, count(*) n FROM ${GUARD_SCHEMA}.${t}`)
+      .join(' UNION ALL ');
+    for (const line of psqlQuery(query).split('\n')) {
+      const m = /^([a-z_][a-z0-9_]*)\|(\d+)$/.exec(line.trim());
+      if (m) counts[m[1]] = Number(m[2]);
+    }
+  }
+  const at = safeStamp(appendBaseline) || dbNow();
+  for (const probe of APPEND_PROBED) {
+    if (!existing.includes(probe.table)) continue;
+    const n = psqlQuery(
+      `SELECT count(*) FROM ${GUARD_SCHEMA}.${probe.table} WHERE ${probe.column} > '${at}'`).trim();
+    if (!/^\d+$/.test(n)) throw new Error(`append probe returned "${n}" for ${GUARD_SCHEMA}.${probe.table}`);
+    counts[probe.table] = Number(n);
+  }
+  // A silent gap between the names asked for and the names answered would make the guard look
+  // satisfied while it measured nothing.
+  const unanswered = existing.filter((t) => !(t in counts));
+  if (unanswered.length) throw new Error(`protected count missing for: ${unanswered.join(', ')}`);
+  return { counts, missing, at };
 }
 
 function snapshot() {
-  const { counts, missing } = publicCounts();
+  const at = dbNow();
+  const { counts, missing } = publicCounts(at);
   fs.mkdirSync(STATE_DIR, { recursive: true });
-  fs.writeFileSync(path.join(STATE_DIR, 'snapshot.json'), JSON.stringify({ at: new Date().toISOString(), counts, missing }, null, 2));
-  for (const [t, n] of Object.entries(counts)) console.log(`  public.${t} = ${n}`);
-  if (missing.length) console.log(`  NOTE not present in public (skipped): ${missing.join(', ')}`);
+  fs.writeFileSync(path.join(STATE_DIR, 'snapshot.json'),
+    JSON.stringify({ at, appendBaseline: at, schema: GUARD_SCHEMA, counts, missing }, null, 2));
+  for (const [t, n] of Object.entries(counts)) console.log(`  ${GUARD_SCHEMA}.${t} = ${n}`);
+  if (missing.length) console.log(`  NOTE not present in ${GUARD_SCHEMA} (skipped): ${missing.join(', ')}`);
+  const appended = APPEND_PROBED.map((p) => p.table).filter((t) => t in counts);
+  if (appended.length) {
+    console.log(`  NOTE ${appended.join(', ')} counted as rows created after ${at} (db clock), not absolute counts`);
+  }
   console.log('SNAPSHOT taken');
 }
 
+/**
+ * F-C1-5: drop the attribution baseline and nothing else.
+ *
+ * `snapshot()` writes to one fixed path, `.chain-scratch/snapshot.json`, so the file cannot tell a run
+ * that is in flight from a run that ended — and `guard_detection_probe.js` refuses the second as if it
+ * were the first (measured 2026-10-16: chain_20261016_080137_15108_4f72a0 exited 0 at 08:02:10 and left
+ * a `public` baseline that was still refusing the probe at 09:44). The runner now calls this on its way
+ * out. Deliberately narrower than teardown(): no container is removed, no schema is dropped, no proxy is
+ * signalled, because those are legitimately reused across runs while the baseline never is.
+ */
+function dropBaseline() {
+  const file = path.join(STATE_DIR, 'snapshot.json');
+  let was = null;
+  try { was = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')).schema : null; }
+  catch (e) { was = 'unreadable'; }
+  fs.rmSync(file, { force: true });
+  console.log(`baseline: ${was ? `removed (was a ${was} baseline)` : 'absent'} - ${path.relative(process.cwd(), file)}`);
+}
+
+function readSnapshot() {
+  const prev = JSON.parse(fs.readFileSync(path.join(STATE_DIR, 'snapshot.json'), 'utf8'));
+  if (prev.schema !== GUARD_SCHEMA) {
+    throw new Error(`snapshot was taken against schema ${JSON.stringify(prev.schema)}, guard now points at `
+      + `${JSON.stringify(GUARD_SCHEMA)} — refusing to compare counts from two different schemas`);
+  }
+  // A baseline that parses is not therefore a baseline that measures. `verify` and `diff` both iterate
+  // `prev.counts`, so an empty or unreadable counts object makes them compare nothing and print CLEAN -
+  // the same failure mode publicCounts() refuses at source (see "no protected table exists" above),
+  // reached from the other direction: a state file truncated, hand-edited, or written by an older tool.
+  // Measured 2026-10-15 against a disposable schema BEFORE this check existed: `counts:{}` gave
+  // `CLEAN: 0 protected … tables unchanged` exit 0, and a baseline with no timestamp field gave
+  // `CLEAN: 2 …` exit 0 while an append-probed table really held one row more - losing `at` re-baselines
+  // the append probe at verification time, which makes every append during the link invisible to it.
+  if (!prev || typeof prev.counts !== 'object' || Array.isArray(prev.counts) || !Object.keys(prev.counts).length) {
+    throw new Error(`guard REFUSED: snapshot.json carries no usable counts baseline `
+      + `(${prev && prev.counts === undefined ? 'field missing' : JSON.stringify(prev.counts)}) - `
+      + 'verify would compare nothing and report CLEAN');
+  }
+  for (const [t, n] of Object.entries(prev.counts)) {
+    if (!Number.isInteger(n) || n < 0) {
+      throw new Error(`guard REFUSED: snapshot baseline for ${GUARD_SCHEMA}.${t} is ${JSON.stringify(n)}, `
+        + 'not a non-negative integer count');
+    }
+  }
+  const stamp = prev.appendBaseline || prev.at;
+  if (typeof stamp !== 'string' || !safeStamp(stamp)) {
+    throw new Error(`guard REFUSED: snapshot baseline has no usable timestamp (at=${JSON.stringify(prev.at)}, `
+      + `appendBaseline=${JSON.stringify(prev.appendBaseline)}) - the append probe would count rows created `
+      + 'after the moment of verification, i.e. nothing, and read a real append as CLEAN');
+  }
+  return prev;
+}
+
 function verifySnapshot() {
-  const prev = JSON.parse(fs.readFileSync(path.join(STATE_DIR, 'snapshot.json'), 'utf8')).counts;
-  const now = publicCounts().counts;
-  const drift = Object.entries(prev).filter(([t, n]) => now[t] !== n).map(([t, n]) => [t, n, now[t]]);
-  for (const [t, before, after] of drift) console.log(`  DRIFT public.${t}: ${before} -> ${after}`);
+  const prev = readSnapshot();
+  const { counts: now, missing } = publicCounts(prev.appendBaseline || prev.at);
+  const drift = Object.entries(prev.counts).filter(([t, n]) => now[t] !== n).map(([t, n]) => [t, n, now[t]]);
+  for (const [t, before, after] of drift) console.log(`  DRIFT ${GUARD_SCHEMA}.${t}: ${before} -> ${after}`);
   if (drift.length) {
-    console.error(`CONTAMINATION: ${drift.length} protected public table(s) changed during an isolated run - isolation FAILED`);
+    console.error(`CONTAMINATION: ${drift.length} protected ${GUARD_SCHEMA} table(s) changed during an isolated run - isolation FAILED`);
     process.exitCode = 1;
   } else {
-    console.log(`CLEAN: ${Object.keys(prev).length} protected public tables unchanged`);
+    const note = missing.length ? ` (${missing.length} protected name(s) not in ${GUARD_SCHEMA}: ${missing.join(', ')})` : '';
+    console.log(`CLEAN: ${Object.keys(prev.counts).length} protected ${GUARD_SCHEMA} tables unchanged${note}`);
   }
 }
 
@@ -303,22 +451,26 @@ function verifySnapshot() {
  * allowed to mutate public state legitimately. Exit code therefore stays 0 even when tables moved - only
  * the isolated link's `verify` is allowed to fail a link. Missing baseline prints a marker and still exits
  * 0, because an attribution gap must never look like a product failure.
+ *
+ * For an append-probed table the numbers are "rows created since this link's baseline", so a
+ * `0 -> 1741` line attributes 1,741 writes to exactly the one link that ran between the two counts.
  */
 function diffSnapshot() {
   let prev;
   try {
-    prev = JSON.parse(fs.readFileSync(path.join(STATE_DIR, 'snapshot.json'), 'utf8')).counts;
+    prev = readSnapshot();
   } catch (e) {
-    console.log('DRIFT public: NO-BASELINE');
+    console.log(`DRIFT ${GUARD_SCHEMA}: NO-BASELINE`);
+    if (e.code !== 'ENOENT') console.error(`diff baseline unusable: ${e.message}`);
     return;
   }
-  const now = publicCounts().counts;
-  const moved = Object.entries(prev).filter(([t, n]) => Number(now[t]) !== Number(n));
+  const now = publicCounts(prev.appendBaseline || prev.at).counts;
+  const moved = Object.entries(prev.counts).filter(([t, n]) => Number(now[t]) !== Number(n));
   for (const [t, before] of moved) {
     const after = Number(now[t]);
-    console.log(`DRIFT public.${t}: ${before} -> ${after} (${after > before ? '+' : ''}${after - before})`);
+    console.log(`DRIFT ${GUARD_SCHEMA}.${t}: ${before} -> ${after} (${after > before ? '+' : ''}${after - before})`);
   }
-  if (!moved.length) console.log(`DRIFT public: CLEAN (${Object.keys(prev).length} protected tables unchanged)`);
+  if (!moved.length) console.log(`DRIFT ${GUARD_SCHEMA}: CLEAN (${Object.keys(prev.counts).length} protected tables unchanged)`);
 }
 
 function status() {
@@ -329,6 +481,7 @@ function status() {
   try { const s = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')); process.kill(s.proxyPid, 0); proxy = `running (pid ${s.proxyPid})`; }
   catch (e) { proxy = 'not running'; }
   console.log(`schema ${SCHEMA}: ${exists ? 'present' : 'absent'}`);
+  console.log(`guard schema: ${GUARD_SCHEMA}${GUARD_SCHEMA === 'public' ? '' : ' (PROOF MODE — NABIN_GUARD_SCHEMA)'}`);
   console.log(`PostgREST ${CHAIN_REST}: ${rest}`);
   console.log(`proxy: ${proxy}`);
   console.log(`backend env to use: run \"node scripts/chain_scratch.js link-env\" and pass .chain-scratch/link.env to the isolated link only`);
@@ -339,6 +492,7 @@ function status() {
 function main() {
   const cmd = process.argv[2] || 'status';
   ensureNotProduction();
+  assertGuardSchema();
   if (cmd === 'provision') {
     const a = provisionSchema();
     const b = startPostgrest();
@@ -355,15 +509,26 @@ function main() {
     verifySnapshot();
   } else if (cmd === 'diff') {
     diffSnapshot();
+  } else if (cmd === 'drop-baseline') {
+    dropBaseline();
   } else if (cmd === 'status') {
     status();
   } else {
-    console.error('usage: node scripts/chain_scratch.js [provision|link-env|snapshot|verify|diff|teardown|status]');
+    console.error('usage: node scripts/chain_scratch.js [provision|link-env|snapshot|verify|diff|drop-baseline|teardown|status]');
     process.exit(1);
   }
 }
 
-main();
+// A guard that cannot answer is worse than a guard that answers "dirty", because silence looks like
+// a pass. Every throw below (missing baseline schema, an uncountable protected set, a psql failure)
+// becomes one labelled line on stderr so the runner's contamination extract has something to name,
+// and the exit code is non-zero: an isolated link whose guard broke is refused, not waved through.
+try {
+  main();
+} catch (e) {
+  console.error(`GUARD ERROR: ${e.message}`);
+  process.exit(1);
+}
 
 
 function psqlQuery(sql) {

@@ -1390,7 +1390,7 @@
           <div class="flex items-center gap-2">
             <button onclick="openDeployAdModal()" class="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-md flex items-center gap-1.5 transition cursor-pointer">
               <span class="material-symbols-outlined text-sm">campaign</span>
-              <span>Deploy Sponsored Ad</span>
+              <span>New Campaign</span>
             </button>
             <button onclick="openCreatePromoModal()" class="px-3.5 py-2 rounded-xl bg-primary hover:bg-primary-dark text-white text-xs font-bold shadow-md flex items-center gap-1.5 transition cursor-pointer">
               <span class="material-symbols-outlined text-sm">confirmation_number</span>
@@ -1403,26 +1403,26 @@
         <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div class="p-5 rounded-2xl bg-white border border-slate-200 shadow-sm">
             <div class="text-[10px] font-black uppercase text-slate-400">Total Ad Impressions</div>
-            <div class="font-mono font-black text-2xl text-slate-900 mt-1" id="adMetricImpressions">264.5K</div>
+            <div class="font-mono font-black text-2xl text-slate-900 mt-1" id="adMetricImpressions">—</div>
             <div class="text-[11px] text-emerald-600 mt-1 font-bold">● Across Grocery & Ride Apps</div>
           </div>
 
           <div class="p-5 rounded-2xl bg-white border border-slate-200 shadow-sm">
             <div class="text-[10px] font-black uppercase text-slate-400">Sponsored Clicks & Actions</div>
-            <div class="font-mono font-black text-2xl text-blue-600 mt-1" id="adMetricClicks">20,660</div>
+            <div class="font-mono font-black text-2xl text-blue-600 mt-1" id="adMetricClicks">—</div>
             <div class="text-[11px] text-slate-500 mt-1">Verified User Interactions</div>
           </div>
 
           <div class="p-5 rounded-2xl bg-white border border-slate-200 shadow-sm">
             <div class="text-[10px] font-black uppercase text-slate-400">Overall Click-Through Rate</div>
-            <div class="font-mono font-black text-2xl text-emerald-600 mt-1" id="adMetricCtr">7.81%</div>
+            <div class="font-mono font-black text-2xl text-emerald-600 mt-1" id="adMetricCtr">—</div>
             <div class="text-[11px] text-slate-500 mt-1">Industry Avg: 3.2% (High Eng.)</div>
           </div>
 
           <div class="p-5 rounded-2xl bg-white border border-slate-200 shadow-sm">
             <div class="text-[10px] font-black uppercase text-slate-400">Ad Monetization Run-Rate</div>
-            <div class="font-mono font-black text-2xl text-amber-600 mt-1" id="adMetricRevenue">₹14,280.00</div>
-            <div class="text-[11px] text-slate-500 mt-1">CPM Sponsoring Brand Billings</div>
+            <div class="font-mono font-black text-2xl text-amber-600 mt-1" id="adMetricRevenue">—</div>
+            <div class="text-[11px] text-slate-500 mt-1" id="adMetricRevenueNote">Awaiting campaign metrics</div>
           </div>
         </div>
 
@@ -1431,7 +1431,7 @@
           <div class="p-4 border-b border-slate-100 flex items-center justify-between">
             <div class="flex items-center gap-2">
               <span class="material-symbols-outlined text-emerald-600 text-lg">featured_video</span>
-              <span class="font-bold text-xs text-slate-900">Active Sponsored Brand Advertisement Placements</span>
+              <span class="font-bold text-xs text-slate-900">Active Advertisement Campaigns</span>
             </div>
             <span class="text-xs text-slate-400 font-mono">Live in-app placement slots</span>
           </div>
@@ -1440,13 +1440,13 @@
             <table class="w-full text-left text-xs text-slate-700">
               <thead class="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-wider border-b border-slate-200">
                 <tr>
-                  <th class="py-3 px-4">Brand & Campaign</th>
+                  <th class="py-3 px-4">Campaign</th>
                   <th class="py-3 px-4">Placement Slot</th>
                   <th class="py-3 px-4">App Service</th>
                   <th class="py-3 px-4">Impressions</th>
                   <th class="py-3 px-4">Clicks</th>
                   <th class="py-3 px-4">CTR</th>
-                  <th class="py-3 px-4">Bid CPM</th>
+                  <th class="py-3 px-4" title="No bid-rate or price column exists on advertisements, so the store cannot hold one.">Bid CPM</th>
                   <th class="py-3 px-4">Status</th>
                   <th class="py-3 px-4 text-right">Actions</th>
                 </tr>
@@ -1781,7 +1781,11 @@
         <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <h3 class="font-headline font-bold text-xl text-slate-900">Global Administrative Audit Log Trail</h3>
-            <p class="text-xs text-slate-500">Immutable, tamper-resistant record of all compliance decisions, financial adjustments, and admin actions.</p>
+            <!-- The claim used to be made for the store: an immutable, tamper-resistant record of
+                 every compliance decision. This table is a list this process read, and how much of
+                 the trail it covers is a fact that changes between requests. The banner under the
+                 heading states it per request; the heading cannot. -->
+            <p class="text-xs text-slate-500">Entries read from the audit trail, newest first. What each page covers is stated below it.</p>
           </div>
           <div class="flex items-center gap-2">
             <input type="text" id="auditSearchInput" oninput="loadGlobalAuditLogs()" placeholder="Search logs by ID, Admin, or Reason..." class="bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs w-64 focus:outline-none focus:border-primary">
@@ -1790,6 +1794,8 @@
             </button>
           </div>
         </div>
+
+        <div id="auditTrailNotice" class="text-xs"></div>
 
         <div class="rounded-2xl bg-white border border-slate-200 shadow-sm overflow-hidden">
           <div class="overflow-x-auto max-h-[600px]">
@@ -2379,12 +2385,13 @@
       <div class="p-5 border-b border-slate-200 flex items-center justify-between bg-slate-50">
         <div>
           <h3 class="font-headline font-bold text-lg text-slate-900">Identity Audit Trail</h3>
-          <p class="text-xs text-slate-500">Immutable chronological compliance review event log</p>
+          <p class="text-xs text-slate-500">The most recent entries this read could reach — see the line below.</p>
         </div>
         <button onclick="closeAuditLogViewer()" class="p-1.5 rounded-xl hover:bg-slate-200 text-slate-500">
           <span class="material-symbols-outlined text-xl">close</span>
         </button>
       </div>
+      <div id="auditModalNotice" class="px-4 pt-3 text-[11px]"></div>
       <div class="flex-1 overflow-y-auto p-4">
         <table class="w-full text-left text-xs text-slate-700">
           <thead class="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-wider">
@@ -2777,8 +2784,8 @@
             <div class="flex items-center gap-2">
               <span class="material-symbols-outlined text-emerald-600 text-xl">campaign</span>
               <div>
-                <h3 class="text-base font-black text-slate-900">Deploy Sponsored Brand Campaign</h3>
-                <p class="text-xs text-slate-500">Configure client app placement slot, sponsoring brand, and CPM bid rate.</p>
+                <h3 class="text-base font-black text-slate-900">Create Advertisement Campaign</h3>
+                <p class="text-xs text-slate-500">Configure the placement slot, creative image and run window the store keeps.</p>
               </div>
             </div>
             <button onclick="closeDeployAdModal()" class="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 cursor-pointer">
@@ -2787,86 +2794,47 @@
           </div>
 
           <form onsubmit="submitDeployAdModal(event)" class="space-y-3.5 text-xs">
-            <div class="grid grid-cols-2 gap-3">
-              <div>
-                <label class="block font-bold text-slate-700 mb-1">Sponsoring Brand / Partner:</label>
-                <input type="text" id="adModalBrand" placeholder="e.g. Samsung, PolicyBazaar, DLF, Amul" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-bold text-slate-900 focus:outline-none focus:border-emerald-600">
-              </div>
-              <div>
-                <label class="block font-bold text-slate-700 mb-1">Industry / Category:</label>
-                <select id="adModalIndustry" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-bold text-slate-800 focus:outline-none focus:border-emerald-600">
-                  <option value="TECH_ELECTRONICS">Tech & Consumer Electronics</option>
-                  <option value="FINTECH_INSURANCE">Fintech, Banking & Insurance</option>
-                  <option value="AUTOMOTIVE">Automobile & Clean EV</option>
-                  <option value="ENTERTAINMENT">OTT & Media Entertainment</option>
-                  <option value="EDUCATION">EdTech & Higher Learning</option>
-                  <option value="REAL_ESTATE">Luxury Real Estate</option>
-                  <option value="TRAVEL">Travel & Airline Holidays</option>
-                  <option value="FMCG_GROCERY">FMCG & Quick Commerce</option>
-                  <option value="GENERAL">General Third-Party Brand</option>
-                </select>
-              </div>
+            <div>
+              <label class="block font-bold text-slate-700 mb-1">Campaign Headline / Title:</label>
+              <input type="text" id="adModalTitle" placeholder="e.g. Monsoon grocery savings on top staples" maxlength="150" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-bold text-slate-900 focus:outline-none focus:border-emerald-600">
+            </div>
+
+            <div>
+              <label class="block font-bold text-slate-700 mb-1">Placement:</label>
+              <select id="adModalSlot" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-bold text-slate-800 focus:outline-none focus:border-emerald-600">
+                <option value="HOME_BANNER">App home hero banner</option>
+                <option value="SEARCH_INLINE">In-feed / search spotlight</option>
+                <option value="CHECKOUT">Cart & checkout sponsor card</option>
+                <option value="DRIVER_IDLE">Driver app idle screen</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="block font-bold text-slate-700 mb-1">Creative Image URL:</label>
+              <input type="text" id="adModalImage" placeholder="https://cdn.example.com/ads/monsoon-hero.png" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-mono text-slate-800 focus:outline-none focus:border-emerald-600">
             </div>
 
             <div class="grid grid-cols-2 gap-3">
               <div>
-                <label class="block font-bold text-slate-700 mb-1">Sponsor Badge Tag:</label>
-                <input type="text" id="adModalBadge" placeholder="e.g. GLOBAL TECH PARTNER, FINANCIAL SPONSOR" value="SPONSORED BRAND" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-bold text-slate-900 focus:outline-none focus:border-emerald-600">
+                <label class="block font-bold text-slate-700 mb-1">Run Start:</label>
+                <input type="date" id="adModalStart" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-bold text-slate-900 focus:outline-none focus:border-emerald-600">
               </div>
               <div>
-                <label class="block font-bold text-slate-700 mb-1">Campaign Headline / Title:</label>
-                <input type="text" id="adModalTitle" placeholder="e.g. Next-Gen Galaxy AI with ₹12,000 Exchange Bonus" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-bold text-slate-900 focus:outline-none focus:border-emerald-600">
+                <label class="block font-bold text-slate-700 mb-1">Run End (after start):</label>
+                <input type="date" id="adModalEnd" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-bold text-slate-900 focus:outline-none focus:border-emerald-600">
               </div>
             </div>
 
             <div>
-              <label class="block font-bold text-slate-700 mb-1">Offer Tagline / Pitch:</label>
-              <input type="text" id="adModalTagline" placeholder="e.g. Master Generative AI & Cloud Architecture with 100% Placement Support" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-semibold text-slate-800 focus:outline-none focus:border-emerald-600">
-            </div>
-
-            <div class="grid grid-cols-2 gap-3">
-              <div>
-                <label class="block font-bold text-slate-700 mb-1">Placement Slot:</label>
-                <select id="adModalSlot" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-bold text-slate-800 focus:outline-none focus:border-emerald-600">
-                  <option value="GROCERY_HERO_CAROUSEL">Grocery App Top Hero Carousel</option>
-                  <option value="GROCERY_IN_FEED_BANNER">Grocery In-Feed Spotlight Card</option>
-                  <option value="GROCERY_CHECKOUT_CARD">Grocery Cart & Checkout Sponsor</option>
-                  <option value="RIDE_HERO_BANNER">Ride App Home Hero Banner</option>
-                  <option value="RIDE_TRACKING_SPONSOR">Ride Tracking In-Transit Card</option>
-                </select>
-              </div>
-              <div>
-                <label class="block font-bold text-slate-700 mb-1">Target Service:</label>
-                <select id="adModalService" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-bold text-slate-800 focus:outline-none focus:border-emerald-600">
-                  <option value="ALL">All Consumer Apps</option>
-                  <option value="GROCERY">NABIN Quick Grocery</option>
-                  <option value="RIDE">NABIN Mobility (Rides)</option>
-                  <option value="FOOD">NABIN Food Delivery</option>
-                </select>
-              </div>
-            </div>
-
-            <div class="grid grid-cols-2 gap-3">
-              <div>
-                <label class="block font-bold text-slate-700 mb-1">CTA Button Text:</label>
-                <input type="text" id="adModalCtaText" placeholder="e.g. Explore Galaxy AI →" value="Learn More →" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-bold text-slate-900 focus:outline-none focus:border-emerald-600">
-              </div>
-              <div>
-                <label class="block font-bold text-slate-700 mb-1">Bid Rate CPM (₹ / 1,000 Impr):</label>
-                <input type="number" id="adModalBidCpm" placeholder="50.00" value="50.00" step="5" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-bold text-slate-900 focus:outline-none focus:border-emerald-600">
-              </div>
-            </div>
-
-            <div>
-              <label class="block font-bold text-slate-700 mb-1">Click Redirect / External Partner URL:</label>
-              <input type="text" id="adModalCtaLink" placeholder="https://brand.com/offer or /grocery?cat=..." class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-mono text-slate-800 focus:outline-none focus:border-emerald-600">
+              <label class="block font-bold text-slate-700 mb-1">Click Redirect URL:</label>
+              <input type="text" id="adModalCtaLink" placeholder="/grocery?cat=... or https://partner.example/offer" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-mono text-slate-800 focus:outline-none focus:border-emerald-600">
             </div>
 
             <div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
               <button type="button" onclick="closeDeployAdModal()" class="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-xs font-bold text-slate-700 cursor-pointer">Cancel</button>
               <button type="submit" id="btnSubmitDeployAd" class="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-md flex items-center gap-1.5 cursor-pointer">
                 <span class="material-symbols-outlined text-sm">rocket_launch</span>
-                <span>Deploy Campaign to App</span>
+                <span>Create Campaign</span>
               </button>
             </div>
           </form>
@@ -2880,8 +2848,8 @@
             <div class="flex items-center gap-2">
               <span class="material-symbols-outlined text-blue-600 text-xl">edit_note</span>
               <div>
-                <h3 class="text-base font-black text-slate-900">Update Sponsored Brand Campaign</h3>
-                <p class="text-xs text-slate-500" id="editAdSubtitle">Modify creative, redirect link, CPM bid rate, or target slot.</p>
+                <h3 class="text-base font-black text-slate-900">Update Advertisement Campaign</h3>
+                <p class="text-xs text-slate-500" id="editAdSubtitle">Modify the title, placement, creative, redirect or run window.</p>
               </div>
             </div>
             <button onclick="closeEditAdModal()" class="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 cursor-pointer">
@@ -2892,31 +2860,20 @@
           <form onsubmit="submitEditAdModal(event)" class="space-y-3.5 text-xs">
             <input type="hidden" id="editAdId">
 
-            <div class="grid grid-cols-2 gap-3">
-              <div>
-                <label class="block font-bold text-slate-700 mb-1">Sponsoring Brand / Partner:</label>
-                <input type="text" id="editAdBrand" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-bold text-slate-900 focus:outline-none focus:border-blue-600">
-              </div>
-              <div>
-                <label class="block font-bold text-slate-700 mb-1">Industry / Category:</label>
-                <select id="editAdIndustry" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-bold text-slate-800 focus:outline-none focus:border-blue-600">
-                  <option value="TECH_ELECTRONICS">Tech & Consumer Electronics</option>
-                  <option value="FINTECH_INSURANCE">Fintech, Banking & Insurance</option>
-                  <option value="AUTOMOTIVE">Automobile & Clean EV</option>
-                  <option value="ENTERTAINMENT">OTT & Media Entertainment</option>
-                  <option value="EDUCATION">EdTech & Higher Learning</option>
-                  <option value="REAL_ESTATE">Luxury Real Estate</option>
-                  <option value="TRAVEL">Travel & Airline Holidays</option>
-                  <option value="FMCG_GROCERY">FMCG & Quick Commerce</option>
-                  <option value="GENERAL">General Third-Party Brand</option>
-                </select>
-              </div>
+            <div>
+              <label class="block font-bold text-slate-700 mb-1">Campaign Headline / Title:</label>
+              <input type="text" id="editAdTitle" maxlength="150" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-bold text-slate-900 focus:outline-none focus:border-blue-600">
             </div>
 
             <div class="grid grid-cols-2 gap-3">
               <div>
-                <label class="block font-bold text-slate-700 mb-1">Sponsor Badge Text:</label>
-                <input type="text" id="editAdBadge" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-bold text-slate-900 focus:outline-none focus:border-blue-600">
+                <label class="block font-bold text-slate-700 mb-1">Placement:</label>
+                <select id="editAdSlot" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-bold text-slate-800 focus:outline-none focus:border-blue-600">
+                  <option value="HOME_BANNER">App home hero banner</option>
+                  <option value="SEARCH_INLINE">In-feed / search spotlight</option>
+                  <option value="CHECKOUT">Cart & checkout sponsor card</option>
+                  <option value="DRIVER_IDLE">Driver app idle screen</option>
+                </select>
               </div>
               <div>
                 <label class="block font-bold text-slate-700 mb-1">Campaign Status:</label>
@@ -2928,58 +2885,31 @@
             </div>
 
             <div>
-              <label class="block font-bold text-slate-700 mb-1">Campaign Headline / Title:</label>
-              <input type="text" id="editAdTitle" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-bold text-slate-900 focus:outline-none focus:border-blue-600">
-            </div>
-
-            <div>
-              <label class="block font-bold text-slate-700 mb-1">Offer Tagline / Pitch:</label>
-              <input type="text" id="editAdTagline" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-semibold text-slate-800 focus:outline-none focus:border-blue-600">
+              <label class="block font-bold text-slate-700 mb-1">Creative Image URL:</label>
+              <input type="text" id="editAdImage" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-mono text-slate-800 focus:outline-none focus:border-blue-600">
             </div>
 
             <div class="grid grid-cols-2 gap-3">
               <div>
-                <label class="block font-bold text-slate-700 mb-1">Placement Slot:</label>
-                <select id="editAdSlot" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-bold text-slate-800 focus:outline-none focus:border-blue-600">
-                  <option value="GROCERY_HERO_CAROUSEL">Grocery App Top Hero Carousel</option>
-                  <option value="GROCERY_IN_FEED_BANNER">Grocery In-Feed Spotlight Card</option>
-                  <option value="GROCERY_CHECKOUT_CARD">Grocery Cart & Checkout Sponsor</option>
-                  <option value="RIDE_HERO_BANNER">Ride App Home Hero Banner</option>
-                  <option value="RIDE_TRACKING_SPONSOR">Ride Tracking In-Transit Card</option>
-                </select>
+                <label class="block font-bold text-slate-700 mb-1">Run Start:</label>
+                <input type="date" id="editAdStart" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-bold text-slate-900 focus:outline-none focus:border-blue-600">
               </div>
               <div>
-                <label class="block font-bold text-slate-700 mb-1">Target Service:</label>
-                <select id="editAdService" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-bold text-slate-800 focus:outline-none focus:border-blue-600">
-                  <option value="ALL">All Consumer Apps</option>
-                  <option value="GROCERY">NABIN Quick Grocery</option>
-                  <option value="RIDE">NABIN Mobility (Rides)</option>
-                  <option value="FOOD">NABIN Food Delivery</option>
-                </select>
-              </div>
-            </div>
-
-            <div class="grid grid-cols-2 gap-3">
-              <div>
-                <label class="block font-bold text-slate-700 mb-1">CTA Button Text:</label>
-                <input type="text" id="editAdCtaText" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-bold text-slate-900 focus:outline-none focus:border-blue-600">
-              </div>
-              <div>
-                <label class="block font-bold text-slate-700 mb-1">Bid Rate CPM (₹ / 1k Impr):</label>
-                <input type="number" id="editAdBidCpm" step="5" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-bold text-slate-900 focus:outline-none focus:border-blue-600">
+                <label class="block font-bold text-slate-700 mb-1">Run End (after start):</label>
+                <input type="date" id="editAdEnd" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-bold text-slate-900 focus:outline-none focus:border-blue-600">
               </div>
             </div>
 
             <div>
-              <label class="block font-bold text-slate-700 mb-1">Click Redirect / External Partner URL:</label>
-              <input type="text" id="editAdCtaLink" placeholder="https://brand.com/offer or /grocery?cat=..." class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-mono text-slate-800 focus:outline-none focus:border-blue-600">
+              <label class="block font-bold text-slate-700 mb-1">Click Redirect URL:</label>
+              <input type="text" id="editAdCtaLink" placeholder="/grocery?cat=... or https://partner.example/offer" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-mono text-slate-800 focus:outline-none focus:border-blue-600">
             </div>
 
             <div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
               <button type="button" onclick="closeEditAdModal()" class="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-xs font-bold text-slate-700 cursor-pointer">Cancel</button>
               <button type="submit" id="btnSubmitEditAd" class="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-md flex items-center gap-1.5 cursor-pointer">
                 <span class="material-symbols-outlined text-sm">save</span>
-                <span>Save Updates Live</span>
+                <span>Save Changes</span>
               </button>
             </div>
           </form>
@@ -3991,28 +3921,67 @@
 
     // --- AUDIT LOGS MODAL ---
 
+    // The Decision 6 B marker, rendered (docs/OWNER_SECURITY_DECISIONS.md:228). Whether this
+    // table is the trail or a window onto it is a property of the answer, not of the page: the
+    // same view can be an exact store count one moment and this process's mirror the next. So
+    // the copy that used to promise an "immutable, tamper-resistant record" is gone, and each
+    // request states what it actually carried. `textContent`, not `innerHTML` — the notice is
+    // the backend's wording, and the numbers are its facts, but neither is trusted markup.
+    function renderAuditTrailNotice(el, data, baseClass) {
+      if (!el) return;
+      const layout = baseClass || 'text-xs';
+      if (!data || data.success !== true) {
+        el.className = `${layout} text-red-700 font-bold`;
+        el.textContent = 'The audit trail could not be read, so nothing is being shown. This is not an empty trail.';
+        return;
+      }
+      const shown = Array.isArray(data.logs) ? data.logs.length : 0;
+      if (data.dataSource === 'postgresql' && !data.degraded && !data.stale) {
+        el.className = `${layout} text-slate-500`;
+        el.textContent = data.totalIsExact
+          ? `From the audit store: ${data.total} entries match, ${shown} on this page.`
+          : `From the audit store: the server reported no total, so ${shown} entries are on this page and the size of the trail is not known.`;
+        return;
+      }
+      const counts = [
+        `This process holds ${data.mirroredRows ?? shown} entries`,
+        data.hydrationLimit != null ? `copied as a newest-${data.hydrationLimit} window` : 'with no window recorded',
+        data.storeRows != null ? `against ${data.storeRows} in the store` : 'and the store count is unknown'
+      ].join(', ') + '.';
+      el.className = `${layout} text-amber-700 font-bold`;
+      el.textContent = `${data.notice || 'Served from this process\'s in-memory audit mirror, not from the audit trail.'} ${counts}`
+        + ' A record missing here may exist in the store: absence is not evidence.';
+    }
+
     async function openAuditLogViewer() {
       const modal = document.getElementById('auditLogModal');
       modal.classList.remove('hidden');
+      const tbody = document.getElementById('auditLogModalTableBody');
+      const notice = document.getElementById('auditModalNotice');
+      let data = null;
       try {
         const res = await fetch('/api/admin/audit-logs', {
           headers: { 'Authorization': `Bearer ${currentAdminSession.token}` }
         });
-        const data = await res.json();
-        if (data.success) {
-          const tbody = document.getElementById('auditLogModalTableBody');
-          tbody.innerHTML = data.logs.map(l => `
-            <tr class="hover:bg-slate-50 transition">
-              <td class="py-2.5 px-3 font-bold text-primary">${escHtml(l.id)}</td>
-              <td class="py-2.5 px-3"><span class="px-2 py-0.5 rounded bg-slate-100 text-slate-800 font-bold">${escHtml(l.action)}</span></td>
-              <td class="py-2.5 px-3 font-bold text-slate-900">${escHtml(l.adminName || 'System')}</td>
-              <td class="py-2.5 px-3 text-slate-600">${escHtml(l.previousStatus)} → <b>${escHtml(l.newStatus)}</b></td>
-              <td class="py-2.5 px-3 text-slate-700">${escHtml(l.reason || '—')}</td>
-              <td class="py-2.5 px-3 text-slate-400">${new Date(l.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</td>
-            </tr>
-          `).join('');
-        }
-      } catch (e) {}
+        data = await res.json();
+        if (!res.ok || !data || data.success !== true) data = { success: false };
+      } catch (e) {
+        // The empty `catch` this replaces left the modal open on a stale or empty table with
+        // no word about it — the one shape an investigator reads as "no activity".
+        console.error('Audit trail read failed:', e.message);
+        data = { success: false };
+      }
+      if (tbody) tbody.innerHTML = data.success === true ? data.logs.map(l => `
+        <tr class="hover:bg-slate-50 transition">
+          <td class="py-2.5 px-3 font-bold text-primary">${escHtml(l.id)}</td>
+          <td class="py-2.5 px-3"><span class="px-2 py-0.5 rounded bg-slate-100 text-slate-800 font-bold">${escHtml(l.action)}</span></td>
+          <td class="py-2.5 px-3 font-bold text-slate-900">${escHtml(l.adminName || 'System')}</td>
+          <td class="py-2.5 px-3 text-slate-600">${escHtml(l.previousStatus)} → <b>${escHtml(l.newStatus)}</b></td>
+          <td class="py-2.5 px-3 text-slate-700">${escHtml(l.reason || '—')}</td>
+          <td class="py-2.5 px-3 text-slate-400">${new Date(l.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</td>
+        </tr>
+      `).join('') : '';
+      renderAuditTrailNotice(notice, data, 'px-4 pt-3 text-[11px]');
     }
 
     function closeAuditLogViewer() {
@@ -4112,30 +4081,33 @@
     }
 
     async function loadGlobalAuditLogs() {
+      const tbody = document.getElementById('globalAuditLogsBody');
+      const notice = document.getElementById('auditTrailNotice');
+      let data = null;
       try {
         const query = document.getElementById('auditSearchInput') ? document.getElementById('auditSearchInput').value.trim() : '';
         const res = await fetch(`/api/admin/audit-logs?search=${encodeURIComponent(query)}`, {
           headers: { 'Authorization': `Bearer ${currentAdminSession.token}` }
         });
-        const data = await res.json();
-        if (data.success) {
-          const tbody = document.getElementById('globalAuditLogsBody');
-          if (tbody) {
-            tbody.innerHTML = data.logs.map(l => `
-              <tr class="hover:bg-slate-50 transition">
-                <td class="py-2.5 px-4 font-bold text-primary">${escHtml(l.id)}</td>
-                <td class="py-2.5 px-4"><span class="px-2 py-0.5 rounded bg-blue-50 text-blue-800 font-bold text-[10px]">${escHtml(l.module || 'SYSTEM')}</span></td>
-                <td class="py-2.5 px-4"><span class="px-2 py-0.5 rounded bg-slate-100 text-slate-900 font-bold text-[10px]">${escHtml(l.action)}</span></td>
-                <td class="py-2.5 px-4 font-bold text-slate-900">${escHtml(l.adminName || 'System')}</td>
-                <td class="py-2.5 px-4 text-slate-600">${escHtml(l.targetEntityType || 'ENTITY')}:${escHtml(l.targetEntityId || '—')}</td>
-                <td class="py-2.5 px-4 text-slate-600">${escHtml(l.previousState || '—')} → <span class="font-bold text-slate-900">${escHtml(l.newState || '—')}</span></td>
-                <td class="py-2.5 px-4 text-slate-700 max-w-xs truncate" title="${escHtml(l.reason)}">${escHtml(l.reason || '—')}</td>
-                <td class="py-2.5 px-4 text-slate-400 font-mono text-[10px]">${new Date(l.timestamp).toLocaleString()}</td>
-              </tr>
-            `).join('');
-          }
-        }
-      } catch (e) {}
+        const parsed = await res.json();
+        data = (res.ok && parsed && parsed.success === true) ? parsed : { success: false };
+      } catch (e) {
+        console.error('Audit trail read failed:', e.message);
+        data = { success: false };
+      }
+      if (tbody) tbody.innerHTML = data.success === true ? data.logs.map(l => `
+        <tr class="hover:bg-slate-50 transition">
+          <td class="py-2.5 px-4 font-bold text-primary">${escHtml(l.id)}</td>
+          <td class="py-2.5 px-4"><span class="px-2 py-0.5 rounded bg-blue-50 text-blue-800 font-bold text-[10px]">${escHtml(l.module || 'SYSTEM')}</span></td>
+          <td class="py-2.5 px-4"><span class="px-2 py-0.5 rounded bg-slate-100 text-slate-900 font-bold text-[10px]">${escHtml(l.action)}</span></td>
+          <td class="py-2.5 px-4 font-bold text-slate-900">${escHtml(l.adminName || 'System')}</td>
+          <td class="py-2.5 px-4 text-slate-600">${escHtml(l.targetEntityType || 'ENTITY')}:${escHtml(l.targetEntityId || '—')}</td>
+          <td class="py-2.5 px-4 text-slate-600">${escHtml(l.previousState || '—')} → <span class="font-bold text-slate-900">${escHtml(l.newState || '—')}</span></td>
+          <td class="py-2.5 px-4 text-slate-700 max-w-xs truncate" title="${escHtml(l.reason)}">${escHtml(l.reason || '—')}</td>
+          <td class="py-2.5 px-4 text-slate-400 font-mono text-[10px]">${new Date(l.timestamp).toLocaleString()}</td>
+        </tr>
+      `).join('') : '';
+      renderAuditTrailNotice(notice, data);
     }
 
     let currentAdvertisementsList = [];
@@ -4189,7 +4161,12 @@
             if (elImp) elImp.innerText = (m.totalImpressions > 1000 ? (m.totalImpressions / 1000).toFixed(1) + 'K' : m.totalImpressions);
             if (elClk) elClk.innerText = Number(m.totalClicks).toLocaleString();
             if (elCtr) elCtr.innerText = m.overallCtr;
-            if (elRev) elRev.innerText = `₹${Number(m.adRevenueEstimate).toLocaleString('en-IN')}.00`;
+            const elRevNote = document.getElementById('adMetricRevenueNote');
+            // The route answers monetization with an availability and a reason, not a number, because
+            // no bid-rate column exists to compute one from. A figure is shown only if it sends one.
+            const revFigure = m.monetization && m.monetization.available ? m.monetization.amount : null;
+            if (elRev) elRev.innerText = typeof revFigure === 'number' ? `₹${revFigure.toLocaleString('en-IN')}` : '—';
+            if (elRevNote) elRevNote.innerText = m.monetization && m.monetization.reason ? m.monetization.reason : 'The store reports no revenue figure';
           }
 
           // Update Table
@@ -4197,22 +4174,11 @@
           if (tbody && currentAdvertisementsList) {
             tbody.innerHTML = currentAdvertisementsList.map(ad => {
               const ctr = ad.impressions > 0 ? ((ad.clicks / ad.impressions) * 100).toFixed(2) + '%' : '0.00%';
-              const indClass = ad.industryCategory === 'TECH_ELECTRONICS' ? 'bg-indigo-100 text-indigo-800' :
-                               (ad.industryCategory === 'FINTECH_INSURANCE' ? 'bg-cyan-100 text-cyan-800' :
-                               (ad.industryCategory === 'ENTERTAINMENT' ? 'bg-rose-100 text-rose-800' :
-                               (ad.industryCategory === 'AUTOMOTIVE' ? 'bg-teal-100 text-teal-800' :
-                               (ad.industryCategory === 'EDUCATION' ? 'bg-purple-100 text-purple-800' :
-                               (ad.industryCategory === 'TRAVEL' ? 'bg-sky-100 text-sky-800' : 'bg-emerald-100 text-emerald-800')))));
-
               return `
                 <tr class="hover:bg-slate-50 transition">
                   <td class="py-3 px-4">
-                    <div class="font-bold text-slate-900 text-xs">${escHtml(ad.brand)}</div>
-                    <div class="text-[10px] text-slate-500 max-w-[200px] truncate">${escHtml(ad.title)}</div>
-                    <div class="flex items-center gap-1 mt-0.5">
-                      <span class="px-1.5 py-0.2 rounded ${indClass} text-[9px] font-black uppercase">${escHtml(ad.industryCategory || 'BRAND')}</span>
-                      <span class="px-1.5 py-0.2 rounded bg-slate-100 text-slate-600 text-[9px] font-bold">${escHtml(ad.sponsorBadge)}</span>
-                    </div>
+                    <div class="font-bold text-slate-900 text-xs max-w-[240px] truncate">${escHtml(ad.title)}</div>
+                    <div class="text-[10px] text-slate-500 font-mono">${escHtml(ad.id)}</div>
                   </td>
                   <td class="py-3 px-4">
                     <span class="px-2 py-0.5 rounded bg-blue-50 text-blue-800 text-[10px] font-bold">${escHtml(ad.slot)}</span>
@@ -4221,7 +4187,7 @@
                   <td class="py-3 px-4 font-mono font-bold text-slate-900">${ad.impressions.toLocaleString()}</td>
                   <td class="py-3 px-4 font-mono font-bold text-blue-600">${ad.clicks.toLocaleString()}</td>
                   <td class="py-3 px-4 font-mono font-black text-emerald-600">${ctr}</td>
-                  <td class="py-3 px-4 font-mono font-bold text-slate-700">₹${ad.bidRateCpm.toFixed(2)}</td>
+                  <td class="py-3 px-4 font-mono font-bold text-slate-700">${ad.bidRateCpm === null ? '—' : '₹' + Number(ad.bidRateCpm).toFixed(2)}</td>
                   <td class="py-3 px-4">
                     <button onclick="toggleAdStatus('${safeId(ad.id)}', '${safeId(ad.status)}')" class="px-2 py-0.5 rounded-full text-[10px] font-bold cursor-pointer transition ${ad.status === 'ACTIVE' ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}">
                       ● ${escHtml(ad.status)}
@@ -4247,6 +4213,14 @@
       }
     }
 
+    // The campaign routes answer every write with the store they used and whether the row landed
+    // in it, so the console's message is built from those flags rather than from `success` alone.
+    function adStoreNotice(data, doneVerb, memoryConsequence) {
+      if (data.persisted) return `${doneVerb} in PostgreSQL (dataSource: ${data.dataSource}).`;
+      const why = data.degraded ? 'PostgreSQL refused the write' : 'the durable store was not reached';
+      return `${doneVerb} in server memory only (${why}, dataSource: ${data.dataSource}). ${memoryConsequence}`;
+    }
+
     function openDeployAdModal() {
       document.getElementById('deployAdModal').classList.remove('hidden');
     }
@@ -4260,18 +4234,14 @@
       if (!ad) return alert('Campaign not found.');
 
       document.getElementById('editAdId').value = ad.id;
-      document.getElementById('editAdBrand').value = ad.brand || '';
-      document.getElementById('editAdIndustry').value = ad.industryCategory || 'GENERAL';
-      document.getElementById('editAdBadge').value = ad.sponsorBadge || 'SPONSORED BRAND';
-      document.getElementById('editAdStatus').value = ad.status || 'ACTIVE';
       document.getElementById('editAdTitle').value = ad.title || '';
-      document.getElementById('editAdTagline').value = ad.tagline || '';
-      document.getElementById('editAdSlot').value = ad.slot || 'GROCERY_HERO_CAROUSEL';
-      document.getElementById('editAdService').value = ad.service || 'ALL';
-      document.getElementById('editAdCtaText').value = ad.ctaText || 'Learn More →';
-      document.getElementById('editAdBidCpm').value = ad.bidRateCpm || 50.0;
+      document.getElementById('editAdSlot').value = ad.slot || '';
+      document.getElementById('editAdStatus').value = ad.status || 'ACTIVE';
+      document.getElementById('editAdImage').value = ad.imageUrl || '';
       document.getElementById('editAdCtaLink').value = ad.ctaLink || '';
-      document.getElementById('editAdSubtitle').innerText = `Campaign ID: ${ad.id} • ${ad.brand}`;
+      document.getElementById('editAdStart').value = (ad.startDate || '').slice(0, 10);
+      document.getElementById('editAdEnd').value = (ad.endDate || '').slice(0, 10);
+      document.getElementById('editAdSubtitle').innerText = `Campaign ID: ${ad.id} • ${ad.title}`;
 
       document.getElementById('editAdModal').classList.remove('hidden');
     }
@@ -4283,17 +4253,13 @@
     async function submitEditAdModal(event) {
       event.preventDefault();
       const adId = document.getElementById('editAdId').value;
-      const brand = document.getElementById('editAdBrand').value.trim();
-      const industryCategory = document.getElementById('editAdIndustry').value;
-      const sponsorBadge = document.getElementById('editAdBadge').value.trim();
-      const status = document.getElementById('editAdStatus').value;
       const title = document.getElementById('editAdTitle').value.trim();
-      const tagline = document.getElementById('editAdTagline').value.trim();
       const slot = document.getElementById('editAdSlot').value;
-      const service = document.getElementById('editAdService').value;
-      const ctaText = document.getElementById('editAdCtaText').value.trim();
-      const bidRateCpm = parseFloat(document.getElementById('editAdBidCpm').value) || 50.0;
+      const status = document.getElementById('editAdStatus').value;
+      const imageUrl = document.getElementById('editAdImage').value.trim();
       const ctaLink = document.getElementById('editAdCtaLink').value.trim();
+      const startDate = document.getElementById('editAdStart').value;
+      const endDate = document.getElementById('editAdEnd').value;
       const btn = document.getElementById('btnSubmitEditAd');
 
       btn.disabled = true;
@@ -4306,22 +4272,18 @@
             'Authorization': `Bearer ${currentAdminSession.token}`
           },
           body: JSON.stringify({
-            brand,
-            industryCategory,
-            sponsorBadge,
-            status,
             title,
-            tagline,
             slot,
-            service,
-            ctaText,
-            bidRateCpm,
-            ctaLink
+            status,
+            imageUrl,
+            ctaLink: ctaLink || null,
+            startDate,
+            endDate
           })
         });
         const data = await res.json();
         if (data.success) {
-          alert(`Success: Campaign '${data.advertisement.brand}' updated successfully!`);
+          alert(adStoreNotice(data, 'Updated', 'The stored row keeps its previous values.'));
           closeEditAdModal();
           loadPromotions();
           loadGlobalAuditLogs();
@@ -4329,7 +4291,7 @@
           alert(`Error: ${data.error}`);
         }
       } catch (e) {
-        alert('Server error updating sponsored brand campaign.');
+        alert('Server error updating the campaign.');
       } finally {
         btn.disabled = false;
       }
@@ -4337,16 +4299,12 @@
 
     async function submitDeployAdModal(event) {
       event.preventDefault();
-      const brand = document.getElementById('adModalBrand').value.trim();
-      const industryCategory = document.getElementById('adModalIndustry').value;
-      const sponsorBadge = document.getElementById('adModalBadge').value.trim();
       const title = document.getElementById('adModalTitle').value.trim();
-      const tagline = document.getElementById('adModalTagline').value.trim();
       const slot = document.getElementById('adModalSlot').value;
-      const service = document.getElementById('adModalService').value;
-      const ctaText = document.getElementById('adModalCtaText').value.trim();
-      const bidRateCpm = parseFloat(document.getElementById('adModalBidCpm').value) || 50.0;
+      const imageUrl = document.getElementById('adModalImage').value.trim();
       const ctaLink = document.getElementById('adModalCtaLink').value.trim();
+      const startDate = document.getElementById('adModalStart').value;
+      const endDate = document.getElementById('adModalEnd').value;
       const btn = document.getElementById('btnSubmitDeployAd');
 
       btn.disabled = true;
@@ -4359,22 +4317,17 @@
             'Authorization': `Bearer ${currentAdminSession.token}`
           },
           body: JSON.stringify({
-            brand,
-            industryCategory,
-            sponsorBadge,
             title,
-            tagline,
             slot,
-            service,
-            ctaText,
-            bidRateCpm,
-            ctaLink,
-            status: 'ACTIVE'
+            imageUrl,
+            ctaLink: ctaLink || null,
+            startDate,
+            endDate
           })
         });
         const data = await res.json();
         if (data.success) {
-          alert(`Success: Sponsored campaign '${data.advertisement.title}' deployed live to slot ${data.advertisement.slot}!`);
+          alert(adStoreNotice(data, 'Created', 'The campaign is not in the database and will disappear when the server restarts.'));
           closeDeployAdModal();
           loadPromotions();
           loadGlobalAuditLogs();
@@ -4382,7 +4335,7 @@
           alert(`Error: ${data.error}`);
         }
       } catch (e) {
-        alert('Server error deploying sponsored brand campaign.');
+        alert('Server error creating the campaign.');
       } finally {
         btn.disabled = false;
       }
@@ -4404,6 +4357,8 @@
         if (data.success) {
           loadPromotions();
           loadGlobalAuditLogs();
+        } else {
+          alert(`Error: ${data.error}`);
         }
       } catch (e) {
         alert('Error updating ad status.');
@@ -4423,8 +4378,11 @@
         });
         const data = await res.json();
         if (data.success) {
+          alert(adStoreNotice(data, 'Deleted', 'The stored row is unchanged and will reappear when the server restarts.'));
           loadPromotions();
           loadGlobalAuditLogs();
+        } else {
+          alert(`Error: ${data.error}`);
         }
       } catch (e) {
         alert('Error deleting ad campaign.');

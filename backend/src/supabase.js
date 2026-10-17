@@ -86,11 +86,17 @@ async function checkSupabaseConnection() {
     return asEnv({ configured: false, connected: true, ready: true, mode: 'DEVELOPMENT_LOCAL_MODE' });
   }
   try {
-    const { data, error } = await supabase.from('users').select('count', { count: 'exact', head: true });
+    const client = supabaseAdmin || supabase;
+    let { data, error, count } = await client.from('platform_settings').select('count', { count: 'exact', head: true });
     if (error) {
-      return asEnv({ configured: true, connected: false, ready: false, error: error.message, mode: 'POSTGRES_DISCONNECTED' });
+      const fallback = await client.from('users').select('count', { count: 'exact', head: true });
+      if (fallback.error) {
+        return asEnv({ configured: true, connected: false, ready: false, error: error.message || fallback.error.message, mode: 'POSTGRES_DISCONNECTED' });
+      }
+      data = fallback.data;
+      count = fallback.count;
     }
-    return asEnv({ configured: true, connected: true, ready: true, mode: 'SUPABASE_POSTGRES_LIVE', userCount: data });
+    return asEnv({ configured: true, connected: true, ready: true, mode: 'SUPABASE_POSTGRES_LIVE', userCount: count ?? data });
   } catch (e) {
     return asEnv({ configured: true, connected: false, ready: false, error: e.message, mode: 'POSTGRES_ERROR' });
   }

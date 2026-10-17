@@ -12,13 +12,18 @@ const { trackServer } = require('./scripts/spawned_server');
 const { releasePrivatePort } = require('./scripts/port_release');
 const { Client } = require('pg');
 const { createLogin } = require('./testSessionCache');
+const targetGuard = require('./scripts/chain_target_guard');
 
 process.env.NABIN_TEST_MODE = 'true';
 
 // The chain owns the harness and says where it is; running this file on its own still finds the
 // local backend on its default port.
 const BASE_URL = process.env.NABIN_TEST_BASE_URL || 'http://127.0.0.1:4000';
-const PG_CONN_STRING = process.env.DATABASE_URL || 'postgresql://postgres:postgres@127.0.0.1:54322/postgres';
+// F-C1-1: this suite writes audit rows and reads them back through its own pg handle, so the store
+// must be a target something DECLARED (shell, then backend/.env) and loopback — never an address typed
+// into this file, which is what let a run write one store and assert against another (#283).
+const PG_TARGET = targetGuard.requireLoopbackPgTarget({ label: 'test_phase7_security' });
+const PG_CONN_STRING = PG_TARGET.connectionString;
 
 function createPgClient() {
   return new Client({ connectionString: PG_CONN_STRING });
@@ -518,9 +523,50 @@ async function runSuite() {
     process.env.NODE_ENV = 'production';
     delete process.env.NABIN_TEST_MODE;
 
-    // Send OTP in production mode
-    const prodOtpRes = await db.sendAuthOtp({ phone: '+919999999999', role: 'CUSTOMER' });
-    assert('Production sendAuthOtp NEVER returns testOtp in response payload', prodOtpRes.testOtp === undefined);
+    // The master-key risk is a verification that synthesises its own challenge:
+    // `!record && isTestOrDev && otp === '7729'` in NabinDatabase.verifyAuthOtp
+    // hands a session to anyone who types a memorised four-digit code for a number
+    // nobody ever requested one for. That is asked here directly, because it needs
+    // no SMS delivery to measure.
+    const ghostPhone = '+919999999998';
+    db.otpStore.delete(`${ghostPhone}_CUSTOMER_LOGIN`);
+    let ghostOpened = false;
+    let ghostRefusal = null;
+    try {
+      await db.verifyAuthOtp({ phone: ghostPhone, otp: '7729', role: 'CUSTOMER' });
+      ghostOpened = true;
+    } catch (err) {
+      ghostRefusal = err.message;
+    }
+    assert('Production verifyAuthOtp mints no session from a fixed code no one was sent',
+      ghostOpened === false, ghostOpened ? 'a session was opened' : `refused: ${ghostRefusal}`);
+
+    // Send OTP in production mode.
+    // Refusing delivery is the expected outcome here: production declares no
+    // SMS_PROVIDER, and the gateway must not simulate one to make a request
+    // succeed. So the check is on whichever of the two legal outcomes happened,
+    // never on a delivery that cannot happen without real provider credentials.
+    let prodOtpRes = null;
+    let prodSendCode = null;
+    try {
+      prodOtpRes = await db.sendAuthOtp({ phone: '+919999999999', role: 'CUSTOMER' });
+    } catch (err) {
+      prodSendCode = err.code || 'SEND_FAILED';
+    }
+    assert(prodOtpRes
+      ? 'Production sendAuthOtp delivered and its response payload carried no testOtp'
+      : `Production sendAuthOtp refused to simulate delivery (${prodSendCode}), so nothing was echoed`,
+      prodOtpRes
+        ? prodOtpRes.testOtp === undefined
+        : prodSendCode === 'SMS_GATEWAY_NOT_CONFIGURED');
+
+    // The challenge a production send writes exists before delivery is attempted
+    // and is deliberately kept when delivery fails, so the code it chose is
+    // observable without a gateway: it must be a draw, not the fixed demo code.
+    const prodChallenge = db.otpStore.get('+919999999999_CUSTOMER_LOGIN');
+    assert('Production sendAuthOtp mints a random challenge, never the fixed demo code',
+      prodChallenge ? prodChallenge.otp !== '7729' : false,
+      prodChallenge ? `minted ${prodChallenge.otp}` : 'no challenge was written, so nothing was measured');
 
     // Verify static demo OTP in production mode (must throw error / reject)
     let prodVerifyRejected = false;

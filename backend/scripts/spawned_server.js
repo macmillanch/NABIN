@@ -18,7 +18,10 @@
 // so it is never touched. Nothing here resolves a port to find a victim.
 // =========================================================================
 
-const { execSync } = require('child_process');
+const { execSync, spawn } = require('child_process');
+const http = require('http');
+const net = require('net');
+const path = require('path');
 
 const spawnedServers = [];
 
@@ -58,8 +61,77 @@ async function reapAndWait(isUp, { attempts = 40, delayMs = 250 } = {}) {
   return false;
 }
 
+// A second NABIN instance, on a port of its own, whose periodic session tick reads the store
+// and never writes it.
+//
+// Cross-instance adoption — a `backend_sessions` row that some other process wrote becoming
+// honourable here — is performed by `src/server.js`'s reconcile timer. The chain runner boots
+// both servers it owns with that timer OFF (F-13, measured 2026-10-16: its first statement is
+// a DELETE of expired rows from whatever store `liveStore()` serves, and for the shared harness
+// that store is `public`), so a suite may no longer wait on a background timer it does not own
+// for the behaviour it asserts. It starts the instance that performs it instead.
+//
+// Two switches, both read at boot: `NABIN_SESSION_RECONCILE_MS` gives the tick a short explicit
+// interval, so the check measures seconds instead of polling a 15 s window, and
+// `NABIN_SESSION_PRUNE=off` keeps the store DELETE out of it — the suite is measuring adoption,
+// and nothing here deletes from a store the suite did not provision.
+async function spawnConvergingInstance({ port, tickMs = 1500, attempts = 60, delayMs = 250 } = {}) {
+  const chosen = port || await findFreePort();
+  const backendDir = path.join(__dirname, '..');
+  const proc = trackServer(spawn(process.execPath, [path.join(backendDir, 'src/server.js')], {
+    cwd: backendDir,
+    stdio: 'ignore',
+    detached: true,
+    windowsHide: true,
+    env: {
+      ...process.env,
+      PORT: String(chosen),
+      NABIN_SESSION_RECONCILE_MS: String(tickMs),
+      NABIN_SESSION_PRUNE: 'off'
+    }
+  }));
+  proc.unref();
+  const baseUrl = `http://127.0.0.1:${chosen}`;
+  const readyWindowMs = attempts * delayMs;
+  for (let i = 0; i < attempts; i++) {
+    await new Promise((r) => setTimeout(r, delayMs));
+    if (await httpStatus(`${baseUrl}/api/health`) === 200) {
+      return { proc, port: chosen, baseUrl, tickMs, readyWindowMs, ready: true };
+    }
+  }
+  // Not a failure of the assertion — a failure of the boundary the assertion runs on. The
+  // caller reports it as its own failed check rather than letting a missing server look like
+  // a missing adoption.
+  return { proc, port: chosen, baseUrl, tickMs, readyWindowMs, ready: false };
+}
+
+// Ephemeral-port handshake: bind 0, read the port the OS gave, release it. The child binds it
+// a moment later; nothing here kills a process to free a port.
+function findFreePort() {
+  return new Promise((resolve, reject) => {
+    const probe = net.createServer();
+    probe.once('error', reject);
+    probe.once('listening', () => {
+      const { port } = probe.address();
+      probe.close(() => resolve(port));
+    });
+    probe.listen(0, '127.0.0.1');
+  });
+}
+
+function httpStatus(url) {
+  return new Promise((resolve) => {
+    const req = http.get(url, (res) => {
+      res.resume();
+      resolve(res.statusCode);
+    });
+    req.on('error', () => resolve(0));
+    req.setTimeout(2000, () => { req.destroy(); resolve(0); });
+  });
+}
+
 // Registered on require: a suite that aborts through a scattered `process.exit(1)` is
 // still a suite that started something.
 process.once('exit', reapSpawnedServers);
 
-module.exports = { trackServer, reapSpawnedServers, reapAndWait, spawnedServers };
+module.exports = { trackServer, reapSpawnedServers, reapAndWait, spawnedServers, spawnConvergingInstance, findFreePort };

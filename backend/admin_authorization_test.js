@@ -44,7 +44,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
 // Reap the backend this run starts, and only that one — scripts/spawned_server.js.
-const { trackServer } = require('./scripts/spawned_server');
+const { trackServer, spawnConvergingInstance } = require('./scripts/spawned_server');
 
 // A server this file spawns carries these, because the payment verifiers refuse to be
 // configured from a value in the source (see project memory: suite preconditions).
@@ -54,6 +54,32 @@ process.env.NABIN_TEST_MODE = 'true';
 
 const { supabaseAdmin, isLivePostgres } = require('./src/supabase');
 const { ROLE_GRANTS, grantsForRole, KNOWN_ADMIN_ROLES } = require('./src/adminPermissions');
+
+/* ONE DATABASE, OR REFUSE (#283). The harness this gate drives is hard-bound to loopback
+ * :4000, and CLN-03's per-run account cleanup deletes through the direct `pg` connection,
+ * whose default is the loopback stack. The accounts themselves are provisioned through
+ * `SUPABASE_URL`, and `src/supabase.js` dotenv-loads `backend/.env` — so a bare run writes
+ * admin rows and session rows into the hosted TEST project while its cleanup deletes from a
+ * local database. CLN-03 then reports the mismatch as UNVERIFIED instead of passing, which is
+ * honest about the cleanup but leaves every row this run created behind in the store it should
+ * never have touched. `require('./src/supabase')` above has resolved the effective URL; refuse
+ * here, before the server spawn and before any insert, and name both targets. */
+const LOOPBACK_HOST = /^(?:127\.\d{1,3}\.\d{1,3}\.\d{1,3}|localhost|::1)$/i;
+const targetGuard = require('./scripts/chain_target_guard');
+// F-C1-1: this suite writes and asserts through this handle, so its store must be a target
+// something DECLARED (shell, then backend/.env) and loopback - never an address typed into
+// this file, which is what let a run write one store and assert against another (#283).
+const PG_TARGET = targetGuard.requireLoopbackPgTarget({ label: 'admin_authorization_test' });
+const PG_URL = PG_TARGET.connectionString;
+const offStack = [['pg', PG_URL]]
+  .concat(process.env.SUPABASE_URL ? [['supabase', process.env.SUPABASE_URL]] : [])
+  .filter(([, url]) => !LOOPBACK_HOST.test(new URL(url).hostname))
+  .map(([label, url]) => `${label}=${new URL(url).hostname}`);
+if (offStack.length) {
+  console.error(`AUTHZ REFUSED (#283): ${offStack.join(', ')} — this gate writes and cleans one`
+    + ' local stack end to end. Run it through scripts/with_local_target.js.');
+  process.exit(1);
+}
 
 const BASE_URL = 'http://127.0.0.1:4000';
 const ABSENT = 'authz_absent_zz';
@@ -65,9 +91,9 @@ function check(id, cond, detail) {
   console.log(`${cond ? '✅' : '❌'} [${id}] ${cond ? 'PASS' : 'FAIL'}  ${detail}`);
 }
 
-function request(method, route, body = null, headers = {}) {
+function request(method, route, body = null, headers = {}, base = BASE_URL) {
   return new Promise((resolve, reject) => {
-    const url = new URL(route, BASE_URL);
+    const url = new URL(route, base);
     const bodyStr = body !== null && body !== undefined ? JSON.stringify(body) : null;
     const req = http.request({
       method,
@@ -600,9 +626,19 @@ async function main() {
   // --- RX: a session this process never issued --------------------------
   // The durable session store is authoritative across instances, so a row written
   // elsewhere must be honoured here within one reconcile, and revocable from here too.
+  //
+  // "Here" is now an instance this suite booted. Adoption is `src/server.js`'s periodic
+  // reconcile tick, and the chain runner boots the shared harness with that timer OFF (F-13,
+  // measured 2026-10-16: the tick's first statement deletes expired rows from whatever store
+  // the process points at, which for the harness is `public`), so waiting for it on :4000 was
+  // waiting for a write that no longer happens. `spawnConvergingInstance` boots a second
+  // instance with the tick on a short explicit interval and the store DELETE switched off, and
+  // the row is inserted AFTER that boot's hydration has answered health — so the only path
+  // from the row to a 200 is a reconcile tick on the instance under test.
   const ops = provisioned.find(p => p.role === 'OPERATIONS');
   const foreignBearer = `nabin_operations_tok_${crypto.randomBytes(18).toString('base64url')}`;
   const foreignHandle = crypto.createHash('sha256').update(foreignBearer).digest('hex');
+  const converging = await spawnConvergingInstance({ tickMs: 1500 });
   const inserted = await supabaseAdmin.from('backend_sessions').insert({
     token_hash: foreignHandle,
     role: 'OPERATIONS',
@@ -614,22 +650,35 @@ async function main() {
     expires_at: new Date(Date.now() + 10 * 60 * 1000).toISOString()
   });
   let honoured = null;
-  for (let i = 0; i < 40 && !honoured; i++) {
-    await new Promise(r => setTimeout(r, 1000));
-    const probe = await request('GET', '/api/admin/me', null, bearer(foreignBearer));
-    if (probe.status === 200) honoured = probe;
+  const pollStartedAt = Date.now();
+  if (converging.ready) {
+    for (let i = 0; i < 20 && !honoured; i++) {
+      await new Promise(r => setTimeout(r, 500));
+      const probe = await request('GET', '/api/admin/me', null, bearer(foreignBearer), converging.baseUrl);
+      if (probe.status === 200) honoured = probe;
+    }
   }
-  check('RX-01', !inserted.error && !!honoured,
-    `a session written by another instance is honoured within the 15-second reconcile window (${honoured ? 'after a poll' : 'never'})`);
+  check('RX-01', converging.ready && !inserted.error && !!honoured,
+    `a session written by another instance is honoured by the tick of the instance the suite booted for it `
+    + `(NABIN_SESSION_RECONCILE_MS=${converging.tickMs}, NABIN_SESSION_PRUNE=off, :${converging.port}; `
+    + `${!converging.ready ? `that instance never answered /api/health within ${converging.readyWindowMs} ms`
+      : honoured ? `after ${Date.now() - pollStartedAt} ms of polling` : 'never'})`);
   check('RX-02', !!honoured && honoured.data.admin.role === 'OPERATIONS',
     `and it is honoured as the role it carries, not refused at the door — authenticateAdmin used to accept only ADMIN and SUPER_ADMIN here, so an OPERATIONS or KYC token that reached this branch was a live session the door could not read`);
-  const foreignGated = await request('GET', '/api/admin/support', null, bearer(foreignBearer));
-  const foreignDenied = await request('GET', '/api/admin/audit-logs?limit=1', null, bearer(foreignBearer));
+  // With that instance down every probe below would reject on ECONNREFUSED and abort the suite
+  // rather than fail a check, so the probes report the outage as a status 0 and the checks read it.
+  const dead = { status: 0, data: { code: 'CONVERGING_INSTANCE_NOT_UP' }, raw: '' };
+  const foreignGated = converging.ready
+    ? await request('GET', '/api/admin/support', null, bearer(foreignBearer), converging.baseUrl) : dead;
+  const foreignDenied = converging.ready
+    ? await request('GET', '/api/admin/audit-logs?limit=1', null, bearer(foreignBearer), converging.baseUrl) : dead;
   check('RX-03', foreignGated.status === 200 && foreignDenied.status === 403,
     `with its grants intact: support queue ${foreignGated.status}, audit trail ${foreignDenied.status}`);
-  const revokeForeign = await request('POST', '/api/admin/security/sessions/revoke', { sessionId: foreignHandle }, bearer(superToken));
-  await new Promise(r => setTimeout(r, 1200));
-  const foreignAfter = await request('GET', '/api/admin/me', null, bearer(foreignBearer));
+  const revokeForeign = converging.ready
+    ? await request('POST', '/api/admin/security/sessions/revoke', { sessionId: foreignHandle }, bearer(superToken), converging.baseUrl) : dead;
+  if (converging.ready) await new Promise(r => setTimeout(r, 1200));
+  const foreignAfter = converging.ready
+    ? await request('GET', '/api/admin/me', null, bearer(foreignBearer), converging.baseUrl) : dead;
   check('RX-04', revokeForeign.status === 200 && foreignAfter.status === 401,
     `and one instance can revoke a session it never issued (${revokeForeign.status}/${foreignAfter.status}) — the reason revoke goes to the store before it touches memory`);
 
@@ -791,9 +840,8 @@ async function main() {
    * ONLY the accounts this run provisioned, by the ids it recorded - never another run's rows,
    * and never the platform account - then verifies absence by re-reading, and prints the table
    * size so growth is visible rather than assumed away. */
-  const PG_URL = process.env.NABIN_PG_NOTIFY || 'postgres://postgres:postgres@127.0.0.1:54322/postgres';
   try {
-    if (!/^(?:127\.\d{1,3}\.\d{1,3}\.\d{1,3}|localhost|::1)$/i.test(new URL(PG_URL).hostname)) {
+    if (!LOOPBACK_HOST.test(new URL(PG_URL).hostname)) {
       throw new Error('refusing to clean a non-loopback database');
     }
     const { Client } = require('pg');

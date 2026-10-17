@@ -91,10 +91,12 @@ function projectRefs(raw) {
 /**
  * What a Supabase key says about the project it belongs to.
  *
- * Legacy `anon` / `service_role` keys are JWTs carrying `iss: "supabase:<ref>"` and a
- * `role` claim, so the key itself can be checked against the URL it is paired with —
- * which is exactly the "development URL, production key" accident. The newer
- * `sb_publishable_…` / `sb_secret_…` formats carry no project claim; for those the
+ * The legacy `anon` / `service_role` keys in `backend/.env` and `backend/.env.staging` were
+ * decoded on 12 Oct 2026 and carry `{exp, iat, iss, ref, role}` with `iss: "supabase"` — the
+ * project lives in its own top-level `ref` claim, not inside `iss`. Both locations are read,
+ * because the key itself is what makes the "development URL, production key" accident
+ * detectable rather than something the operator has to notice. The newer
+ * `sb_publishable_…` / `sb_secret_…` formats carry no project claim at all; for those the
  * declared ref is the only control, and that is stated as a note, not a failure.
  *
  * The token is never included in any output this function produces.
@@ -110,11 +112,15 @@ function keyClaims(raw) {
     const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
     const iss = String(payload.iss || '');
     const fromIss = iss.split(':').pop();
+    const explicitRef = String(payload.ref || '');
+    const resolvedRef = REF_PATTERN.test(explicitRef)
+      ? explicitRef.toLowerCase()
+      : (REF_PATTERN.test(fromIss) ? fromIss.toLowerCase() : null);
     return {
       present: true,
       format: 'jwt',
       role: String(payload.role || ''),
-      ref: REF_PATTERN.test(fromIss) ? fromIss.toLowerCase() : null,
+      ref: resolvedRef,
     };
   } catch (e) {
     return { present: true, format: 'opaque' };
@@ -227,7 +233,7 @@ function audit(source) {
         + `${expectRef}. Cross-environment credential — refusing to start.`
       );
     }
-    if (!claims.ref && claims.format !== 'jwt' && expectRef) {
+    if (!claims.ref && expectRef) {
       notes.push(
         `${label} is a ${claims.format} key, which carries no project claim; the `
         + `NABIN_SUPABASE_REF pin is the only guard on it.`

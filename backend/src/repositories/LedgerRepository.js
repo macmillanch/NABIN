@@ -40,6 +40,37 @@ function normalizeAccountCode(code) {
   return 'CUSTOMER_WALLET_LIABILITY';
 }
 
+/**
+ * The durable journal refused a posting, and PostgreSQL's sentence about itself is not
+ * the caller's to read.
+ *
+ * Until now a refusal here was a `console.warn` and then a mirror row stamped POSTED, so
+ * a settlement whose journal insert never happened was reported as booked — the same
+ * failure `recordLedgerEntry` then swallowed a second time. Money is the one place a
+ * refusal cannot be an opinion, so the refusal travels with the parts `storeReply`
+ * (src/supabase.js:162) classifies, in the shape src/repositories/PaymentRepository.js:25
+ * already uses: the `storeFailure` flag the routes read, the engine's own `code` so 503 /
+ * 409 / 500 is decided by the SQLSTATE and not by wording, and the engine's text on
+ * `details`, which routes log and never echo. The status stays unset on purpose: a store
+ * failure is not a 400.
+ */
+function storeFailure(what, error) {
+  const err = new Error(`The ${what} could not be completed because the ledger store refused it.`);
+  err.storeFailure = true;
+  err.code = (error && error.code) || 'STORE_ERROR';
+  err.details = error ? String(error.message || error.code || error) : 'unknown store failure';
+  if (error && error.hint) err.hint = String(error.hint);
+  const wireStatus = error && (error.status || error.statusCode);
+  if (wireStatus) err.status = Number(wireStatus);
+  if (error && error.cause) err.cause = error.cause;
+  return err;
+}
+
+// Both unique constraints a 23505 can come from on this table
+// (supabase/migrations/002_finance_ledger_schema.sql:36-37) mean the same thing: this
+// movement is already booked.
+const JOURNAL_UNIQUE = /journal_transactions_(transaction_id|idempotency_key)_key/;
+
 class LedgerRepository {
   constructor(db) {
     this.db = db;
@@ -297,7 +328,7 @@ class LedgerRepository {
             balance
           };
         }
-        throw new Error(`PostgreSQL adjust_wallet_atomic failed: ${error.message}`);
+        throw storeFailure('wallet adjustment', error);
       }
 
       if (!data || !data.success) {
@@ -436,18 +467,19 @@ class LedgerRepository {
     };
 
     if (isLivePostgres && supabaseAdmin) {
-      try {
-        // Resolve job UUID if jobId provided
-        let jobUuid = null;
-        if (jobId && UUID_REGEX.test(jobId)) {
-          jobUuid = jobId;
-        } else if (jobId && this.db.jobs) {
-          const j = this.db.jobs.find(x => x.id === jobId || x.jobNumber === jobId);
-          if (j && j.uuid) jobUuid = j.uuid;
-        }
+      // Resolve job UUID if jobId provided
+      let jobUuid = null;
+      if (jobId && UUID_REGEX.test(jobId)) {
+        jobUuid = jobId;
+      } else if (jobId && this.db.jobs) {
+        const j = this.db.jobs.find(x => x.id === jobId || x.jobNumber === jobId);
+        if (j && j.uuid) jobUuid = j.uuid;
+      }
 
-        // Insert journal transaction in PostgreSQL
-        const { data: jtData, error: jtErr } = await supabaseAdmin
+      // Insert journal transaction in PostgreSQL
+      let header;
+      try {
+        header = await supabaseAdmin
           .from('journal_transactions')
           .insert([{
             transaction_id: txnId,
@@ -462,43 +494,69 @@ class LedgerRepository {
           }])
           .select('id')
           .single();
-
-        // journal_transactions.idempotency_key is UNIQUE in the database, so a
-        // collision is PostgreSQL refusing a second booking of the same movement.
-        // That is the answer the caller needs, not an error to swallow: the
-        // in-memory ledger must not record it either.
-        if (jtErr && jtErr.code === '23505' && idempotencyKey) {
-          return { duplicate: true, idempotencyKey: String(idempotencyKey), transactionId: txnId };
-        }
-
-        if (!jtErr && jtData && jtData.id) {
-          // Insert Debit and Credit journal lines with valid account codes
-          const dAccount = normalizeAccountCode(debitAccount);
-          const cAccount = normalizeAccountCode(creditAccount);
-          await supabaseAdmin.from('journal_lines').insert([
-            {
-              journal_id: jtData.id,
-              account_code: dAccount,
-              entry_type: 'DEBIT',
-              amount: numAmount,
-              entity_type: 'PLATFORM',
-              notes: description
-            },
-            {
-              journal_id: jtData.id,
-              account_code: cAccount,
-              entry_type: 'CREDIT',
-              amount: numAmount,
-              entity_type: 'PLATFORM',
-              notes: description
-            }
-          ]);
-        }
       } catch (err) {
-        console.warn('⚠️ Supabase journal insert notice:', err.message);
+        throw storeFailure('double-entry ledger posting', err);
       }
+
+      const jtErr = header && header.error;
+
+      // `journal_transactions.idempotency_key` and `.transaction_id` are both UNIQUE, so a
+      // collision is PostgreSQL refusing a second booking of the same movement. That is the
+      // answer the caller needs, not an error to swallow and not a success to mirror: the
+      // in-memory ledger must not record it either. The old guard required an idempotency
+      // key, so the collision a re-run settlement actually produces — on the deterministic
+      // `RIDE-SETTLEMENT-<ref>-COMMISSION` transaction id, with no key — fell through to a
+      // second POSTED row.
+      if (jtErr && jtErr.code === '23505' && JOURNAL_UNIQUE.test(String(jtErr.message || ''))) {
+        return {
+          duplicate: true,
+          idempotencyKey: idempotencyKey ? String(idempotencyKey) : null,
+          transactionId: txnId
+        };
+      }
+
+      if (jtErr) throw storeFailure('double-entry ledger posting', jtErr);
+      if (!header.data || !header.data.id) {
+        throw storeFailure('double-entry ledger posting',
+          new Error('the journal_transactions insert answered success with no row'));
+      }
+
+      // Insert Debit and Credit journal lines with valid account codes. The header is
+      // meaningless without its legs — a half-posted journal is not a balanced entry, so a
+      // refusal of the lines fails the whole posting instead of being the read this method
+      // never performed.
+      let lines;
+      try {
+        lines = await supabaseAdmin.from('journal_lines').insert([
+          {
+            journal_id: header.data.id,
+            account_code: normalizeAccountCode(debitAccount),
+            entry_type: 'DEBIT',
+            amount: numAmount,
+            entity_type: 'PLATFORM',
+            notes: description
+          },
+          {
+            journal_id: header.data.id,
+            account_code: normalizeAccountCode(creditAccount),
+            entry_type: 'CREDIT',
+            amount: numAmount,
+            entity_type: 'PLATFORM',
+            notes: description
+          }
+        ]);
+      } catch (err) {
+        throw storeFailure('the journal lines of a ledger posting', err);
+      }
+      if (lines && lines.error) throw storeFailure('the journal lines of a ledger posting', lines.error);
+
+      this.db.ledgerEntries.unshift(entry);
+      return entry;
     }
 
+    // No durable journal is configured at all (offline development): the mirror is the whole
+    // store, so there is no book to desynchronise. A store that exists and refused is handled
+    // above, and fails.
     this.db.ledgerEntries.unshift(entry);
     return entry;
   }

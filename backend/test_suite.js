@@ -12,8 +12,13 @@ process.env.PAYMENT_KEY_SECRET ||= 'test_key_secret_not_for_deployment';
 process.env.NABIN_TEST_MODE = 'true';
 const { supabaseAdmin, isLivePostgres } = require('./src/supabase');
 const { createClient } = require('@supabase/supabase-js');
+const { openFixtures } = require('./test_fixtures');
 
-const BASE_URL = 'http://127.0.0.1:4000';
+// The base URL follows the same explicit-target rule as every other lane-aware suite:
+// `scripts/test_chain.js` repoints these keys at a lane backend when a link carries `laneServer`,
+// so the bookings this file makes — and the rows it therefore leaves behind — can be aimed at a
+// throwaway clone instead of the shared `public` store the whole chain reads.
+const BASE_URL = process.env.NABIN_TEST_BASE_URL || process.env.NABIN_TEST_BASE || 'http://127.0.0.1:4000';
 
 function webhookHeaders(body) {
   const secret = process.env.PAYMENT_WEBHOOK_SECRET;
@@ -111,6 +116,46 @@ async function ensureServerRunning() {
     } catch (e) {}
   }
   return proc;
+}
+
+// The grocery checkout checks below buy from a shelf this file mints, under a merchant it
+// mints and types GROCERY. They used to buy `gprod_3`, whose only stocked shelf in the
+// durable store belongs to the seeded merchant 00000000-0000-0000-0000-000000000201 — and
+// that merchant is typed RESTAURANT, both in the seed and in PostgreSQL, so the entitlement
+// gate in /api/grocery/checkout/validate answers 400 MERCHANT_TYPE_MISMATCH and eleven
+// checks go red. The suite passed for months because a *different* suite UPDATEd that shared
+// row's merchant_type and left the flip in `public`; once that suite was isolated the write
+// stopped landing there. Restyling a merchant another suite shares is exactly what this file
+// must not depend on, so the store, its shelf and the ₹56 price are created here and removed
+// at teardown. Memory mode has no path to pass these checks: its seed hangs `gprod_3` on
+// `mcht_darkstore_1`, which the route refuses outright with DARK_STORE_NOT_SUPPORTED, so the
+// legacy cart is kept there and the assertion detail says which shop the run used.
+let groceryShop = null;
+// Migration 043 made kitchen tickets durable, so the one successful food booking below leaves a
+// `restaurant_kds_tickets` row behind. It hangs off the seeded restaurant and the seeded customer,
+// so no fixture-ownership scope reaches it; the order id is recorded here and the teardown sweep
+// deletes exactly this run's tickets. The order row itself stays - this project treats `orders` as
+// immutable - and openFixtures refuses a non-loopback target, which keeps the sweep out of hosted.
+const placedFoodOrderIds = [];
+async function openGroceryShop() {
+  if (groceryShop) return groceryShop;
+  if (!isLivePostgres || !supabaseAdmin) return null;
+  const handle = await openFixtures('chk');
+  const merchant = await handle.merchant({ type: 'GROCERY', name: 'checkout grocery store' });
+  const milk = await handle.groceryItem(merchant.id, {
+    name: 'checkout milk', category: 'Fixture Aisle', store_price: 56, stock_quantity: 50
+  });
+  groceryShop = { handle, merchantId: merchant.id, milkId: milk.id, price: milk.store_price };
+  return groceryShop;
+}
+
+function groceryCheckoutBody(shop, extra) {
+  return Object.assign({
+    cartItems: shop
+      ? [{ productId: shop.milkId, quantity: 2, price: shop.price }]
+      : [{ productId: 'gprod_3', quantity: 2, price: 56.0 }],
+    deliveryAddress: 'Flat 402, Civil Lines Hub, North Delhi'
+  }, shop ? { merchantId: shop.merchantId } : {}, extra);
 }
 
 async function runAllTests() {
@@ -917,6 +962,9 @@ async function runAllTests() {
       foodBookingRes.status === 200 && foodBookingRes.data.success && foodBookingRes.data.job.packagingFee === 15 && foodBookingRes.data.job.gst > 0
     );
 
+    const placedFoodOrderId = foodBookingRes.data?.order?.id || foodBookingRes.data?.job?.id;
+    if (foodBookingRes.status === 200 && placedFoodOrderId) placedFoodOrderIds.push(String(placedFoodOrderId));
+
     // --- 13. MODULE 11: Authoritative Dual-OTP Trip & Handover Verification ---
     console.log('\n--- 13. MODULE 11: Authoritative Trip & Delivery Dual-OTP Verification ---');
 
@@ -1075,14 +1123,14 @@ async function runAllTests() {
       `status=${revalRes.data.status} items=${JSON.stringify((revalRes.data.items || []).map(i => ({ p: i.productId, av: i.available, sp: i.serverPrice, e: i.estimatedTotal })))}`
     );
 
-    const checkoutValRes = await request('POST', '/api/grocery/checkout/validate', {
-      cartItems: [
-        { productId: 'gprod_3', quantity: 2, price: 56.0 }
-      ],
-      deliveryAddress: 'Flat 402, Civil Lines Hub, North Delhi'
-    }, { 'Authorization': `Bearer ${customerToken}` });
+    const checkoutShop = await openGroceryShop();
+    const checkoutValRes = await request('POST', '/api/grocery/checkout/validate',
+      groceryCheckoutBody(checkoutShop, {}), { 'Authorization': `Bearer ${customerToken}` });
     assert('POST /api/grocery/checkout/validate authoritatively locks order total with delivery slot',
-      checkoutValRes.status === 200 && checkoutValRes.data.success && checkoutValRes.data.order && (checkoutValRes.data.order.finalTotal === 112 || checkoutValRes.data.order.finalTotal === 114) && (checkoutValRes.data.order.order_state === 'RECEIVED' || checkoutValRes.data.order.status === 'RECEIVED' || checkoutValRes.data.order.status === 'CONFIRMED')
+      checkoutValRes.status === 200 && checkoutValRes.data.success && checkoutValRes.data.order && (checkoutValRes.data.order.finalTotal === 112 || checkoutValRes.data.order.finalTotal === 114) && (checkoutValRes.data.order.order_state === 'RECEIVED' || checkoutValRes.data.order.status === 'RECEIVED' || checkoutValRes.data.order.status === 'CONFIRMED'),
+      `shop=${checkoutShop ? `minted ${checkoutShop.merchantId.slice(0, 8)}` : 'seeded legacy ids (no live PostgreSQL)'} `
+      + `status=${checkoutValRes.status} code=${checkoutValRes.data.code} `
+      + `finalTotal=${checkoutValRes.data.order && checkoutValRes.data.order.finalTotal}`
     );
 
     // --- 18. MODULE 16: Complete Multi-App End-to-End User Journey ---
@@ -1951,16 +1999,16 @@ async function runAllTests() {
     // computed and persisted by the server during a real checkout, that a replay
     // cannot burn a second redemption, and that client-supplied money is ignored.
     const chkSuffix = fixtureSuffix();
-    const CART_LINE = [{ productId: 'gprod_3', quantity: 2, price: 56.0 }];
-    const chkAddress = 'Flat 402, Civil Lines Hub, North Delhi';
+    const chkShop = await openGroceryShop();
+    const chkCart = (extra = {}) => groceryCheckoutBody(chkShop, extra);
 
     // CHK-01: Baseline checkout with no coupon establishes the server's gross total
-    const chkBaseline = await request('POST', '/api/grocery/checkout/validate', {
-      cartItems: CART_LINE, deliveryAddress: chkAddress
-    }, { 'Authorization': `Bearer ${priyaToken}`, 'Idempotency-Key': `chk_base_${chkSuffix}` });
+    const chkBaseline = await request('POST', '/api/grocery/checkout/validate',
+      chkCart(), { 'Authorization': `Bearer ${priyaToken}`, 'Idempotency-Key': `chk_base_${chkSuffix}` });
     const chkGross = Number(chkBaseline.data.order?.finalTotal);
     assert('CHK-01: Uncouponed checkout locks the server gross total',
-      chkBaseline.status === 200 && chkGross >= 100 && Number(chkBaseline.data.order?.discount) === 0
+      chkBaseline.status === 200 && chkGross >= 100 && Number(chkBaseline.data.order?.discount) === 0,
+      `status=${chkBaseline.status} code=${chkBaseline.data.code} gross=${chkGross}`
     );
 
     // CHK-02: Admin creates a GROCERY-scoped percentage coupon for this run
@@ -1982,9 +2030,8 @@ async function runAllTests() {
 
     // CHK-03 & CHK-04: The checkout response carries the server's discount math
     const chkKey = `chk_apply_${chkSuffix}`;
-    const chkApplied = await request('POST', '/api/grocery/checkout/validate', {
-      cartItems: CART_LINE, couponCode: chkCode, deliveryAddress: chkAddress
-    }, { 'Authorization': `Bearer ${priyaToken}`, 'Idempotency-Key': chkKey });
+    const chkApplied = await request('POST', '/api/grocery/checkout/validate',
+      chkCart({ couponCode: chkCode }), { 'Authorization': `Bearer ${priyaToken}`, 'Idempotency-Key': chkKey });
     const chkAppliedOrder = chkApplied.data.order || {};
     const chkDiscount = Number(chkAppliedOrder.discount);
     const chkExpectedDiscount = Math.min(Math.round(chkGross * 30) / 100, 90);
@@ -1999,9 +2046,8 @@ async function runAllTests() {
     );
 
     // CHK-05: Replaying the idempotency key returns the same order, no second redemption
-    const chkReplay = await request('POST', '/api/grocery/checkout/validate', {
-      cartItems: CART_LINE, couponCode: chkCode, deliveryAddress: chkAddress
-    }, { 'Authorization': `Bearer ${priyaToken}`, 'Idempotency-Key': chkKey });
+    const chkReplay = await request('POST', '/api/grocery/checkout/validate',
+      chkCart({ couponCode: chkCode }), { 'Authorization': `Bearer ${priyaToken}`, 'Idempotency-Key': chkKey });
     assert('CHK-05: Idempotent replay returns the same order and same discounted total',
       chkReplay.status === 200 && chkReplay.data.duplicate === true &&
       (chkReplay.data.order?.order_number || chkReplay.data.order?.orderNumber) ===
@@ -2010,9 +2056,9 @@ async function runAllTests() {
     );
 
     // CHK-06: A new key cannot be used to redeem the same coupon twice
-    const chkSecond = await request('POST', '/api/grocery/checkout/validate', {
-      cartItems: CART_LINE, couponCode: chkCode, deliveryAddress: chkAddress
-    }, { 'Authorization': `Bearer ${priyaToken}`, 'Idempotency-Key': `chk_second_${chkSuffix}` });
+    const chkSecond = await request('POST', '/api/grocery/checkout/validate',
+      chkCart({ couponCode: chkCode }),
+      { 'Authorization': `Bearer ${priyaToken}`, 'Idempotency-Key': `chk_second_${chkSuffix}` });
     assert('CHK-06: Second redemption past per-user limit rejected and no order created',
       chkSecond.status === 400 && chkSecond.data.code === 'INVALID_PROMO_CODE' && !chkSecond.data.order
     );
@@ -2035,17 +2081,17 @@ async function runAllTests() {
       code: chkRideCode, name: 'Ride only checkout coupon', discountType: 'FLAT',
       discountValue: 10.0, minOrderAmount: 0.0, serviceType: 'RIDE'
     }, { 'Authorization': `Bearer ${superToken}` });
-    const chkWrongService = await request('POST', '/api/grocery/checkout/validate', {
-      cartItems: CART_LINE, couponCode: chkRideCode, deliveryAddress: chkAddress
-    }, { 'Authorization': `Bearer ${priyaToken}`, 'Idempotency-Key': `chk_wrong_${chkSuffix}` });
+    const chkWrongService = await request('POST', '/api/grocery/checkout/validate',
+      chkCart({ couponCode: chkRideCode }),
+      { 'Authorization': `Bearer ${priyaToken}`, 'Idempotency-Key': `chk_wrong_${chkSuffix}` });
     assert('CHK-09: Service-scoped coupon rejected on the wrong service at checkout',
       chkWrongService.status === 400 && chkWrongService.data.code === 'INVALID_PROMO_CODE'
     );
 
     // CHK-10: A fabricated client discount must not reach the order total
-    const chkSpoofed = await request('POST', '/api/grocery/checkout/validate', {
-      cartItems: CART_LINE, discount: 999, finalTotal: 1, deliveryAddress: chkAddress
-    }, { 'Authorization': `Bearer ${priyaToken}`, 'Idempotency-Key': `chk_spoof_${chkSuffix}` });
+    const chkSpoofed = await request('POST', '/api/grocery/checkout/validate',
+      chkCart({ discount: 999, finalTotal: 1 }),
+      { 'Authorization': `Bearer ${priyaToken}`, 'Idempotency-Key': `chk_spoof_${chkSuffix}` });
     assert('CHK-10: Client-supplied discount and finalTotal are ignored by the server',
       chkSpoofed.status === 200 && Number(chkSpoofed.data.order?.finalTotal) === chkGross &&
       Number(chkSpoofed.data.order?.discount) === 0
@@ -3740,7 +3786,7 @@ async function runAllTests() {
     // --- 34. MODULE 30: WebSocket Protocol Security, Authentication & Telemetry ---
     console.log('\n--- 34. MODULE 30: WebSocket Protocol Security, Authentication & Telemetry ---');
 
-    const WS_URL = 'ws://127.0.0.1:4000';
+    const WS_URL = BASE_URL.replace(/^http/, 'ws');
 
     function waitForWsMessage(ws, timeoutMs = 2500) {
       return new Promise((resolve, reject) => {
@@ -5301,6 +5347,72 @@ async function runAllTests() {
       `fences ${geoRun.baseline.fences} → ${fencesAfter}, rules ${geoRun.baseline.rules} → ${rulesAfter}, ` +
       `reaped ${geoRun.fences.filter(Boolean).length} boundary id(s) (${deleteStatuses.join('/') || 'none'}) ` +
       `and ${ruleIds.length} rule id(s)`);
+  }
+
+  // Teardown for the minted grocery shop, in the same guaranteed-exit place. The checkout checks
+  // buy from a store this file created, so the orders, checkout sessions, shelf, catalogue rows
+  // and price history under that merchant are this run's records and this run's residue. The ids
+  // have to be read before the cleanup empties the registry, and the recount after it is the loud
+  // signal a cleanup regression has to produce rather than a slow pile in the store.
+  if (groceryShop) {
+    const shop = groceryShop;
+    const ownedCatalog = shop.handle.created.catalog.slice();
+    const ownedCheckouts = (await shop.handle.query(
+      `SELECT DISTINCT checkout_id::text id FROM orders
+        WHERE merchant_id = $1::uuid AND checkout_id IS NOT NULL`, [shop.merchantId]
+    )).rows.map(r => r.id);
+    let removed = null;
+    let cleanupError = null;
+    try {
+      removed = await shop.handle.cleanup();
+    } catch (err) {
+      cleanupError = err;
+    }
+    let residue = null;
+    try {
+      residue = await shop.handle.one(
+        `SELECT (SELECT count(*) FROM merchants WHERE id = $1::uuid)::text m,
+                (SELECT count(*) FROM orders WHERE merchant_id = $1::uuid)::text o,
+                (SELECT count(*) FROM order_lines WHERE merchant_id = $1::uuid)::text l,
+                (SELECT count(*) FROM checkouts WHERE id = ANY($2::uuid[]))::text c,
+                (SELECT count(*) FROM merchant_grocery_inventory WHERE merchant_id = $1::uuid)::text i,
+                (SELECT count(*) FROM master_grocery_catalog WHERE id = ANY($3::uuid[]))::text g,
+                (SELECT count(*) FROM grocery_price_history WHERE merchant_id = $1::uuid)::text h`,
+        [shop.merchantId, ownedCheckouts, ownedCatalog]);
+    } catch (err) {
+      residue = { error: String(err.message).slice(0, 160) };
+    }
+    try { await shop.handle.client.end(); } catch (err) { /* already closed */ }
+    assert('CHKX-01: the store, shelf, orders, checkout sessions and price history this run minted are gone again',
+      !cleanupError && !!residue && !residue.error
+      && ['m', 'o', 'l', 'c', 'i', 'g', 'h'].every(k => Number(residue[k]) === 0)
+      && (removed?.blocked || []).length === 0,
+      `removed=${JSON.stringify(removed)} residue=${JSON.stringify(residue)}` +
+      (cleanupError ? ` cleanupError=${cleanupError.message}` : ''));
+  }
+
+  // The kitchen ticket this run's food booking minted, removed by the order id it was minted
+  // against. Nothing else is in range: no name pattern, no "delete tickets that look like test
+  // data", and the order row itself stays because orders are immutable here.
+  if (isLivePostgres && placedFoodOrderIds.length) {
+    const ticketFx = await openFixtures('foodticket');
+    let swept = null;
+    let sweepError = null;
+    let surviving = null;
+    try {
+      swept = await ticketFx.removeKdsTicketsFor(placedFoodOrderIds);
+      surviving = (await ticketFx.one(
+        `SELECT count(*)::int n FROM restaurant_kds_tickets WHERE order_id = ANY($1::uuid[])`,
+        [Array.from(new Set(placedFoodOrderIds))])).n;
+    } catch (err) {
+      sweepError = err;
+    }
+    try { await ticketFx.close(); } catch (err) { /* already closed */ }
+    assert('KDS-TICKET-SWEEP: the kitchen ticket this run minted is gone and its order was left alone',
+      !sweepError && !!swept && swept.blocked.length === 0 && Number(surviving) === 0,
+      `asked=${swept?.asked} removed=${swept?.removed} surviving=${surviving}` +
+      (swept?.blocked?.length ? ` blocked=${JSON.stringify(swept.blocked)}` : '') +
+      (sweepError ? ` sweepError=${String(sweepError.message).slice(0, 140)}` : ''));
   }
 
   console.log('\n========================================================================');
