@@ -309,7 +309,11 @@ function readSources() {
     }
   };
   walk(path.join(SRC, 'src'));
-  return files.map(f => ({ file: f, text: fs.readFileSync(f, 'utf8') }));
+  // Normalize line endings at the single read point so every downstream assertion (the `\n  \}\n`
+  // method-body captures in ST-06/ST-07, the `.split('\n')` handler walks, the `.includes` guards)
+  // behaves identically on an LF worktree and a CRLF `git archive` checkout under core.autocrlf.
+  // In-memory only: no committed file changes and no repo-wide line-ending churn.
+  return files.map(f => ({ file: f, text: fs.readFileSync(f, 'utf8').replace(/\r\n/g, '\n') }));
 }
 
 const ROUTE_RE = /^app\.(get|post|put|delete|patch)\(\s*(\[?['"`])([^'"`\[]*)/;

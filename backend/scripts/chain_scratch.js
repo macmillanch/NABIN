@@ -47,6 +47,11 @@ function sh(cmd, opts = {}) {
 }
 
 function psql(sql) {
+  // backend/scratch is gitignored, so a fresh `git archive HEAD` checkout has no such directory and
+  // the very first psql() write (provisionSchema step [2/4]) dies with ENOENT before startPostgrest()
+  // ever creates it. Create it here — mkdirSync(recursive) only makes missing directories and never
+  // touches existing files — so every temp write path is covered without assuming a pre-existing tree.
+  fs.mkdirSync(SCRATCH, { recursive: true });
   const file = path.join(SCRATCH, `_psql_${process.pid}.sql`);
   fs.writeFileSync(file, sql, 'utf8');
   sh(`docker cp "${file}" ${DB_CONTAINER}:/tmp/_psql.sql`);
