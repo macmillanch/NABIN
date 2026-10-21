@@ -67,3 +67,16 @@ graphify-out/
 
 # State written by backend/scripts/chain_scratch.js (disposable chain schema: proxy pid, not source data).
 backend/.chain-scratch/
+
+# Captured probe/test output. These are regenerable evidence, not source: phase10_probe_out.txt is
+# written by phase10_deep_probe.js and phase21_*_snapshot.json by snapshot_phase21.js; the rest were
+# shell-redirected capture files. Exact paths only, so a future probe script cannot be hidden.
+backend/test_output.txt
+backend/test_results.txt
+backend/phase10_probe_out.txt
+backend/phase10_orders_probe.txt
+backend/phase10_otp_probe.txt
+backend/phase10_otp_probe2.txt
+backend/phase10_update_scan.txt
+backend/p10_update_payloads.txt
+backend/reports/phase21_*_snapshot.json
