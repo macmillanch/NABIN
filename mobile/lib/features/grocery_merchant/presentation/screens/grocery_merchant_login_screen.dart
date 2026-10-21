@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../../core/widgets/nabin_brand_logo.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/grocery_merchant_auth_provider.dart';
@@ -66,30 +67,11 @@ class _GroceryMerchantLoginScreenState extends ConsumerState<GroceryMerchantLogi
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.15),
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(
-                            Icons.shopping_bag_outlined,
-                            color: Colors.white,
-                            size: 28,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        const Text(
-                          'NABIN Grocery',
-                          style: TextStyle(
-                            fontSize: 22,
-                            fontWeight: FontWeight.w900,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ],
+                    const NabinBrandLogo(
+                      fontSize: 22,
+                      isLight: true,
+                      showIcon: true,
+                      badge: 'GROCERY',
                     ),
                     const SizedBox(height: 24),
                     const Text(

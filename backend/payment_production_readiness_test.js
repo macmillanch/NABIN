@@ -227,7 +227,15 @@ async function runProductionReadinessAudit() {
   const refundWebhookRes = await request('POST', '/api/payments/webhook', refundWebhookPayload, {
     'x-razorpay-signature': validRefundSig
   });
-  assert('Refund webhook processed and ledger reversal recorded', refundWebhookRes.status === 200 && refundWebhookRes.body.success);
+  // The signature above is valid, so nothing but the store can refuse this: `payment_id` names a
+  // payment that was never created, and a refund reverses a capture that does not exist. Asserting
+  // 200 here would assert the defect MI-2 removed — ledger money moved backwards on a fabricated
+  // capture — so the check pins the refusal instead.
+  assert('A signed refund webhook for a payment that was never captured is refused, not booked',
+    refundWebhookRes.status === 400 && refundWebhookRes.body.success === false
+      && refundWebhookRes.body.code === 'PAYMENT_NOT_FOUND',
+    `Got ${refundWebhookRes.status} ${refundWebhookRes.body.code}`
+  );
 
   // --- TEST 9: Admin Double-Entry Ledger Reconciliation ---
   console.log('\n--- 9. DOUBLE-ENTRY LEDGER RECONCILIATION ---');
@@ -244,6 +252,12 @@ async function runProductionReadinessAudit() {
   console.log('\n========================================================================');
   console.log(`📊 PAYMENT PRODUCTION READINESS SUMMARY: ${passed} PASSED, ${failed} FAILED (Total: ${passed + failed})`);
   console.log('========================================================================');
+  process.exitCode = failed > 0 ? 1 : 0;
 }
 
-runProductionReadinessAudit().catch(console.error);
+// A rejected run used to be printed and then end with exit code 0, so a suite that never reached
+// the backend at all reported the same verdict as one that passed every check.
+runProductionReadinessAudit().catch((err) => {
+  console.error(err);
+  process.exitCode = 1;
+});

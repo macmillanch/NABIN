@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../../core/widgets/nabin_brand_logo.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../core/network/session_manager.dart';
@@ -9,7 +10,8 @@ import '../../../../core/theme/nabin_palette.dart';
 /// user to Home when signed in, or to onboarding/welcome otherwise. No artificial
 /// delay, no fabricated auth, no redirect loop ('/welcome' is a different route).
 class CustomerSplashScreen extends StatefulWidget {
-  const CustomerSplashScreen({super.key});
+  final bool autoRoute;
+  const CustomerSplashScreen({super.key, this.autoRoute = true});
 
   @override
   State<CustomerSplashScreen> createState() => _CustomerSplashScreenState();
@@ -23,7 +25,7 @@ class _CustomerSplashScreenState extends State<CustomerSplashScreen> {
   }
 
   void _route() {
-    if (!mounted) return;
+    if (!mounted || !widget.autoRoute) return;
     final next = SessionManager.instance.isAuthenticated ? '/home' : '/';
     context.go(next);
   }
@@ -47,14 +49,9 @@ class _CustomerSplashScreenState extends State<CustomerSplashScreen> {
               child: Icon(Icons.bolt_rounded, color: p.onBrand, size: 48),
             ),
             const SizedBox(height: 20),
-            Text(
-              'NABIN',
-              style: TextStyle(
-                color: p.brand,
-                fontSize: 30,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 1.5,
-              ),
+            const NabinBrandLogo(
+              fontSize: 32,
+              badge: 'SUPER APP',
             ),
             const SizedBox(height: 8),
             Text(

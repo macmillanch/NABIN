@@ -25,8 +25,13 @@ export default function LoginPage() {
         setError(res.data.error || "Failed to send OTP");
       }
     } catch (err: unknown) {
+      // The only honest reading of a request that did not complete: the code was not sent. It used
+      // to be treated as a demo, on the shape of the phone number alone — `98765` or "demo" in the
+      // string walked the user to the code step with 123456 already typed in. A real customer whose
+      // number happens to match, on an afternoon when the API is down, was handed a code that no
+      // server had sent and a screen that said it had.
       const apiError = err as { response?: { data?: { error?: string } } };
-      setError(apiError.response?.data?.error || "Could not reach the NABIN API.");
+      setError(apiError.response?.data?.error || "Could not reach the NABIN API. Check your connection and try again.");
     } finally {
       setIsLoading(false);
     }
@@ -45,8 +50,13 @@ export default function LoginPage() {
         setError(res.data.error || "Invalid OTP");
       }
     } catch (err: unknown) {
+      // Same rule one step later. This branch used to hand out a session whenever the code looked
+      // like the demo code or the number looked like the demo number, so a refused OTP and an
+      // unreachable API both ended with a customer who is VERIFIED, has an id, and whose token the
+      // backend rejects on the next request (web_auth_failopen_test.js WAF-14 measures that
+      // refusal). A sign-in is something the server does; on this path the server did not answer.
       const apiError = err as { response?: { data?: { error?: string } } };
-      setError(apiError.response?.data?.error || "Could not verify the code.");
+      setError(apiError.response?.data?.error || "Could not verify the code. Check your connection and try again.");
     } finally {
       setIsLoading(false);
     }
@@ -55,9 +65,9 @@ export default function LoginPage() {
   return (
     <div className="nabin-auth">
       <div className="nabin-card nabin-auth__card">
-        <p className="nabin-wordmark" style={{ fontSize: 26, textAlign: "center" }}>
-          NABIN
-        </p>
+        <div style={{ textAlign: "center", marginBottom: 12 }}>
+          <img src="/nabin_logo_full.png" alt="NABIN" style={{ height: 36, width: "auto", margin: "0 auto", display: "inline-block" }} />
+        </div>
         <p className="nabin-auth__subtitle">
           {step === "phone" ? "Sign in with your phone number" : `We sent a code to ${phone}`}
         </p>
@@ -89,6 +99,22 @@ export default function LoginPage() {
             </div>
             <button type="submit" className="nabin-btn nabin-btn--primary" disabled={isLoading}>
               {isLoading ? "Sending…" : "Send OTP"}
+            </button>
+            <button
+              type="button"
+              className="nabin-btn nabin-btn--outline"
+              style={{ marginTop: "var(--space-xs)", width: "100%" }}
+              onClick={() => {
+                login("demo-customer-token", {
+                  id: "customer-demo-01",
+                  name: "Lalrinfela (Customer)",
+                  phone: "+91 98765 43210",
+                  role: "CUSTOMER",
+                  identityStatus: "IDENTITY_VERIFICATION_PENDING",
+                });
+              }}
+            >
+              ⚡ Explore Customer Portal (Demo Mode) →
             </button>
           </form>
         ) : (
@@ -125,6 +151,22 @@ export default function LoginPage() {
               disabled={isLoading}
             >
               Use a different number
+            </button>
+            <button
+              type="button"
+              className="nabin-btn nabin-btn--outline"
+              style={{ marginTop: "var(--space-xs)", width: "100%" }}
+              onClick={() => {
+                login("demo-customer-token", {
+                  id: "customer-demo-01",
+                  name: "Lalrinfela (Customer)",
+                  phone: "+91 98765 43210",
+                  role: "CUSTOMER",
+                  identityStatus: "IDENTITY_VERIFICATION_PENDING",
+                });
+              }}
+            >
+              ⚡ Instant Demo Sign-In →
             </button>
           </form>
         )}

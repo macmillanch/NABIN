@@ -5,6 +5,8 @@ import '../../features/restaurant/presentation/screens/restaurant_login_screen.d
 import '../../features/restaurant/presentation/screens/restaurant_otp_screen.dart';
 import '../../features/restaurant/presentation/screens/restaurant_registration_screen.dart';
 import '../../features/restaurant/presentation/screens/restaurant_main_shell.dart';
+import '../../features/restaurant/presentation/screens/restaurant_dish_detail_screen.dart';
+import '../../features/restaurant/presentation/screens/restaurant_menu_management_screen.dart';
 
 /// Screens reachable before NABIN has confirmed which store this is.
 const Set<String> _restaurantPublicRoutes = {'/', '/login', '/otp', '/registration'};
@@ -49,6 +51,24 @@ final GoRouter restaurantRouter = GoRouter(
     GoRoute(
       path: '/dashboard',
       builder: (context, state) => const RestaurantMainShell(),
+    ),
+
+    // 6. One dish from the signed-in merchant's own catalogue (R10).
+    //
+    // `dishId` selects a row out of the caller's own `GET /api/merchant/catalog` answer; it is
+    // not an identity and grants nothing — the backend scopes that read by the bearer token, so
+    // another store's dish id simply isn't in the list and lands on the not-found state. It is
+    // deliberately NOT in `_restaurantPublicRoutes`, so a cold deep link goes through the sign-in
+    // gate instead of painting a 401 as "this dish does not exist".
+    GoRoute(
+      path: '/menu/dish/:dishId',
+      builder: (context, state) => RestaurantDishDetailScreen(
+        dishId: state.pathParameters['dishId'] ?? '',
+      ),
+    ),
+    GoRoute(
+      path: '/menu/manage',
+      builder: (context, state) => const RestaurantMenuManagementScreen(),
     ),
   ],
 );

@@ -3,7 +3,36 @@ const persistentStore = require('./database/persistentStore');
 const UserRepository = require('./repositories/UserRepository');
 const DriverRepository = require('./repositories/DriverRepository');
 const JobRepository = require('./repositories/JobRepository');
-const { coordinateOrNull } = JobRepository;
+const { coordinateOrNull, mapRowToJob } = JobRepository;
+
+// The two admin queues browse whole tables, so the values a caller can filter on are
+// closed lists taken from the schema's own CHECK constraints (`jobs.service_type` and
+// `merchants.merchant_type` in migration 001). A filter outside the list is refused at
+// the boundary rather than folded into a PostgREST expression the caller reshapes.
+const ADMIN_JOB_SERVICE_TYPES = ['RIDE', 'FOOD', 'PARCEL', 'GROCERY'];
+const ADMIN_MERCHANT_TYPES = ['RESTAURANT', 'GROCERY', 'HYBRID_BOTH'];
+const ADMIN_DIRECTORY_MAX_PAGE = 200;
+const ADMIN_DIRECTORY_DEFAULT_PAGE = 200;
+// The admin job queue is a directory an operator scans, not a party to a handover. Its rows
+// are projected through the shared `mapRowToJob` — the SAME mapper behind the customer's and
+// the assigned driver's own-job reads, where a handover code is exactly what is needed to
+// complete a pickup or delivery (migration 046). But the queue runs behind `authenticateAdmin`
+// with no permission gate (#273), so all five admin roles read it. A live `startOtp`/
+// `pickupOtp`/`deliveryOtp` handed to a bearer who will never verify a handover with it is a
+// pure disclosure: a low-privilege admin token could replay the code the directory printed and
+// complete someone else's parcel/food handover. So the three handover secrets are stripped on
+// the admin projection ONLY — `mapRowToJob` is left intact so no legitimate handover path loses
+// its code. This is a response-field reduction, independent of who the owner later decides may
+// read the route; whatever the answer, no reader of this directory needs the codes.
+const ADMIN_JOB_SECRET_FIELDS = Object.freeze(['startOtp', 'pickupOtp', 'deliveryOtp']);
+function redactAdminJobSecrets(job) {
+  if (!job || typeof job !== 'object') return job;
+  // Shallow copy before delete: the memory branch slices `this.jobs` mirror objects, and a
+  // mutation there would strip the OTP out of the in-process store, not just the response.
+  const copy = { ...job };
+  for (const field of ADMIN_JOB_SECRET_FIELDS) delete copy[field];
+  return copy;
+}
 const PaymentRepository = require('./repositories/PaymentRepository');
 const LedgerRepository = require('./repositories/LedgerRepository');
 const SchoolChildRepository = require('./repositories/SchoolChildRepository');
@@ -19,6 +48,7 @@ const MerchantRepository = require('./repositories/MerchantRepository');
 const { CampaignRepository } = require('./repositories/CampaignRepository');
 const RestaurantCatalogRepository = require('./repositories/RestaurantCatalogRepository');
 const RestaurantManagementRepository = require('./repositories/RestaurantManagementRepository');
+const MediaAssetRepository = require('./repositories/MediaAssetRepository');
 const { allowsTestConvenience } = require('./services/RuntimeMode');
 const SmsGatewayService = require('./services/SmsGatewayService');
 const geoPolicy = require('./services/GeoPolicyService');
@@ -70,6 +100,28 @@ const LEGACY_USER_ID_PATTERN = /^usr_[A-Za-z0-9_-]{1,32}$/;
 // boundary rather than resolved and answered with a success that describes no row.
 // Same 36-character shape as `USER_UUID_PATTERN` above.
 const GROCERY_LISTING_REF_PATTERN = USER_UUID_PATTERN;
+
+// `merchants.id` is a uuid and a legacy demo handle (`rest_1`) is not, which is the whole
+// distinction `setRestaurantStatus` turns on: one names a row the enforcement paths read, the
+// other names an entry in this process's memory.
+const MERCHANT_UUID_PATTERN = USER_UUID_PATTERN;
+// The two answers `POST /api/admin/restaurants/:id/status` can give a storefront. There is no
+// `merchants.operational_status` column, so these map onto `merchants.is_open`.
+const RESTAURANT_OPERATIONAL_STATUSES = ['APPROVED', 'SUSPENDED'];
+// The Flutter admin console's Activate item sends `ACTIVE` (admin_merchants_screen.dart) while the
+// web console sends `APPROVED`. Both mean reopen, so the alias is accepted rather than the mobile
+// control being turned into a 400 — same normalization `DriverRepository.updateDriverStatus` does.
+const RESTAURANT_OPERATIONAL_STATUS_ALIASES = { ACTIVE: 'APPROVED' };
+// The two answers the platform can give a registration, in the vocabulary migration 048 stores.
+// Both spellings are accepted for the same reason `ACTIVE` is above: the admin surfaces already
+// send `APPROVE`/`REJECT` (the payout-destination decision, `driverRepo.verifyPayoutDestination`)
+// and a review queue that 400s on the other spelling is a queue nobody can work.
+const MERCHANT_APPROVAL_DECISIONS = {
+  APPROVE: 'APPROVED',
+  APPROVED: 'APPROVED',
+  REJECT: 'REJECTED',
+  REJECTED: 'REJECTED'
+};
 
 // A bulk re-price is one read plus one write per item against the durable store, so it is
 // bounded: 100 listings is a wide merchant sweep, and an unbounded array would let a single
@@ -1516,7 +1568,9 @@ class NabinDatabase {
       }
     ];
 
-    // Platform-wide Service Switchboard & Emergency Kill Switch Registry
+    // Platform-wide Service Switchboard & Emergency Kill Switch Registry.
+    // Control state only: nothing in this schema measures a latency, a fleet size, a socket count, a
+    // satisfaction score or a per-service daily completion total, so no such field lives here.
     this.platformServices = {
       rides: {
         id: 'rides',
@@ -1531,10 +1585,7 @@ class NabinDatabase {
         pausedReason: null,
         resumeAt: null,
         affectedRegions: ['ALL_REGIONS'],
-        broadcastNotice: null,
-        activeVolume: '1,248 active drivers • 942 on trip',
-        latencyMs: 38,
-        metrics: { completedToday: 3492, satisfaction: '4.82★' }
+        broadcastNotice: null
       },
       grocery: {
         id: 'grocery',
@@ -1549,10 +1600,7 @@ class NabinDatabase {
         pausedReason: null,
         resumeAt: null,
         affectedRegions: ['ALL_REGIONS'],
-        broadcastNotice: null,
-        activeVolume: '18 Darkstores Active • 4,810 SKUs Live',
-        latencyMs: 42,
-        metrics: { completedToday: 2180, satisfaction: '4.91★' }
+        broadcastNotice: null
       },
       food: {
         id: 'food',
@@ -1567,10 +1615,7 @@ class NabinDatabase {
         pausedReason: null,
         resumeAt: null,
         affectedRegions: ['ALL_REGIONS'],
-        broadcastNotice: null,
-        activeVolume: '620 Partner Kitchens • 850 Courier Fleet',
-        latencyMs: 45,
-        metrics: { completedToday: 1840, satisfaction: '4.78★' }
+        broadcastNotice: null
       },
       parcel: {
         id: 'parcel',
@@ -1585,10 +1630,7 @@ class NabinDatabase {
         pausedReason: null,
         resumeAt: null,
         affectedRegions: ['ALL_REGIONS'],
-        broadcastNotice: null,
-        activeVolume: '412 Courier Riders Active',
-        latencyMs: 34,
-        metrics: { completedToday: 920, satisfaction: '4.88★' }
+        broadcastNotice: null
       },
       payments: {
         id: 'payments',
@@ -1603,10 +1645,7 @@ class NabinDatabase {
         pausedReason: null,
         resumeAt: null,
         affectedRegions: ['ALL_REGIONS'],
-        broadcastNotice: null,
-        activeVolume: 'UPI 2.0 Rails • 99.98% Gateway Success',
-        latencyMs: 55,
-        metrics: { completedToday: 8432, satisfaction: '99.9%' }
+        broadcastNotice: null
       },
       dispatch: {
         id: 'dispatch',
@@ -1621,10 +1660,7 @@ class NabinDatabase {
         pausedReason: null,
         resumeAt: null,
         affectedRegions: ['ALL_REGIONS'],
-        broadcastNotice: null,
-        activeVolume: 'Sub-second Geo-Proximity Matcher (18,400 sockets)',
-        latencyMs: 19,
-        metrics: { completedToday: 8250, satisfaction: '99.4%' }
+        broadcastNotice: null
       }
     };
 
@@ -1692,6 +1728,10 @@ class NabinDatabase {
     this.schoolChildRepo = new SchoolChildRepository(this);
     this.supportTicketRepo = new SupportTicketRepository(this);
     this.auditLogRepo = new AuditLogRepository(this);
+    // Durable media ownership metadata (migration 044). DELETE /api/media/* reads the
+    // owner record through this so the authorisation no longer depends on a process-memory
+    // array that a live Postgres store never persists. See MediaAssetRepository.
+    this.mediaAssetRepo = new MediaAssetRepository(this);
     // DS-2 dark store foundation. Two repositories for the two tables, plus the service that
     // owns validation and ownership decisions. Routes must reach these only through
     // db.darkStoreService, never through the repositories directly.
@@ -1839,10 +1879,12 @@ class NabinDatabase {
             todayTrips: 0,
             todayEarnings: 0.0,
             walletBalance: parseFloat(row.wallet_balance !== undefined ? row.wallet_balance : 0.0),
+            // #481: the boot hydrator must answer an absent coordinate with the same null the job
+            // projection uses, never with a fixed position the driver never reported. No `area` key:
+            // nothing derives one.
             currentLocation: {
-              lat: parseFloat(row.current_lat || 28.6139),
-              lng: parseFloat(row.current_lng || 77.2090),
-              area: 'Delhi Operations Zone'
+              lat: coordinateOrNull(row.current_lat),
+              lng: coordinateOrNull(row.current_lng)
             },
             activities: [],
             tripHistory: [],
@@ -2577,12 +2619,26 @@ class NabinDatabase {
   // door: a caller could name a zone and be charged its surcharge and multiplier
   // for standing somewhere else entirely, which is the same as letting the client
   // send a fare with extra zeroes.
-  calculateFareEstimate({ serviceType = '3W', distanceKm = 4.0, durationMins = 12, pickupLat = null, pickupLng = null, couponDiscount = null, requestedZoneId = null }) {
+  //
+  // Fare Engine v2 (2026-10-17) — decisions DEC-020 through DEC-026:
+  //   DEC-026  First 0.3 km included in base fare; billing starts after that.
+  //   DEC-022  Zone surcharge and waiting charges are pass-throughs:
+  //            excluded from the commissionable base, passed 100% to driver.
+  //   DEC-023  Coupon is platform-funded: driver always earns on `grossFare`
+  //            (pre-discount); platform absorbs the discount from its commission.
+  //   DEC-024  tax: null placeholder — GST deferred to a future compliance phase.
+  //   DEC-025  Surge time windows are now ENFORCED in GeoPolicyService (not here).
+  //   DEC-021  Waiting charges: caller supplies `waitingMins`; free window and
+  //            per-minute rate come from `pricing_configurations`.
+  calculateFareEstimate({ serviceType = '3W', distanceKm = 4.0, durationMins = 12, pickupLat = null, pickupLng = null, couponDiscount = null, requestedZoneId = null, waitingMins = 0 }) {
     const config = this.pricingConfig[serviceType] || this.pricingConfig['3W'];
-    let base = config.baseFare;
-    let distanceCost = (distanceKm || 1) * config.perKmRate;
-    let timeCost = (durationMins || 1) * config.perMinRate;
-    let subtotal = Math.max(config.minFare, base + distanceCost + timeCost);
+
+    // --- DEC-026: first includedKm is covered by the base fare ---
+    const includedKm    = config.includedKm ?? 0.3;
+    const billableKm    = Math.max(0, (distanceKm || 0) - includedKm);
+    const distanceCost  = billableKm * config.perKmRate;
+    const timeCost      = (durationMins || 0) * config.perMinRate;
+    let metered         = Math.max(config.minFare, config.baseFare + distanceCost + timeCost);
 
     const geo = geoPolicy.evaluate({
       latitude: pickupLat,
@@ -2596,43 +2652,57 @@ class NabinDatabase {
     });
 
     let surgeMultiplier = this.pricingConfig.globalSurgeMultiplier || 1.0;
-    let activeZoneName = null;
+    let activeZoneName  = null;
     let matchedGeofence = null;
+
+    // --- DEC-022: collect zone surcharge as a pass-through (not added to metered) ---
+    let zoneSurcharge = 0;
 
     if (geo.locationValidated) {
       if (geo.insideServiceArea) {
+        // DEC-025: effectiveSurgeMultiplier is already time-window-enforced by
+        // GeoPolicyService.evaluate() after the DEC-025 fix to windowStatus().
         surgeMultiplier = Math.max(surgeMultiplier, geo.effectiveSurgeMultiplier);
-        subtotal += geo.totalSurcharge;
-        activeZoneName = geo.activeZoneName;
+        // DEC-022: surcharge is a pass-through — held separate from metered subtotal
+        zoneSurcharge   = geo.totalSurcharge;
+        activeZoneName  = geo.activeZoneName;
         matchedGeofence = geo.matchedFences[0] || null;
       }
-      // The one modifier still reachable without being inside anything: an active
-      // rule whose service matches the quoted rate card. Reproduced exactly as it
-      // was, including the service-vs-vehicle-type comparison it inherits, because
-      // whether such a rule may bind at all is §14 decision 4 of
-      // docs/GEOFENCING_SECURITY_AUDIT.md and a hardening pass is not where that
-      // gets answered. What changes is that it is now labelled in the response.
+      // Platform-wide surge rule (no containment required). DEC-025 enforcement is
+      // already in GeoPolicyService; cappedMultiplier is the window-gated value.
       if (geo.platformWideSurgeRule) {
         surgeMultiplier = Math.max(surgeMultiplier, geo.platformWideSurgeRule.cappedMultiplier);
       }
     }
 
-    let customerFare = Math.round(subtotal * surgeMultiplier + config.bookingFee);
+    // --- DEC-021: waiting charge as pass-through ---
+    const freeWaitMins    = config.freeWaitMins ?? 3;
+    const waitPerMin      = config.waitChargePerMin ?? 2.0;
+    const billableWaitMin = Math.max(0, (waitingMins || 0) - freeWaitMins);
+    const waitingCharge   = Math.round(billableWaitMin * waitPerMin * 100) / 100;
+
+    // --- DEC-022: pass-throughs go 100% to driver, never commissionable ---
+    const passThroughs = Math.round((zoneSurcharge + waitingCharge) * 100) / 100;
+
+    // Surged metered fare + flat booking fee = gross fare before coupon
+    const grossFare = Math.round(metered * surgeMultiplier + config.bookingFee);
 
     // A coupon is validated and redeemed by the promotion layer (migration 009
     // RPCs) before this engine runs, so only an already-authoritative amount can
-    // change the price here. Clamping at the pre-discount charge keeps
-    // `baseCharge - discount === customerCharge` exact for ledger reconciliation.
+    // change the price here.
     const discount = Math.min(
-      customerFare,
+      grossFare,
       Math.max(0, Math.round((Number(couponDiscount) || 0) * 100) / 100)
     );
 
-    const finalCustomerCharge = discount > 0
-      ? Math.round((customerFare - discount) * 100) / 100
-      : Math.max(config.minFare, customerFare);
-    const platformFee = Math.round((finalCustomerCharge * (config.commissionPercent || 15)) / 100);
-    const driverEarnings = Math.round((finalCustomerCharge - platformFee) * 100) / 100;
+    // DEC-023: customer pays less; driver is unaffected by the discount.
+    //   customer_charge = MAX(min_fare, gross_fare - discount)
+    //   driver_earnings = gross_fare × (1 - commission%) + pass_throughs
+    //   platform absorbs discount out of its own commission revenue
+    const customerCharge  = Math.max(config.minFare, Math.round((grossFare - discount) * 100) / 100);
+    const commissionRate  = (config.commissionPercent || 15) / 100;
+    const platformFee     = Math.round(grossFare * commissionRate * 100) / 100;
+    const driverEarnings  = Math.round((grossFare - platformFee + passThroughs) * 100) / 100;
 
     // How much of this number geography actually vouches for. `NOT_PROVIDED` is
     // the documented no-location quote, not a validated one; the two refusals are
@@ -2654,7 +2724,14 @@ class NabinDatabase {
       serviceType,
       serviceName: config.name,
       distanceKm,
+      includedKm,
+      distanceBillableKm: Math.round(billableKm * 1000) / 1000,
       durationMins,
+      waitingMins: waitingMins || 0,
+      freeWaitMins,
+      waitingCharge,
+      zoneSurcharge,
+      passThroughs,
       surgeMultiplier,
       activeZoneName,
       matchedGeofence,
@@ -2664,14 +2741,17 @@ class NabinDatabase {
         requestedZoneIdIgnored: geo.requestedZoneIdIgnored
       },
       bookingFee: config.bookingFee,
-      baseCharge: customerFare,
+      grossFare,
+      baseCharge: grossFare,   // backward-compat alias (some callers read baseCharge)
       discount,
-      customerCharge: finalCustomerCharge,
+      customerCharge,
       driverEarnings,
       platformFee,
-      platformCommissionPercent: config.commissionPercent
+      platformCommissionPercent: config.commissionPercent,
+      tax: null               // DEC-024: GST deferred to future compliance phase
     };
   }
+
 
   // --- Masking Security Utilities ---
   static maskAadhaar(aadhaar) {
@@ -2936,7 +3016,10 @@ class NabinDatabase {
     // 1. Process Customer Wallet Refund if applicable
     if (amt > 0) {
       ticket.refundAmount = amt;
-      const user = this.getUser(ticket.userId);
+      // MI-4 (P1): strict, for the same reason as the driver half below. `getUser` ends in
+      // `|| this.users[0]`, so a ticket whose `userId` resolves to nobody refunded the FIRST SEEDED
+      // CUSTOMER and wrote the `WALLET_REFUND` row under that unrelated account's id.
+      const user = this.getUserStrict(ticket.userId);
       if (user) {
         user.walletBalance = (user.walletBalance || 0) + amt;
         userRefunded = user;
@@ -2962,7 +3045,11 @@ class NabinDatabase {
     }
 
     // 2. Handle Category-Specific Actions
-    const driver = ticket.driverId ? this.getDriver(ticket.driverId) : null;
+    // MI-4 (P1): strict, because both branches below move that driver's wallet from this
+    // process's mirror. `getDriver` ends in `|| this.drivers[0]`, so a ticket carrying a driverId
+    // that does not resolve was clawed from (or bountied to) the first seeded driver, and the
+    // transaction row was written under `userId: driver.id` for that unrelated account.
+    const driver = ticket.driverId ? this.getDriverStrict(ticket.driverId) : null;
 
     // (A) FARE DISPUTE: Driver Clawback vs Platform Absorption
     if (ticket.category === 'FARE_DISPUTE' && specializedData.driverClawback && driver && amt > 0) {
@@ -2990,7 +3077,9 @@ class NabinDatabase {
         ...(ticket.itemDetails || {}),
         retrievalStatus: specializedData.retrievalStatus || 'RETURNED_TO_CUSTOMER',
         returnMethod: specializedData.returnMethod || 'DIRECT_DRIVER_DROP',
-        handoverOtpVerified: specializedData.handoverOtpVerified || true,
+        // A handover is verified only when it was actually proven. The old `|| true` defaulted
+        // an absent flag to verified, so a delivery read claimed a handover nobody proved.
+        handoverOtpVerified: specializedData.handoverOtpVerified === true,
         policeStation: specializedData.policeStation || null
       };
 
@@ -3302,8 +3391,23 @@ class NabinDatabase {
       return { success: false, error: `${targetType} financial adjustments are not supported` };
     }
 
-    const targetEntity = targetType === 'DRIVER' ? this.getDriver(targetId) : this.getUser(targetId);
-    if (!targetEntity) return { success: false, error: `${targetType} record not found` };
+    // MI-4 (P1): an adjustment is aimed at a person, so the person has to exist. `getDriver`
+    // ends in `|| this.drivers[0]` and `getUser` in `|| this.users[0]`, which made the refusal
+    // two lines down unreachable dead code: a mistyped or foreign targetId was read as the first
+    // seeded account — that account's balance fed the non-negative guard, its uuid became the
+    // idempotency identity, and in the offline mirror it was the balance actually written.
+    // Async because the strict sync answer is also wrong in the other direction: a real account
+    // this process never hydrated would be refused, and HEAD's fallback used to answer it.
+    const targetEntity = targetType === 'DRIVER'
+      ? await this.getDriverStrictAsync(targetId)
+      : await this.getUserStrictAsync(targetId);
+    if (!targetEntity) {
+      return {
+        success: false,
+        error: `${targetType} record not found`,
+        code: targetType === 'DRIVER' ? 'DRIVER_NOT_FOUND' : 'CUSTOMER_NOT_FOUND'
+      };
+    }
 
     // Phase 9 / DEC-004: All wallet mutations flow through the PostgreSQL
     // atomic ledger RPC. No JavaScript balance arithmetic — the database is
@@ -3858,12 +3962,95 @@ class NabinDatabase {
     return { success: true, application: app };
   }
 
+  /**
+   * Put an identity decision onto the durable account row.
+   *
+   * `users.identity_status` is the column the boot hydration reads the gate's field out of
+   * (`this.users` mapping, and `src/server.js:4400` then asks that field whether the customer
+   * may book a ride). Before this existed the decision only ever moved the in-memory entity,
+   * while the audit row written alongside it said APPROVED — so the next process start
+   * un-verified a customer the platform had on record as verified, and a second running
+   * process disagreed with the first indefinitely. An identity decision that the store never
+   * heard about is not a decision.
+   *
+   * Only `identity_status` is written. `account_status` is a separate question with its own
+   * CHECK (ACTIVE / SUSPENDED / BLOCKED, supabase/migrations/001_central_schema.sql), and
+   * none of the mirror's account spellings — 'REJECTED', 'RESUBMISSION_REQUIRED',
+   * 'UNDER_REVIEW' — are legal there, so an identity decision must not reach that column.
+   *
+   * The row is read before it is written, the way the merchant approval is read first: an
+   * account this process cannot find in the directory is a refusal, not a guess. A store that
+   * rejects the write throws the same 503 `AUTH_STORE_UNAVAILABLE` channel every other
+   * authentication-dependent write on this path already uses, and it throws BEFORE any
+   * mirror record moves, so a failed approval leaves nothing behind to read.
+   *
+   * Three answers return without writing anything, each labelled so the caller can say which
+   * one it was: no durable column represents the state (`status: null`, which is
+   * MARK_UNDER_REVIEW — see the queue record's own comment), no account to write it onto
+   * (an application naming nobody, MI-4), and no live store at all (offline development).
+   */
+  async persistIdentityDecision(user, status, { what = 'the identity verdict on this customer account' } = {}) {
+    if (!status) {
+      return { dataSource: 'memory', persisted: false, skipped: 'NO_DURABLE_REPRESENTATION' };
+    }
+    if (!user) {
+      return { dataSource: 'memory', persisted: false, skipped: 'NO_ACCOUNT' };
+    }
+    const store = this.liveStore();
+    if (!store) {
+      return { dataSource: 'memory', persisted: false, skipped: 'NO_LIVE_STORE' };
+    }
+
+    const notEnrolled = () => {
+      const refusal = new Error('This applicant has no row in the authoritative customer directory, so the identity decision could not be recorded against an account. Nothing was changed.');
+      refusal.code = 'CUSTOMER_NOT_ENROLLED';
+      refusal.status = 409;
+      refusal.statusCode = 409;
+      return refusal;
+    };
+
+    // Both id spaces, because the entity may carry a legacy `usr_1` and the uuid beside it.
+    const { uuid } = this.customerIdSpaces(user.uuid || user.id);
+    if (!uuid) throw notEnrolled();
+
+    const current = await this.authoritativeRead(
+      store.from('users').select('id, identity_status').eq('id', uuid).maybeSingle(),
+      { what }
+    );
+    if (!current) throw notEnrolled();
+    if (current.identity_status === status) {
+      return { dataSource: 'postgres', persisted: true, unchanged: true, identityStatus: status };
+    }
+
+    const written = await this.settleAuthoritative(
+      store.from('users')
+        .update({ identity_status: status, updated_at: new Date().toISOString() })
+        .eq('id', uuid)
+        .select('id, identity_status')
+        .single(),
+      what
+    );
+    if (written.error) throw this.authStoreUnavailable(written.error, what);
+    const row = written.data || null;
+    if (!row) throw notEnrolled();
+
+    return { dataSource: 'postgres', persisted: true, identityStatus: row.identity_status || status };
+  }
+
   async reviewIdentityApplication(id, decision, reason, checklist, adminId, adminName) {
     const app = this.getIdentityApplicationById(id);
     if (!app) return { success: false, error: 'Application not found' };
 
-    const user = this.getUser(app.userId);
+    // MI-4 (P1): strict. An application whose `userId` resolves to nobody used to be read as
+    // `users[0]`, so approving it verified and ACTIVATED the first seeded customer's account - a
+    // privilege gain for an unrelated person, written from the admin's decision on some other
+    // applicant. The application record still carries the decision; only the account is not touched.
+    const user = this.getUserStrict(app.userId);
     const previousStatus = app.status;
+    // Replaced by the branch that runs. `persisted:false` is an honest answer, not a failure:
+    // offline development, an application naming no account (MI-4), and MARK_UNDER_REVIEW all
+    // legitimately write nothing durable — but the caller must be able to tell which happened.
+    let durability = { dataSource: 'memory', persisted: false, skipped: 'NO_DURABLE_REPRESENTATION' };
 
     if (decision === 'APPROVE') {
       // The checklist is what an approval *is* on this endpoint: a statement that a named human
@@ -3888,6 +4075,14 @@ class NabinDatabase {
       // holds none - and an approval's own record is exactly what an auditor, or later the
       // applicant, reads back. The identity state below is the officer's decision on the details
       // and numbers; the document dimension says what it has always said here: there isn't one.
+      //
+      // Durable first, mirror second: if the store refuses the verdict this process gets the 503
+      // and nothing has moved, instead of an in-memory VERIFIED and an audit row that says the
+      // account was verified while its own column still says pending.
+      durability = await this.persistIdentityDecision(user, 'VERIFIED', {
+        what: `the identity verdict for applicant ${app.userId}`
+      });
+
       app.status = 'VERIFIED';
       app.overallDocumentStatus = 'NO_DOCUMENT';
       app.aadhaarDocStatus = 'NO_DOCUMENT';
@@ -3911,13 +4106,24 @@ class NabinDatabase {
         targetEntityId: app.id,
         previousState: previousStatus,
         newState: 'VERIFIED',
-        reason: reason || 'Manual verification completed. Account identity verified and activated.'
+        reason: reason || 'Manual verification completed. Account identity verified and activated.',
+        // The trail says whether the verdict it records reached the authoritative directory.
+        metadata: { ...durability }
       });
 
     } else if (decision === 'REJECT') {
       if (!reason || !reason.trim()) {
         return { success: false, error: 'A mandatory rejection reason is required.' };
       }
+
+      // Durable before mirror, for the same reason as APPROVE: a rejection the store never
+      // heard about leaves the applicant pending on the next process to read them. Only
+      // `identity_status` is written — 'REJECTED' is not a legal `account_status` value, so
+      // what this decision does to the account's ability to trade stays the owner question it
+      // already is (see the note above the helper).
+      durability = await this.persistIdentityDecision(user, 'REJECTED', {
+        what: `the identity rejection for applicant ${app.userId}`
+      });
 
       app.status = 'REJECTED';
       // Same rule as APPROVE: a decision about an application cannot speak for a file the platform
@@ -3944,13 +4150,20 @@ class NabinDatabase {
         targetEntityId: app.id,
         previousState: previousStatus,
         newState: 'REJECTED',
-        reason: reason
+        reason: reason,
+        metadata: { ...durability }
       });
 
     } else if (decision === 'REQUEST_RESUBMISSION') {
       if (!reason || !reason.trim()) {
         return { success: false, error: 'A mandatory resubmission instruction is required.' };
       }
+
+      // 'RESUBMISSION_REQUIRED' is legal in `users.identity_status` and is the state the
+      // applicant's own screen reads, so it goes to the store first like every other verdict.
+      durability = await this.persistIdentityDecision(user, 'RESUBMISSION_REQUIRED', {
+        what: `the identity resubmission request for applicant ${app.userId}`
+      });
 
       app.status = 'RESUBMISSION_REQUIRED';
       // And a resubmission request asks the customer to correct their details, not to resend a
@@ -3976,10 +4189,19 @@ class NabinDatabase {
         targetEntityId: app.id,
         previousState: previousStatus,
         newState: 'RESUBMISSION_REQUIRED',
-        reason: reason
+        reason: reason,
+        metadata: { ...durability }
       });
 
     } else if (decision === 'MARK_UNDER_REVIEW') {
+      // Deliberately mirror-only. `UNDER_REVIEW` exists in neither durable CHECK — not in
+      // `users.identity_status`, not in `users.account_status` — so writing it would be a
+      // 500-shaped database rejection, and silently writing 'PENDING' instead would un-decide
+      // a verdict the store already holds. The queue move is real for the admin looking at it
+      // in this process and is labelled as unpersisted rather than faked into a legal value.
+      // Closing this for real needs a durable representation: an owner decision, not a guess.
+      durability = { dataSource: 'memory', persisted: false, skipped: 'NO_DURABLE_REPRESENTATION' };
+
       app.status = 'UNDER_REVIEW';
       app.reviewNotes = reason || 'Marked for in-depth compliance verification.';
 
@@ -3998,7 +4220,8 @@ class NabinDatabase {
         targetEntityId: app.id,
         previousState: previousStatus,
         newState: 'UNDER_REVIEW',
-        reason: reason || 'Application marked for further compliance investigation.'
+        reason: reason || 'Application marked for further compliance investigation.',
+        metadata: { ...durability }
       });
 
     } else {
@@ -4013,7 +4236,12 @@ class NabinDatabase {
     return {
       success: true,
       application: app,
-      user
+      user,
+      // The caller cannot tell from `application.status` alone whether the decision it just
+      // made is in the authoritative directory or only in this process's mirror.
+      dataSource: durability.dataSource,
+      persisted: durability.persisted,
+      ...(durability.skipped ? { skipped: durability.skipped } : {})
     };
   }
 
@@ -4029,8 +4257,13 @@ class NabinDatabase {
       });
     }
 
-    const driver = this.getDriver(driverId);
-    if (!driver) return { success: false, error: 'Driver not found' };
+    // MI-4 (P1): an operational-status / KYC decision has to land on the driver it names.
+    // `getDriver` ends in `|| this.drivers[0]`, so the `if (!driver)` refusal under it was
+    // unreachable and a mistyped driverId suspended (or verified) the first seeded driver —
+    // including the `targetEntityId: driver.id` audit row, which then named that innocent
+    // driver as the subject of a decision never taken about them.
+    const driver = this.getDriverStrict(driverId);
+    if (!driver) return { success: false, error: 'Driver not found', code: 'DRIVER_NOT_FOUND' };
 
     const prev = driver.operationalStatus || 'APPROVED';
     if (operationalStatus) {
@@ -4062,32 +4295,345 @@ class NabinDatabase {
   }
 
   // --- Restaurant Operational Status Control ---
+  //
+  // A suspension is only real once it reaches `merchants.is_open`: that column is what
+  // `OrderRepository.resolveMerchant()`, the closure gate on `POST /api/customer/book-food` and
+  // `GET /api/restaurants?openNow=true` enforce on. This method used to write the in-process
+  // `this.restaurants` entry alone and answer `success: true` with a `RESTAURANT_SUSPENDED` audit
+  // row behind it, so the admin's decision, the trail and the storefront's actual state disagreed
+  // while customers kept ordering — the trail being the false one. It now follows the idiom
+  // `DriverRepository.updateDriverStatus` already uses: read the row, land the write, treat a
+  // store that refuses it as an outage (503), move memory only after the write landed, then audit
+  // what actually happened.
+  //
+  // Only a UUID handle names a durable row. A legacy handle is a seeded demo entry whose `uuid`
+  // field points at a shared merchant record, so resolving it here would suspend a store nobody
+  // named; those handles stay memory-only and report `dataSource: 'memory'`, `persisted: false`
+  // instead of implying a write that did not happen.
+  //
+  // The suspension `reason` has no column to live in (`merchants` has neither `operational_status`
+  // nor `suspension_reason`), so it is carried by the audit record only.
   async setRestaurantStatus(restaurantId, operationalStatus, reason, adminId, adminName) {
-    const rest = this.restaurants.find(r => r.id === restaurantId);
-    if (!rest) return { success: false, error: 'Restaurant not found' };
+    const requested = typeof operationalStatus === 'string' ? operationalStatus.trim().toUpperCase() : '';
+    const status = RESTAURANT_OPERATIONAL_STATUS_ALIASES[requested] || requested;
+    if (!RESTAURANT_OPERATIONAL_STATUSES.includes(status)) {
+      return {
+        success: false,
+        code: 'INVALID_RESTAURANT_STATUS',
+        error: `Nothing was written: operationalStatus must be APPROVED or SUSPENDED, not ${JSON.stringify(operationalStatus ?? null)}.`
+      };
+    }
 
-    const prev = rest.operationalStatus || 'APPROVED';
-    rest.operationalStatus = operationalStatus;
-    rest.suspensionReason = reason || '';
+    const supabase = this.liveStore();
+    const targetUuid = supabase && MERCHANT_UUID_PATTERN.test(String(restaurantId || '')) ? String(restaurantId) : null;
+    const mirror = (this.restaurants || []).find(r => r.id === restaurantId || r.uuid === restaurantId) || null;
 
-    if (operationalStatus === 'SUSPENDED') {
-      rest.isOpen = false;
+    // A uuid that is not in memory still names a row, and after a restart nothing is in memory.
+    if (!targetUuid && !mirror) return { success: false, error: 'Restaurant not found' };
+
+    let row = null;
+    let previous;
+    if (targetUuid) {
+      const rows = await this.authoritativeRead(
+        supabase.from('merchants').select('id, name, merchant_type, is_open, approval_status').eq('id', targetUuid),
+        { what: `the current status of restaurant ${targetUuid}` }
+      );
+      row = Array.isArray(rows) ? rows[0] : null;
+      if (!row) {
+        return {
+          success: false,
+          code: 'MERCHANT_RECORD_MISSING',
+          error: `Restaurant ${targetUuid} has no row in the merchant directory, so nothing was written.`
+        };
+      }
+      // A storefront's serviceability is two durable facts now, not one: `is_open` (this route's
+      // switch) and `approval_status` (migration 048's decision). Before 048 this route could
+      // legitimately make a store tradeable on its own; afterwards it could only ever reopen a
+      // store the platform had already approved, so activation is refused here and the approval
+      // decision is written by `setMerchantApproval` alone. Suspension stays unrestricted —
+      // closing a store is never the dangerous direction.
+      const durableApproval = row.approval_status == null
+        ? null : String(row.approval_status).trim().toUpperCase();
+      if (status !== 'SUSPENDED' && durableApproval && durableApproval !== 'APPROVED') {
+        return {
+          success: false,
+          code: 'MERCHANT_NOT_APPROVED',
+          error: `Restaurant ${targetUuid} is ${durableApproval}, not APPROVED, so this route cannot open it for trade. Nothing was changed.`
+        };
+      }
+      // Measured against the store, before anything is written. `is_open` is the only durable half
+      // of this state, so the audit's previous/new pair is expressed in the same vocabulary the
+      // console sends.
+      previous = row.is_open === false ? 'SUSPENDED' : 'APPROVED';
+
+      const write = await this.settleAuthoritative(
+        supabase.from('merchants').update({ is_open: status !== 'SUSPENDED' }).eq('id', targetUuid),
+        `the status of restaurant ${targetUuid}`
+      );
+      if (write.error) throw this.authStoreUnavailable(write.error, `the status of restaurant ${targetUuid}`);
+    } else {
+      // The same rule on the memory-only path. A seeded demo entry carries no approval state at
+      // all, so it is grandfathered exactly as migration 048 grandfathered the existing rows; a
+      // store this process registered does carry one, and it is PENDING.
+      const mirrorApproval = mirror.approval_status != null ? String(mirror.approval_status).trim().toUpperCase()
+        : (mirror.approvalStatus != null ? String(mirror.approvalStatus).trim().toUpperCase() : null);
+      if (status !== 'SUSPENDED' && mirrorApproval && mirrorApproval !== 'APPROVED') {
+        return {
+          success: false,
+          code: 'MERCHANT_NOT_APPROVED',
+          error: `Restaurant ${restaurantId} is ${mirrorApproval}, not APPROVED, so this route cannot open it for trade. Nothing was changed.`
+        };
+      }
+      previous = mirror.operationalStatus || (mirror.isOpen === false ? 'SUSPENDED' : 'APPROVED');
+    }
+
+    if (mirror) {
+      mirror.operationalStatus = status;
+      mirror.suspensionReason = reason || '';
+      // Reopening has to reopen: this used to set `isOpen = false` on suspension and never put it
+      // back, so the console could show a store as closed after being approved.
+      const open = status !== 'SUSPENDED';
+      if ('isOpen' in mirror) mirror.isOpen = open;
+      if ('is_open' in mirror) mirror.is_open = open;
+    }
+
+    const dataSource = targetUuid ? 'postgres' : 'memory';
+    const persisted = Boolean(targetUuid);
+
+    await this.auditAppliedChange({
+      adminId,
+      adminName,
+      role: 'ADMIN',
+      action: status === 'SUSPENDED' ? 'RESTAURANT_SUSPENDED' : 'RESTAURANT_ACTIVATED',
+      module: 'MERCHANT_PARTNER',
+      targetEntityType: 'RESTAURANT',
+      targetEntityId: row ? row.id : mirror.id,
+      previousState: previous,
+      newState: status,
+      reason: reason || `Restaurant operational status set to ${status}`,
+      metadata: {
+        dataSource,
+        persisted,
+        requestedStatus: requested,
+        appliedStatus: status,
+        ...(row ? { merchantType: row.merchant_type, isOpenNow: status !== 'SUSPENDED' } : {})
+      }
+    });
+
+    return {
+      success: true,
+      restaurant: mirror || {
+        id: row.id,
+        name: row.name,
+        merchantType: row.merchant_type,
+        operationalStatus: status,
+        isOpen: status !== 'SUSPENDED'
+      },
+      dataSource,
+      persisted
+    };
+  }
+
+  // --- Merchant approval lifecycle (migration 048) ---
+  //
+  // A registration mints a store; the platform decides whether it may trade. This is the only
+  // writer of `merchants.approval_status`: the profile PATCH refuses approval keys outright
+  // (`SELF_APPROVAL_NOT_PERMITTED`), and `setRestaurantStatus` can no longer open a store the
+  // platform has not approved. Every other surface that cares reads the column rather than
+  // deciding for itself, so "approved" has exactly one meaning in this codebase.
+  //
+  // The decision is one durable fact plus its provenance: `approval_status` is the fact,
+  // `approval_decided_at`/`_by` say when and who, and `is_open` follows the decision instead of
+  // standing in for it. Writing them in one UPDATE is the point — an approval that left the store
+  // closed, or an open store with no approval row behind it, is a state an admin would have to
+  // debug rather than a state the model should be able to reach.
+  //
+  // Retrying the decision already in force changes nothing, so it writes nothing: no second
+  // `approval_decided_at` and no second audit line. Double-clicking Approve is the normal case in
+  // a review queue, and a trail that grew a row per click would stop being evidence of a decision.
+  //
+  // PostgreSQL-only, like the profile writer above. An approval kept in this process's memory would
+  // vanish on restart and exist on only one instance, which is precisely the durability the gate
+  // depends on; a store that cannot record the decision is an outage (503), not a merchant who was
+  // told "approved" and then found their storefront still hidden.
+  async setMerchantApproval(merchantId, decision, reason, adminId, adminName) {
+    const requested = typeof decision === 'string' ? decision.trim().toUpperCase() : '';
+    const target = MERCHANT_APPROVAL_DECISIONS[requested] || null;
+    if (!target) {
+      return {
+        success: false,
+        code: 'INVALID_APPROVAL_DECISION',
+        error: `Nothing was written: decision must be APPROVE or REJECT, not ${JSON.stringify(decision ?? null)}.`
+      };
+    }
+
+    const supabase = this.liveStore();
+    if (!supabase) {
+      const err = new Error('The approval decision lives in PostgreSQL and this server is not connected to it. Nothing was changed.');
+      err.code = 'APPROVAL_STORE_UNAVAILABLE';
+      err.status = 503;
+      err.statusCode = 503;
+      throw err;
+    }
+    // Only a uuid names a durable row. A legacy demo handle has no row to approve, and pretending
+    // otherwise would answer "approved" about a storefront no enforcement path can see.
+    if (!MERCHANT_UUID_PATTERN.test(String(merchantId || ''))) {
+      const err = new Error(`${JSON.stringify(merchantId ?? null)} is not a durable merchant id, so there is no approval record to write.`);
+      err.code = 'MERCHANT_RECORD_MISSING';
+      err.status = 404;
+      err.statusCode = 404;
+      throw err;
+    }
+    const targetUuid = String(merchantId);
+
+    const PROJECTION = 'id, name, merchant_type, phone, address, is_open, approval_status, approval_decided_at, approval_decided_by, approval_reason';
+    const rows = await this.authoritativeRead(
+      supabase.from('merchants').select(PROJECTION).eq('id', targetUuid),
+      { what: `the approval state of merchant ${targetUuid}` }
+    );
+    const row = Array.isArray(rows) ? rows[0] : null;
+    if (!row) {
+      const err = new Error(`Merchant ${targetUuid} has no row in the merchant directory, so no approval decision was written.`);
+      err.code = 'MERCHANT_NOT_FOUND';
+      err.status = 404;
+      err.statusCode = 404;
+      throw err;
+    }
+
+    const current = row.approval_status == null ? null : String(row.approval_status).trim().toUpperCase();
+    const openNow = target === 'APPROVED';
+    const view = (source) => ({
+      id: source.id,
+      name: source.name,
+      merchantType: source.merchant_type,
+      phone: source.phone,
+      address: source.address,
+      approvalStatus: source.approval_status,
+      approvalDecidedAt: source.approval_decided_at ?? null,
+      approvalDecidedBy: source.approval_decided_by ?? null,
+      isOpen: Boolean(source.is_open)
+    });
+
+    if (current === target) {
+      return {
+        success: true,
+        unchanged: true,
+        approvalStatus: target,
+        merchant: view(row),
+        dataSource: 'postgres',
+        persisted: true
+      };
+    }
+
+    const patch = {
+      approval_status: target,
+      approval_decided_at: new Date().toISOString(),
+      approval_decided_by: String(adminId || adminName || 'unknown-admin'),
+      approval_reason: reason ? String(reason) : null,
+      is_open: openNow
+    };
+    const write = await this.settleAuthoritative(
+      supabase.from('merchants').update(patch).eq('id', targetUuid).select(PROJECTION).single(),
+      `the approval decision for merchant ${targetUuid}`
+    );
+    if (write.error) throw this.authStoreUnavailable(write.error, `the approval decision for merchant ${targetUuid}`);
+
+    const decided = write.data || { ...row, ...patch };
+
+    const mirror = (this.restaurants || []).find(r => r.id === targetUuid || r.uuid === targetUuid);
+    if (mirror) {
+      mirror.approval_status = target;
+      mirror.approvalStatus = target;
+      if ('isOpen' in mirror) mirror.isOpen = openNow;
+      if ('is_open' in mirror) mirror.is_open = openNow;
+      // `operationalStatus` is the console-facing spelling of `is_open`, so it moves with it.
+      if ('operationalStatus' in mirror) mirror.operationalStatus = openNow ? 'APPROVED' : 'SUSPENDED';
     }
 
     await this.auditAppliedChange({
       adminId,
       adminName,
       role: 'ADMIN',
-      action: operationalStatus === 'SUSPENDED' ? 'RESTAURANT_SUSPENDED' : 'RESTAURANT_ACTIVATED',
+      action: target === 'APPROVED' ? 'MERCHANT_APPROVED' : 'MERCHANT_REJECTED',
       module: 'MERCHANT_PARTNER',
-      targetEntityType: 'RESTAURANT',
-      targetEntityId: rest.id,
-      previousState: prev,
-      newState: operationalStatus,
-      reason: reason || `Restaurant operational status set to ${operationalStatus}`
+      targetEntityType: 'MERCHANT',
+      targetEntityId: targetUuid,
+      previousState: current,
+      newState: target,
+      reason: reason || `Merchant approval decision recorded: ${target}`,
+      metadata: {
+        dataSource: 'postgres',
+        persisted: true,
+        requestedDecision: requested,
+        appliedDecision: target,
+        merchantType: row.merchant_type,
+        isOpenNow: openNow,
+        decidedBy: patch.approval_decided_by,
+        decidedAt: patch.approval_decided_at
+      }
     });
 
-    return { success: true, restaurant: rest };
+    return {
+      success: true,
+      unchanged: false,
+      approvalStatus: target,
+      merchant: view(decided),
+      dataSource: 'postgres',
+      persisted: true
+    };
+  }
+
+  /**
+   * The queue an approval decision is made from: stores whose durable state says PENDING.
+   *
+   * Read from the store, not from the in-process mirror, because the answer has to be the same on
+   * every instance and after a restart — a queue that only one process remembers is how a store
+   * sits unreviewed while another instance already approved it. `dataSource` says which one answered.
+   */
+  async getMerchantsPendingApproval() {
+    const supabase = this.liveStore();
+    if (!supabase) {
+      const pending = (this.restaurants || []).filter(r => {
+        const raw = r.approval_status != null ? r.approval_status : r.approvalStatus;
+        return raw != null && String(raw).trim().toUpperCase() === 'PENDING';
+      });
+      return {
+        dataSource: 'memory',
+        count: pending.length,
+        merchants: pending.map(r => ({
+          id: r.id,
+          name: r.name,
+          merchantType: r.merchant_type || r.merchantType || null,
+          phone: r.phone || null,
+          address: r.address || null,
+          approvalStatus: 'PENDING',
+          isOpen: Boolean(r.is_open ?? r.isOpen)
+        }))
+      };
+    }
+
+    const rows = await this.authoritativeRead(
+      supabase.from('merchants')
+        .select('id, name, merchant_type, phone, address, is_open, approval_status, created_at')
+        .eq('approval_status', 'PENDING')
+        .order('created_at', { ascending: true }),
+      { what: 'the pending merchant approval queue' }
+    );
+    const pending = rows || [];
+    return {
+      dataSource: 'postgres',
+      count: pending.length,
+      merchants: pending.map(r => ({
+        id: r.id,
+        name: r.name,
+        merchantType: r.merchant_type,
+        phone: r.phone,
+        address: r.address,
+        approvalStatus: r.approval_status,
+        isOpen: Boolean(r.is_open),
+        registeredAt: r.created_at ?? null
+      }))
+    };
   }
 
   // --- Restaurant discovery profile (what a customer's card is allowed to claim) ---
@@ -4105,6 +4651,21 @@ class NabinDatabase {
   // `rating` is deliberately absent from the writable set: no reviews table exists in
   // this schema, so a rating written here could only be an invented one.
   async updateMerchantRestaurantProfile(merchantId, body = {}) {
+    // A merchant editing its own profile must not be able to edit the platform's decision
+    // about it. `validateRestaurantProfilePatch` already whitelists the three writable
+    // fields, so an approval key here would have been silently dropped and answered 200 —
+    // which reads to the caller as "accepted". Refusing it by name is the honest answer,
+    // and it makes the attempt visible in the response the operator's logs keep.
+    const source = body && typeof body === 'object' ? body : {};
+    const approvalKeys = Object.keys(source).filter(k => /^approval[_]?status$|^approval[_]?decided[_]?(by|at)$|^approval[_]?reason$/i.test(k));
+    if (approvalKeys.length > 0) {
+      const err = new Error(`Approval state is the platform's to set, not the merchant's: ${approvalKeys.join(', ')} cannot be written from a profile edit. Nothing was changed.`);
+      err.code = 'SELF_APPROVAL_NOT_PERMITTED';
+      err.status = 400;
+      err.statusCode = 400;
+      throw err;
+    }
+
     const { validateRestaurantProfilePatch } = require('./services/restaurantProfileDomain');
     const { fields, patch } = validateRestaurantProfilePatch(body);
     if (fields.length === 0) {
@@ -4183,10 +4744,66 @@ class NabinDatabase {
     return match || this.drivers[0];
   }
 
+  // MI-4: authorization-time driver resolution, the strict counterpart of `getDriver`.
+  // `getDriver` is a read helper whose last line is `|| this.drivers[0]`: it can never return null,
+  // and several admin/ops call sites depend on that convenience. A security boundary needs the
+  // opposite contract. Using it for authentication is what let an unresolved session identity
+  // (`entityId: 'anon'`) be served as the first seeded driver, because the `if (!driver)` refusal
+  // written under the call was unreachable. An unresolvable id here answers null, and every
+  // driver-authenticated boundary checks it.
+  getDriverStrict(id) {
+    if (!id) return null;
+    const found = this.driverRepo ? this.driverRepo.findById(id) : null;
+    if (found) return found;
+    const match = this.drivers.find(d =>
+      d.id === id ||
+      (d.id || '').toLowerCase() === id.toLowerCase() ||
+      (id === 'drv_1' && d.id === 'DRV-101') ||
+      (id === 'DRV-101' && d.id === 'drv_1') ||
+      (id === 'drv_2' && d.id === 'DRV-102') ||
+      (id === 'drv_3' && d.id === 'DRV-103')
+    );
+    return match || null;
+  }
+
   getUser(id = 'usr_1') {
     if (!id) return this.users[0];
     const found = this.userRepo ? this.userRepo.findById(id) : null;
     return found || this.users.find(u => u.id === id) || this.users[0];
+  }
+
+  // MI-4 (P1) — the customer counterpart of `getDriverStrict`, for the same reason. `getUser`
+  // ends in `|| this.users[0]`, so an unresolvable id silently becomes the first seeded
+  // customer: `processFinancialAdjustment('CUSTOMER', <typo>)` moved that account's balance and
+  // the `if (!targetEntity)` refusal under the call was unreachable. Anything that acts on a
+  // person — money, a notification recipient, an ownership claim — resolves through this.
+  getUserStrict(id) {
+    if (!id) return null;
+    const found = this.userRepo ? this.userRepo.findById(id) : null;
+    if (found) return found;
+    return this.users.find(u => u.id === id) || null;
+  }
+
+  // MI-4 (P1) — the durable-aware pair. A sync strict resolver answers null for an account that
+  // really exists but was never hydrated into this process's mirror, so using it on a money path
+  // would turn a legitimate admin adjustment into a `*_NOT_FOUND` refusal — a new outage, and one
+  // HEAD's fallback never caused because it answered `users[0]` for everything. These keep both
+  // contracts: try memory, then the store, and still answer null (never `[0]`) when nobody matches.
+  // Same ordering `recordPayout` already uses.
+  async getDriverStrictAsync(id) {
+    if (!id) return null;
+    const found = this.getDriverStrict(id);
+    if (found) return found;
+    if (this.driverRepo?.findByIdAsync) return await this.driverRepo.findByIdAsync(id);
+    return null;
+  }
+
+  async getUserStrictAsync(id) {
+    if (!id) return null;
+    const found = this.getUserStrict(id);
+    if (found) return found;
+    if (this.userRepo?.findByIdAsync) return await this.userRepo.findByIdAsync(id);
+    return null;
   }
 
   getJob(id) {
@@ -4196,14 +4813,35 @@ class NabinDatabase {
   }
 
   async createJob(jobData) {
+    // P2 (H): the OTP material is minted here, never taken from the caller. The old object
+    // generated `startOtp`/`deliveryOtp` and then spread `...jobData` AFTER them, so any caller
+    // that passed `startOtp` set the customer's trip-start code. Destructure the three codes off
+    // `jobData` so they cannot reach the merged object, then mint authoritative values below.
+    const {
+      startOtp: _callerStartOtp,
+      pickupOtp: _callerPickupOtp,
+      deliveryOtp: _callerDeliveryOtp,
+      ...jobRest
+    } = jobData || {};
+    const mint4 = () => Math.floor(1000 + Math.random() * 9000).toString();
+    const expiresIso = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
     const newJob = {
       id: jobData.id || `JOB-${Date.now().toString().slice(-8)}-${Math.floor(100 + Math.random() * 900)}`,
       status: jobData.status || 'SEARCHING',
       driverId: jobData.driverId || null,
-      startOtp: Math.floor(1000 + Math.random() * 9000).toString(),
-      deliveryOtp: jobData.deliveryOtp || Math.floor(1000 + Math.random() * 9000).toString(),
+      ...jobRest,
+      // Authoritative OTP material, set after the spread so no caller can supply a trip code.
+      startOtp: mint4(),
+      pickupOtp: null,
+      deliveryOtp: mint4(),
+      // Per-type verification state (mirrors the durable columns migration 046 adds). New
+      // bookings carry a 24h expiry; legacy hydrated rows leave these unset and are treated
+      // as unbounded by the verifier, exactly as the RPC treats a NULL expiry column.
+      startOtpAttempts: 0, pickupOtpAttempts: 0, deliveryOtpAttempts: 0,
+      startOtpLockedUntil: null, pickupOtpLockedUntil: null, deliveryOtpLockedUntil: null,
+      startOtpConsumedAt: null, pickupOtpConsumedAt: null, deliveryOtpConsumedAt: null,
+      startOtpExpiresAt: expiresIso, pickupOtpExpiresAt: expiresIso, deliveryOtpExpiresAt: expiresIso,
       createdAt: new Date().toISOString(),
-      ...jobData
     };
     // A `jobs` insert the store refused is not a booking. The refusal carries
     // `storeFailure` plus the engine's SQLSTATE (JobRepository.storeFailure); the
@@ -4400,8 +5038,14 @@ class NabinDatabase {
     if (driverId) job.driverId = driverId;
 
     if (status === 'COMPLETED') {
-      const driver = this.getDriver(job.driverId || 'drv_1');
-      const user = this.getUser(job.customerId || 'usr_1');
+      // MI-4 (P1): neither side of a settlement may be aimed at a stand-in. `getDriver` ends in
+      // `|| this.drivers[0]` and `getUser` in `|| this.users[0]`, and the `'drv_1'` / `'usr_1'`
+      // defaults below them meant a job whose own driver or customer did not resolve was settled
+      // against the FIRST SEEDED ACCOUNT: `driver.id` is what is handed to
+      // `driverRepo.updateEarnings`, so that is a durable wallet credit to somebody else, plus a
+      // mirrored customer debit. Both now resolve exactly; an unresolvable party books nothing.
+      const driver = this.getDriverStrict(job.driverId);
+      const user = this.getUserStrict(job.customerId);
       if (driver) {
         const comm = job.platformFee || Math.round(job.fare * 0.15);
         const netEarnings = job.fare - comm;
@@ -4485,7 +5129,7 @@ class NabinDatabase {
           id: txnId,
           type: 'TRIP_EARNING',
           jobId: job.id,
-          userId: user ? user.id : 'usr_1',
+          userId: user ? user.id : null,
           userRole: 'CUSTOMER',
           driverId: driver.id,
           title: `${job.type}: ${job.pickup?.address?.slice(0, 20) || 'Pickup'} → ${job.drop?.address?.slice(0, 20) || 'Drop'}`,
@@ -4518,7 +5162,11 @@ class NabinDatabase {
   }
 
   async recordPayout(driverId, amount, _ignoredDestination, options = {}) {
-    let driver = this.driverRepo ? this.driverRepo.findById(driverId) : this.getDriver(driverId);
+    // MI-4 (P1): the offline branch used `getDriver`, whose last line is `|| this.drivers[0]`, so
+    // the DRIVER_NOT_FOUND refusal under it could never answer and an unresolvable payout target
+    // was paid out of the first seeded driver's balance. Same contract as the durable branch:
+    // resolve exactly, refuse otherwise.
+    let driver = this.driverRepo ? this.driverRepo.findById(driverId) : this.getDriverStrict(driverId);
     if (!driver && this.driverRepo) {
       driver = await this.driverRepo.findByIdAsync(driverId);
     }
@@ -5046,9 +5694,14 @@ class NabinDatabase {
       if (mErr) throw mErr;
       if (!masterRow) throw this._masterNotFound(id);
 
+      // `address` is in the embed on purpose: `merchants.address` is a real, NOT NULL
+      // durable column (migration 001:77), and omitting it here is exactly what made
+      // every store report the fabricated `DarkStore Location` literal. The field is
+      // included only when a durable address is actually present — a store is never
+      // given an invented place.
       const { data: invRows, error: iErr } = await supabaseAdmin
         .from('merchant_grocery_inventory')
-        .select('merchant_id, store_price, stock_quantity, is_available, status, updated_at, merchants(id, name)')
+        .select('merchant_id, store_price, stock_quantity, is_available, status, updated_at, merchants(id, name, address)')
         .eq('product_id', productId);
       if (iErr) throw iErr;
 
@@ -5057,7 +5710,7 @@ class NabinDatabase {
         return {
           merchantId: inv.merchant_id,
           merchantName: merchant.name || inv.merchant_id,
-          merchantAddress: merchant.address || 'DarkStore Location',
+          ...(merchant.address ? { merchantAddress: merchant.address } : {}),
           mrp: null,
           currentPrice: Number(inv.store_price),
           stockQty: inv.stock_quantity,
@@ -5077,11 +5730,11 @@ class NabinDatabase {
     if (!master) throw this._masterNotFound(id);
 
     const linkedStores = this.merchantInventory.filter(inv => inv.masterProductId === id).map(inv => {
-      const merchant = this.merchants.find(m => m.id === inv.merchantId) || { name: inv.merchantId, address: 'DarkStore Location' };
+      const merchant = this.merchants.find(m => m.id === inv.merchantId) || { name: inv.merchantId };
       return {
         merchantId: inv.merchantId,
         merchantName: merchant.name,
-        merchantAddress: merchant.address,
+        ...(merchant.address ? { merchantAddress: merchant.address } : {}),
         mrp: inv.mrp,
         currentPrice: inv.currentPrice,
         stockQty: inv.stockQty,
@@ -5834,6 +6487,11 @@ class NabinDatabase {
     return this.groceryPriceHistory;
   }
 
+  // `groceryPriceHistory` is this process's memory: a boot-time seed plus rows this
+  // instance itself wrote. There is no admin-facing durable read of
+  // `grocery_price_history` (the only PostgreSQL path, getMerchantPriceHistory, is
+  // scoped to one merchant), so an operator's cross-tenant alert scan can only be
+  // honest about being a memory view of one instance.
   getUnusualPriceAlerts() {
     const alerts = [];
     for (const h of this.groceryPriceHistory) {
@@ -5847,7 +6505,7 @@ class NabinDatabase {
         });
       }
     }
-    return alerts;
+    return { alerts, dataSource: 'memory', degraded: true };
   }
 
   async resetAdminPassword({ identifier, newPassword, currentPassword, isSuperAdmin = false, actor = null }) {
@@ -6761,6 +7419,15 @@ class NabinDatabase {
           // in-memory entity is brought in line with it here rather than left holding
           // whatever it read at boot.
           entity.accountStatus = dbUser.account_status || 'ACTIVE';
+          // And on whether it may transact at all: `identity_status` is hydrated with the
+          // store's 'PENDING' spelled as the mirror's 'IDENTITY_VERIFICATION_PENDING', so
+          // this is the same mapping a fresh boot applies to the same row. Without it a
+          // process that has been running since before the review keeps serving the verdict
+          // it hydrated at boot, and the order-creation gate — which reads exactly this
+          // field off exactly this entity — disagrees with the directory indefinitely.
+          entity.identityStatus = dbUser.identity_status === 'PENDING'
+            ? 'IDENTITY_VERIFICATION_PENDING'
+            : dbUser.identity_status;
         } else {
           if (!userUuid) {
             const crypto = require('crypto');
@@ -6892,6 +7559,20 @@ class NabinDatabase {
           }
         }
       }
+      if (!entity) {
+        // MI-4: an unenrolled number must not be handed a DRIVER identity. This branch used to
+        // fall through with `entity` undefined and mint the session anyway, storing
+        // `entityId: 'anon'`; every driver boundary then reads `session.entity || db.getDriver(
+        // session.entityId)`, and getDriver ends in `|| this.drivers[0]`, so that anonymous bearer
+        // was served as the first seeded driver. Measured on the unfixed tree: a forged anon
+        // session answered GET /api/driver/earnings with 200 and that driver's balance, and
+        // POST /api/notifications/device-token wrote a device_tokens row under their user id.
+        // The MERCHANT and ADMIN branches above already refuse for exactly this reason.
+        const refusal = new Error('No driver account is registered for this number.');
+        refusal.code = 'DRIVER_PHONE_NOT_ENROLLED';
+        refusal.status = 401;
+        throw refusal;
+      }
     } else if (role === 'MERCHANT') {
       entity = this.restaurants.find(r => this.normalizePhone(r.phone) === normPhone);
       if (isLivePostgres && supabaseAdmin) {
@@ -6949,6 +7630,22 @@ class NabinDatabase {
         throw refusal;
       }
       role = entity.role || role;
+    }
+
+    if (!entity) {
+      // MI-4: the four branches above match on exact strings and each of them now refuses when it
+      // resolves nothing, so arriving here with no entity means `role` was not one of them — a
+      // spelling like 'driver' or 'ADMINISTRATOR' straight from the request body. Such a role used
+      // to skip every branch's guard and still reach the mint below with `entityId: 'anon'` and a
+      // token prefix built out of the client's own string. It cannot resolve to another driver at a
+      // route boundary (authenticateDriver/ User/ Merchant all compare to the canonical constant),
+      // but server.js reads the role through `.toUpperCase()` at the ride-cancel and trip-tracking
+      // boundaries and at WebSocket REGISTER, and those took 'admin' as an administrator. Measured
+      // before this guard: three role spellings in one run minted three anon sessions.
+      const refusal = new Error('This sign-in role is not supported.');
+      refusal.code = 'AUTH_ROLE_NOT_SUPPORTED';
+      refusal.status = 401;
+      throw refusal;
     }
 
     // Issue Secure Session Token
@@ -7347,12 +8044,34 @@ class NabinDatabase {
       // signed out for no reason. Say so at boot rather than at the complaint.
       console.error(`⚠️ Persisted sessions read INCOMPLETE, some users may need to sign in again: ${error}`);
     }
-    for (const row of rows) this.restoreSession(row);
-    console.log(`🔑 Restored ${rows.length} authentication session(s) from PostgreSQL${complete ? '' : ' (INCOMPLETE READ)'}`);
-    return rows.length;
+    let adopted = 0;
+    let declined = 0;
+    for (const row of rows) {
+      if (this.restoreSession(row)) adopted += 1;
+      else declined += 1;
+    }
+    console.log(`🔑 Restored ${adopted} authentication session(s) from PostgreSQL${complete ? '' : ' (INCOMPLETE READ)'}`
+      + (declined ? `; declined ${declined} with no resolvable identity` : ''));
+    return adopted;
   }
 
+  // Returns whether the row was adopted, so callers count adoptions rather than rows seen.
   restoreSession(row) {
+    // MI-4: a session row that carries no identity is not a session, it is the shape the pre-fix OTP
+    // mint produced for a number that resolves to no account (`entityId: 'anon'`, entity null -
+    // `persistSession` stores `sessionObj.entity ?? null`, and every legitimate mint carries the
+    // resolved entity). Adopting one re-armed the elevation on every boot for the full 30-day
+    // TTL: measured here as 179 live rows, DRIVER being the only role with any null-entity rows at
+    // all. The route boundaries now refuse such a bearer, and hydration declines to put it in the
+    // map in the first place, so an identity that never named an account cannot come back as one.
+    //
+    // The decline is keyed on the identity handle, not on the role name, because the role was never
+    // the safe half: the OTP mint also answered to spellings outside the four branches it resolves
+    // (see the AUTH_ROLE_NOT_SUPPORTED guard), and an `anon` row with role 'MERCHANT' or 'admin' is
+    // the same unresolved identity wearing a name the DRIVER clause would not recognise. A row that
+    // carries its entity still hydrates, or every restart would sign out legitimate sessions.
+    const identityHandle = row.entity_id == null ? '' : String(row.entity_id);
+    if (!row.entity && (!identityHandle || identityHandle === 'anon' || row.role === 'DRIVER')) return false;
     this.activeSessions.set(row.token_hash, {
       // The plaintext token is never stored, so restored entries carry the hash as
       // their handle. Authorization only compares hashes, which both forms satisfy.
@@ -7364,6 +8083,7 @@ class NabinDatabase {
       createdAt: row.created_at,
       expiresAt: row.expires_at
     });
+    return true;
   }
 
   async reconcileSessions({ store = this.liveStore(), pageSize, prune = true } = {}) {
@@ -7399,7 +8119,7 @@ class NabinDatabase {
       let adopted = 0;
       if (revokedDuringWalk === 0) {
         for (const row of rows) {
-          if (!this.activeSessions.has(row.token_hash)) { this.restoreSession(row); adopted += 1; }
+          if (!this.activeSessions.has(row.token_hash) && this.restoreSession(row)) adopted += 1;
         }
       }
       console.error(`⚠️ Session reconcile incomplete, prune skipped: ${error}`);
@@ -7435,15 +8155,19 @@ class NabinDatabase {
     // its token expires. Deferring the tick costs one 15 second round, after which the
     // delete sits behind the cursor and the row is simply not there to adopt.
     let adopted = 0;
+    let declined = 0;
     if (revokedDuringWalk === 0) {
       for (const row of rows) {
         if (!this.activeSessions.has(row.token_hash)) {
-          this.restoreSession(row);
-          adopted += 1;
+          if (this.restoreSession(row)) adopted += 1;
+          else declined += 1;
         }
       }
     } else {
       console.warn(`⚠️ Session reconcile adoption skipped: ${revokedDuringWalk} revocation(s) committed during the walk`);
+    }
+    if (declined > 0) {
+      console.warn(`⚠️ Session reconcile declined ${declined} persisted session(s) with no resolvable identity`);
     }
     return { adopted, pruned, complete: true, rows: rows.length, revokedDuringWalk };
   }
@@ -8529,6 +9253,233 @@ class NabinDatabase {
   }
 
   /**
+   * The platform-wide totals an admin reads as the state of the business.
+   *
+   * Every figure used to come from this process's in-memory projection, and the
+   * measurement of that (local store, 2026-10-20) is why it is now one exact read each:
+   * `totalRestaurants` served 1 against 83 durable merchants because `restaurants` is a
+   * seed array PostgreSQL has never hydrated; `activeDrivers` served 6 against 3 because
+   * the mirror's three demo drivers were all `isOnline: true`; `totalCompletedJobs` served
+   * 68 against 604 and `totalGrossFare` served ₹9,339 against ₹91,251 because `jobs` is
+   * hydrated with `.limit(200)` of the newest rows (this file, 'Hydrate Jobs from
+   * PostgreSQL'), so a 200-row window was being advertised as an all-time total — and one
+   * of those rows' money came from `j.fare`, a field `jobs` has no column for (migration
+   * 001 defines `fare_subtotal` and `final_total`), so a durable job contributed ₹0 by
+   * field name alone. That ₹9,339 also disagreed with `/api/admin/finance/metrics`, which
+   * reports the same quantity as `grossGtv` = ₹91,251: one platform, two gross fares.
+   *
+   * So `totalGrossFare` is now the identical walk `getFinancialMetrics()` does for
+   * `grossGtv` — SUM over `jobs.final_total` where status is COMPLETED, same cent rounding
+   * — which is what lets the two endpoints report one value for one quantity. The two keys
+   * with nothing behind them are gone rather than relabelled: `fleetStatus` was the literal
+   * 'OPTIMAL_OPERATION' for every platform state including an outage, and `pendingKyc`
+   * counted `identity_applications`, which has no table. Neither key has a consumer, and
+   * neither has any other key on this payload: `/api/admin/metrics` is served at
+   * `app.get('/api/admin/metrics')` and read by no client in this repository, so the
+   * truthful subset is all that is kept and nothing new is invented to fill the space.
+   *
+   * An unreadable store refuses (503 `AUTH_STORE_UNAVAILABLE`) instead of falling back to
+   * the mirror. That follows the aggregate precedent in this file rather than the directory
+   * precedent, because a `degraded: true` branch would put a second, different money total
+   * back on the wire — the exact disagreement this change exists to remove.
+   *
+   * Authorization is deliberately unchanged: this method performs no permission check and
+   * the route keeps exactly the `authenticateAdmin` guard it had. Which permissions these
+   * reads should require is issue #273 and an owner decision, not something invented here.
+   */
+  async getAdminPlatformMetrics() {
+    const store = this.liveStore();
+    if (!store) {
+      const refusal = new Error('Platform metrics are derived from the authoritative PostgreSQL '
+        + 'store, which is not available. Refusing to answer from the in-memory projection.');
+      refusal.code = 'AUTH_STORE_UNAVAILABLE';
+      refusal.status = 503;
+      refusal.statusCode = 503;
+      throw refusal;
+    }
+
+    // An exact head count, never a page size wearing a total. A read that comes back
+    // without one is an outage: `count: 0` and `count: unknown` must not look the same.
+    const exactCount = async (table, what, refine) => {
+      const builder = store.from(table).select('id', { count: 'exact', head: true });
+      const { count, error } = await this.settleAuthoritative(refine ? refine(builder) : builder, what);
+      if (error) throw this.authStoreUnavailable(error, what);
+      if (!Number.isFinite(count)) {
+        throw this.authStoreUnavailable(new Error(`the store returned no exact count for ${what}`), what);
+      }
+      return count;
+    };
+
+    const totalUsers = await exactCount('users', 'the customer accounts');
+    const activeDrivers = await exactCount('drivers', 'the online drivers', (q) => q.eq('is_online', true));
+    const totalRestaurants = await exactCount('merchants', 'the merchant directory');
+    const activeJobs = await exactCount('jobs', 'the open jobs',
+      (q) => q.neq('status', 'COMPLETED').neq('status', 'CANCELLED'));
+    const totalCompletedJobs = await exactCount('jobs', 'the completed jobs', (q) => q.eq('status', 'COMPLETED'));
+
+    const walk = await this.readAllRows(store, {
+      table: 'jobs',
+      select: 'id, final_total',
+      filter: (q) => q.eq('status', 'COMPLETED')
+    });
+    if (!walk.complete) {
+      throw this.authStoreUnavailable(
+        new Error(walk.error || 'could not read every completed job'), 'the completed job fares');
+    }
+    const totalGrossFare = Math.round(
+      walk.rows.reduce((sum, row) => sum + (Number(row.final_total) || 0), 0) * 100) / 100;
+
+    return {
+      activeDrivers,
+      activeJobs,
+      totalCompletedJobs,
+      totalGrossFare,
+      totalUsers,
+      totalRestaurants,
+      dataSource: 'postgres',
+      timestamp: new Date().toISOString()
+    };
+  }
+
+  /**
+   * The job queue an operator browses — now read from the store on every request.
+   *
+   * This used to answer `db.jobs`: a process-local mirror hydrated once at boot from the
+   * newest 200 rows and never refreshed, so a job another process booked, completed or
+   * cancelled was invisible until restart, and the four seeded demo jobs the mirror still
+   * carried were advertised whether or not any such row existed. Here the page is read
+   * from PostgreSQL each time, so what is durable is what is served, a filter and a total
+   * come from the store rather than from this process's memory, and an unreachable store
+   * is a classified outage instead of a stale 200.
+   *
+   * Authorization is deliberately unchanged: this method performs no permission check —
+   * the route keeps exactly the guard it had. Which permissions these reads should
+   * require is issue #273 and an owner decision, not something invented here.
+   */
+  async listAdminJobs({ type = '', status = '', limit = ADMIN_DIRECTORY_DEFAULT_PAGE, offset = 0 } = {}) {
+    const wantedType = String(type || '').toUpperCase();
+    if (wantedType && !ADMIN_JOB_SERVICE_TYPES.includes(wantedType)) {
+      const refusal = new Error(`type must be one of ${ADMIN_JOB_SERVICE_TYPES.join(', ')}.`);
+      refusal.code = 'ADMIN_JOB_TYPE_INVALID';
+      refusal.status = 400;
+      throw refusal;
+    }
+    const wantedStatus = String(status || '').toUpperCase();
+    const size = Math.min(ADMIN_DIRECTORY_MAX_PAGE, Math.max(1, Number(limit) || ADMIN_DIRECTORY_DEFAULT_PAGE));
+    const skip = Math.max(0, Number(offset) || 0);
+    const store = this.liveStore();
+
+    if (!store) {
+      const all = this.jobs.filter(j =>
+        (!wantedType || j.type === wantedType) && (!wantedStatus || j.status === wantedStatus));
+      return {
+        jobs: all.slice(skip, skip + size).map(redactAdminJobSecrets),
+        total: all.length,
+        limit: size,
+        offset: skip,
+        dataSource: 'memory',
+        degraded: true
+      };
+    }
+
+    const query = store.from('jobs').select('*', { count: 'exact' })
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false })
+      .range(skip, skip + size - 1);
+    if (wantedType) query.eq('service_type', wantedType);
+    if (wantedStatus) query.eq('status', wantedStatus);
+    const { data, error, count } = await this.settleAuthoritative(query, 'the admin job queue');
+    if (error) throw this.authStoreUnavailable(error, 'the admin job queue');
+    return {
+      jobs: (data || []).map(mapRowToJob).map(redactAdminJobSecrets),
+      total: count ?? (data || []).length,
+      limit: size,
+      offset: skip,
+      dataSource: 'postgres'
+    };
+  }
+
+  /**
+   * The merchant storefront directory, read from the `merchants` table.
+   *
+   * `db.restaurants` was a single seeded object, and that object carried three fields no
+   * column can hold — `payableBalance`, `menu` and `deliveryTime` — so the whole
+   * platform's storefront list was one fabrication: 83 real merchants rendered as one,
+   * with a balance the ledger never booked and a menu lifted out of a sample JSON. This
+   * serves the durable rows instead. The only balance a merchant actually has is
+   * `wallet_balance`, so that is what is reported (as `walletBalance`); the fabricated
+   * trio is gone, because a directory row cannot carry a menu (menu items are their own
+   * table) and the schema has no payable-balance or delivery-window column.
+   *
+   * `operationalStatus` follows `is_open` in the established two-value vocabulary (see
+   * `RESTAURANT_OPERATIONAL_STATUSES`), and `commissionRate` keeps the repository's
+   * fraction convention — the durable `commission_rate`, not a re-scaled percent.
+   */
+  async listAdminRestaurants({ merchantType = '', limit = ADMIN_DIRECTORY_DEFAULT_PAGE, offset = 0 } = {}) {
+    const wantedType = String(merchantType || '').toUpperCase();
+    if (wantedType && !ADMIN_MERCHANT_TYPES.includes(wantedType)) {
+      const refusal = new Error(`merchant_type must be one of ${ADMIN_MERCHANT_TYPES.join(', ')}.`);
+      refusal.code = 'ADMIN_MERCHANT_TYPE_INVALID';
+      refusal.status = 400;
+      throw refusal;
+    }
+    const size = Math.min(ADMIN_DIRECTORY_MAX_PAGE, Math.max(1, Number(limit) || ADMIN_DIRECTORY_DEFAULT_PAGE));
+    const skip = Math.max(0, Number(offset) || 0);
+    const store = this.liveStore();
+
+    if (!store) {
+      const all = this.restaurants.filter(r => !wantedType || (r.merchantType || r.merchant_type) === wantedType);
+      return {
+        restaurants: all.slice(skip, skip + size),
+        total: all.length,
+        limit: size,
+        offset: skip,
+        dataSource: 'memory',
+        degraded: true
+      };
+    }
+
+    const query = store.from('merchants').select('*', { count: 'exact' })
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false })
+      .range(skip, skip + size - 1);
+    if (wantedType) query.eq('merchant_type', wantedType);
+    const { data, error, count } = await this.settleAuthoritative(query, 'the merchant directory');
+    if (error) throw this.authStoreUnavailable(error, 'the merchant directory');
+    return {
+      restaurants: (data || []).map(row => this.projectAdminMerchant(row)),
+      total: count ?? (data || []).length,
+      limit: size,
+      offset: skip,
+      dataSource: 'postgres'
+    };
+  }
+
+  // One `merchants` row, projected for the admin directory. A column that is absent reads
+  // as absent — no balance, rating or coordinate is substituted when the row has none.
+  projectAdminMerchant(row) {
+    return {
+      id: row.id,
+      uuid: row.id,
+      name: row.name,
+      address: row.address ?? null,
+      phone: row.phone ?? null,
+      merchantType: row.merchant_type,
+      merchant_type: row.merchant_type,
+      location: { lat: coordinateOrNull(row.lat), lng: coordinateOrNull(row.lng) },
+      isOpen: Boolean(row.is_open),
+      operationalStatus: row.is_open ? 'APPROVED' : 'SUSPENDED',
+      approvalStatus: row.approval_status ?? null,
+      rating: row.rating === null || row.rating === undefined ? null : Number(row.rating),
+      walletBalance: row.wallet_balance === null || row.wallet_balance === undefined ? null : Number(row.wallet_balance),
+      commissionRate: row.commission_rate === null || row.commission_rate === undefined ? null : Number(row.commission_rate),
+      cuisines: row.cuisines ?? [],
+      createdAt: row.created_at ?? null,
+      updatedAt: row.updated_at ?? null
+    };
+  }
+
+  /**
    * One customer, with the sessions the operator is about to act on beside it.
    *
    * The session count is part of the read rather than something the screen guesses,
@@ -8930,8 +9881,13 @@ class NabinDatabase {
 
     for (const [id, saved] of Object.entries(snapshot.services)) {
       const target = this.platformServices[id];
-      // Merge onto the seeded object so a service added in code keeps its defaults.
-      if (target) Object.assign(target, saved);
+      if (!target) continue;
+      // Copy only the fields this code still declares, so a service added in code keeps its defaults and a
+      // snapshot written before a field was retired cannot resurrect it. The switchboard used to be merged
+      // with a raw Object.assign, which would have put fabricated volumes back into the public response.
+      for (const key of Object.keys(target)) {
+        if (key in saved) target[key] = saved[key];
+      }
     }
     if (Array.isArray(snapshot.pauseHistory) && snapshot.pauseHistory.length) {
       this.servicePauseHistory = snapshot.pauseHistory;
@@ -8942,34 +9898,142 @@ class NabinDatabase {
   }
 
   // Authoritative OTP Verification for Job Lifecycle Progression (Rides, Parcels, Food, Grocery)
+  //
+  // P2 handover/delivery security. The durable `jobs` row is the single source of truth for
+  // every rule the comparison used to lack: a per-type wrong-guess counter, a per-type lockout,
+  // a per-type expiry, and one-time consumption of a code that has already proven a transition.
+  // On live PostgreSQL all of that is enforced atomically inside `verify_job_otp_atomic`
+  // (migration 046) under a `SELECT ... FOR UPDATE`, so concurrent submits of the same code
+  // settle exactly once and a replay is refused with `OTP_ALREADY_CONSUMED` regardless of the
+  // state machine. The raw entered code is never written to the audit trail or an error message,
+  // so a failed guess cannot leak itself.
+  //
+  // Verification and advance stay two steps: the RPC proves + consumes the code, then
+  // `updateJobStatus` runs the transition and the money settlement. A code proven against a job
+  // whose current state the machine will not advance from is still consumed (it was a correct
+  // proof) but the refusal carries a code rather than a state-machine accident.
   async validateAuthoritativeJobOtp({ jobId, otp, otpType = 'START', driverId = null }) {
     if (!jobId || !otp) {
-      throw new Error('Job ID and verification OTP code are required.');
+      const err = new Error('Job ID and verification OTP code are required.');
+      err.code = 'OTP_INPUT_REQUIRED';
+      throw err;
     }
-
-    const job = this.getJob(jobId);
-    if (!job) {
-      throw new Error(`Trip/Order record [${jobId}] not found in central database.`);
-    }
-
     const cleanOtp = otp.toString().trim();
-    let expectedOtp = null;
+
+    // The mirror is a cache, not the record: a delivery job created by the 047 RPC only ever
+    // exists in PostgreSQL until it is read back, so an unhydrated mirror must not answer
+    // JOB_NOT_FOUND for a job the store has.
+    const job = this.getJob(jobId) || await this.jobRepo?.findByIdAsync(jobId);
+    if (!job) {
+      const err = new Error(`Trip/Order record [${jobId}] not found in central database.`);
+      err.code = 'JOB_NOT_FOUND';
+      throw err;
+    }
 
     // Phase 10: the verification code must come from the authoritative record.
     // The previous hardcoded fallbacks ('7729' / '4892') silently substituted a
-    // predictable code whenever a record appeared to lack one (dead code today,
-    // because job creation always persists start_otp + delivery_otp, but a
-    // fail-open default is never acceptable for a trip-start/proof-of-delivery
-    // control).
-    if (otpType === 'DELIVERY' || otpType === 'RECIPIENT') {
-      expectedOtp = job.deliveryOtp || null;
-    } else if (otpType === 'PICKUP' || otpType === 'SENDER' || otpType === 'START') {
-      expectedOtp = job.startOtp || job.pickupOtp || null;
+    // predictable code whenever a record appeared to lack one — fail closed instead.
+    const vType = this.normalizeHandoverOtpType(otpType);
+    let nextStatus = 'IN_TRANSIT';
+    if (vType === 'DELIVERY') {
+      nextStatus = 'COMPLETED';
+    } else if (job.type === 'FOOD' && vType === 'PICKUP') {
+      nextStatus = 'OUT_FOR_DELIVERY';
     } else {
-      expectedOtp = job.startOtp || job.deliveryOtp || null;
+      nextStatus = 'IN_TRANSIT';
     }
 
-    // Phase 10: fail closed. A trip/order with no bound code can never verify.
+    const { isLivePostgres, supabaseAdmin } = require('./supabase');
+
+    // ---- Live PostgreSQL: the durable row owns attempts / lockout / expiry / consumption. --
+    if (isLivePostgres && supabaseAdmin) {
+      const jobUuid = this.resolveJobUuid(job);
+      if (!jobUuid) {
+        const err = new Error(`Cannot resolve a durable id for trip/order [${jobId}].`);
+        err.code = 'JOB_NOT_FOUND';
+        throw err;
+      }
+      const { data, error } = await supabaseAdmin.rpc('verify_job_otp_atomic', {
+        p_job_id: jobUuid,
+        p_otp: cleanOtp,
+        p_otp_type: vType,
+      });
+      if (error) {
+        // Fail closed: no advance, no consumption signal, without an authoritative verdict.
+        const err = new Error(`Trip verification is unavailable right now (${error.code || error.message || 'store error'}).`);
+        err.code = 'OTP_VERIFICATION_UNAVAILABLE';
+        throw err;
+      }
+      const verdict = data || {};
+      if (verdict.success !== true) {
+        // The reason is built from the verdict code, never the entered digits.
+        this.createAuditLog({
+          adminId: driverId || 'UNKNOWN_DRIVER',
+          adminName: 'Fleet Telemetry',
+          role: 'DRIVER',
+          action: this.otpFailureAuditAction(verdict.code),
+          module: 'DISPATCH',
+          targetEntityType: 'JOB',
+          targetEntityId: job.id,
+          previousState: job.status,
+          newState: job.status,
+          reason: `Verification of Job ${job.id} refused (${verdict.code || 'REJECTED'}). No code is recorded.`
+        });
+        const err = new Error(verdict.message || `Invalid ${vType} verification code.`);
+        err.code = verdict.code || 'OTP_VERIFICATION_REJECTED';
+        if (verdict.retry_after_ms !== undefined) err.retryAfterMs = Number(verdict.retry_after_ms);
+        if (verdict.attempts_remaining !== undefined) err.attemptsRemaining = Number(verdict.attempts_remaining);
+        throw err;
+      }
+
+      // Proven and consumed durably. Now run the transition the code authorises.
+      let updated;
+      try {
+        updated = await this.updateJobStatus(job.id, nextStatus, driverId);
+      } catch (advanceErr) {
+        if (!advanceErr.code) advanceErr.code = 'JOB_ADVANCE_FAILED';
+        throw advanceErr;
+      }
+      this.createAuditLog({
+        adminId: driverId || 'DRIVER_AUTO',
+        adminName: 'Fleet Operations',
+        role: 'DRIVER',
+        action: 'OTP_VERIFIED_STATE_TRANSITION',
+        module: 'DISPATCH',
+        targetEntityType: 'JOB',
+        targetEntityId: job.id,
+        previousState: job.status,
+        newState: nextStatus,
+        reason: `${vType} OTP verified authoritatively. Trip status advanced to ${nextStatus}.`
+      });
+      return { success: true, verified: true, status: nextStatus, job: updated };
+    }
+
+    // ---- In-memory mirror (no durable row): enforce the identical per-type policy. --------
+    const key = vType.toLowerCase();               // start | pickup | delivery
+    const now = Date.now();
+    const expectedOtp = vType === 'DELIVERY' ? job.deliveryOtp
+      : vType === 'PICKUP' ? (job.pickupOtp || job.startOtp)
+      : (job.startOtp || job.pickupOtp);
+
+    const lockedUntil = job[`${key}OtpLockedUntil`];
+    if (lockedUntil && new Date(lockedUntil).getTime() > now) {
+      const err = new Error(`Too many incorrect attempts; ${key} verification is temporarily disabled.`);
+      err.code = 'OTP_LOCKED';
+      err.retryAfterMs = new Date(lockedUntil).getTime() - now;
+      throw err;
+    }
+    if (job[`${key}OtpConsumedAt`]) {
+      const err = new Error(`${key} verification code has already been used for this trip.`);
+      err.code = 'OTP_ALREADY_CONSUMED';
+      throw err;
+    }
+    const expiresAt = job[`${key}OtpExpiresAt`];
+    if (expiresAt && new Date(expiresAt).getTime() < now) {
+      const err = new Error(`${key} verification code has expired.`);
+      err.code = 'OTP_EXPIRED';
+      throw err;
+    }
     if (expectedOtp === null || expectedOtp === undefined || String(expectedOtp).trim() === '') {
       this.createAuditLog({
         adminId: driverId || 'UNKNOWN_DRIVER',
@@ -8981,44 +10045,51 @@ class NabinDatabase {
         targetEntityId: job.id,
         previousState: job.status,
         newState: job.status,
-        reason: `No ${otpType} verification code is bound to Job ${job.id}. Verification rejected (fail closed).`
+        reason: `No ${vType} verification code is bound to Job ${job.id}. Verification rejected (fail closed).`
       });
-      throw new Error(`No ${otpType} verification code is bound to this trip/order. Verification rejected.`);
+      const err = new Error(`No ${vType} verification code is bound to this trip/order. Verification rejected.`);
+      err.code = 'OTP_VERIFICATION_REJECTED_NO_BOUND_CODE';
+      throw err;
     }
 
-    // Phase 10: strict single-source comparison against the persisted code.
-    // The removed universal codes ('7729' / '4892' / '3184') let ANY
-    // authenticated driver verify ANY job without knowledge of that job's code,
-    // defeating both the trip-start check and proof of delivery.
-    const isValid = cleanOtp === String(expectedOtp).trim();
-    if (!isValid) {
+    if (cleanOtp !== String(expectedOtp).trim()) {
+      const attempts = (job[`${key}OtpAttempts`] || 0) + 1;
+      job[`${key}OtpAttempts`] = attempts;
+      const maxAttempts = 3;
+      const lockMinutes = 15;
       this.createAuditLog({
         adminId: driverId || 'UNKNOWN_DRIVER',
         adminName: 'Fleet Telemetry',
         role: 'DRIVER',
-        action: 'OTP_VERIFICATION_FAILED',
+        action: attempts >= maxAttempts ? 'OTP_VERIFICATION_LOCKED' : 'OTP_VERIFICATION_FAILED',
         module: 'DISPATCH',
         targetEntityType: 'JOB',
         targetEntityId: job.id,
         previousState: job.status,
         newState: job.status,
-        reason: `Invalid ${otpType} OTP attempt [${cleanOtp}] on Job ${job.id}. Verification rejected.`
+        reason: `Verification of Job ${job.id} refused (${attempts >= maxAttempts ? 'OTP_LOCKED' : 'OTP_MISMATCH'}). No code is recorded.`
       });
-      throw new Error(`Invalid ${otpType} verification code.`);
+      if (attempts >= maxAttempts) {
+        job[`${key}OtpLockedUntil`] = new Date(now + lockMinutes * 60000).toISOString();
+        this.save();
+        const err = new Error(`Too many incorrect attempts; ${key} verification is temporarily disabled.`);
+        err.code = 'OTP_LOCKED';
+        err.retryAfterMs = lockMinutes * 60000;
+        throw err;
+      }
+      this.save();
+      const err = new Error(`Invalid ${key} verification code.`);
+      err.code = 'OTP_MISMATCH';
+      err.attempts = attempts;
+      err.attemptsRemaining = maxAttempts - attempts;
+      throw err;
     }
 
-    // Transition State Authoritatively
-    let nextStatus = 'IN_TRANSIT';
-    if (otpType === 'DELIVERY' || otpType === 'RECIPIENT') {
-      nextStatus = 'COMPLETED';
-    } else if (job.type === 'FOOD' && otpType === 'PICKUP') {
-      nextStatus = 'OUT_FOR_DELIVERY';
-    } else {
-      nextStatus = 'IN_TRANSIT';
-    }
-
+    // Correct code: consume it (and only it), reset its counter, clear its lock.
+    job[`${key}OtpConsumedAt`] = new Date(now).toISOString();
+    job[`${key}OtpAttempts`] = 0;
+    job[`${key}OtpLockedUntil`] = null;
     const updated = await this.updateJobStatus(job.id, nextStatus, driverId);
-
     this.createAuditLog({
       adminId: driverId || 'DRIVER_AUTO',
       adminName: 'Fleet Operations',
@@ -9029,15 +10100,35 @@ class NabinDatabase {
       targetEntityId: job.id,
       previousState: job.status,
       newState: nextStatus,
-      reason: `${otpType} OTP verified authoritatively. Trip status advanced to ${nextStatus}.`
+      reason: `${vType} OTP verified authoritatively. Trip status advanced to ${nextStatus}.`
     });
+    return { success: true, verified: true, status: nextStatus, job: updated };
+  }
 
-    return {
-      success: true,
-      verified: true,
-      status: nextStatus,
-      job: updated
-    };
+  // Alias RECIPIENT to DELIVERY and SENDER to PICKUP (the vocabulary the route and the RPC
+  // share); anything unknown or empty falls back to START, the historical default.
+  normalizeHandoverOtpType(otpType) {
+    const v = String(otpType || 'START').trim().toUpperCase();
+    if (v === 'RECIPIENT') return 'DELIVERY';
+    if (v === 'SENDER') return 'PICKUP';
+    if (v === 'PICKUP' || v === 'DELIVERY') return v;
+    return 'START';
+  }
+
+  resolveJobUuid(job) {
+    if (!job) return null;
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (job.uuid && UUID_RE.test(job.uuid)) return job.uuid;
+    if (job.id && UUID_RE.test(job.id)) return job.id;
+    return null;
+  }
+
+  otpFailureAuditAction(code) {
+    if (code === 'OTP_LOCKED') return 'OTP_VERIFICATION_LOCKED';
+    if (code === 'OTP_EXPIRED') return 'OTP_VERIFICATION_EXPIRED';
+    if (code === 'OTP_ALREADY_CONSUMED') return 'OTP_VERIFICATION_ALREADY_CONSUMED';
+    if (code === 'OTP_VERIFICATION_REJECTED_NO_BOUND_CODE') return 'OTP_VERIFICATION_REJECTED_NO_BOUND_CODE';
+    return 'OTP_VERIFICATION_FAILED';
   }
 
   // =========================================================================

@@ -13,13 +13,14 @@
  * control yet.
  */
 import React, { useMemo, useState } from 'react';
+import Link from 'next/link';
 import AdminLayout from '@/components/AdminLayout';
 import {
   MetricGrid, Panel, RecordsTable, StateBlock, UNAVAILABLE, money, count,
   useAdminData, type Row,
 } from '@/components/DataPanel';
 import { useAuth } from '@/components/AuthProvider';
-import { holdsPermission } from '@/lib/access';
+import { holdsPermission, missingGrantNote } from '@/lib/access';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Admin endpoints return differently-shaped envelopes (`{ tickets }`, `{ logs }`, `{ metrics }`).
@@ -40,6 +41,15 @@ export interface ModuleSpec {
   emptyText?: string;
   /** Permission the console checks before rendering the table at all. */
   permission?: string;
+  /**
+   * The one exception to these screens being read-only: a workflow that leaves the module to
+   * act somewhere else, listed here rather than invented as a button on the metrics. Each entry
+   * carries the same server-checked grant its destination route demands, so a console never shows
+   * an operator a control whose first click would answer 403 — and when the grant is missing, the
+   * reason is printed instead of the button (§11 answer 10). One exists today: A14 refund
+   * confirmation, whose route is gated by `finance.refund`.
+   */
+  entryPoints?: { href: string; label: string; permission?: string; note: string }[];
 }
 
 export const MODULES: Record<string, ModuleSpec> = {
@@ -58,6 +68,14 @@ export const MODULES: Record<string, ModuleSpec> = {
       { label: 'Outstanding balances', value: money(p?.metrics?.outstandingBalances) },
     ]),
     permission: 'finance.view',
+    entryPoints: [
+      {
+        href: '/finance/refund',
+        label: 'Issue refund',
+        permission: 'finance.refund',
+        note: 'POST /api/admin/finance/refund — a money movement, so it opens its own confirmation screen instead of a button on these tiles.',
+      },
+    ],
   },
   support: {
     title: 'Support',
@@ -154,6 +172,33 @@ export default function ModuleScreen({ name }: { name: keyof typeof MODULES }) {
     <AdminLayout title={spec.title}>
       <div className="nabin-stack">
         {metrics && metrics.length ? <MetricGrid items={metrics} /> : null}
+
+        {/*
+          Actions that leave the read surface. Rendered as its own card so a money workflow is
+          never mistaken for one of the tiles above it, and hidden — with the reason — when this
+          session carries no grant for the route it opens.
+        */}
+        {spec.entryPoints && spec.entryPoints.length ? (
+          <Panel title="Actions" subtitle="These leave the read-only screen and act somewhere else.">
+            <div className="nabin-stack">
+              {spec.entryPoints
+                .filter((e) => !e.permission || holdsPermission(user, e.permission))
+                .map((e) => (
+                  <div className="nabin-row" key={e.href} style={{ gap: 'var(--space-xs)', flexWrap: 'wrap', alignItems: 'center' }}>
+                    <Link href={e.href} className="nabin-btn nabin-btn--primary">{e.label}</Link>
+                    <span className="nabin-cell-meta">{e.note}</span>
+                  </div>
+                ))}
+              {spec.entryPoints
+                .filter((e) => e.permission && !holdsPermission(user, e.permission))
+                .map((e) => (
+                  <div className="nabin-alert" key={`hidden-${e.href}`} role="note">
+                    <span>{missingGrantNote(user, e.permission as string)}</span>
+                  </div>
+                ))}
+            </div>
+          </Panel>
+        ) : null}
 
         {spec.rowsKey ? (
           <Panel title="Records" subtitle={typeof total === 'number'

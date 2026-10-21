@@ -15,7 +15,8 @@
     "test:admin": "node admin_identity_gates_test.js && node admin_authorization_test.js && node admin_customers_test.js && node admin_settings_surface_test.js && node admin_audit_fail_closed_test.js",
     "test:geo-anon": "node geo_anon_access_test.js",
     "test:outage": "node checkout_store_semantics_test.js && node hydration_fallback_test.js && node campaign_outage_test.js",
-    "smoke": "node smoke_test.js"
+    "smoke": "node smoke_test.js",
+    "test:sms": "node sms_gateway_test.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",

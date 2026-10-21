@@ -107,8 +107,8 @@ BEGIN
     END IF;
 
     -- Verify merchant exists in authoritative merchants table and check merchant capability
-    SELECT merchant_type INTO v_merchant_type 
-      FROM public.merchants 
+    SELECT merchant_type INTO v_merchant_type
+      FROM public.merchants
      WHERE id = p_merchant_id;
 
     IF NOT FOUND THEN
@@ -262,7 +262,7 @@ BEGIN
             END IF;
 
             -- Verify product exists and belongs to merchant
-            SELECT merchant_id, name, price 
+            SELECT merchant_id, name, price
               INTO v_product_merchant_id, v_product_name_db, v_product_price_db
               FROM public.products
              WHERE id = v_restaurant_product_id;

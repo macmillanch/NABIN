@@ -60,7 +60,7 @@ export default function MenuPage() {
       <div className="nabin-stack">
         <div className="nabin-page-head" style={{ marginBottom: 0 }}>
           <div>
-            <h1>Menu</h1>
+            <h1 className="nabin-visually-hidden">Menu</h1>
             <p>{products.length} dishes stored against this merchant in PostgreSQL.</p>
           </div>
           <button onClick={load} className="nabin-btn nabin-btn--ghost" style={{ minHeight: 40 }}>

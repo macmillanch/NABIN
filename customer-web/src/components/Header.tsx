@@ -13,6 +13,8 @@ const PRIMARY_LINKS = [
 
 const ACCOUNT_LINKS = [
   { href: '/orders', label: 'Orders' },
+  { href: '/wallet', label: 'Wallet' },
+  { href: '/support', label: 'Support' },
   { href: '/profile', label: 'Profile' },
 ];
 
@@ -26,8 +28,8 @@ export default function Header() {
   return (
     <header className="nabin-header">
       <div className="nabin-header__inner nabin-container">
-        <Link href="/" className="nabin-wordmark" style={{ fontSize: 22 }}>
-          NABIN
+        <Link href="/" style={{ display: 'inline-flex', alignItems: 'center' }}>
+          <img src="/nabin_logo_full.png" alt="NABIN" style={{ height: 30, width: 'auto', objectFit: 'contain' }} />
         </Link>
 
         <nav className="nabin-header__links" aria-label="Primary">
@@ -46,7 +48,7 @@ export default function Header() {
         <div className="nabin-row">
           {user ? (
             <>
-              <Link href="/profile" className="nabin-header__account">
+              <Link href="/profile" className="nabin-header__account nabin-hide-sm">
                 {user?.phone || 'Profile'}
               </Link>
               <button onClick={logout} className="nabin-btn nabin-btn--ghost" style={{ minHeight: 40 }}>

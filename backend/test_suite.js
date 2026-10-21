@@ -302,7 +302,7 @@ async function runAllTests() {
         '00000000-0000-0000-0000-000000000102', '00000000-0000-0000-0000-000000000103'];
       const EXCLUDED_USERS = ['00000000-0000-0000-0000-000000000002'];
       const { data: quietDriver } = await supabaseAdmin.from('drivers')
-        .select('id, phone, name, wallet_balance, operational_status')
+        .select('id, phone, name, wallet_balance, operational_status, is_online')
         .eq('wallet_balance', 0).not('id', 'in', `(${EXCLUDED_DRIVERS.join(',')})`)
         .order('id', { ascending: true }).limit(1).maybeSingle();
       const { data: quietCustomer } = await supabaseAdmin.from('users')
@@ -343,7 +343,8 @@ async function runAllTests() {
           const stamp = Date.now();
           lostItemTicket = await mkTicket('LOST_ITEM', `TCK-P22-LI-${stamp}`);
           safetyTicket = await mkTicket('SAFETY_INCIDENT', `TCK-P22-SF-${stamp}`);
-          p22Fixtures.drivers.push({ id: quietDriver.id, operational_status: quietDriver.operational_status });
+          p22Fixtures.drivers.push({ id: quietDriver.id, operational_status: quietDriver.operational_status,
+            is_online: quietDriver.is_online });
         }
       }
     }
@@ -367,7 +368,10 @@ async function runAllTests() {
     );
 
     // Test Specialized SAFETY_INCIDENT Resolution (isolated fixture ticket)
-    const resolveSafety = await request('POST', `/api/admin/support/${safetyTicket || 'TCK-9479'}/resolve`, {
+    // The seed `|| 'TCK-9479'` fallback is gone: that ticket has no job, so after F-7 it
+    // can only be refused, and pointing at it would turn a missing fixture into a
+    // misleading sanction failure.
+    const resolveSafety = await request('POST', `/api/admin/support/${safetyTicket || 'P22-FIXTURE-MISSING'}/resolve`, {
       resolutionNotes: 'High-speed reckless driving verified on GPS. 48-hr driver account freeze enforced.',
       refundAmount: 150.0,
       specializedData: {
@@ -394,8 +398,12 @@ async function runAllTests() {
         await supabaseAdmin.from('jobs').delete().eq('id', jobId);
       }
       for (const driver of p22Fixtures.drivers) {
+        // The sanction writes both fields, so the restore has to revert both: an
+        // operational_status-only restore left this run's driver permanently offline in
+        // the dev store, which is exactly the kind of drift the census cannot see.
         await supabaseAdmin.from('drivers')
-          .update({ operational_status: driver.operational_status || 'AVAILABLE' }).eq('id', driver.id);
+          .update({ operational_status: driver.operational_status || 'AVAILABLE',
+            is_online: driver.is_online !== false }).eq('id', driver.id);
       }
       const left = await supabaseAdmin.from('support_tickets')
         .select('id', { count: 'exact', head: true }).like('ticket_number', 'TCK-P22-%');
@@ -892,14 +900,21 @@ async function runAllTests() {
     const customerToken = validOtpRes.data.token;
     priyaToken = customerToken;
 
-    // Driver login to obtain valid driver token
+    // Driver login to obtain valid driver token.
+    // +919810122910 is DRV-101 (Rajesh Kumar), the seeded driver this suite's own driver
+    // routes address as `DRV-101`. This call used to send 9810122334, a number with 0 rows in
+    // `drivers` and 0 in `users` (measured 2026-10-18); it still got a token because MI-4's
+    // unenrolled DRIVER login minted `entityId="anon"` and `getDriver("anon")` returned
+    // `drivers[0]` — which is DRV-101. Same identity, wrong provenance: the suite was running
+    // on the substitution it should have been guarding against. Measured: with the fallback
+    // closed, 9810122334 answers 401 DRIVER_PHONE_NOT_ENROLLED.
     const driverOtpSend = await request('POST', '/api/auth/send-otp', {
-      phone: '9810122334',
+      phone: '9810122910',
       role: 'DRIVER',
       purpose: 'LOGIN'
     });
     const driverOtpVerify = await request('POST', '/api/auth/verify-otp', {
-      phone: '9810122334',
+      phone: '9810122910',
       otp: driverOtpSend.data.testOtp || '7729',
       role: 'DRIVER'
     });
@@ -959,10 +974,10 @@ async function runAllTests() {
     }, { 'Authorization': `Bearer ${customerToken}` });
 
     assert('Server accurately computes food subtotal, packaging fee, and 5% GST',
-      foodBookingRes.status === 200 && foodBookingRes.data.success && foodBookingRes.data.job.packagingFee === 15 && foodBookingRes.data.job.gst > 0
+      foodBookingRes.status === 200 && foodBookingRes.data.success && foodBookingRes.data.order.packagingFee === 15 && foodBookingRes.data.order.gst > 0
     );
 
-    const placedFoodOrderId = foodBookingRes.data?.order?.id || foodBookingRes.data?.job?.id;
+    const placedFoodOrderId = foodBookingRes.data?.order?.id;
     if (foodBookingRes.status === 200 && placedFoodOrderId) placedFoodOrderIds.push(String(placedFoodOrderId));
 
     // --- 13. MODULE 11: Authoritative Dual-OTP Trip & Handover Verification ---
@@ -1607,7 +1622,13 @@ async function runAllTests() {
       duplicateResolve.status === 400 && duplicateResolve.data.success === false
     );
 
-    // 11. DRIVER SANCTIONS: Authorized admin resolves SAFETY_INCIDENT with SUSPEND_48H
+    // 11. DRIVER SANCTIONS: the driver a customer NAMES cannot be punished.
+    // This fixture deliberately keeps `driverId: 'DRV-101'` in the create body: that
+    // reference is client-supplied text on a route any signed-in customer can call, and
+    // before F-7 it was what selected the suspended driver. The ticket it opens has no
+    // job, so nothing in the store proves DRV-101 (or anyone) was on that trip, and the
+    // sanction has to be refused rather than served. The positive case - a sanction whose
+    // ticket does carry a job - is P22's SAFETY_INCIDENT test above.
     const safetyTicketRes = await request('POST', '/api/support/ticket', {
       title: 'Dangerous driving incident',
       description: 'Driver ran multiple red lights and refused to slow down.',
@@ -1627,19 +1648,27 @@ async function runAllTests() {
       }
     }, { 'Authorization': `Bearer ${superToken}` });
 
-    assert('Admin resolves safety incident and suspends driver (operationalStatus = SUSPENDED)',
-      sanctionResolveRes.status === 200 &&
-      sanctionResolveRes.data.success &&
-      sanctionResolveRes.data.ticket.status === 'RESOLVED' &&
-      sanctionResolveRes.data.driver &&
-      sanctionResolveRes.data.driver.operationalStatus === 'SUSPENDED'
+    assert('Sanction on a job-less ticket is refused with 400 SANCTION_DRIVER_UNRESOLVABLE',
+      sanctionResolveRes.status === 400 &&
+      sanctionResolveRes.data.success === false &&
+      sanctionResolveRes.data.code === 'SANCTION_DRIVER_UNRESOLVABLE'
     );
 
-    // Test isolation cleanup: ensure drivers are restored to AVAILABLE
     if (isLivePostgres && supabaseAdmin) {
-      await supabaseAdmin.from('drivers')
-        .update({ operational_status: 'AVAILABLE', is_online: true })
-        .in('id', ['00000000-0000-0000-0000-000000000101', '00000000-0000-0000-0000-000000000102', '00000000-0000-0000-0000-000000000103']);
+      const { data: namedDriverRow } = await supabaseAdmin.from('drivers')
+        .select('operational_status, is_online').eq('id', '00000000-0000-0000-0000-000000000101').maybeSingle();
+      assert('The driver the customer named is not the driver that got suspended',
+        !!namedDriverRow && namedDriverRow.operational_status !== 'SUSPENDED',
+        JSON.stringify(namedDriverRow));
+      // The mapped ticket `id` the API and the resolve route use is the ticket NUMBER
+      // (mapRowToTicket returns `id: row.ticket_number`), not the uuid primary key, so this
+      // read-back has to match on `ticket_number`. Querying `id` with it selects no row, and
+      // `status: null` would have looked like a fix regression rather than a wrong predicate.
+      const { data: unservedTicket } = await supabaseAdmin.from('support_tickets')
+        .select('status').eq('ticket_number', safetyTicketId).maybeSingle();
+      assert('The refused sanction does not report the ticket as RESOLVED',
+        !!unservedTicket && unservedTicket.status !== 'RESOLVED',
+        `status: ${unservedTicket && unservedTicket.status}`);
     }
 
     // --- 24. MODULE 22: Administrative Audit Trail (audit_logs) Persistence Bridge ---
@@ -5377,7 +5406,8 @@ async function runAllTests() {
                 (SELECT count(*) FROM checkouts WHERE id = ANY($2::uuid[]))::text c,
                 (SELECT count(*) FROM merchant_grocery_inventory WHERE merchant_id = $1::uuid)::text i,
                 (SELECT count(*) FROM master_grocery_catalog WHERE id = ANY($3::uuid[]))::text g,
-                (SELECT count(*) FROM grocery_price_history WHERE merchant_id = $1::uuid)::text h`,
+                (SELECT count(*) FROM grocery_price_history WHERE merchant_id = $1::uuid)::text h,
+                (SELECT count(*) FROM jobs WHERE merchant_id = $1::uuid)::text j`,
         [shop.merchantId, ownedCheckouts, ownedCatalog]);
     } catch (err) {
       residue = { error: String(err.message).slice(0, 160) };
@@ -5385,7 +5415,7 @@ async function runAllTests() {
     try { await shop.handle.client.end(); } catch (err) { /* already closed */ }
     assert('CHKX-01: the store, shelf, orders, checkout sessions and price history this run minted are gone again',
       !cleanupError && !!residue && !residue.error
-      && ['m', 'o', 'l', 'c', 'i', 'g', 'h'].every(k => Number(residue[k]) === 0)
+      && ['m', 'o', 'l', 'c', 'i', 'g', 'h', 'j'].every(k => Number(residue[k]) === 0)
       && (removed?.blocked || []).length === 0,
       `removed=${JSON.stringify(removed)} residue=${JSON.stringify(residue)}` +
       (cleanupError ? ` cleanupError=${cleanupError.message}` : ''));

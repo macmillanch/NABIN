@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../../core/widgets/nabin_brand_logo.dart';
 import '../providers/admin_auth_provider.dart';
 import '../theme/admin_theme.dart';
 import 'admin_otp_screen.dart';
@@ -59,16 +60,12 @@ class _AdminLoginScreenState extends ConsumerState<AdminLoginScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const SizedBox(height: 40),
-              const Icon(Icons.admin_panel_settings, size: 60, color: AdminTheme.primaryBlue),
-              const SizedBox(height: 24),
-              const Text(
-                'Admin Access',
-                style: TextStyle(
-                  fontSize: 28,
-                  fontWeight: FontWeight.w900,
-                  color: AdminTheme.textDark,
-                ),
+              const NabinBrandLogo(
+                fontSize: 26,
+                showIcon: true,
+                badge: 'ADMIN CONSOLE',
               ),
+              const SizedBox(height: 12),
               const SizedBox(height: 8),
               const Text(
                 'Enter authorized administrator credentials.',

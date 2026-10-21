@@ -1,6 +1,6 @@
 /**
  * SupabaseStorageService
- * 
+ *
  * Secure Supabase Storage adapter for NABIN catalog assets (restaurant dish
  * photos, grocery product images, and merchant covers/logos).
  *
@@ -17,6 +17,7 @@
 
 const crypto = require('crypto');
 const { supabaseAdmin, isConfigured } = require('../supabase');
+const { isProduction } = require('./RuntimeMode');
 
 class SupabaseStorageService {
   constructor(options = {}) {
@@ -45,6 +46,26 @@ class SupabaseStorageService {
     ];
 
     this.defaultFallbackUrl = '/assets/images/catalog-placeholder.png';
+  }
+
+  /**
+   * Refuse a storage operation that would report success while storing nothing.
+   *
+   * Outside production the mock sandbox below is legitimate and is labelled as
+   * simulated. In production an unconfigured provider has no bucket to write to,
+   * so the only honest answer is a refusal — not a plausible public URL.
+   *
+   * @param {string} operation
+   */
+  assertStorageAvailable(operation) {
+    if (this.isConfigured || !isProduction()) return;
+    const err = new Error(
+      `Supabase Storage credentials are not configured, so ${operation} would store nothing while reporting success. ` +
+      'Set the Supabase service key and SUPABASE_CATALOG_STORAGE_BUCKET in the production environment.'
+    );
+    err.code = 'MEDIA_PROVIDER_NOT_CONFIGURED';
+    err.status = 503;
+    throw err;
   }
 
   /**
@@ -298,6 +319,7 @@ class SupabaseStorageService {
     }
 
     // Fallback Mock Sandbox (strictly for local development / testing when Supabase credentials are not configured)
+    this.assertStorageAvailable('a catalog image upload');
     const mockPublicUrl = `https://supabase-mock.nabin.local/storage/v1/object/public/${this.bucket}/${storagePath}`;
     return {
       success: true,
@@ -352,6 +374,7 @@ class SupabaseStorageService {
       return { success: true, removed: data };
     }
 
+    this.assertStorageAvailable('a catalog image delete');
     return { success: true, removed: [path], mock: true };
   }
 

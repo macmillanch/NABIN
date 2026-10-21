@@ -6,7 +6,12 @@ import 'package:latlong2/latlong.dart' hide Path;
 import '../../../../core/theme/driver_theme.dart';
 import '../../../../core/widgets/nabin_demo_simulator_banner.dart';
 
+import '../../../../core/config/map_config.dart';
 import '../../../../core/network/nabin_ws_service.dart';
+import '../../../../core/network/session_manager.dart';
+import '../../../../core/services/nabin_location_service.dart';
+import '../../../../core/services/nabin_routing_service.dart';
+import '../../services/driver_location_manager.dart';
 
 class DriverAppShell extends StatefulWidget {
   const DriverAppShell({super.key});
@@ -45,10 +50,14 @@ class _DriverAppShellState extends State<DriverAppShell> with SingleTickerProvid
   int _jobStage = 0; // 0: Nav to Pickup, 1: Arrived/OTP, 2: In Transit, 3: Arrived Drop/OTP, 4: Settle
   final TextEditingController _otpVerifyController = TextEditingController();
 
-  // Map Controller
+  // Map & Real GPS Location State
   late final MapController _mapController;
-  final LatLng _driverLocation = const LatLng(28.6853, 77.2185); // Civil Lines Delhi
+  LatLng? _driverLocation;
+  double _driverHeading = 0.0;
+  LocationPermissionStatus _permStatus = LocationPermissionStatus.granted;
+  List<LatLng>? _jobRoadRoute;
   final LatLng _dropLocation = const LatLng(28.6315, 77.2167); // Connaught Place Delhi
+  StreamSubscription<LocationPoint>? _locationSub;
 
   StreamSubscription? _jobOfferSubscription;
 
@@ -56,11 +65,122 @@ class _DriverAppShellState extends State<DriverAppShell> with SingleTickerProvid
   void initState() {
     super.initState();
     _mapController = MapController();
+    _initDriverLocation();
     _connectWebSocket();
   }
 
+  void _initDriverLocation() {
+    DriverLocationManager.instance.initialize();
+    _locationSub = DriverLocationManager.instance.onLocationUpdated.listen((loc) {
+      if (mounted) {
+        final newPos = LatLng(loc.latitude, loc.longitude);
+        setState(() {
+          _driverLocation = newPos;
+          _driverHeading = loc.heading;
+        });
+        if (_isJobActive && _jobRoadRoute == null) {
+          _fetchDriverJobRoute();
+        }
+      }
+    });
+
+    _checkGpsPermission();
+    DriverLocationManager.instance.setDutyStatus(
+      isOnline: _isOnline,
+      activeJobId: _activeJob?['id']?.toString(),
+    );
+  }
+
+  Future<void> _checkGpsPermission() async {
+    final status = await NabinLocationService.instance.checkPermission();
+    if (mounted) {
+      setState(() => _permStatus = status);
+    }
+  }
+
+  Future<void> _requestGpsPermission() async {
+    final status = await NabinLocationService.instance.requestPermission();
+    if (mounted) {
+      setState(() => _permStatus = status);
+      if (status == LocationPermissionStatus.granted) {
+        DriverLocationManager.instance.setDutyStatus(
+          isOnline: _isOnline,
+          activeJobId: _activeJob?['id']?.toString(),
+        );
+      }
+    }
+  }
+
+  Future<void> _setDutyStatus(bool online) async {
+    if (online) {
+      final hasPerm = await NabinLocationService.instance.hasPermission();
+      if (!hasPerm && mounted) {
+        final proceed = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Location Access Required'),
+            content: const Text(
+              'NABIN Driver uses your device location while on duty to match you with nearby trip requests, '
+              'calculate routes, and share live location for passenger safety.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(ctx).pop(true),
+                child: const Text('Allow'),
+              ),
+            ],
+          ),
+        );
+        if (proceed != true) return;
+      }
+
+      final success = await DriverLocationManager.instance.setDutyStatus(
+        isOnline: true,
+        activeJobId: _activeJob?['id']?.toString(),
+      );
+      if (!mounted) return;
+      if (!success) {
+        setState(() => _isOnline = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Cannot go online: GPS location permission is required.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+      setState(() => _isOnline = true);
+    } else {
+      setState(() => _isOnline = false);
+      await DriverLocationManager.instance.setDutyStatus(
+        isOnline: false,
+        activeJobId: _activeJob?['id']?.toString(),
+      );
+    }
+  }
+
+  Future<void> _fetchDriverJobRoute() async {
+    if (_driverLocation == null) return;
+    try {
+      final res = await NabinRoutingService.instance.getRoute(
+        start: _driverLocation!,
+        end: _dropLocation,
+      );
+      if (mounted && res.success && res.points.isNotEmpty) {
+        setState(() {
+          _jobRoadRoute = res.points;
+        });
+      }
+    } catch (_) {}
+  }
+
   void _connectWebSocket() {
-    NabinWsService.instance.connect(role: 'driver', userId: 'drv_1');
+    final userId = SessionManager.instance.currentUser?['id']?.toString() ?? 'drv_1';
+    NabinWsService.instance.connect(role: 'driver', userId: userId);
     _jobOfferSubscription = NabinWsService.instance.onIncomingJob.listen((msg) {
       if (!_isOnline || _isJobActive) return;
       if (mounted) {
@@ -88,8 +208,10 @@ class _DriverAppShellState extends State<DriverAppShell> with SingleTickerProvid
 
   @override
   void dispose() {
+    _locationSub?.cancel();
     _jobOfferSubscription?.cancel();
     _jobCountdownTimer?.cancel();
+    DriverLocationManager.instance.dispose();
     NabinWsService.instance.disconnect();
     _otpVerifyController.dispose();
     super.dispose();
@@ -111,8 +233,11 @@ class _DriverAppShellState extends State<DriverAppShell> with SingleTickerProvid
       _isJobActive = true;
       _activeJob = _incomingJob;
       _jobStage = 0;
+      _jobRoadRoute = null;
       _otpVerifyController.text = _activeJob?['startOtp'] ?? '7729';
     });
+    DriverLocationManager.instance.setActiveJob(_activeJob?['id']?.toString());
+    _fetchDriverJobRoute();
   }
 
   void _advanceJobStage() {
@@ -135,7 +260,12 @@ class _DriverAppShellState extends State<DriverAppShell> with SingleTickerProvid
     final commission = (fare * 0.1).roundToDouble();
     final netEarn = fare - commission;
 
+    DriverLocationManager.instance.setActiveJob(null);
+
     setState(() {
+      _isJobActive = false;
+      _activeJob = null;
+      _jobRoadRoute = null;
       _walletBalance += netEarn;
       _todayEarnings += netEarn;
       _todayTrips += 1;
@@ -248,9 +378,11 @@ class _DriverAppShellState extends State<DriverAppShell> with SingleTickerProvid
             Text('SAFETY SOS ACTIVE', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16)),
           ],
         ),
-        content: const Text(
-          'Live GPS coordinates (28.6853° N, 77.2185° E) are being broadcast to Delhi Police 112 and NABIN 24/7 Safety Command.',
-          style: TextStyle(color: Colors.white70, fontSize: 13),
+        content: Text(
+          _driverLocation != null
+              ? 'Live GPS coordinates (${_driverLocation!.latitude.toStringAsFixed(4)}° N, ${_driverLocation!.longitude.toStringAsFixed(4)}° E) are being broadcast to Police 112 and NABIN 24/7 Safety Command.'
+              : 'Acquiring GPS fix. Safety alert is being broadcast to Police 112 and NABIN 24/7 Safety Command.',
+          style: const TextStyle(color: Colors.white70, fontSize: 13),
         ),
         actions: [
           TextButton(
@@ -277,22 +409,23 @@ class _DriverAppShellState extends State<DriverAppShell> with SingleTickerProvid
         FlutterMap(
           mapController: _mapController,
           options: MapOptions(
-            initialCenter: _driverLocation,
+            initialCenter:
+                _driverLocation ?? MapConfig.defaultCenter.toLatLng(),
             initialZoom: 15.0,
           ),
           children: [
             TileLayer(
-              urlTemplate: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png',
-              subdomains: const ['a', 'b', 'c', 'd'],
-              fallbackUrl: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-              userAgentPackageName: 'com.nabin.driver',
+              urlTemplate: MapConfig.tileUrlTemplate,
+              subdomains: MapConfig.tileSubdomains,
+              fallbackUrl: MapConfig.tileFallbackUrl,
+              userAgentPackageName: MapConfig.userAgentPackageName,
               maxZoom: 20,
             ),
-            if (_isJobActive)
+            if (_isJobActive && _jobRoadRoute != null && _jobRoadRoute!.isNotEmpty)
               PolylineLayer(
                 polylines: [
                   Polyline(
-                    points: [_driverLocation, _dropLocation],
+                    points: _jobRoadRoute!,
                     strokeWidth: 4.5,
                     color: DriverTheme.primaryBlue,
                   ),
@@ -300,27 +433,31 @@ class _DriverAppShellState extends State<DriverAppShell> with SingleTickerProvid
               ),
             MarkerLayer(
               markers: [
-                Marker(
-                  point: _driverLocation,
-                  width: 48,
-                  height: 48,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: DriverTheme.primaryBlue,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white, width: 3),
-                      boxShadow: const [
-                        BoxShadow(color: Colors.black26, blurRadius: 10, offset: Offset(0, 4)),
-                      ],
-                    ),
-                    child: Center(
-                      child: Text(
-                        _activeVehicleType == '2W' ? '🛵' : (_activeVehicleType == '4W' ? '🚗' : '🛺'),
-                        style: const TextStyle(fontSize: 20),
+                if (_driverLocation != null)
+                  Marker(
+                    point: _driverLocation!,
+                    width: 48,
+                    height: 48,
+                    child: Transform.rotate(
+                      angle: _driverHeading * (3.141592653589793 / 180),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: DriverTheme.primaryBlue,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white, width: 3),
+                          boxShadow: const [
+                            BoxShadow(color: Colors.black26, blurRadius: 10, offset: Offset(0, 4)),
+                          ],
+                        ),
+                        child: Center(
+                          child: Text(
+                            _activeVehicleType == '2W' ? '🛵' : (_activeVehicleType == '4W' ? '🚗' : '🛺'),
+                            style: const TextStyle(fontSize: 20),
+                          ),
+                        ),
                       ),
                     ),
                   ),
-                ),
                 if (_isJobActive)
                   Marker(
                     point: _dropLocation,
@@ -399,7 +536,7 @@ class _DriverAppShellState extends State<DriverAppShell> with SingleTickerProvid
                           child: Switch(
                             value: _isOnline,
                             activeThumbColor: const Color(0xFF00C853),
-                            onChanged: (val) => setState(() => _isOnline = val),
+                            onChanged: (val) => _setDutyStatus(val),
                           ),
                         ),
                       ],
@@ -407,6 +544,70 @@ class _DriverAppShellState extends State<DriverAppShell> with SingleTickerProvid
                   ],
                 ),
               ),
+
+              if (_permStatus != LocationPermissionStatus.granted)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFF3E0),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: const Color(0xFFFFB74D)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.location_disabled_rounded, color: Color(0xFFE65100), size: 20),
+                        const SizedBox(width: 10),
+                        const Expanded(
+                          child: Text(
+                            'Location permission required to receive trips and transmit live tracking.',
+                            style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: Color(0xFFE65100)),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        ElevatedButton(
+                          onPressed: _requestGpsPermission,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFFE65100),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            minimumSize: Size.zero,
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                          child: const Text('Enable', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900)),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+              if (_isOnline && _driverLocation == null && _permStatus == LocationPermissionStatus.granted)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.92),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: DriverTheme.borderLight),
+                    ),
+                    child: const Row(
+                      children: [
+                        SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: DriverTheme.primaryBlue),
+                        ),
+                        SizedBox(width: 10),
+                        Text(
+                          'Acquiring live GPS fix...',
+                          style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: DriverTheme.textDark),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
 
               const SizedBox(height: 8),
 
@@ -442,7 +643,11 @@ class _DriverAppShellState extends State<DriverAppShell> with SingleTickerProvid
               const SizedBox(height: 8),
               FloatingActionButton.small(
                 heroTag: 'recenter',
-                onPressed: () => _mapController.move(_driverLocation, 15.0),
+                onPressed: () {
+                  if (_driverLocation != null) {
+                    _mapController.move(_driverLocation!, 15.0);
+                  }
+                },
                 backgroundColor: Colors.white,
                 child: const Icon(Icons.my_location_rounded, color: DriverTheme.textDark),
               ),

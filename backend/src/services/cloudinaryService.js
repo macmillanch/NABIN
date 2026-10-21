@@ -1,4 +1,9 @@
 const cloudinary = require('cloudinary').v2;
+const { isProduction } = require('./RuntimeMode');
+
+// Nothing is stored when credentials are absent, so a simulated URL must not be
+// shaped like a real cloud's. This host resolves nowhere on purpose.
+const MOCK_CDN_HOST = 'cloudinary-mock.nabin.local';
 
 class CloudinaryService {
   constructor() {
@@ -47,6 +52,27 @@ class CloudinaryService {
     this.maxVideoSizeBytes = 50 * 1024 * 1024; // 50MB
   }
 
+  // The refusal is read at CALL time, not construction time: this module is a
+  // singleton whose `isConfigured` is frozen when it is first required, so a boot-time
+  // guard would never see the polarity a deployment actually serves with. Same shape as
+  // SMS_MOCK_PROVIDER_FORBIDDEN (#286) and PUSH_GATEWAY_NOT_CONFIGURED (#276) — and, like
+  // both, it only ever closes a door: outside production the sandbox behaves exactly as
+  // it did before.
+  assertStorageAvailable(operation) {
+    if (this.isConfigured || !isProduction()) return;
+    const err = new Error(
+      `Cloudinary credentials are not configured, so ${operation} would store nothing while reporting success. ` +
+      'Set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY and CLOUDINARY_API_SECRET in the production environment.'
+    );
+    err.code = 'MEDIA_PROVIDER_NOT_CONFIGURED';
+    err.status = 503;
+    throw err;
+  }
+
+  cdnOrigin() {
+    return this.isConfigured ? `https://res.cloudinary.com/${this.cloudName}` : `https://${MOCK_CDN_HOST}`;
+  }
+
   validateFolder(folder) {
     if (!folder) return 'nabin/public';
     const lower = folder.toLowerCase();
@@ -81,7 +107,6 @@ class CloudinaryService {
 
   generateOptimizedUrl(publicId, options = {}) {
     if (!publicId) return '';
-    const cloudName = this.cloudName || 'nabin-media';
     const {
       width,
       height,
@@ -100,7 +125,7 @@ class CloudinaryService {
     transforms.push(`f_${format}`);
 
     const transformStr = transforms.join(',');
-    return `https://res.cloudinary.com/${cloudName}/image/upload/${transformStr}/${publicId}`;
+    return `${this.cdnOrigin()}/image/upload/${transformStr}/${publicId}`;
   }
 
   generateThumbnailUrl(publicId, size = 160) {
@@ -121,7 +146,7 @@ class CloudinaryService {
       small: this.generateOptimizedUrl(publicId, { width: 400, crop: 'limit' }),
       medium: this.generateOptimizedUrl(publicId, { width: 800, crop: 'limit' }),
       large: this.generateOptimizedUrl(publicId, { width: 1200, crop: 'limit' }),
-      original: `https://res.cloudinary.com/${this.cloudName || 'nabin-media'}/image/upload/q_auto,f_auto/${publicId}`
+      original: `${this.cdnOrigin()}/image/upload/q_auto,f_auto/${publicId}`
     };
   }
 
@@ -138,6 +163,7 @@ class CloudinaryService {
     const targetPublicId = publicId || `${cleanFolder}/img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
     if (!this.isConfigured) {
+      this.assertStorageAvailable('an image upload');
       // Mock Sandbox Delivery when credentials not provisioned in local dev
       const mockPublicId = targetPublicId.startsWith('nabin/') ? targetPublicId : `${cleanFolder}/${targetPublicId}`;
       const mockVariants = this.generateVariantUrls(mockPublicId);
@@ -201,10 +227,11 @@ class CloudinaryService {
     const targetPublicId = publicId || `${cleanFolder}/vid_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
     if (!this.isConfigured) {
+      this.assertStorageAvailable('a video upload');
       return {
         success: true,
         public_id: targetPublicId,
-        secure_url: `https://res.cloudinary.com/${this.cloudName || 'nabin-media'}/video/upload/${targetPublicId}.mp4`,
+        secure_url: `${this.cdnOrigin()}/video/upload/${targetPublicId}.mp4`,
         format: 'mp4',
         resource_type: 'video',
         bytes: bytes || 1500000,
@@ -242,6 +269,7 @@ class CloudinaryService {
     if (!publicId) throw new Error('public_id is required for deletion.');
 
     if (!this.isConfigured) {
+      this.assertStorageAvailable('a media delete');
       return { success: true, result: 'ok', public_id: publicId, mock: true };
     }
 

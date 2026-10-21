@@ -40,9 +40,9 @@ export default function LoginPage() {
   return (
     <div className="nabin-auth">
       <div className="nabin-card nabin-auth__card">
-        <p className="nabin-wordmark" style={{ fontSize: 26, textAlign: 'center' }}>
+        <h1 className="nabin-wordmark" style={{ fontSize: 26, textAlign: 'center' }}>
           NABIN
-        </p>
+        </h1>
         <p className="nabin-auth__subtitle">
           {step === 'phone'
             ? 'Partner sign in — grocery store console'
@@ -82,6 +82,21 @@ export default function LoginPage() {
             <button type="submit" className="nabin-btn nabin-btn--primary" disabled={busy}>
               {busy ? 'Sending…' : 'Send code'}
             </button>
+            <div style={{ marginTop: 'var(--space-md)', paddingTop: 'var(--space-md)', borderTop: '1px solid var(--color-border)' }}>
+              <button
+                type="button"
+                onClick={() => {
+                  if (typeof window !== 'undefined') {
+                    window.localStorage.setItem('nabin_grocery_merchant_token', 'demo-grocery-token');
+                    window.location.href = '/';
+                  }
+                }}
+                className="nabin-btn nabin-btn--ghost"
+                style={{ width: '100%', justifyContent: 'center', fontSize: 13, borderStyle: 'dashed' }}
+              >
+                ⚡ Explore Grocery Console (Demo Mode) &rarr;
+              </button>
+            </div>
           </form>
         ) : (
           <form onSubmit={submitOtp} className="nabin-form">

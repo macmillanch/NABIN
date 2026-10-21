@@ -1,4 +1,9 @@
 const { supabaseAdmin, isLivePostgres } = require('../supabase');
+// One definition of "this coordinate is absent", shared with the job projection (#32b) and the
+// boot hydrator in database.js. `drivers.current_lat`/`current_lng` are nullable with NO DEFAULT
+// (supabase/migrations/001_central_schema.sql:62), so a durable NULL is the schema's own answer to
+// "this driver's position is unknown" and must be read and written back as unknown.
+const { coordinateOrNull } = require('./JobRepository');
 
 const LEGACY_DRIVER_MAP = {
   'DRV-101': '00000000-0000-0000-0000-000000000101',
@@ -80,10 +85,11 @@ function mapRowToDriver(row, legacyId = null) {
     todayTrips: 0,
     todayEarnings: 0.0,
     walletBalance: parseFloat(row.wallet_balance || 0.0),
+    // #481: an absent coordinate stays absent. There is no drivers.area column and nothing derives
+    // an area label, so this projection carries no `area` key — a label here would be a claim.
     currentLocation: {
-      lat: parseFloat(row.current_lat || 28.6139),
-      lng: parseFloat(row.current_lng || 77.2090),
-      area: 'Delhi Operations Zone'
+      lat: coordinateOrNull(row.current_lat),
+      lng: coordinateOrNull(row.current_lng)
     },
     activities: [],
     tripHistory: [],
@@ -174,8 +180,10 @@ class DriverRepository {
       is_online: Boolean(driverData.isOnline),
       operational_status: driverData.operationalStatus || 'AVAILABLE',
       wallet_balance: driverData.walletBalance || 0.0,
-      current_lat: driverData.currentLocation?.lat || 28.6139,
-      current_lng: driverData.currentLocation?.lng || 77.2090,
+      // #481: a driver created without a reported position is stored with the schema's own unknown
+      // (NULL), never with a fixed coordinate the driver never reported.
+      current_lat: coordinateOrNull(driverData.currentLocation?.lat),
+      current_lng: coordinateOrNull(driverData.currentLocation?.lng),
       last_heartbeat: new Date().toISOString()
     };
 

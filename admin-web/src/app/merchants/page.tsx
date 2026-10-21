@@ -18,7 +18,7 @@ interface Merchant {
   isOpen?: boolean;
   operationalStatus?: string;
   cuisines?: string[];
-  payableBalance?: number;
+  walletBalance?: number;
   commissionRate?: number;
 }
 
@@ -112,18 +112,21 @@ export default function MerchantsPage() {
       render: (m) => <span className="nabin-num">{m.rating?.toFixed(1) ?? '—'}</span>,
     },
     {
-      key: 'payableBalance',
-      label: 'Payable',
+      key: 'walletBalance',
+      label: 'Wallet',
       align: 'end',
       hideBelow: 'md',
-      render: (m) => <span className="nabin-num">{inr(m.payableBalance)}</span>,
+      render: (m) => <span className="nabin-num">{inr(m.walletBalance)}</span>,
     },
     {
       key: 'commissionRate',
       label: 'Commission',
       align: 'end',
       hideBelow: 'lg',
-      render: (m) => <span className="nabin-num">{m.commissionRate != null ? `${m.commissionRate}%` : '—'}</span>,
+      // The durable `commission_rate` is a fraction (0.15), the same convention the
+      // repository reads; this scales it for display rather than assuming the API sent
+      // a percent, which is what let the old fabricated seed render "15%" off a stored 0.15.
+      render: (m) => <span className="nabin-num">{m.commissionRate != null ? `${(m.commissionRate * 100).toFixed(0)}%` : '—'}</span>,
     },
     {
       key: 'operationalStatus',

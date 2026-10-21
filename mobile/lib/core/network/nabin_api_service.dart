@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
+
 import '../config/nabin_build_env.dart';
 
 class NabinApiService {
@@ -16,7 +18,11 @@ class NabinApiService {
     if (const bool.fromEnvironment('dart.vm.product')) {
       throw StateError('NABIN_API_URL must be provided for release builds.');
     }
-    return Platform.isAndroid ? baseUrl : webBaseUrl;
+    if (kIsWeb) return webBaseUrl;
+    try {
+      if (Platform.isAndroid) return baseUrl;
+    } catch (_) {}
+    return webBaseUrl;
   }
 
   static String? _authToken;
@@ -26,6 +32,16 @@ class NabinApiService {
   }
 
   static String? get authToken => _authToken;
+
+  static bool _visualQaDemoMode = false;
+
+  /// Enable mock fallbacks STRICTLY for isolated visual QA and offline preview harnesses.
+  /// Standard production entrypoints MUST leave this false so normal client behavior is untouched.
+  static void setVisualQaDemoMode(bool enabled) {
+    _visualQaDemoMode = enabled;
+  }
+
+  static bool get isVisualQaDemoMode => _visualQaDemoMode;
 
   static void _attachAuthHeader(HttpClientRequest request) {
     if (_authToken != null && _authToken!.isNotEmpty) {
@@ -390,10 +406,19 @@ class NabinApiService {
     }
   }
 
-  /// Submit Dispute / Support Ticket
+  /// Submit Dispute / Support Ticket.
+  ///
+  /// Ownership comes from the bearer token: `POST /api/support/ticket` derives the ticket
+  /// owner from the session it authenticated and reads no `userId` from the body. A live
+  /// probe (2026-10-08) sent another driver's id in the body and the stored owner was
+  /// still the token's own driver, so the parameter is not a control and is not sent.
+  /// `title` and `description` are both required by the backend (400 "Missing required
+  /// field: <x>"), `subject` is a `varchar(200)` column, and `status` is always `OPEN`
+  /// whatever the caller asks for. The parsed body comes back with the HTTP status
+  /// attached, because a refusal has to stay a refusal on this side.
   static Future<Map<String, dynamic>?> submitSupportTicket({
     required String category,
-    required String userId,
+    String? userId,
     required String title,
     required String description,
     String? jobId,
@@ -405,16 +430,56 @@ class NabinApiService {
       _attachAuthHeader(request);
       request.add(utf8.encode(jsonEncode({
         'category': category,
-        'userId': userId,
         'title': title,
         'description': description,
-        'jobId': jobId,
+        if (jobId != null) 'jobId': jobId,
       })));
       final response = await request.close();
       final body = await response.transform(utf8.decoder).join();
-      return jsonDecode(body) as Map<String, dynamic>;
+      final decoded = body.isEmpty ? null : jsonDecode(body);
+      if (decoded is Map<String, dynamic>) {
+        return {...decoded, 'statusCode': response.statusCode};
+      }
+      return {'success': false, 'statusCode': response.statusCode};
     } catch (e) {
       return null;
+    }
+  }
+
+  /// Replies to a ticket the caller owns, as `POST /api/support/ticket/:id/message`.
+  ///
+  /// `:id` accepts either spelling the backend resolves — the minted `ticket_number`
+  /// (`SupportTicketRepository.js:18-20` shapes it as `TCK-<yymmdd>-<6 digits>`) or the row uuid. `text` is the only field the endpoint reads
+  /// apart from `attachments`: the sender's name, role and id are set server-side from the
+  /// session, so a body claiming another sender is stored as the real one (measured
+  /// 2026-10-08). A ticket belonging to someone else answers 404 rather than 403, so
+  /// ticket numbers cannot be enumerated. The HTTP status is attached to the answer: 401
+  /// is a closed session, 400 is the backend's own empty-text or 4000-character refusal,
+  /// and a null result would be a transport failure that says nothing about whether the
+  /// reply landed.
+  static Future<Map<String, dynamic>> sendSupportTicketMessage({
+    required String ticketRef,
+    required String text,
+  }) async {
+    try {
+      final client = HttpClient();
+      final request = await client.postUrl(
+        Uri.parse(
+          '$effectiveUrl/support/ticket/${Uri.encodeComponent(ticketRef)}/message',
+        ),
+      );
+      request.headers.set('content-type', 'application/json');
+      _attachAuthHeader(request);
+      request.add(utf8.encode(jsonEncode({'text': text})));
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      final decoded = body.isEmpty ? null : jsonDecode(body);
+      if (decoded is Map<String, dynamic>) {
+        return {...decoded, 'statusCode': response.statusCode};
+      }
+      return {'success': false, 'statusCode': response.statusCode};
+    } catch (e) {
+      return {'success': false, 'error': e.toString()};
     }
   }
 
@@ -544,7 +609,9 @@ class NabinApiService {
         return jsonDecode(body) as Map<String, dynamic>;
       }
       final decoded = body.isEmpty ? null : jsonDecode(body);
-      if (decoded is Map<String, dynamic>) return decoded;
+      if (decoded is Map<String, dynamic>) {
+        return {...decoded, 'statusCode': response.statusCode};
+      }
       return {'success': false, 'statusCode': response.statusCode};
     } catch (e) {
       return null;
@@ -568,6 +635,52 @@ class NabinApiService {
       final body = await response.transform(utf8.decoder).join();
       if (body.isEmpty) return {'success': false, 'statusCode': response.statusCode};
       final decoded = jsonDecode(body);
+      if (decoded is Map<String, dynamic>) {
+        return {...decoded, 'statusCode': response.statusCode};
+      }
+      return {'success': false, 'statusCode': response.statusCode};
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /// Asks NABIN to record a new payout destination: `POST /api/driver/payout-destination/request`.
+  ///
+  /// `upiId` is the only field this route reads. The partner it applies to comes from the bearer
+  /// token (`server.js:5805` passes `req.driver.id`, never a body id), and a probe with a real
+  /// DRIVER session on 2026-10-08 confirmed it: a body carrying another driver's `driverId` and
+  /// `userId` was stored against the caller's own row and left the named driver untouched, so
+  /// sending an identity here would claim a control the route does not have.
+  ///
+  /// What the platform answers, measured 2026-10-08:
+  /// - `200 {success: true, pendingUpiId, status: 'PENDING_VERIFICATION'}` — the destination is
+  ///   recorded as *pending*, and `payout_upi_verified` goes false in the same write, so the
+  ///   address that was verified stops being usable until an administrator verifies the new one.
+  /// - `400 {success: false, error: 'Invalid UPI VPA format.', code: 'INVALID_UPI_FORMAT'}` for an
+  ///   empty, absent, or malformed VPA (`DriverRepository.js:675-677`).
+  /// - `400 {success: false, error: 'value too long for type character varying(100)'}` when a
+  ///   VPA passes that regex but exceeds `drivers.pending_upi_id` (varchar(100), migration
+  ///   016_driver_kyc_payout_and_partial_refund.sql:14) — the column, not the regex, is the
+  ///   binding limit, so the caller caps at 100.
+  /// - `403` with `code: 'UNLINKED_DRIVER_ACCOUNT'` from the auth middleware, and
+  ///   `KYC_NOT_VERIFIED` from the handler (`DriverRepository.js:669-672`).
+  /// - `401` for a missing or expired token.
+  ///
+  /// There is no idempotency key on this route and no deduplication: a second accepted request
+  /// simply overwrites `pending_upi_id` (measured). A null result is therefore a transport
+  /// failure whose outcome is unknowable from here, which is why the screen reports it as
+  /// "could not be confirmed" instead of retrying.
+  static Future<Map<String, dynamic>?> requestPayoutDestination({required String upiId}) async {
+    try {
+      final client = HttpClient();
+      final request = await client
+          .postUrl(Uri.parse('$effectiveUrl/driver/payout-destination/request'));
+      request.headers.set('content-type', 'application/json');
+      _attachAuthHeader(request);
+      request.add(utf8.encode(jsonEncode({'upiId': upiId})));
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      final decoded = body.isEmpty ? null : jsonDecode(body);
       if (decoded is Map<String, dynamic>) {
         return {...decoded, 'statusCode': response.statusCode};
       }
@@ -817,6 +930,51 @@ class NabinApiService {
     }
   }
 
+  static Future<Map<String, dynamic>?> recordTakeawayHandover({
+    required String restaurantId,
+    required String orderId,
+    String? handoverBy,
+  }) async {
+    try {
+      final client = HttpClient();
+      final request = await client.postUrl(Uri.parse('$effectiveUrl/merchant/$restaurantId/rms/orders/$orderId/handover'));
+      request.headers.set('content-type', 'application/json');
+      _attachAuthHeader(request);
+      request.add(utf8.encode(jsonEncode({'handoverBy': handoverBy ?? 'Staff'})));
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      return jsonDecode(body) as Map<String, dynamic>;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  static Future<Map<String, dynamic>?> getRestaurantTables(String restaurantId) async {
+    try {
+      final client = HttpClient();
+      final request = await client.getUrl(Uri.parse('$effectiveUrl/merchant/$restaurantId/rms/tables'));
+      _attachAuthHeader(request);
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      return jsonDecode(body) as Map<String, dynamic>;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  static Future<Map<String, dynamic>?> getRmsSettings(String restaurantId) async {
+    try {
+      final client = HttpClient();
+      final request = await client.getUrl(Uri.parse('$effectiveUrl/merchant/$restaurantId/rms/settings'));
+      _attachAuthHeader(request);
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      return jsonDecode(body) as Map<String, dynamic>;
+    } catch (e) {
+      return null;
+    }
+  }
+
   /// The signed-in restaurant's own discovery metadata, read back so the Profile
   /// editor opens on what is actually stored rather than an empty form.
   ///
@@ -866,11 +1024,16 @@ class NabinApiService {
   // 7. CUSTOMER BOOKINGS
   // =========================================================================
 
-  static Future<Map<String, dynamic>?> bookRide(Map<String, dynamic> payload) async {
+  static Future<Map<String, dynamic>?> bookRide(Map<String, dynamic> payload, {
+    String? idempotencyKey,
+  }) async {
     try {
       final client = HttpClient();
       final request = await client.postUrl(Uri.parse('$effectiveUrl/customer/book-ride'));
       request.headers.set('content-type', 'application/json');
+      if (idempotencyKey != null && idempotencyKey.isNotEmpty) {
+        request.headers.set('idempotency-key', idempotencyKey);
+      }
       _attachAuthHeader(request);
       request.add(utf8.encode(jsonEncode(payload)));
       
@@ -1010,8 +1173,13 @@ class NabinApiService {
       final response = await request.close();
       final body = await response.transform(utf8.decoder).join();
       if (response.statusCode == 200) return jsonDecode(body) as Map<String, dynamic>;
+      // Like every other read in this service, a refusal keeps its status on this side. The
+      // backend body carries `error` but no code (`server.js:953-1010`), and the dish detail has
+      // to tell a closed session apart from an account the platform will not let read.
       final decoded = body.isEmpty ? null : jsonDecode(body);
-      if (decoded is Map<String, dynamic>) return decoded;
+      if (decoded is Map<String, dynamic>) {
+        return {...decoded, 'statusCode': response.statusCode};
+      }
       return {'success': false, 'statusCode': response.statusCode};
     } catch (e) {
       return null;
@@ -1184,6 +1352,17 @@ class NabinApiService {
   // =========================================================================
 
   static Future<Map<String, dynamic>?> getAdminProfile() async {
+    if (_visualQaDemoMode) {
+      return {
+        'success': true,
+        'user': {
+          'id': 'admin-01',
+          'name': 'Super Admin',
+          'role': 'SUPER_ADMIN',
+          'email': 'admin@nabin.local',
+        }
+      };
+    }
     try {
       final client = HttpClient();
       final request = await client.getUrl(Uri.parse('$effectiveUrl/admin/me'));
@@ -1320,6 +1499,19 @@ class NabinApiService {
   }
 
   static Future<Map<String, dynamic>?> getAdminFeatures() async {
+    if (_visualQaDemoMode) {
+      return {
+        'success': true,
+        'features': {
+          'FEATURE_RIDE': {'enabled': true, 'description': '2W/3W/4W Ride Booking'},
+          'FEATURE_FOOD': {'enabled': true, 'description': 'Restaurant Food Delivery'},
+          'FEATURE_GROCERY': {'enabled': true, 'description': 'Quick Commerce 10m Delivery'},
+          'FEATURE_PARCEL': {'enabled': true, 'description': 'P2P Parcel Logistics'},
+          'INSTANT_PAYOUTS': {'enabled': true, 'description': 'Automated Driver Bank Transfers'},
+          'SURGE_PRICING': {'enabled': false, 'description': 'Dynamic Demand Multiplier'},
+        }
+      };
+    }
     try {
       final client = HttpClient();
       final request = await client.getUrl(Uri.parse('$effectiveUrl/admin/features'));
@@ -1402,6 +1594,16 @@ class NabinApiService {
   }
 
   static Future<Map<String, dynamic>?> getAdminDrivers() async {
+    if (_visualQaDemoMode) {
+      return {
+        'success': true,
+        'drivers': [
+          {'id': 'drv-01', 'name': 'Lalramchhana', 'vehicle_type': '3W', 'status': 'ACTIVE', 'phone': '+91 98765 43210'},
+          {'id': 'drv-02', 'name': 'Zothansanga', 'vehicle_type': '2W', 'status': 'ACTIVE', 'phone': '+91 98765 43211'},
+          {'id': 'drv-03', 'name': 'Vanlalpeka', 'vehicle_type': '4W', 'status': 'OFFLINE', 'phone': '+91 98765 43212'},
+        ]
+      };
+    }
     try {
       final client = HttpClient();
       final request = await client.getUrl(Uri.parse('$effectiveUrl/admin/drivers'));
@@ -1415,6 +1617,17 @@ class NabinApiService {
   }
 
   static Future<Map<String, dynamic>?> getAdminOrders() async {
+    if (_visualQaDemoMode) {
+      return {
+        'success': true,
+        'orders': [
+          {'id': 'NAB-RD-101', 'service_type': 'RIDE', 'status': 'COMPLETED', 'final_total': 180.00, 'customer_name': 'Mary Remruati'},
+          {'id': 'NAB-FD-202', 'service_type': 'FOOD', 'status': 'PREPARING', 'final_total': 480.00, 'customer_name': 'David Zodina'},
+          {'id': 'NAB-GR-303', 'service_type': 'GROCERY', 'status': 'PACKING', 'final_total': 650.00, 'customer_name': 'Lalmuanpuii'},
+          {'id': 'NAB-PR-404', 'service_type': 'PARCEL', 'status': 'ACCEPTED', 'final_total': 120.00, 'customer_name': 'C. Lalthanmawia'},
+        ]
+      };
+    }
     try {
       final client = HttpClient();
       final request = await client.getUrl(Uri.parse('$effectiveUrl/admin/orders'));
@@ -1428,6 +1641,16 @@ class NabinApiService {
   }
 
   static Future<Map<String, dynamic>?> getAdminRestaurants() async {
+    if (_visualQaDemoMode) {
+      return {
+        'success': true,
+        'restaurants': [
+          {'id': 'rst-01', 'name': 'Zonun Deli & Bakery', 'status': 'ACTIVE', 'rating': 4.8, 'cuisine': 'Bakery & Fast Food'},
+          {'id': 'rst-02', 'name': 'Tandoori Nights', 'status': 'ACTIVE', 'rating': 4.6, 'cuisine': 'North Indian'},
+          {'id': 'rst-03', 'name': 'Aizawl Diner', 'status': 'INACTIVE', 'rating': 4.2, 'cuisine': 'Traditional Mizo'},
+        ]
+      };
+    }
     try {
       final client = HttpClient();
       final request = await client.getUrl(Uri.parse('$effectiveUrl/admin/restaurants'));
@@ -1441,6 +1664,16 @@ class NabinApiService {
   }
 
   static Future<Map<String, dynamic>?> getAdminUsers() async {
+    if (_visualQaDemoMode) {
+      return {
+        'success': true,
+        'users': [
+          {'id': 'usr-01', 'name': 'Lalramchhana', 'role': 'CUSTOMER', 'phone': '+91 98765 43210', 'created_at': '2026-10-01'},
+          {'id': 'usr-02', 'name': 'Vanlalpeka', 'role': 'DRIVER', 'phone': '+91 98765 43212', 'created_at': '2026-10-02'},
+          {'id': 'usr-03', 'name': 'Zonun Deli', 'role': 'RESTAURANT', 'phone': '+91 98765 43215', 'created_at': '2026-10-03'},
+        ]
+      };
+    }
     try {
       final client = HttpClient();
       final request = await client.getUrl(Uri.parse('$effectiveUrl/admin/users'));
@@ -1549,6 +1782,17 @@ class NabinApiService {
   // =========================================================================
 
   static Future<Map<String, dynamic>?> getAdminMetrics() async {
+    if (_visualQaDemoMode) {
+      return {
+        'success': true,
+        'metrics': {
+          'totalDrivers': 48,
+          'totalRestaurants': 32,
+          'totalUsers': 1250,
+          'activeJobs': 14,
+        }
+      };
+    }
     try {
       final client = HttpClient();
       final request = await client.getUrl(Uri.parse('$effectiveUrl/admin/metrics'));
@@ -1609,6 +1853,82 @@ class NabinApiService {
   // =========================================================================
 
   static Future<Map<String, dynamic>?> _getJson(String pathAndQuery) async {
+    if (_visualQaDemoMode) {
+      if (pathAndQuery.startsWith('/grocery/products')) {
+        return {
+          'success': true,
+          'products': [
+            {
+              'id': 'prod-01',
+              'name': 'Fresh Organic Milk',
+              'currentPrice': 65.0,
+              'mrp': 70.0,
+              'isAvailable': true,
+              'stockQty': 40.0,
+              'brand': 'Amul',
+              'category': 'Dairy & Breakfast',
+              'unit': '500ml',
+            },
+            {
+              'id': 'prod-02',
+              'name': 'Farm Fresh Eggs (Pack of 6)',
+              'currentPrice': 55.0,
+              'mrp': 60.0,
+              'isAvailable': true,
+              'stockQty': 25.0,
+              'brand': 'FarmFresh',
+              'category': 'Dairy & Breakfast',
+              'unit': '6 pcs',
+            },
+            {
+              'id': 'prod-03',
+              'name': 'Whole Wheat Bread 400g',
+              'currentPrice': 45.0,
+              'mrp': 50.0,
+              'isAvailable': true,
+              'stockQty': 18.0,
+              'brand': 'Modern',
+              'category': 'Bakery & Bread',
+              'unit': '400g',
+            },
+            {
+              'id': 'prod-04',
+              'name': 'Fresh Bananas (1 Dozen)',
+              'currentPrice': 60.0,
+              'mrp': 70.0,
+              'isAvailable': true,
+              'stockQty': 30.0,
+              'brand': 'Local',
+              'category': 'Fruits & Vegetables',
+              'unit': '12 pcs',
+            },
+          ],
+        };
+      }
+      if (pathAndQuery.startsWith('/restaurants')) {
+        return {
+          'success': true,
+          'restaurants': [
+            {
+              'id': 'rest-01',
+              'name': 'Aizawl Diner',
+              'cuisines': ['North Indian', 'Traditional Mizo', 'Biryani'],
+              'rating': 4.5,
+              'deliveryMinutes': 25,
+              'coverImageUrl': '',
+            },
+            {
+              'id': 'rest-02',
+              'name': 'Tandoori Nights',
+              'cuisines': ['North Indian', 'Mughlai'],
+              'rating': 4.7,
+              'deliveryMinutes': 30,
+              'coverImageUrl': '',
+            },
+          ],
+        };
+      }
+    }
     try {
       final client = HttpClient();
       final request = await client.getUrl(Uri.parse('$effectiveUrl$pathAndQuery'));
@@ -1672,8 +1992,27 @@ class NabinApiService {
   /// PostgreSQL-backed KPIs for the signed-in store: `restaurant`,
   /// `activeOrdersCount`, `todaySales` and `orders`. The id must be the session
   /// merchant's own id; the route 403s on someone else's.
-  static Future<Map<String, dynamic>?> getMerchantDashboard(String merchantId) =>
-      _getJson('/merchant/${Uri.encodeComponent(merchantId)}/dashboard');
+  static Future<Map<String, dynamic>?> getMerchantDashboard(String merchantId) async {
+    if (_visualQaDemoMode) {
+      return {
+        'success': true,
+        'restaurant': {
+          'id': merchantId,
+          'name': 'Aizawl Diner & Kitchen',
+          'status': 'ACTIVE',
+          'cuisines': ['North Indian', 'Traditional Mizo', 'Biryani'],
+          'standard_delivery_minutes': 25,
+        },
+        'activeOrdersCount': 3,
+        'todaySales': 4850.00,
+        'orders': [
+          {'id': 'ORD-9821', 'order_state': 'PREPARING', 'currency': 'INR', 'amount': 560},
+          {'id': 'ORD-9824', 'order_state': 'RECEIVED', 'currency': 'INR', 'amount': 240},
+        ],
+      };
+    }
+    return _getJson('/merchant/${Uri.encodeComponent(merchantId)}/dashboard');
+  }
 
   static Future<Map<String, dynamic>?> getAdvertisements({String? slot, String? service}) =>
       _getJson('/advertisements${_query({'slot': slot, 'service': service})}');

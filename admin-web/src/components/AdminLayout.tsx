@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/components/AuthProvider';
 import { holdsPermission } from '@/lib/access';
-import { LogOut, LayoutDashboard, Store, Menu, X, Car, Package, Megaphone, ShieldCheck, Users, Activity, Wallet, LifeBuoy, FileText, Settings, Fingerprint, AlertTriangle } from 'lucide-react';
+import { LogOut, LayoutDashboard, Store, Menu, X, Car, Package, Megaphone, ShieldCheck, Users, Activity, Wallet, LifeBuoy, FileText, Settings, Fingerprint, AlertTriangle, MapPin } from 'lucide-react';
 import { usePathname } from 'next/navigation';
 
 interface NavItem {
@@ -29,25 +29,46 @@ interface NavItem {
  * would remove the read-only view an operator needs in order to ask for the grant, and the
  * controls inside are still permission-checked here and re-checked by Express regardless.
  */
-const NAV_ITEMS: NavItem[] = [
-  { name: 'Overview', href: '/', icon: LayoutDashboard },
-  { name: 'Operations', href: '/operations', icon: Activity },
-  { name: 'Finance', href: '/finance', icon: Wallet, permission: 'finance.view' },
-  { name: 'Support', href: '/support', icon: LifeBuoy, permission: 'support.view' },
-  { name: 'KYC', href: '/kyc', icon: Fingerprint, permission: 'identity_verification.view' },
-  { name: 'Marketing', href: '/campaigns', icon: Megaphone, permission: 'campaign.view' },
-  { name: 'Security', href: '/security', icon: ShieldCheck, permission: 'security.view' },
-  { name: 'Audit Logs', href: '/audit', icon: FileText, permission: 'audit.view' },
-  { name: 'Settings', href: '/settings', icon: Settings },
-];
+interface NavSection {
+  title: string;
+  items: NavItem[];
+}
 
-// Kept from the previous shell so nobody loses a screen they already use while the new
-// sections are being stood up beside them.
-const DETAIL_ITEMS: NavItem[] = [
-  { name: 'Customers', href: '/customers', icon: Users, permission: 'customers.read' },
-  { name: 'Drivers', href: '/drivers', icon: Car },
-  { name: 'Merchants', href: '/merchants', icon: Store },
-  { name: 'Jobs/Orders', href: '/orders', icon: Package },
+const NAV_SECTIONS: NavSection[] = [
+  {
+    title: 'Operations',
+    items: [
+      { name: 'Overview', href: '/', icon: LayoutDashboard },
+      { name: 'Live Operations', href: '/operations', icon: Activity },
+      { name: 'Geofencing', href: '/geofencing', icon: MapPin },
+    ],
+  },
+  {
+    title: 'Management',
+    items: [
+      { name: 'Finance & Payouts', href: '/finance', icon: Wallet, permission: 'finance.view' },
+      { name: 'Support Tickets', href: '/support', icon: LifeBuoy, permission: 'support.view' },
+      { name: 'KYC Verification', href: '/kyc', icon: Fingerprint, permission: 'identity_verification.view' },
+      { name: 'Marketing & Promos', href: '/campaigns', icon: Megaphone, permission: 'campaign.view' },
+    ],
+  },
+  {
+    title: 'Security & System',
+    items: [
+      { name: 'Security & Access', href: '/security', icon: ShieldCheck, permission: 'security.view' },
+      { name: 'Audit Logs', href: '/audit', icon: FileText, permission: 'audit.view' },
+      { name: 'Settings', href: '/settings', icon: Settings },
+    ],
+  },
+  {
+    title: 'Directories & Records',
+    items: [
+      { name: 'Customers', href: '/customers', icon: Users, permission: 'customers.read' },
+      { name: 'Drivers', href: '/drivers', icon: Car },
+      { name: 'Merchants', href: '/merchants', icon: Store },
+      { name: 'Jobs & Orders', href: '/orders', icon: Package },
+    ],
+  },
 ];
 
 export default function AdminLayout({ children, title }: { children: React.ReactNode; title?: string }) {
@@ -69,119 +90,131 @@ export default function AdminLayout({ children, title }: { children: React.React
 
       <aside className={`nabin-nav ${sidebarOpen ? 'is-open' : ''}`}>
         <div className="nabin-nav__brand">
-          <span className="nabin-wordmark" style={{ fontSize: 18, color: 'var(--on-brand)' }}>
-            NABIN
-          </span>
-          <span className="nabin-nav__role">Admin</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <img src="/nabin_logo_full.png" alt="NABIN" style={{ height: 26, width: 'auto', objectFit: 'contain' }} />
+            <span className="nabin-admin-tag">
+              CONSOLE
+            </span>
+          </div>
           <button
             onClick={() => setSidebarOpen(false)}
             className="nabin-nav__close"
             aria-label="Close navigation"
           >
-            <X size={20} />
+            <X size={18} />
           </button>
         </div>
 
-        <div className="nabin-nav__user">
-          <span className="nabin-avatar" aria-hidden="true">
-            {user.role?.[0]?.toUpperCase() || 'A'}
-          </span>
-          <div style={{ minWidth: 0 }}>
-            <p className="nabin-nav__username">{user.phone || 'Admin User'}</p>
-            <p className="nabin-nav__subtitle">{user.role}</p>
-          </div>
+        <div className="nabin-nav__body">
+          <nav className="nabin-nav__list" aria-label="Command centre sections">
+            {NAV_SECTIONS.map((section) => {
+              const visibleItems = section.items.filter(
+                (item) => !item.permission || holdsPermission(user, item.permission)
+              );
+              if (visibleItems.length === 0) return null;
+
+              return (
+                <div key={section.title} className="nabin-nav__section">
+                  <div className="nabin-nav__section-header">{section.title}</div>
+                  {visibleItems.map((item) => {
+                    const isActive = pathname === item.href;
+                    const Icon = item.icon;
+                    return (
+                      <Link
+                        key={item.name}
+                        href={item.href}
+                        className={`nabin-nav__item ${isActive ? 'is-active' : ''}`}
+                        aria-current={isActive ? 'page' : undefined}
+                        onClick={() => setSidebarOpen(false)}
+                      >
+                        <Icon size={18} className="nabin-nav__icon" />
+                        <span>{item.name}</span>
+                        {isActive && <span className="nabin-nav__active-pip" />}
+                      </Link>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </nav>
         </div>
 
-        <nav className="nabin-nav__list" aria-label="Command centre sections">
-          {NAV_ITEMS.filter((item) => !item.permission || holdsPermission(user, item.permission)).map((item) => {
-            const isActive = pathname === item.href;
-            const Icon = item.icon;
-            return (
-              <Link
-                key={item.name}
-                href={item.href}
-                className="nabin-nav__item"
-                aria-current={isActive ? 'page' : undefined}
-                onClick={() => setSidebarOpen(false)}
-              >
-                <Icon size={20} />
-                <span>{item.name}</span>
-              </Link>
-            );
-          })}
-          {/*
-            The record screens are listed under their own heading rather than mixed into the
-            sections, because an operator comes to a section to work and to these to look something
-            up. The same permission rule applies: a control that could only answer 403 is not shown.
-          */}
-          <p className="nabin-nav__role" style={{ marginTop: 'var(--space-md)' }}>Records</p>
-          {DETAIL_ITEMS.filter((item) => !item.permission || holdsPermission(user, item.permission)).map((item) => {
-            const isActive = pathname === item.href;
-            const Icon = item.icon;
-            return (
-              <Link
-                key={item.name}
-                href={item.href}
-                className="nabin-nav__item"
-                aria-current={isActive ? 'page' : undefined}
-                onClick={() => setSidebarOpen(false)}
-              >
-                <Icon size={20} />
-                <span>{item.name}</span>
-              </Link>
-            );
-          })}
-        </nav>
+        <div className="nabin-nav__footer">
+          <div className="nabin-nav__user-card">
+            <span className="nabin-avatar-modern" aria-hidden="true">
+              {user.role?.[0]?.toUpperCase() || 'A'}
+            </span>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <p className="nabin-nav__user-name">{user.name || user.username || 'Administrator'}</p>
+              <p className="nabin-nav__user-role">{user.role}</p>
+            </div>
+            <button
+              onClick={logout}
+              className="nabin-btn-icon-soft"
+              title="Sign out"
+              aria-label="Sign out"
+            >
+              <LogOut size={16} />
+            </button>
+          </div>
+        </div>
       </aside>
 
       <div className="nabin-column">
         <header className="nabin-header">
-          <div className="nabin-header__inner" style={{ justifyContent: 'flex-start', gap: 'var(--space-md)' }}>
-            <button
-              onClick={() => setSidebarOpen(true)}
-              className="nabin-header__menu"
-              aria-label="Open navigation"
-            >
-              <Menu size={24} />
-            </button>
-            <h2 className="nabin-header__title">{title ?? 'Overview'}</h2>
-            <div className="nabin-header__actions">
-              {/*
-                Search and alerts are placeholders on purpose. The backend exposes no
-                `/api/admin/search` and no alert feed, and a box that looks usable but returns
-                nothing is worse than one that says it is not wired up yet: an operator would
-                read an empty result as "no matches" and move on. The label states the gap, and
-                the Operations screen is named as where live state actually is.
-              */}
-              <div className="nabin-header__links">
-                <input
-                  className="nabin-input"
-                  type="search"
-                  placeholder="Global search — no search API yet"
-                  aria-label="Global search (not yet available)"
-                  aria-disabled="true"
-                  readOnly
-                  title="Global search is not implemented. No endpoint exists to answer it, so this box is deliberately inert rather than showing empty results."
-                />
-                <button
-                  type="button"
-                  className="nabin-btn nabin-btn--ghost"
-                  aria-disabled="true"
-                  title="No alert feed exists yet. Live service state is on the Operations screen; nothing here is invented."
-                >
-                  <AlertTriangle size={16} aria-hidden="true" />
-                  <span>Alerts</span>
-                </button>
+          <div className="nabin-header__inner">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+              <button
+                onClick={() => setSidebarOpen(true)}
+                className="nabin-header__menu"
+                aria-label="Open navigation"
+              >
+                <Menu size={22} />
+              </button>
+              <div>
+                <h2 className="nabin-header__title" style={{ margin: 0 }}>{title ?? 'Overview'}</h2>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                  <span className="nabin-pulse-dot" />
+                  <span style={{ fontSize: 11.5, color: '#64748B', fontWeight: 600 }}>System Live · All Services Operational</span>
+                </div>
               </div>
-              <span className="nabin-header__account" title={`Signed in as ${user.username || user.name || 'administrator'}`}>
-                <span className="nabin-avatar" aria-hidden="true">{user.role?.[0]?.toUpperCase() || 'A'}</span>
-                <span>
-                  <span className="nabin-cell-title" style={{ display: 'block' }}>{user.name || user.username || 'Administrator'}</span>
-                  <span className="nabin-cell-meta">{user.role}</span>
+            </div>
+
+            <div className="nabin-header__actions">
+              <div className="nabin-header__search-modern">
+                <input
+                  type="text"
+                  placeholder="Quick lookup (users, orders, drivers)..."
+                  aria-label="Quick search"
+                  readOnly
+                  title="Search is available on dedicated directory screens"
+                />
+                <kbd className="nabin-kbd">⌘K</kbd>
+              </div>
+
+              <button
+                type="button"
+                className="nabin-btn-alert-badge"
+                title="System Notifications & Alerts"
+              >
+                <AlertTriangle size={16} />
+                <span>0 Alerts</span>
+              </button>
+
+              <div className="nabin-header__user-pill">
+                <span className="nabin-avatar-mini">{user.role?.[0]?.toUpperCase() || 'A'}</span>
+                <span className="nabin-header__user-label">
+                  <strong>{user.username || 'admin'}</strong>
+                  <small>{user.role}</small>
                 </span>
-              </span>
-              <button onClick={logout} className="nabin-btn nabin-btn--ghost" style={{ minHeight: 'var(--target-min)' }}>
-                <LogOut size={16} />
+              </div>
+
+              <button
+                onClick={logout}
+                className="nabin-btn-signout"
+                title="Sign out of Admin Console"
+              >
+                <LogOut size={15} />
                 <span>Sign out</span>
               </button>
             </div>

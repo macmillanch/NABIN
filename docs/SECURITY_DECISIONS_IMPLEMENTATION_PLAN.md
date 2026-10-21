@@ -437,7 +437,7 @@ provided the dashboard calls are reverted in the same commit, or the console's m
   the order forbids making it. Two sub-cases: gate on `geofence.view` (admin, matches every existing
   consumer, zero app-flow risk), or issue a customer/driver session requirement (which no caller in the
   repository satisfies today, so it would break nothing but would serve nobody either).
-- **BLOCKED ON OWNER CLARIFICATION — `POST /api/pricing/estimate` is anonymous** (`server.js:3696`, no
+- **BLOCKED ON OWNER CLARIFICATION — `POST /api/pricing/estimate` is anonymous** (`server.js:3982`, no
   middleware) and returns the full `estimate`, which includes the geo surcharge for whatever
   `pickupLat/pickupLng` the body carries. Splitting `evaluate` while leaving `estimate` anonymous does not
   remove a pricing oracle; it removes one of two doors. The owner decided nothing about `estimate` — it
@@ -503,7 +503,7 @@ against the code, they are not four of one kind:
 
 | Named critical operation | Does it consult geo policy today? | Where |
 | --- | --- | --- |
-| Fare calculation | **Yes** | `POST /api/pricing/estimate` `server.js:3696` → `db.calculateFareEstimate` → `database.js:2400-2416` → `geoPolicy.evaluate` `:2407` with `operation:'QUOTE'` |
+| Fare calculation | **Yes** | `POST /api/pricing/estimate` `server.js:3982` → `db.calculateFareEstimate` → `database.js:2400-2416` → `geoPolicy.evaluate` `:2407` with `operation:'QUOTE'` |
 | Booking creation (ride) | **Yes, and it refuses** | `server.js:3411`, coords at `:3477`, refusal at `:3486-3487` via `replyGeoRefusal` `:68-78` |
 | Booking creation (parcel) | Consults, but receives **no coordinates** | `server.js:3614`, input built at `:3665-3669` ⇒ `geoStatus:'NOT_PROVIDED'`, no refusal (`database.js:2457-2471`) |
 | Booking creation (food) | **No** | `server.js:3756` — no geo call at all; uses `featureControlService.requireFeature` with an `X-Location-Id` header string (`:3770-3771`) |
@@ -806,7 +806,7 @@ consumers.
 | Consumer | Current query | Expected semantics | Strategy | Ordering / keyset |
 | --- | --- | --- | --- | --- |
 | `SupportTicketRepository.getTicketsAdmin` `:441` | unbounded `select('*')`, `created_at DESC`, no limit/range/count | a page, plus a truthful total | server-side limit + offset today, keyset when the index lands | needs `(created_at DESC, id)`; **that composite index does not exist** — the table has separate indexes on `status`, `category`, `job_id`, `user_id` (×2) and `created_at DESC` |
-| Route `GET /api/admin/support` `server.js:2282`, gated `support.view` | returns `total: tickets.length` `:1790` | `total` = whole-store count, not page length | accept `limit`/`offset`/`status`/`category`/`priority`/`search`; report `total` from `count:'exact'`, and an explicit `dataSource` / completeness marker | — |
+| Route `GET /api/admin/support` `server.js:2555`, gated `support.view` | returns `total: tickets.length` `:1790` | `total` = whole-store count, not page length | accept `limit`/`offset`/`status`/`category`/`priority`/`search`; report `total` from `count:'exact'`, and an explicit `dataSource` / completeness marker | — |
 | `getTicketsByUser` `:350` | unbounded per-user | bounded per user | same | `user_id` is already indexed |
 | Boot hydration `database.js:1905-1909` | `.limit(200)` of 767 rows into the memory mirror | must stop pretending 200 is the set | keep the mirror bounded but label it, or retire it — see the invariant below | — |
 | Offline `getSupportTickets` `database.js:2663-2687` | sorts `updatedAt`, searches broader fields | must match the live ordering | align on `created_at, id` so a page means the same thing in both modes | — |
@@ -892,9 +892,9 @@ degraded/stale marker — with `ADMIN UI: YES`, `COMPLIANCE: YES`, `SECURITY INV
 | boot hydration is `.limit(200)` **once**, against ~28,938 rows, and its error is swallowed | `database.js:1942-1959`, `audErr` ignored at `:1949`; `partialMirrors` at `:2009-2011` **excludes audit**, so an incomplete audit mirror is never named |
 | 4 fabricated seed rows sit in the mirror and are never cleared | `database.js:987-1004` |
 | hydration maps rows through a name that is out of scope | `mapRowToDTO` is module-scope at `AuditLogRepository.js:3`, so the lookup at `database.js:1951` is undefined and boot rows enter the mirror as raw snake_case — the UI shows `Invalid Date` and `'System'` |
-| 20 audit writes are not awaited | `database.js:2043, 2647, 2719, 2865, 2995, 3334, 4552, 4656, 7226, 7247, 7274, 7373, 7663, 7695` and `PaymentRepository.js:117, 367, 404, 481, 642→643, 748→749` |
+| 20 audit writes are not awaited | `database.js:2043, 2647, 2719, 2865, 2995, 3334, 4552, 4656, 7226, 7247, 7274, 7373, 7663, 7695` and `PaymentRepository.js:194→195, 474→475, 511→512, 588→589, 797→798, 930→931` |
 | two read routes disagree on outage | R1 `server.js:1572` → bare 500 `:1593-1596`; R2 `:3308` → 503 `AUDIT_TRAIL_UNAVAILABLE` `:3327-3331`; both carry unreachable `getAuditLogs` fallbacks (`:1591`, `:3334`) |
-| the only consumers | TAB 9 `admin_dashboard.html:1741-1815` (copy at `:1784` claims an "Immutable, tamper-resistant record of all compliance decisions"), `loadGlobalAuditLogs:3990-4015` reads `data.logs` and nothing else, with `catch (e) {}` at `:4014`, no pagination and one search filter; the KYC modal `:2379-2410`/`:3870-3892` calls **R1 unfiltered**. `admin-web` has no audit view; `mobile/lib/core/network/nabin_api_service.dart:656` is defined and never called |
+| the only consumers | TAB 9 `admin_dashboard.html:1741-1815` (copy at `:1784` claims an "Immutable, tamper-resistant record of all compliance decisions"), `loadGlobalAuditLogs:3990-4015` reads `data.logs` and nothing else, with `catch (e) {}` at `:4014`, no pagination and one search filter; the KYC modal `:2379-2410`/`:3870-3892` calls **R1 unfiltered**. ~~`admin-web` has no audit view~~ — **this baseline claim was wrong**: `admin-web/src/app/audit/page.tsx` renders R1 through `ModuleScreen` (spec at `components/modules.tsx:123`), and it tolerates `total: null`, so it needed no change; `mobile/lib/core/network/nabin_api_service.dart:656` is defined and never called |
 
 **4. Exact source files expected to change.**
 `backend/src/repositories/AuditLogRepository.js` (ordering of store-write vs mirror-write; the marker on
@@ -904,6 +904,16 @@ degraded/stale marker — with `ADMIN UI: YES`, `COMPLIANCE: YES`, `SECURITY INV
 `backend/src/repositories/PaymentRepository.js` (the 6 un-awaited writes there are financial),
 `admin_dashboard.html` (`:3990-4015` render the marker and stop the empty `catch`; `:1784` copy reduced to
 what is actually held), and `backend/boot_mirror_read_test.js` (see 7).
+
+> **Recorded at build time (2026-10-10), because §4 and §7 disagree.** §4 asks for "hydration via keyset
+> instead of `.limit(200)`", while §7 requires a test that "a store with more rows than the page size yields
+> a mirror that is labelled incomplete" — which can only be true while the window stays bounded — and the
+> Phase 9 table claims this same hydration as Phase 9's work. Three sections, two directions. The build took
+> the conservative reading: the window stays `.limit(200)` and now *records* that it is a window
+> (`hydrateAuditMirror()`), so §7's test exists and §9's rollback rule ("the marker must ship before or with
+> the hydration change, never after") is honoured. Widening the mirror is a separate decision with a memory
+> cost attached, not a defect fix. Also not done here, per §10: the 4 seed rows (owner clarification), and
+> `PaymentRepository`'s 6 un-awaited writes (owner clarification).
 
 **5. Exact database objects expected to change.** **None.** `audit_logs` already holds 28,938 rows with
 the indexes a bounded query needs (`created_at DESC`, `(module, action, created_at DESC)`,
@@ -949,7 +959,7 @@ is 0.7% of the record. Therefore:
 
 | Item | Status |
 | --- | --- |
-| Marker (`dataSource` + `stale`/`degraded` + truthful `total`), ordering fix, hydration fix, scope bug, route unification, UI honesty | **BUILDABLE NOW** |
+| Marker (`dataSource` + `stale`/`degraded` + truthful `total`), ordering fix, hydration fix, scope bug, route unification, UI honesty | **BUILDABLE NOW — BUILT AND VERIFIED 2026-10-10**, on local Docker, with the hydration staying a labelled window rather than a keyset walk (see the conflict in §4 above and the recorded conclusion in `docs/POSTGREST_MAX_ROWS_AUDIT.md` §4.7). The "ordering fix" had nothing left to fix: `create()` already returns before the mirror is touched when the store refuses the write, which `AF-17` now pins. |
 | Which of the three existing marker shapes to adopt (`dataSource`+`degraded` per `listCustomerAccounts`, `stale` per `AppConfigService`, or the geo `readAt`+state enum) | implementation choice, **recommend the `listCustomerAccounts` shape for consistency**, recorded not decided |
 | R1's bare 500 vs R2's coded 503 — which wins | **OWNER CLARIFICATION** (a contract change for the KYC modal either way) |
 | Disposition of the 4 fabricated seed mirror rows (delete at boot / mark as synthetic / move behind a flag) | **OWNER CLARIFICATION** — they are presented as real audit history today |
@@ -1052,7 +1062,7 @@ handle `max_rows` — informed by Phase 8's table.
 
 | File | Change |
 | --- | --- |
-| `backend/src/database.js` | `:5282` (with Phase 5), `:6384`/`:6390`, `:6995`, `:6272`/`:6317`/`:6443`, and the boot hydrations at `:1866` (`admin_accounts` via `readAllRows` — correct), `:1905` (tickets `.limit(200)`), `:1942` (audit `.limit(200)`) |
+| `backend/src/database.js` | `:5282` (with Phase 5), `:6384`/`:6390`, `:6995`, `:6272`/`:6317`/`:6443`, and the boot hydrations at `:1866` (`admin_accounts` via `readAllRows` — correct), `:1905` (tickets `.limit(200)`), and the audit hydration — now `hydrateAuditMirror()`, which **stays** `.limit(200)` + a labelled window: Phase 7 §4 records why the keyset switch planned here was not taken |
 | `backend/src/repositories/SupportTicketRepository.js` | `:441` — resolved by Phase 6, not re-litigated here |
 | `backend/src/repositories/PricingRepository.js` | `listGeoFences` `:260-275` and `listSurgeZones` `:494-504` are plain `select('*')` + `created_at desc` with **no** `readAllRows`, so they are capped at 1000 — after Phase 1 these admin lists are the *only* way to see a boundary, and a truncated one would hide a fence from the operator. Must be bounded or keyset + total |
 | `backend/src/repositories/DriverRepository.js` | whatever Phase 8's two unclassified rows turn out to need |

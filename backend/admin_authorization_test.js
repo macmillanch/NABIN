@@ -42,9 +42,8 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { spawn } = require('child_process');
 // Reap the backend this run starts, and only that one — scripts/spawned_server.js.
-const { trackServer, spawnConvergingInstance } = require('./scripts/spawned_server');
+const { spawnConvergingInstance } = require('./scripts/spawned_server');
 
 // A server this file spawns carries these, because the payment verifiers refuse to be
 // configured from a value in the source (see project memory: suite preconditions).
@@ -129,18 +128,16 @@ async function ensureServerRunning() {
     const res = await request('GET', '/api/health');
     if (res.status === 200) return null;
   } catch (e) {}
-  const proc = trackServer(spawn(process.execPath, [path.join(__dirname, 'src/server.js')], {
-    cwd: __dirname, stdio: 'ignore', detached: true, windowsHide: true
-  }));
-  proc.unref();
-  for (let i = 0; i < 30; i++) {
-    await new Promise(r => setTimeout(r, 200));
-    try {
-      const res = await request('GET', '/api/health');
-      if (res.status === 200) return proc;
-    } catch (e) {}
+  // A fixed six-second window was the whole boot budget here, and a cold process on this
+  // stack can take longer: the run then reported the *probe's* ECONNREFUSED as a harness
+  // failure. The converging helper (already used for RX's second instance) waits up to
+  // 15 s and pins the F-13 gates in the child, so a suite boot cannot enable the
+  // session-reconcile timer behind the run's back.
+  const boot = await spawnConvergingInstance({ port: 4000, tickMs: 0 });
+  if (!boot.ready) {
+    console.error(`⚠️ backend on :4000 did not answer /api/health within ${boot.readyWindowMs} ms`);
   }
-  return proc;
+  return boot.proc;
 }
 
 function fixtureSuffix() {
@@ -375,6 +372,7 @@ async function main() {
   const conditionalNames = [...new Set(gated.flatMap(r => r.condPerms))].sort();
   const names = [...new Set([...gated.flatMap(r => r.perms), ...conditionalNames])].sort();
   const ungated = routes.filter(r => !r.perms.length && !r.condPerms.length && !r.superOnly);
+  const superOnlyRoutes = routes.filter(r => r.superOnly);
 
   check('CAT-01', routes.length >= 70 && gated.length >= 55,
     `parsed ${routes.length} authenticateAdmin routes from src/server.js, ${gated.length} of them permission-gated on ${names.length} names (${conditionalNames.length} of those through a body-selected middleware)`);
@@ -434,6 +432,13 @@ async function main() {
   check('CAT-05', true,
     `catalogue names with no route-level gate: ${unenforcedList.length} (${unenforcedList.join(', ')}); ${enforcedElsewhere.length} of those are checked inside a handler, so ${unenforcedList.length - enforcedElsewhere.length} grant nothing anywhere — §5 row 33`);
 
+  // Every parsed route must belong to exactly one probe family. `ungated` is the
+  // complement of the other two, so this equality holds only while no route carries
+  // both `requirePermission` and `requireSuperAdmin` — a route in both families would
+  // be counted twice here and challenged in only one shape below.
+  check('CAT-07', routes.length === gated.length + superOnlyRoutes.length + ungated.length,
+    `the probe families partition the route table (${routes.length} = ${gated.length} permission-gated + ${superOnlyRoutes.length} super-admin-only + ${ungated.length} authentication-only), so no registration is silently exempt from every deny probe`);
+
   // --- DENY: every gated route, every role that must not reach it ------
   let denyPairs = 0;
   const offenders = [];
@@ -462,6 +467,54 @@ async function main() {
   const garbage = await request('GET', '/api/admin/audit-logs', null, bearer('adm_token_not_a_session'));
   check('DENY-401', anon.status === 401 && garbage.status === 401,
     `no token and a made-up token are both refused at the door, before the permission question (${anon.status}/${garbage.status})`);
+
+  // --- SUPER: the wildcard gate is a gate too ---------------------------
+  // `requireSuperAdmin` routes sat outside both halves of this matrix: `gated` is
+  // defined by a permission name, and `ungated` excludes `superOnly`, so the two
+  // platform-settings registrations were counted by CAT-01 and challenged by
+  // nothing. A super-only check that stopped running, or ran after the handler,
+  // would leave this file green. One refusal probe per (route, non-super role):
+  // each must be 403 naming SUPER_ADMIN, and must arrive before any setting is
+  // read or written (the empty body proves nothing is persisted through it).
+  let superPairs = 0;
+  const superOffenders = [];
+  for (const role of ['KYC_SPECIALIST', 'OPERATIONS', 'FINANCE_AUDITOR', 'SUPPORT_AGENT']) {
+    for (const route of superOnlyRoutes) {
+      superPairs += 1;
+      const res = await request(route.method, route.probePath, {}, bearer(tokens[role]));
+      const named = String(res.data.error || '').includes('SUPER_ADMIN');
+      if (res.status !== 403 || !named) {
+        superOffenders.push(`${route.method} ${route.pattern} as ${role} → ${res.status} ${JSON.stringify(res.data).slice(0, 90)}`);
+      }
+    }
+  }
+  check('SUPER-DENY', superOnlyRoutes.length === 2 && superPairs === superOnlyRoutes.length * 4 && superOffenders.length === 0,
+    `${superPairs} (super-only route, non-super role) pairs refused with 403 naming SUPER_ADMIN (offenders: ${superOffenders.length ? '\n     ' + superOffenders.join('\n     ') : 'none'})`);
+
+  const superAnon = await request('GET', '/api/admin/platform-settings');
+  const superGarbage = await request('GET', '/api/admin/platform-settings', null, bearer('adm_token_not_a_session'));
+  check('SUPER-401', superAnon.status === 401 && superGarbage.status === 401,
+    `the super-only read is refused at the door before the role question (${superAnon.status}/${superGarbage.status})`);
+
+  // --- AUTH: the floor under every route no permission gate covers ------
+  // CAT-04 names 17 routes that answer to "any valid administrator" and leaves
+  // their least-privilege mapping to the owner. That phrase is a claim about
+  // authentication, and nothing measured it: these routes were in neither the
+  // permission-deny loop nor the 401 probe above. Each is now probed with no
+  // token and with a token no session backs. A 401 on both proves the request
+  // stopped at `authenticateAdmin`, so the debt CAT-04 records is least
+  // privilege and not anonymous exposure — and stays that way if a guard is
+  // removed later.
+  const authOffenders = [];
+  for (const route of ungated) {
+    const probeBody = route.method === 'GET' || route.method === 'DELETE' ? null : {};
+    const anonRes = await request(route.method, route.probePath, probeBody, {});
+    const forgedRes = await request(route.method, route.probePath, probeBody, bearer('adm_token_not_a_session'));
+    if (anonRes.status !== 401) authOffenders.push(`${route.method} ${route.pattern} anon → ${anonRes.status}`);
+    if (forgedRes.status !== 401) authOffenders.push(`${route.method} ${route.pattern} forged → ${forgedRes.status}`);
+  }
+  check('AUTH-401', ungated.length === 17 && authOffenders.length === 0,
+    `all ${ungated.length} routes with no permission gate refuse an anonymous and a forged token before the handler (offenders: ${authOffenders.length ? '\n     ' + authOffenders.join('\n     ') : 'none'})`);
 
   // --- ALLOW: one probe per permission, held by a role that may pass ---
   const notProbed = [];

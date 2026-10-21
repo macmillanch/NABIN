@@ -637,6 +637,987 @@ const LINKS = [
   // KEPT_FINANCIAL would therefore have reddened no link: the chain's residue checks count users, merchants,
   // orders and tickets, not the audit rows a reaped money row would leave orphaned behind.
   { file: 'test_fixtures_keep_rule_selftest.js' },                                                    // 78
+  // MEDIA SECURITY PHASE 2, registered as an ISOLATED link 2026-10-17. It is not a `test_rms_e2e_integration`
+  // style exclusion: that suite is barred because it injects its tokens into `db.activeSessions` of its OWN
+  // process and can therefore never answer on a harness it does not start. `media_security_test.js` instead
+  // boots its own backend on an ephemeral `findFreePort` and authenticates through the REAL routes
+  // (`/api/admin/login` + `/api/auth` OTP via `createLogin`), so it is harness-agnostic and isolatable.
+  // Why `isolated` is the correct lane and not a split-target: the suite reads durable ownership through a
+  // raw `pg` Client AND writes it through `supabaseAdmin` (PostgREST). `scripts/chain_scratch.js` points the
+  // link at BOTH `DATABASE_URL=…options=-c search_path=chain_scratch` (so the unqualified `media_assets` in
+  // `pgRow`/cleanup resolves to the clone) and `SUPABASE_URL=http://127.0.0.1:<proxy>` whose profile rewrite
+  // sends PostgREST writes to the same `chain_scratch` schema. The two handles cannot diverge, which is the
+  // exact #283 condition the brief sets as the gate for registering a media suite at all.
+  // `media_assets` also joined `scripts/protected_tables.js` PROTECTED the same day, so this link is guarded
+  // per-run: an isolated media write that did not restore the clone's media_assets count would redden `verify`.
+  { file: 'media_security_test.js', isolated: true,                                                    // 79
+    subtotalPattern: /PASSED: (\d+)\s+FAILED: (\d+)/ },
+  // MI-6 (P0): an admin suspension of a storefront has to reach the store that enforces it.
+  // `db.setRestaurantStatus()` used to write only the in-process `this.restaurants` mirror, answer
+  // `success: true` and post a `RESTAURANT_SUSPENDED` audit row, while every place that decides
+  // whether a storefront may trade — `OrderRepository.resolveMerchant()`, the closure gate on
+  // `POST /api/customer/book-food` and `GET /api/restaurants?openNow=true` — reads `merchants.is_open`
+  // from PostgreSQL. Nothing ever wrote that column, so the control was decorative. This is exactly
+  // the guarantee the repo says must not live in a hand-run file (see the `merchant_auth_failclosed`
+  // link above): a fail-closed privilege gate that only a person remembers to run is a gate that
+  // quietly reopens. 24 checks, and the three halves that make it worth pinning: it asserts on the
+  // DURABLE row and on a SECOND, freshly spawned process, so a fix that only moves one process's
+  // memory cannot pass; it proves the refusal paths (typed 503 when the store declines the write,
+  // 400 for an id with no row, no `success: true`, no audit trail) rather than only the happy path;
+  // and since 2026-10-18 it pins the OTHER half of the same defect class — a write can be durable and
+  // still not be enforced, because `MERCHANT_CLOSED` was gated at exactly one of the two order-creation
+  // routes. `POST /api/grocery/checkout/validate` is misnamed: it writes the durable checkout AND the
+  // order row, so a suspended GROCERY storefront kept taking orders. MSD-18..24 suspend a grocery store
+  // and require the 403 to precede item resolution, to write no durable row, and to lift on reopen.
+  // Re-measured 2026-10-19 at 27 checks, because MI-5 changed what "a store that may trade" means: a
+  // registration now lands PENDING and closed, so this suite's own stores have to be approved before they
+  // can be suspended. MSD-01/MSD-18 assert the durable PENDING-and-closed landing, and MSD-01A/18A/25
+  // drive `POST /api/admin/merchants/:id/approval` — deliberately NOT the legacy
+  // `POST /api/admin/restaurants/:id/status` route, because link 92 MOA-16 pins that route as unable to
+  // open a pending store, and using it as setup here would hide the defect MOA-16 exists to catch.
+  // It runs in the shared lane, not `isolated`: it needs the seeded merchant `…0201` to prove a
+  // suspension does not disturb it (MSD-15), which a `chain_scratch` clone is not obliged to carry.
+  // Its own rows are its own business — it creates three merchants (RESTAURANT + GROCERY + probe) and one
+  // customer, boots its own backends on ephemeral `findFreePort` ports so it never touches :4000, and
+  // deletes exactly those rows in a `finally` (re-measured 2026-10-19 on the local Docker target:
+  // standalone run, 27/27, exit 0, `merchants` 83->83 net-zero, `users`/`products`/`orders`/`checkouts`/
+  // `merchant_grocery_inventory`/`admin_accounts` unchanged). Two groups stay, and both are reported as
+  // attributed per-link drift rather than hidden: +22 `audit_logs` rows (was +19 before the approval
+  // lifecycle; the three extra are the `MERCHANT_APPROVED` decision lines the new setup writes), which
+  // migration 022 makes append-only and undeleteable by design, and +2 `backend_sessions` minted by the
+  // `/api/admin/login` calls. Those session rows belong to the SHARED seeded `superadmin`, not to this
+  // run — the only handle that would match them is the username, and deleting by username would sweep
+  // other runs' admin sessions. That is a shared-record delete performed to tidy a census, so the suite
+  // leaves them and the census names them.
+  { file: 'merchant_suspension_durability_test.js',                                                   // 80
+    subtotalPattern: /MI-6 MERCHANT SUSPENSION DURABILITY: (\d+)\/\d+ passed, (\d+) failed/ },
+  // MI-1 (P0): who may read a payment session. `GET /api/payments/session/:orderId` returned the row
+  // to any authenticated bearer, because the ownership comparison only ran
+  // `if (callerUuid && sessionCustomerUuid && …)` and a DRIVER principal's id never resolves through
+  // `resolveCustomerUserUuid` — so `callerUuid` was null, the check was skipped, and the route answered
+  // 200 with another customer's checkout: uuid, amount, service type, job linkage, gateway `key_id`
+  // and the whole `metadata` blob. A MERCHANT whose id happened to be a uuid was refused for the wrong
+  // reason (a customer mismatch, not a role gate), which is the state that silently reopens when the
+  // id shape changes — so both halves are asserted, plus that an unprovable owner is a refusal and that
+  // a refusal never puts the session in the body. 23 checks; measured 2026-10-18 in-chain exit 0,
+  // 23 passed, and `payment_sessions` does not grow because every row it mints is deleted by its own
+  // `order_id`. What it does leave is named by its per-link drift line: +5 `backend_sessions` and +14
+  // append-only `audit_logs` rows.
+  // It spawns its own backend on `findFreePort`, so it never touches :4000, and it loads
+  // `scripts/chain_target_guard`, so a non-loopback target is a refusal at load rather than a read
+  // against the hosted project.
+  { file: 'payment_session_role_test.js',                                                            // 81
+    subtotalPattern: /PASSED: (\d+)\s+FAILED: (\d+)/ },
+  // MI-3 (P0): the driver-facing payout route had no failure channel at all. Express 4.22.2 does not
+  // forward a rejected async handler to an error middleware, and `POST /api/driver/payout` awaited
+  // `db.recordPayout(...)` with no try/catch — so when `LedgerRepository.adjustWallet` threw
+  // `IDEMPOTENCY_CONFLICT` (one key, two different financial semantics) the request never got a
+  // response and the caller was left holding a hung money socket with no way to know whether the
+  // balance moved. The sibling admin payout route and `POST /api/finance/refund` already answer 409
+  // for a conflict and 503 for a genuine outcome-unknown; this link holds the driver route to that
+  // same channel, and asserts the movement from `drivers.wallet_balance` in the store, never from a
+  // response body. 11 checks; measured 2026-10-18 standalone 11/11, exit 0. The 503 branch is present
+  // by construction (only `IDEMPOTENCY_CONFLICT` is special-cased) and a real store outage is driven by
+  // `driver_operations_test.js` OPS-5x, so this suite does not fake one. Its residue is the documented
+  // money keep-rule, not an omission: it drains its disposable driver's wallet to 0 through the audited
+  // path and then `DELETE FROM drivers … WHERE NOT EXISTS (journal_lines / driver_payouts)`, which
+  // returns rowCount 0 for a driver whose payouts are durable history. Measured in-chain 2026-10-18,
+  // exit 0, 11 passed: +1 `users`, +1 `drivers`, +3 `driver_payouts`, +3 `journal_transactions`,
+  // +6 `journal_lines` — one probe's worth of money history per run, which the census attributes
+  // rather than hides.
+  { file: 'driver_payout_route_failure_channel_test.js',                                             // 82
+    subtotalPattern: /DRIVER PAYOUT ROUTE FAILURE CHANNEL: (\d+)\/\d+ passed, (\d+) failed/ },
+  // MI-7 (P0): the support-thread write route let an unresolvable identity reply inside — and read out
+  // of — another customer's ticket. `SupportTicketRepository.addMessage` compared the caller to the
+  // ticket owner only `if (callerUuid && ticketOwnerUuid && callerUuid !== ticketOwnerUuid)`, and
+  // `resolveUserUuid` returns null for any handle that is neither a uuid nor a mapped/seeded account.
+  // Because `restoreSession` adopts a persisted `backend_sessions` row with its `entity_id` verbatim as
+  // long as the row carries an `entity`, a bearer whose handle names no account skipped the comparison
+  // entirely: `POST /api/support/ticket/:id/message` has no route-level ownership check of its own and
+  // answers with the whole updated thread, so the refusal never happened and the thread came back.
+  // Measured 2026-10-18 before the fix: 20/28, and the three failures were all the same defect — one
+  // ghost session per role (CUSTOMER, MERCHANT, DRIVER) each returned HTTP 200 with the thread in the
+  // body and wrote into it, growing customer A's ticket from 2 messages to 5. The suite also records
+  // what was ALREADY refused, so the class is closed rather than the instance: a proven stranger, and
+  // a resolvable DRIVER and MERCHANT bearer (those two only by uuid inequality, never by a role gate —
+  // the MI-1 lesson), plus the sibling `createTicket` boundary that already fails closed with 401.
+  // After the inverted condition: 28/28, standalone, exit 0, and the durable thread ends at exactly the
+  // four messages this run legitimately wrote. Local Docker only (it refuses a non-loopback backend or
+  // store, and refuses a mock branch where the comparison is plain id equality); it owns and deletes
+  // its ticket by id and its three ghost sessions by `token_hash`, and deliberately keeps the shared
+  // seeded customer/driver/merchant sessions other links reuse — the census names both halves.
+  { file: 'support_ticket_thread_ownership_test.js',                                                 // 83
+    subtotalPattern: /SUPPORT TICKET THREAD OWNERSHIP: (\d+)\/\d+ passed, (\d+) failed/ },
+  // MI-8 (P0): the same fail-open ownership comparison, on the WRITE half of the money record.
+  // `PaymentRepository.verifyPaymentSession` guarded with `if (callerUuid && sessionUuid && callerUuid
+  // !== sessionUuid)`, so the check vanished whenever EITHER side failed to resolve — `resolveCustomerUuid`
+  // returns null for a handle that is neither a uuid nor a mapped/seeded account, and
+  // `payment_sessions.customer_id` is NULLABLE. That matters more here than on the read route because two
+  // of this method's three branches (client-reported FAILED and CANCELLED) require NO gateway signature
+  // and write the row's durable status, so ownership was the only authorization layer on those writes.
+  // Measured 2026-10-18 before the fix: 20/25, exit 1, and both null-side vectors were real — any
+  // signed-in customer flipped an ownerless (`customer_id IS NULL`) session to FAILED with its own
+  // `failureReason` and left an `audit_logs` row attributing the event to `usr_cust_anon`, the
+  // `getPaymentSession` fallback handle; and a bearer whose `entity_id` named no account still passed
+  // `authenticateUser` because `customerSessionRefusal` accepts a persisted `backend_sessions` row whose
+  // `phone` matches an active account, and moved ANOTHER customer's INITIATED session to FAILED.
+  // After the inverted condition (new 403 `SESSION_OWNER_UNRESOLVED` when either side is unresolvable,
+  // existing `CUSTOMER_MISMATCH` when they disagree): 25/25, exit 0. It records rather than re-litigates
+  // what was already closed — the SUCCESS branch is fail-closed on `PAYMENT_KEY_SECRET` with a
+  // constant-time HMAC over `orderId|paymentId` (untouched, and this suite performs no capture so it
+  // mints no money rows), and the route's bearer gate is already CUSTOMER-only, so a DRIVER/MERCHANT
+  // token never reaches the repository. `payment_sessions` does not grow (6 rows minted, 6 deleted by
+  // `order_id`; both ghost `backend_sessions` rows deleted by `token_hash`); what it leaves is the same
+  // documented residue links 81/83 keep — the shared seeded customers' sessions and the append-only
+  // `audit_logs` trail from the legitimate owner-reported refusals-that-didn't-happen. Local Docker only:
+  // `chain_target_guard` refuses a non-loopback target at load, and the live-Postgres check refuses a
+  // mock branch where the comparison is plain id equality.
+  { file: 'payment_verify_ownership_test.js',                                                        // 84
+    subtotalPattern: /PAYMENT VERIFY OWNERSHIP: (\d+)\/\d+ passed, (\d+) failed/ },
+  // MI-9 (P0): the same fail-open ownership comparison on the customer ORDER read, at the fourth
+  // measured instance of the class. `app.get(['/api/customer/orders/:id', '/api/orders/:id'])`
+  // guarded with `if (customerUuid && order.customer_id !== customerUuid)`, so the IDOR check
+  // vanished whenever the CALLER side failed to resolve: `OrderRepository.resolveUserUuid` returns
+  // null for a handle that is neither a uuid nor a mapped/seeded account, `restoreSession` adopts a
+  // persisted `backend_sessions` row's `entity_id` verbatim, and `authenticateUser`'s own account
+  // check (`customerSessionRefusal`) falls back to the session's PHONE — so a session naming no
+  // account still passed the bearer gate whenever its phone matched an active customer, and
+  // `req.user = session.entity || …` handed the handler that unresolvable handle.
+  // Measured 2026-10-18 before the fix: 23/27, exit 1, and all four failures were one defect — the
+  // ghost bearer was answered HTTP 200 with another customer's whole order, leaked body included, on
+  // all three doors (order uuid, ORDER NUMBER, and the second route registration). Which half of
+  // the pair can be unresolvable is schema-dependent, so this suite measures it rather than
+  // inheriting link 84's answer: `orders.customer_id` is `UUID NOT NULL` (read back from
+  // `information_schema.columns`, not quoted from the DDL), so only the caller side is reachable —
+  // there is no ownerless-order vector here. What was ALREADY correct is recorded, not re-litigated:
+  // the resolvable stranger's 403 by both spellings, the owner's own read, the real DRIVER and ADMIN
+  // bearer refusals, anonymous/invalid 401, a genuinely absent order still 404, and the sibling
+  // `/api/customer/activity` boundary that already fails closed on a null uuid.
+  // After the inverted condition (identity check FIRST, before any read, so a ghost gains no
+  // existence oracle; 403 `CUSTOMER_IDENTITY_UNRESOLVED` for class consistency with MI-7/MI-8):
+  // 27/27, standalone, exit 0, and 27/27 in-chain. Every durable row is fixture-owned and reaped by
+  // id (`orders` measured net-zero across the run) and the three ghost sessions are deleted by
+  // `token_hash`; the residue it prints and the census attributes is +2 `backend_sessions` (the
+  // SHARED seeded driver's cached token and this run's own `/api/admin/login` session) and the
+  // append-only `audit_logs` rows written in its window. Local Docker only: `chain_target_guard`
+  // refuses a non-loopback target at load and the live-Postgres check refuses a mock branch where
+  // the comparison is plain id equality.
+  { file: 'order_read_ownership_test.js',                                                            // 85
+    subtotalPattern: /ORDER READ OWNERSHIP: (\d+)\/\d+ passed, (\d+) failed/ },
+  // MI-4 (P0), the half that originates at the mint: `verifyAuthOtp`'s DRIVER branch resolved the
+  // entity by normalized phone and, when NOTHING matched, left `entity` undefined and issued a session
+  // anyway — the MERCHANT and ADMIN branches of the same function already refused — storing
+  // `entityId: 'anon'`. `authenticateDriver` then ran `session.entity || db.getDriver('anon')`, and
+  // `getDriver` ends in `|| this.drivers[0]`, so an unregistered number was served as the first seeded
+  // driver: his wallet, his earnings, his notification identity, and (because `backend_sessions` is
+  // durable and `hydrateSessions` adopts any unexpired row) for the token's full 30-day TTL across a
+  // restart. This suite holds the auth layer: unenrolled DRIVER phone refused with a typed 401 and no
+  // token minted, no session registered for it, no live DRIVER session resolving to a driver it does
+  // not name, a legitimately enrolled driver still signing in bound to ITS OWN id, `restoreSession`
+  // declining a persisted entity-less row while still adopting one that carries its entity,
+  // `getDriverStrict` answering null for `anon`/unknown/empty, the shared `getDriver` catch-all left
+  // intact for its traced non-auth callers, and a role string outside the four branches ('driver',
+  // 'ADMINISTRATOR') refused instead of minting an `anon` bearer. Measured 2026-10-18: 17/17, 0 failed.
+  // In-process only (no spawned backend), owns and deletes its `drivers`/`users` fixture rows by id.
+  { file: 'driver_unenrolled_phone_elevation_test.js',                                               // 86
+    subtotalPattern: /MI-4 UNENROLLED DRIVER ELEVATION: (\d+)\/\d+ passed, (\d+) failed/ },
+  // MI-4 (P0), the same bearer over HTTP, with the forged row written DURABLY before boot so the
+  // boundary — not just the mint — is exercised: an unresolved DRIVER session is refused 401 by both
+  // earnings routes and by the device-token route, causes no `device_tokens` write for anybody, an
+  // unenrolled number gets neither a token nor a durable session row, a registered driver is served its
+  // own ₹1,337 wallet instead of the fallback driver's ₹2,909.40, and the fallback driver's durable
+  // wallet is unchanged across the whole run. Deliberately NOT exercised: the payout route with a
+  // forged bearer, because the identity it would reach is a shared seeded record whose payout-destination
+  // cooling window can lapse and make the call real — money safety over boundary completeness. Allocates
+  // its own free port, spawns its own backend, refuses a non-loopback target, and reaps its own
+  // `device_tokens`, `backend_sessions` (forged row by `token_hash`, minted rows by normalized phone)
+  // and `drivers`/`users` fixture rows. Measured 2026-10-18: 10/10, 0 failed.
+  { file: 'driver_identity_substitution_route_test.js',                                              // 87
+    subtotalPattern: /MI-4 DRIVER IDENTITY SUBSTITUTION \(ROUTES\): (\d+)\/\d+ passed, (\d+) failed/ },
+  // MI-4 residual (P1): the same first-entity substitution one layer down, on the paths that aim an
+  // effect at a person named by a PARAMETER rather than by the caller's bearer. `getDriver`/`getUser`
+  // end in `|| this.drivers[0]` / `|| this.users[0]`, so neither can answer null and every `if (!user)`
+  // written beneath them is unreachable — an id resolving to nobody was read as the first seeded
+  // account of that kind. Measured 2026-10-18 at HEAD 23ee5d1 in a detached worktree: 7/21, exit 1,
+  // and the failures were money, not reads — a ghost CUSTOMER adjustment returned success and moved
+  // `users[0]` 450→500, a ghost DRIVER 2380→2430, ONE idempotency key spanned two different target
+  // ids because the key is built from the resolved account's uuid, `setDriverStatus(GHOST)` suspended
+  // `drivers[0]`, an unresolvable ticket refunded and paid its bounty into the fallback accounts, and
+  // `POST /api/driver/vehicle/photo` answered 200 for `DRV-101`. After strict resolution at every
+  // executable call site, plus the durable-aware `get*StrictAsync` pair so a real-but-unhydrated
+  // account is served as ITSELF rather than refused (that refusal would have been a NEW outage):
+  // 21/21, exit 0. It owns and deletes its fixture `users`/`drivers` rows and its own `media_assets`
+  // rows by exact public id, books no money (ledger/audit repos detached in-process), and ISR-19
+  // proves the run persisted exactly the assets it names. ISR-20/21 are the class guards: no
+  // executable `getDriver(`/`getUser(` call survives in either production file, and the first-element
+  // fallback inventory is exactly the five documented dev-mirror shapes. ISR-18 runs BY DEFAULT: the
+  // fixed answer is a 404 that persists nothing, which is exactly what the chain has to measure. Under
+  // the UNFIXED tree that route upserts `nabin/users/<users[0].id>/avatar`, so a before-fix run has to
+  // opt out with `ISR_SKIP_CUSTOMER_ROUTE=1` rather than overwrite a seeded account's media row — and
+  // that opt-out cannot be expressed as a per-link `env` here, because of the runner gap below. Starts
+  // its own backend on a port it allocates itself, and refuses a non-loopback backend or store.
+  // RUNNER GAP, measured 2026-10-18: `runLink` never reads a registry link's `env` map at all — the env
+  // a suite is spawned with is baseEnv + the four base-URL variables (`NABIN_TEST_BASE_URL`,
+  // `GEO_TEST_BASE`, `NABIN_API_URL`, `CHAOS_BASE_URL`), plus `NABIN_RESTART_PORT`, plus `readLinkEnv()`
+  // for isolated links only (which is the `.chain-scratch/link.env` FILE, unrelated to this field). So
+  // every `env: {...}` in this list is silently inert, including link 51's `NABIN_F2_REQUIRE_LIVE` — that
+  // suite has been running in its permissive default mode in-chain. Anything a link must set therefore
+  // has to be that suite's own default, which is why ISR-18 is default-on instead of flag-gated here.
+  { file: 'identity_substitution_residual_test.js',                                                  // 88
+    subtotalPattern: /MI-4 RESIDUAL IDENTITY SUBSTITUTION: (\d+)\/\d+ passed, (\d+) failed/ },
+  // P2 (Major Remediation) — handover / delivery OTP security.
+  // `db.validateAuthoritativeJobOtp({ jobId, otp, otpType, driverId })` compared a submitted
+  // 4-digit code against the row's `start_otp` / `pickup_otp` / `delivery_otp` and advanced the
+  // trip on a match, with no attempt counter (unlimited guesses), no lockout, no expiry (a code
+  // minted at booking stayed valid forever), and no consumption (a code proven once could be
+  // replayed for the same transition). The DELIVERY replay was incidentally blocked by
+  // `updateJobStatus` refusing COMPLETED->COMPLETED, but the START replay was free and that guard
+  // was a state-machine accident, not an OTP policy; the raw entered digits were also written into
+  // the audit reason, so a failed guess leaked a guess. Migration 046 added per-type attempt /
+  // lockout / expiry / consumption columns and `verify_job_otp_atomic` (one `SELECT … FOR UPDATE`
+  // deciding lock → consumed → expired → compare → consume), and the JS now gates every live-PG
+  // verify through that RPC with a fail-closed throw on any RPC error. 21 checks: three wrong
+  // DELIVERY guesses durably lock the code (HOT-01..05); a correct DELIVERY settles exactly once and
+  // a replay is refused by the consumed column, not the state machine (HOT-06..09); a locked START
+  // leaves DELIVERY independently verifiable, which is why the lockout is per-type — a shared lock
+  // would let an attacker who spams START guesses deny a legitimate handover (HOT-10); an expired
+  // code is refused even when it matches (HOT-11); neither the exception message nor the audit
+  // reason carries the entered digits (HOT-13/14/21); 20 concurrent correct DELIVERY submits verify
+  // exactly once (HOT-15/16); a code for job G cannot verify job E (HOT-17); a caller-supplied
+  // `startOtp` can no longer override the generated code — `createJob` used to spread `...jobData`
+  // AFTER the minted values (HOT-18); and the fabricated `handoverOtpVerified: … || true` default is
+  // gone (HOT-20). Measured 2026-10-18 standalone: before-fix 11/21, after 21/21, 0 failed.
+  // In-process only (it calls the method directly, not over HTTP, so no spawned backend), like
+  // link 86. It mints its own driver/customer/job fixtures through `db.createJob`, drives every
+  // check through the loopback-guarded method, and deletes exactly its own `jobs`/`drivers`/`users`
+  // rows by id in its cleanup; the append-only `audit_logs` rows it writes are the documented
+  // undeleteable residue (migration 022) the census attributes. Local Docker only — it refuses a
+  // non-loopback `DATABASE_URL` at load and skips (0/0) rather than passing on the mock branch,
+  // because single-use and concurrency are properties of the durable `FOR UPDATE`, not of a Map.
+  { file: 'handover_otp_security_test.js',                                                           // 89
+    subtotalPattern: /P2 HANDOVER \/ DELIVERY OTP SECURITY: (\d+)\/\d+ passed, (\d+) failed/ },
+  // P3 #436/#438 — the real FOOD and GROCERY delivery lifecycle, end to end. These two are the guard
+  // behind the whole fix: before it, a DELIVERY-channel food or grocery order was written durably and
+  // then stranded forever at READY_FOR_PICKUP, because no placement path created a `jobs` row or wrote
+  // `orders.job_id`, and the KDS broadcast put the ORDER id in the `job.id` field. Measured on the local
+  // store before these files existed: 0 of 1,354 orders named a job, `jobs` held 2,134 RIDE + 518 PARCEL
+  // and zero FOOD/GROCERY rows, and 92 orders sat parked. 047's `create_delivery_job_atomic` mints the
+  // job and the link in one transaction; `/api/driver/pickup-order` and `/api/driver/deliver-order` walk
+  // the order PICKED_UP → DELIVERED. Both suites drive the SAME 12-condition scenario from
+  // `scripts/delivery_lifecycle_harness.js` (two near-identical copies would drift, and the drift would
+  // read as a service-specific pass) and every assertion reads PostgreSQL through the run's own `pg`
+  // client — an offer set, an assignment, an OTP attempt counter and a settlement are not things a 200
+  // body can vouch for. Measured standalone 2026-10-19: FOOD 20/20, GROCERY 20/20, 0 failed,
+  // `residue named by this run's ids: orders 0, order_lines 0, jobs 0, dispatch_offers 0`.
+  // `isolated: true`, and the reason is the row counts, not caution: one lifecycle run writes an order,
+  // its two lines, an order_creation_token, 5 `order_transitions`, 4 backend sessions, its own 3 users
+  // and 1 merchant, ONE `jobs` row plus (food) 1 KDS ticket or (grocery) 1 checkout, and 2,177
+  // `dispatch_offers` rows — the #252 fan-out, one offer row per eligible driver (measured 2026-10-19:
+  // `public.drivers` holds 2,186 rows, all AVAILABLE, and the single placement wrote 2,177 offers).
+  // `orders` and `jobs` are
+  // exact-counted protected names, and a settlement that ever carries earnings would write
+  // `ledger_entries`/`journal_transactions`, which migration 033 makes undeleteable for every role.
+  // Against `public` that is contamination the census can only attribute; against the clone it is
+  // discarded with the lane. `chain_scratch` does NOT copy `dispatch_offers` (SKIP_COPY), so the lane
+  // starts at zero offers and this link's own fan-out is the only set it mints — which is what makes
+  // L03's "no duplicate (job, driver) pair" a clean measurement.
+  // NOT `laneServer`, and that is a measured distinction rather than an omission: the harness spawns its
+  // own backend from `{...process.env, PORT}` on `findFreePort()`, so the child inherits the link's
+  // isolated `DATABASE_URL` (search_path=chain_scratch) AND its `SUPABASE_URL` (the throwaway PostgREST),
+  // which is the exact split `laneServer` exists to close. It therefore never touches the shared :4000
+  // harness — the same shape as link 79 `media_security_test.js`, whose registration note established
+  // that a suite booting its own backend on an ephemeral port is isolatable by `isolated` alone.
+  // Both files load `scripts/chain_target_guard` and refuse a non-loopback `DATABASE_URL` before the
+  // first socket, and refuse a store that is not live PostgreSQL (exit 2), because on the mock branch the
+  // job link, the offers and the OTP columns do not exist and twelve conditions would be assertions about
+  // nothing. Cleanup is dependency-ordered by recorded id — offers by `job_uuid`, then jobs by id, then
+  // the two drivers it inserted, then `test_fixtures`' own ownership scope — and a refused delete lands in
+  // `blocked` as a red instead of being swallowed; measured `blocked: []` on both runs above.
+  { file: 'food_delivery_lifecycle_test.js', isolated: true,                                          // 90
+    subtotalPattern: /FOOD DELIVERY LIFECYCLE TEST: (\d+)\/\d+ passed, (\d+) failed/ },
+  { file: 'grocery_delivery_lifecycle_test.js', isolated: true,                                       // 91
+    subtotalPattern: /GROCERY DELIVERY LIFECYCLE TEST: (\d+)\/\d+ passed, (\d+) failed/ },
+  // MI-5 (P0): `POST /api/merchant/register` needs no credential of any kind, and until this link it
+  // minted a TRADING storefront — `MerchantRepository.createMerchant` wrote `is_open: true` and a
+  // fabricated `rating: 4.80` into the durable `merchants` row, there was no approval-shaped column on
+  // that table at all, so `GET /api/restaurants` listed the store, both order-creation gates let it
+  // take orders, and a MERCHANT OTP sign-in reached all 41 merchant-authenticated write routes. Anyone
+  // with a phone number and a POST could stand up a store that publishes its own menu and sets its own
+  // UPI payout destination. Migration 048 makes the decision a durable fact
+  // (`approval_status VARCHAR(20) NOT NULL DEFAULT 'PENDING'`, CHECK over PENDING/APPROVED/REJECTED,
+  // `approval_decided_at/_by/_reason`, the 83 pre-existing rows backfilled to APPROVED), and 048 also
+  // replaces the anon-readable "Public read active merchants" policy with one that requires
+  // `is_open AND approval_status = 'APPROVED'`. `setMerchantApproval` is the ONLY writer of that column
+  // — the profile PATCH refuses approval keys with `SELF_APPROVAL_NOT_PERMITTED`, and
+  // `setRestaurantStatus` can now suspend freely but cannot open a store the platform has not approved
+  // (`MERCHANT_NOT_APPROVED`), so the legacy admin status route is no longer an alternate door.
+  // 38 checks, and the two halves that make it more than a happy-path test: MOA-15 re-parses
+  // `src/server.js` at run time and asserts that EVERY merchant-authenticated write registration carries
+  // the approval gate (`ungated.length === 0`), which turns "did we miss an endpoint" from a hope into a
+  // measured check that fails the day someone adds an ungated one; and MOA-16..17 plus MOA-26 close the
+  // three bypasses that would otherwise make the gate decorative. MOA-11..14 assert the refusal from the
+  // store (`products`, `merchants.upi_id`, `merchant_grocery_inventory`), not from a response body, and
+  // MOA-18..22 name the permission: an unauthenticated caller and a FINANCE_AUDITOR (no `merchant.manage`)
+  // are both refused, an OPERATIONS approval writes the durable row and one audit line, and retrying it
+  // lands the same `approval_decided_at` with `audit_rows = 1`. MOA-29 re-reads the decision from a
+  // freshly spawned second process.
+  // The RED half is real: before the fix MOA-11..14 wrote through, because that IS the defect.
+  // Shared lane, NOT `isolated`, for the same measured reason as link 80: it snapshots the seeded
+  // merchant `…0201` to prove the run demoted nothing (MOA-37/38) and it lists a real grocery product
+  // from `master_grocery_catalog WHERE is_active = true` to get to the checkout gate (MOA-33), and a
+  // schema-only `chain_scratch` clone carries neither. Like link 79/80 it boots its own backends on
+  // `findFreePort`, so it never touches the shared :4000 harness, and it loads
+  // `scripts/chain_target_guard` so a non-loopback target is a refusal at load.
+  // Residue, re-measured 2026-10-19 on the local Docker target (standalone, 38/38, exit 0): net-zero on
+  // `merchants` 83->83, `admin_accounts`, `users`, `products`, `orders`, `order_lines`, `checkouts` and
+  // `merchant_grocery_inventory` — its three merchants, their dish, the two probe admin accounts and the
+  // sessions those accounts minted are all deleted by their own ids in a `finally`. What stays is
+  // deliberate: +39 `audit_logs` (append-only by migration 022 — registration, approval, rejection and
+  // the admin permission refusals), and the ONE `backend_sessions` row minted by signing in as the
+  // SHARED seeded `superadmin`, whose only matching handle is the username. The probe-admin sessions are
+  // removed because the run owns their account id; the seeded one is not, so the census names it instead
+  // of a shared record being deleted to tidy a census.
+  { file: 'merchant_onboarding_approval_test.js',                                                     // 92
+    subtotalPattern: /MI-5 MERCHANT PENDING-APPROVAL LIFECYCLE: (\d+)\/\d+ passed, (\d+) failed/ },
+  // P4-3 (P1, customer money): migration 039 made the CAPTURE service-aware — a FOOD or GROCERY capture
+  // books DEBIT PAYMENT_GATEWAY_ESCROW / CREDIT MERCHANT_PAYABLE, because the platform owes the merchant,
+  // not the rider — but left `refund_payment_atomic` hardcoded to the RIDE legs, so it always debited
+  // CUSTOMER_WALLET_LIABILITY. A refund of a captured food order therefore debits a liability the capture
+  // never credited and leaves MERCHANT_PAYABLE credited for money the platform no longer owes. Reachable
+  // today from `POST /api/admin/finance/refund`, which reports success while both accounts go wrong.
+  // 23 checks, every one of them a durable read of journal_transactions/journal_lines/ledger_entries
+  // rather than an RPC body: ORS-03/05/06/07/08 name the mirror (account, per-account net zero, no
+  // phantom customer leg, merchant entity, Book 1 agreeing with Book 2); ORS-11/12/13 hold it across two
+  // GROCERY partials; ORS-14/15/16 pin the RIDE legs UNCHANGED because REC-13/15 already pin that branch
+  // and a repair that moves it is a regression; ORS-17 keeps replay idempotent; ORS-19/20 cover the two
+  // derivations that must not invent anything (a pre-039 capture that exists in Book 1 only, and a
+  // payment row with no capture record at all); ORS-21/22/23 prove the reversal is a NEW posting and that
+  // nothing this run booked breaks the balance invariant.
+  // `isolated: true`, and the reason is the immutability, not caution: every row it writes is a financial
+  // posting that migration 033 makes undeleteable for every role, so against `public` the money is
+  // permanent census drift, while against the clone it is discarded with the lane. It reaches the store
+  // through the supabaseAdmin handle (RPC) and its own `pg` client (assertions), both resolved from one
+  // declared loopback target via `scripts/chain_target_guard`, and it loads no backend of its own.
+  { file: 'order_refund_reversal_symmetry_test.js', isolated: true,                                   // 93
+    subtotalPattern: /ORDER REFUND REVERSAL SYMMETRY TEST: (\d+)\/\d+ passed, (\d+) failed/ },
+  // P5-B: `PAYMENT_MODE=live` used to be satisfied by two non-empty environment variables, after which
+  // the repository minted `order_rzp_live_<epoch>_<random>` in-process, labelled it `RAZORPAY_LIVE`, and
+  // wrote a durable `payment_sessions` row — a caller handed an identifier no gateway ever issued, against
+  // which nothing can be paid. Measured RED 4/17 before the fix. The suite pins the two refusals
+  // (`PAYMENT_PROVIDER_NOT_CONFIGURED`, `PAYMENT_MODE_UNCONFIGURED`, both 503 because the create-order
+  // route answers from `err.statusCode || 400`), the absence of any live-labelled id or designation, zero
+  // durable writes and zero ledger/RPC calls for a refused request, replay still refused, and that the
+  // simulated sandbox stays available and is labelled `simulated: true`. LPT-15/16/17 are structural
+  // tripwires: LPT-15 goes red on the day a real gateway client is added, which is the moment the live
+  // path becomes servable — not before.
+  // Not `isolated`, because it has no store to isolate: its child pins `SUPABASE_URL`/`DATABASE_URL` to an
+  // unused loopback port and replaces `supabaseAdmin.from`/`.rpc` with counters, so the durable-insert
+  // branch is observed rather than performed, and it makes no HTTP request of its own.
+  { file: 'live_payment_truthfulness_test.js',                                                       // 94
+    subtotalPattern: /LIVE PAYMENT TRUTHFULNESS TEST: (\d+)\/\d+ passed, (\d+) failed/ },
+  // F-7: a SAFETY_INCIDENT sanction used to take its target from anywhere — first the ticket's durable
+  // job, then `messages[0].metadata.driverId`, which a customer writes itself in the body of
+  // `POST /api/support/ticket`, and finally a seed ticket number mapped to a demo driver. Measured RED
+  // 7/19: with that code a customer naming `DRV-102` in a ticket that had no job suspended driver
+  // 00000000-...-0102, wrote RESOLVED, and left an audit record claiming a suspension had been served.
+  // The suite runs against real PostgreSQL with EMPTY in-memory mirrors, so every read has to reach the
+  // store: it pins the refusal (`400 SANCTION_DRIVER_UNRESOLVABLE`), that the named driver is untouched,
+  // that a refused ticket stays IN_PROGRESS and writes no audit row, that a job-linked sanction still
+  // lands and is audited exactly once, and that `WARNING_ISSUED` (which changes no driver state) still
+  // resolves — the gate must not become a blanket refusal. Its teardown deletes only its own ticket and
+  // job rows and restores a driver only if this run changed one. Not `isolated`: the driver write is a
+  // reversible UPDATE on a row it restores, its inserts net to zero, and the attribution it is testing
+  // only exists when the ticket, the job and the driver are durable rows in the same store.
+  { file: 'sanction_attribution_truthfulness_test.js',                                                // 95
+    subtotalPattern: /SANCTION ATTRIBUTION TRUTHFULNESS TEST: (\d+)\/\d+ passed, (\d+) failed/ },
+  // P6: the LOST_ITEM bounty branch took its RECIPIENT from anywhere — the ticket's durable job first,
+  // then `messages[0]` driver reference, which `createTicket` fills from `req.body` when no job driver
+  // was verified, on a route any signed-in customer can call. Measured RED 13/27: a customer naming a
+  // fresh fixture driver on a job-less ticket had that driver's durable `wallet_balance` rise by the
+  // bounty, one journal transaction and two lines booked against that driver, the global
+  // `journal_transactions` count rise 7143->7144, and the ticket read RESOLVED — the money was real,
+  // only the attribution was the attacker's. This is F-7's defect class on the payout side, and it made
+  // the already-designed `BOUNTY_DRIVER_UNRESOLVABLE` refusal unreachable. The fix deletes that one
+  // source, so job attribution is the only authority and the existing refusal fires: no new payout
+  // rule, no amount change, no touched wallet/ledger safeguards. The suite asserts durable state for
+  // all seven mandated cases — named driver not credited, renaming the driver changes nothing, refusal
+  // code preserved, refusal leaves wallet/journal/payout/ticket/audit unchanged, a job-linked bounty
+  // still pays exactly once, a replay cannot double-credit, and neither a decoy on a job-linked ticket
+  // nor a driver proven entitled elsewhere can satisfy the check. Its teardown deletes only its own
+  // P6B-prefixed rows and retains any driver carrying append-only financial history, the same rule E3
+  // link 8 follows. Not `isolated`: the attribution only exists when ticket, job and driver are durable
+  // rows in the same store.
+  { file: 'bounty_recipient_attribution_test.js',                                                     // 96
+    subtotalPattern: /P6B BOUNTY RECIPIENT ATTRIBUTION TEST: (\d+)\/\d+ passed, (\d+) failed/ },
+  // P7: the customer-wallet refund leg of `resolveTicket` answered to `support.resolve` alone, while the
+  // sibling bounty leg had been made a finance act in P6 — so a SUPPORT_AGENT, a role that cannot post one
+  // rupee through /api/admin/finance/refund, could credit an admin-typed amount into any dispute ticket's
+  // customer wallet. Measured RED 2/7 against `public` before the gate: `{success:true,status:"RESOLVED"}`,
+  // wallet 0->150, 2 journal lines, global `journal_transactions` 7202->7203. The fix reuses the existing
+  // `finance.refund` authority (no new grant, no amount or fare rule changed) and fails closed on a role
+  // with no grant list at all. 27 checks, all of them durable reads: the refusal (403 + code), the wallet,
+  // the per-customer lines and the GLOBAL journal count unchanged across three refusals, the ticket never
+  // RESOLVED with no audit row, a moneyless resolve by the same role still succeeding (the gate is not
+  // over-broad), OPERATIONS and an unrecognised role refused the same way, the legitimate
+  // finance.refund path paying exactly +150 once as 1 transaction / 2 lines, and a replay refused with no
+  // movement — plus the six source pins that keep the route gate, the grant list and P6's bounty gate from
+  // being quietly deleted.
+  // `isolated: true`, measured 2026-10-19 by `scripts/lane_check.js`: suite exit 0 at 27/27 with the
+  // assertion handle in schema `chain_scratch`, `chain_scratch verify` CLEAN over 36 protected tables and a
+  // full 75-line public census CLEAN, teardown deleting only its own two unfunded users and retaining the
+  // funded one (`financial lines=2`). The reason is the same as link 93: one pass books a real refund that
+  // migration 033 makes undeleteable, so against `public` it is additive per run and can never read
+  // net-zero, while against the clone the posting is discarded with the lane. It resolves BOTH handles
+  // through `scripts/chain_target_guard` (F-C1-1) — the money moves via the in-process repository and the
+  // proof reads via its own `pg` client, and RFA-01b is the round trip that proves they are one store.
+  // Not `laneServer`: the defect is inside the repository, so the suite issues no HTTP request of its own
+  // and has no base URL to repoint.
+  { file: 'refund_finance_authority_test.js', isolated: true,                                          // 97
+    subtotalPattern: /RFA REFUND FINANCE AUTHORITY TEST: (\d+)\/\d+ passed, (\d+) failed/ },
+  // P8 Phase 3 candidate B — the third member of the provider-polarity family after SMS (#286) and push
+  // (#276). Both media adapters decide "am I a real provider?" from credential presence alone, so a
+  // deployment whose Cloudinary keys were dropped or never set answered 200 to an uploader, invented a
+  // `res.cloudinary.com/nabin-media/...` URL with invented 800x600/45000-byte measurements, wrote them
+  // into the durable `media_assets` ownership row, and answered `result: 'ok'` for a delete no provider
+  // was ever asked to perform. The RED run measured exactly that: a production-polarity backend on the
+  // lane returned 200 + a full row (the clone's table grew 13 -> 14) and its DELETE destroyed the row.
+  // GREEN is 31/31: in production every mutating operation refuses with a coded 503
+  // MEDIA_PROVIDER_NOT_CONFIGURED at the service seam, the polarity is read at CALL time because both
+  // adapters are singletons that freeze `isConfigured` at construction, and the simulated branch survives
+  // outside production but is labelled — `mock: true` plus a host that resolves nowhere
+  // (`cloudinary-mock.nabin.local` / `supabase-mock.nabin.local`) so a fake URL cannot be mistaken for a
+  // real cloud's. A refused upload writes no row and mints no id; a refused delete keeps the row and its
+  // whole ownership tuple.
+  // `isolated: true`, measured 2026-10-19 by `scripts/lane_check.js --lane-server`: suite exit 0 at 31/31,
+  // `chain_scratch verify` CLEAN over 36 protected tables, full 75-line public census CLEAN. NOT
+  // `laneServer` for the link-79 reason: it boots its OWN two backends (`NODE_ENV` differing only) from
+  // `{...process.env, PORT}` on `findFreePort()`, so each child inherits the lane's scratch `DATABASE_URL`
+  // and throwaway PostgREST — and D2 reads the row it just uploaded back through its own guard-resolved
+  // `pg` handle, which is the proof the writes landed on the intended store. Teardown deletes exactly the
+  // `public_id`s this run minted, awaited before exit; measured `[cleanup] deleted 0 of 1` because the
+  // run's own D10 owner-delete had already removed that row. No journal, ledger, payment or audit record
+  // is in scope, and nothing is rewritten to make the census clean.
+  { file: 'storage_provider_polarity_test.js', isolated: true,                                        // 98
+    subtotalPattern: /STORAGE PROVIDER POLARITY TEST: (\d+)\/\d+ passed, (\d+) failed/ },
+  // P9 — the admin job queue and merchant directory were answering from the boot-time process mirrors
+  // (`db.jobs` hydrate-once with a `.limit(200)` newest-first slice, `db.restaurants` a single fabricated
+  // seed object) instead of the durable store. So a job created after this process booted was invisible,
+  // a status update never showed up, and 83 real merchants rendered as one storefront with a
+  // `payableBalance` the ledger never booked, a `menu` lifted out of a sample JSON and a `deliveryTime`
+  // no column stores. Both reads now go to `settleAuthoritative` on the store, projected through the
+  // existing canonical helpers (`mapRowToJob`, a new `projectAdminMerchant` that serves `walletBalance`
+  // instead of `payableBalance` and keeps the repository's commission-rate fraction), on the established
+  // admin-list contract: `{ dataSource, total, limit, offset, degraded? }` with an exact count, newest-
+  // first with `id` as tiebreak, page-size clamped to `ADMIN_DIRECTORY_MAX_PAGE`. An unreachable store
+  // is now a classified 503 `AUTH_STORE_UNAVAILABLE` with no array in the body — a client cannot render
+  // an outage as an empty queue — via the same `authStoreUnavailable` channel already used for the
+  // customer directory. Authorization is unchanged (both routes still run behind `authenticateAdmin`
+  // only, so the #273 owner decision on additional permissions is untouched).
+  // `isolated: true`, measured 2026-10-19 by `scripts/lane_check.js --lane-server`: suite exit 0 at 64/64,
+  // `chain_scratch verify` CLEAN over 36 protected tables, full 75-line public census CLEAN. The suite
+  // needs the isolation for the same reason links 79/90/91/93/97/98 do: it mints its own fixture rows
+  // (`P9-A-<stamp>` job, `P9 Fixture Kitchen <stamp>` merchant) so it can prove a durable row created
+  // after boot is served, and its outage proof (Group F) boots a SECOND backend whose `SUPABASE_URL`
+  // points at a loopback proxy that fails only `jobs`/`merchants` — the sessions and admin login still
+  // need a live store, so the lane's throwaway PostgREST has to sit between them and `public`. It
+  // resolves BOTH handles through `scripts/chain_target_guard` (F-C1-1): the fixture writes go through
+  // `requireLoopbackPgTarget` so `chain_scratch` is the target the clone verify checks, and the
+  // bootServer children inherit the lane `DATABASE_URL` + `SUPABASE_URL`. `laneServer` is NOT set
+  // because the suite spawns its own servers on `findFreePort()` from `src/server.js`, so it never uses
+  // the shared `:4000` harness anyway. Teardown deletes exactly the `P9-A-*` job number and the
+  // `P9 Fixture Kitchen <stamp>` id this run minted, awaited before exit — measured `[cleanup] jobs:
+  // deleted 0 (already removed by C3), merchants: deleted 1` — and Group H pins the pre/post row counts
+  // for `jobs`, `merchants`, `orders` and `journal_transactions` so an over-broad delete would be caught.
+  // Money, orders, and journal rows are asserted untouched (H4).
+  { file: 'admin_stale_read_test.js', isolated: true,                                                 // 99
+    subtotalPattern: /ADMIN STALE READ TEST: (\d+)\/\d+ passed, (\d+) failed/ },
+  // P10 / D-8 §3 — the admin job queue is a directory an operator scans, yet `listAdminJobs` projected
+  // each durable row through the SHARED `JobRepository.mapRowToJob`, which carries the live handover
+  // codes `startOtp`/`pickupOtp`/`deliveryOtp`. That mapper is correct for its other consumers: the
+  // customer's and the assigned driver's own-job reads, where a handover code is exactly what completes a
+  // pickup/delivery (migration 046, link 89). But the admin route runs behind `authenticateAdmin` with no
+  // permission gate (#273, owner decision), so all five admin roles — SUPPORT_AGENT and KYC_SPECIALIST
+  // included — read a *live* handover secret they have no duty to hold: a low-privilege admin token could
+  // replay the code the directory just printed and complete someone else's parcel/food handover. The fix
+  // is a response-field reduction, independent of who the owner later decides may read the route:
+  // `listAdminJobs` now strips the three OTP fields on BOTH branches (the durable `(data||[]).map(mapRowToJob)`
+  // projection and the degraded `this.jobs` mirror slice — a shallow copy before `delete`, so the in-process
+  // store keeps its own codes), while `mapRowToJob` is left exactly as it was. Group C pins that half: the
+  // shared mapper still returns all three OTPs, so no legitimate handover path lost anything. Group B pins
+  // the directory is not over-stripped (pickup/drop address, fare/status/driverEarnings, customerName all
+  // still served); Group D pins the 401 authentication guard is unchanged; H1 pins the OTP COLUMNS are
+  // still on the durable row (only the read was reduced, never the stored secret).
+  // `isolated: true`, measured 2026-10-19 by `scripts/lane_check.js`: suite exit 0 at 18/18, `chain_scratch
+  // verify` CLEAN over 36 protected tables, full 75-line public census CLEAN. The isolation is for the
+  // same reason links 79/90/91/93/97/98/99 is: it mints its own fixture row (`P10OTP-<stamp>` job carrying
+  // sentinel OTPs 4127/5519/7731) so it can prove the served record drops them, and it boots its own
+  // backend on `findFreePort()` from `src/server.js`. It resolves its PG handle through
+  // `requireLoopbackPgTarget` so `chain_scratch` is the target the clone verify checks; the bootServer
+  // child inherits the lane `DATABASE_URL` + `SUPABASE_URL`. `laneServer` is NOT set because the suite
+  // spawns its own server, so it never touches the shared `:4000` harness. Teardown deletes exactly the
+  // `P10OTP-*` job number this run minted, and H2 pins `jobs` back to its pre-run row count, so an
+  // over-broad delete would be caught.
+  { file: 'admin_job_otp_hygiene_test.js', isolated: true,                                            // 100
+    subtotalPattern: /ADMIN JOB OTP HYGIENE TEST: (\d+)\/\d+ passed, (\d+) failed/ },
+  // P9 §2 — two admin grocery reads answered with things that were not true. (A)
+  // `GET /api/admin/master-catalog/:id/stores` projected every linked store through
+  // `merchant.address || 'DarkStore Location'` while its PostgREST embed asked for
+  // `merchants(id, name)` only — an embed returns no column it was not told to select, so the
+  // fallback branch was taken on EVERY row even though `merchants.address` is a real `TEXT NOT NULL`
+  // durable column (migration 001_central_schema.sql:77). An operator reading a SKU's store matrix
+  // saw the same invented place for every dark store. The embed now selects `address`, and the field
+  // is emitted only when a durable address is actually present, so the shape stays truthful instead of
+  // being filled in. The mirror branch carried a second copy of the same invented literal; it is gone
+  // too. (B) `GET /api/admin/grocery/price-alerts` scanned `this.groceryPriceHistory` — a boot-time
+  // seed plus rows only THIS process wrote — and answered with no source at all, next to the routes
+  // that do say `dataSource: "postgres"`. There is no admin-facing durable read of
+  // `grocery_price_history` (`getMerchantPriceHistory` is single-merchant-scoped), so a durable query
+  // could not be implemented without inventing a cross-tenant scan; the honest half is the label, and
+  // `getUnusualPriceAlerts` now returns `{ alerts, dataSource: 'memory', degraded: true }` with the
+  // route passing both through. Group A pins the durable address and the absence of the literal;
+  // Group B pins the source label; Group C pins that the only rows this run touched are the merchant,
+  // catalogue and inventory link it minted, and that it wrote no price-history row at all.
+  // Authorization is deliberately NOT touched: both routes keep exactly the guards they have
+  // (`authenticateAdmin`, no permission gate) — that mapping is issue #273 and an owner decision.
+  // `isolated: true`, measured 2026-10-19 by `scripts/lane_check.js`: suite exit 0 at 20/20 with 0 fail
+  // markers, `chain_scratch verify` CLEAN over 36 protected tables, full 75-line public census CLEAN.
+  // It needs the clone because it inserts a GROCERY merchant, an active `master_grocery_catalog` row and
+  // a `merchant_grocery_inventory` link to have a store matrix that is provably its own, and it boots its
+  // own backend on `findFreePort()` from `src/server.js` with its PG handle resolved by
+  // `requireLoopbackPgTarget`. `laneServer` is NOT set — the suite spawns its own server, so it never
+  // uses the shared `:4000` harness. Teardown deletes exactly the inventory link, merchant and catalogue
+  // row this run minted (both FKs are `ON DELETE CASCADE`, so the link goes with its own parent) and
+  // Group C re-counts against the baselines it took before writing.
+  { file: 'admin_data_truthfulness_test.js', isolated: true,                                          // 101
+    subtotalPattern: /ADMIN DATA TRUTHFULNESS TEST: (\d+)\/\d+ passed, (\d+) failed/ },
+  // #481 — a driver that never reported a position was served one it did not have. Three sites
+  // substituted the Delhi sentinel (28.6139, 77.2090) for a missing coordinate and `create()` also
+  // PERSISTED it, so `drivers.current_lat` carried a claim no GPS ever made; `mapRowToDriver()` and
+  // `initPostgres()`'s driver hydration then re-claimed it for every durable-NULL driver on every
+  // boot, and the admin console painted `|| 28.6139`/`|| 'Delhi NCR'` over an honest blank.
+  // `current_lat`/`current_lng` are nullable with NO DEFAULT (migration 001_central_schema.sql:62),
+  // so the fix is the schema's own state: `coordinateOrNull()` — the same rule #32b introduced for
+  // jobs — now decides "absent" in `create()`, `mapRowToDriver()` and the hydrator, and no `area`
+  // label is invented because no `drivers.area` column exists. `updateLocation()` (the one legitimate
+  // durable GPS writer), `update()` (sends no coordinate keys), the telemetry route's driver-scoped
+  // validation and the fleet/ride broadcast channels are deliberately unchanged.
+  // RED measured 2026-10-20 on the lane before the fix: 28/45, 17 failed — 1,918 served rows claimed
+  // a position, 2,335 claimed the 'Delhi Operations Zone' area, and a positionless create() persisted
+  // the sentinel. GREEN after: 45/45 with 0 failed and the same 2 NOT-MEASURED gaps as RED (nothing
+  // was weakened to get there) — GAP-DIST-01 (`dispatch_offers.distance_to_pickup` is a schema
+  // default with zero writers, a migration decision) and GAP-MOCK-01 (the in-memory demo fleet's
+  // Delhi seed rows, #156/#157 owner decisions). Groups A/B/C pin durable-NULL-stays-NULL, honest
+  // API/UI projection and a legitimate fix round-tripping exactly; D/E pin that no distance is ever
+  // computed from a driver position (`getOnlineFleet()` is position-free); F pins the sentinel
+  // literals out of the two repositories, the hydrator and the console; G pins that this suite minted
+  // only its own driver rows and left the 416 pre-existing sentinel rows ALONE — the historical rows
+  // are a separately reviewed repair (`scripts/repair_fabricated_driver_positions.js`, dry-run by
+  // default), not something a test sweeps to make a census look clean.
+  // `isolated: true`, measured 2026-10-20 by `scripts/lane_check.js`: suite exit 0, `chain_scratch
+  // verify` CLEAN over 36 protected tables, full 75-line public census CLEAN — `drivers` is
+  // census-protected, so this suite mints its own rows on the clone instead of the shared store.
+  // `laneServer` is NOT set: it boots its own backend on `findFreePort()` from `src/server.js`. It
+  // calls NO PostgreSQL function, because RPCs are pinned `SET search_path = public` in their own
+  // definitions and would write a SHARED table from the lane; that is also why the dispatch case is
+  // proven by source scan plus row-count footprint rather than by creating offer rows. Teardown
+  // deletes exactly the driver ids this run minted.
+  { file: 'driver_position_truthfulness_test.js', isolated: true,                                     // 102
+    subtotalPattern: /DRIVER POSITION TRUTHFULNESS TEST: (\d+)\/\d+ passed, (\d+) failed/ },
+  // 103 — #481 §5: GET /api/admin/metrics served this process's boot mirror as platform totals and
+  // one hard-coded operational claim on top of it. RED measured 2026-10-20 on the lane before the fix:
+  // 17/40, 23 failed — `totalRestaurants` 1 against 83 durable merchants, `activeDrivers` 6 against 3,
+  // `totalCompletedJobs` 68 against 604, `totalGrossFare` ₹9,339 against ₹91,251 (and against the
+  // ₹91,251 `/api/admin/finance/metrics` reports for the same quantity), `dataSource` absent,
+  // `fleetStatus: 'OPTIMAL_OPERATION'` present, `pendingKyc` counting a table that does not exist, and
+  // a backend whose totals-bearing tables were unreachable answering 200 with `totalCompletedJobs: 0`,
+  // `totalGrossFare: 0` and `OPTIMAL_OPERATION`. GREEN after `getAdminPlatformMetrics()` + the route
+  // rewrite: 40/40, 0 failed — 83/3/604/₹91,251 served, `dataSource: 'postgres'`, the outage read a
+  // 503 AUTH_STORE_UNAVAILABLE with no metrics object, and rows minted after boot moving each total by
+  // exactly the fixture that was written (`+1` completed job, +₹123.45 fare).
+  // Nothing was weakened to get there: the key set is pinned by A4 to the seven durable figures plus
+  // provenance and timestamp, so a future fabricated key has to arrive with its own assertion. The two
+  // removed keys and every other key on the payload have zero consumers (measured across *.dart,
+  // *.tsx, *.ts, *.js: the path and the key names appear at this producer and this suite only), which
+  // is why the fix deletes them instead of relabelling them, and why no new key was added either.
+  // `isolated: true`, measured 2026-10-20 by `scripts/lane_check.js`: suite exit 0, `chain_scratch
+  // verify` CLEAN over 36 protected tables, full 75-line public census CLEAN — it writes `users`,
+  // `drivers`, `jobs` and `merchants`, all census-protected, so it mints its own rows on the clone.
+  // `laneServer` is NOT set: it boots its own backend on `findFreePort()`, and a second backend on a
+  // `makeStoreProxy` that fails exactly those four tables, which is the outage seam for GROUP E. It
+  // calls NO PostgreSQL function (`SET search_path = public` RPCs would write shared tables from the
+  // lane). Teardown deletes exactly the job numbers, driver id and merchant id this run named.
+  { file: 'admin_metrics_truthfulness_test.js', isolated: true,                                       // 103
+    subtotalPattern: /ADMIN METRICS TRUTHFULNESS TEST: (\d+)\/\d+ passed, (\d+) failed/ },
+  // 104 — KYC-P1: `reviewIdentityApplication` wrote the customer's identity verdict to this process's
+  // mirror only. The durable `users.identity_status` column was never touched, so an approval that an
+  // admin saw as VERIFIED was a fact about one backend's memory: the next boot re-hydrated 'PENDING',
+  // and a login on the still-running process kept serving whatever it had hydrated at boot. A refused
+  // store write answered 200. RED measured 2026-10-20 on the lane before the fix: 43/56, 13 failed —
+  // A4/A6/A8 (the three durable verdict writes), B1/B2 (a restarted process and the status route both
+  // reverted to the pre-decision value), C5 (the route-reviewed account stayed PENDING in the row),
+  // C11 (login served the boot value, no restart needed), E1–E6 (the outage approval returned success
+  // with nothing durable behind it) and I3 (the per-row diff had nothing to see). GREEN after
+  // `persistIdentityDecision()` + its four callsites + `metadata: {...durability}` on every audit row
+  // + the login `identityStatus` sync: 56/56, 0 failed — VERIFIED / REJECTED / RESUBMISSION_REQUIRED
+  // read back off the durable row (A4/A6/A8), the same verdict served after a restart (B1/B2) and on a
+  // login with no restart (C11), the outage a 503 AUTH_STORE_UNAVAILABLE that moved neither the mirror
+  // (E4) nor the application record (E5) while the identical approval lands durably once the store
+  // answers (E6), MI-4 and the checklist/blank-reason/unknown-decision refusals intact (F1–F6), and
+  // `account_status` unchanged by every decision in this suite (H1 — REJECT's ability-to-trade
+  // semantics stay the owner question they are). Nothing was weakened: the durable writes land before
+  // the mirror mutates, and the two values the shipped CHECK does not allow were not invented.
+  // `isolated: true`, measured 2026-10-20 by `scripts/lane_check.js`: suite exit 0, `chain_scratch
+  // verify` CLEAN over 36 protected tables, full 75-line public census CLEAN, teardown exit 0,
+  // `green=true` — it mints its own 12 `users` rows and moves 5 of them, all census-invisible by
+  // count (an `identity_status` UPDATE changes no row count), which is exactly why GROUP I carries
+  // its own per-row durable snapshot diff instead of trusting the census. It asserts on PostgreSQL
+  // rows, not response text: I2 proves no row outside its own fixtures moved, I5 that it wrote no
+  // job, order or payment row, I6 that the audit trail only grew.
+  // `laneServer` is NOT set: the suite boots its own two backends (one plain, one on a store proxy
+  // that refuses the four tables GROUP E needs) and needs a second process for the restart seam. It
+  // calls NO PostgreSQL function (`SET search_path = public` RPCs would write shared tables from the
+  // lane). Teardown deletes exactly the `users` rows this run minted — 0 of its own rows still
+  // present after teardown, measured in the same lane log.
+  { file: 'customer_identity_durability_test.js', isolated: true,                                   // 104
+    subtotalPattern: /CUSTOMER IDENTITY DURABILITY TEST: (\d+)\/\d+ passed, (\d+) failed/ },
+  // RPN — REFUND RECIPIENT ATTRIBUTION. `POST /api/admin/finance/refund` published its
+  // `REFUND_PROCESSED` notification to a substituted recipient: `refund_payment_atomic` returns no
+  // user identity at all (migration 039 contains no `user_id` token, pinned by RRA-02a/RRA-02),
+  // `payments.customer_id` is nullable, and `db.getJob()` answers from the mirror only, so the
+  // route's last leg fell back to `resolveCustomerUserUuid('usr_2')` and the bus wrote a durable
+  // HIGH-priority notification for the seeded fixture account `00000000-0000-0000-0000-000000000002`
+  // — a real, unrelated `users` row — for money that was not its customer's. Measured RED in this
+  // lane 2026-10-20: exit 1, 13 pass / 5 fail, RRA-05/06/07 proving the fixture uuid written into
+  // both `notifications.user_id` and `recipient_user_id`, RRA-13 proving the substitution in source,
+  // RRA-14 proving nothing was logged about it. The fix is by deletion: no substitute recipient, and
+  // an unresolvable one skips the publish with `[NOTIF_BUS_SKIPPED]` like the payout route already
+  // does. The money leg, the audit log and the response body are untouched, so a refund that used to
+  // notify the wrong person now notifies nobody and still succeeds. Measured GREEN 18/18.
+  // `isolated: true`, measured 2026-10-20 by `scripts/lane_check.js`: `chain_scratch verify` CLEAN
+  // over 36 protected tables, full 75-line public census CLEAN both before and after, teardown exit
+  // 0, `green=true`. It mints its own CAPTURED payments with `customer_id: null` and asserts on
+  // PostgreSQL rows rather than response text (RRA-03 the payment is durably what the fixture said,
+  // RRA-04 the refund is durably REFUNDED at ₹400, RRA-08..RRA-11 the attributed refund reaches its
+  // own customer exactly once and never the fixture). GROUP 4 is a positive control: it proves the
+  // bus is live inside the same run, so GROUP 2's zero rows are a refusal and not a race.
+  // `laneServer` is NOT set — the suite boots its own backend on a free port. Teardown deletes only
+  // its own notification rows by its own payment ids and RETAINS the append-only payments and the
+  // refunded user, which the cleanup line reports with rowCount evidence.
+  { file: 'refund_recipient_attribution_test.js', isolated: true,                                   // 105
+    subtotalPattern: /REFUND RECIPIENT ATTRIBUTION TEST: (\d+)\/\d+ passed, (\d+) failed/ },
+  // GRO-ADDR: `POST /api/grocery/checkout/validate` used to COMPLETE an address-less DELIVERY checkout
+  // and persist the invented literal into the durable `checkouts` row, the `orders` row and the response
+  // snapshot — a place nobody chose, on a paid order, then handed to a rider gate that already knew the
+  // literal was a fabrication and refused to use it. Food (`/api/customer/book-food`) answered the same
+  // request with 400 PLACE_REQUIRED, and both real clients gate placement before posting, so the grocery
+  // route was the only party that accepted it. The refusal now sits after the merchant/feature/empty-cart
+  // gates (401/403/400 precedences unchanged) and before item resolution, coupon redemption and both
+  // writes; the three substitutions are deleted, not defaulted to something else.
+  // Assertions are durable, not response text: GA-11..GA-16 prove a refused attempt leaves zero `orders`
+  // and zero `checkouts` rows for this run's customer and no row carries the literal; GA-17 re-uses the
+  // refused attempt's idempotency key on a valid checkout, which only passes if the refusal precedes the
+  // side effects; GA-18..GA-25 is the over-broad-fix guard — the identical cart WITH a typed address
+  // still succeeds and persists exactly that string; GA-30..GA-35 pins the source contract (no literal
+  // anywhere in server.js, the refusal index precedes each write index, the food window untouched).
+  // `isolated: true` because every row it writes is in a census-protected table. `laneServer` is NOT
+  // set — the suite boots its own backend on a free port via `scripts/spawned_server`. Measured
+  // 2026-10-20 before registration: RED first (13 fail markers against the unfixed route, with the
+  // literal read back out of PostgreSQL), then 23/23 exit 0 with `chain_scratch verify` CLEAN over 36
+  // protected tables and the full 75-line public census CLEAN both before and after.
+  { file: 'grocery_address_substitution_test.js', isolated: true,                                   // 106
+    subtotalPattern: /GROCERY ADDRESS SUBSTITUTION TEST: (\d+)\/\d+ passed, (\d+) failed/ },
+  // P11 §2: the customer-web login screen failed OPEN. On an unreachable API its `catch` matched the
+  // typed phone number for a demo shape (`98765` / `demo`), advanced to the code step with `123456`
+  // pre-typed, and on the verify step called `login("demo-customer-token", { … identityStatus:
+  // "VERIFIED" })` and returned as if the server had minted a session — so an outage produced a
+  // customer who looks verified and cannot read their own orders. The token reaches nowhere (measured:
+  // `/api/auth/me` and `/api/customer/orders` both answer that bearer 401), which is why this is a
+  // truthfulness guard, not an authorization hole — and WAF-14/15 assert the refusal rather than trust
+  // it, so a backend that ever starts accepting a client-minted token reddens the link. The static half
+  // reads the real client (login page, AuthContext, api.ts) with a string-aware scanner and fails if the
+  // handlers/files are absent (no guard passes by finding nothing); the demo entry points are an
+  // advertised feature, so WAF-07/08 keep them but require each to be a `type="button"` whose own label
+  // says Demo. WAF-16/17 pin that the honest path is unchanged: exactly one `login(res.data.token)` and
+  // one `setStep('otp')`, both gated on the backend's `res.data.success`.
+  // NOT `isolated` and NOT `laneServer` and no shared :4000: the runtime half spawns this tree's own
+  // backend on an ephemeral loopback port and sends nothing but GETs, so it writes no row and needs no
+  // lane. 17 checks, measured 2026-10-20: RED against the fail-open (6 failures at WAF-02/03/08/09/16/17),
+  // then 17/17 exit 0 after the two catch-block edits, and re-proven by reintroducing the fail-open and
+  // watching it redden again.
+  { file: 'web_auth_failopen_test.js',                                                               // 107
+    subtotalPattern: /WEB AUTH FAIL-OPEN: (\d+)\/\d+ passed, (\d+) failed/ },
+  // GROCERY-WEB: the customer-web grocery screen could complete a checkout without the backend. When the
+  // store id began `mcht-demo`/`demo-` the submit handler ran a 500 ms `setTimeout`, called `setOrder({ …
+  // id: 'DEMO-GRC-9912', order_number: 'DEMO-GROCERY-9912', status: 'CONFIRMED' })` and emptied the cart —
+  // so the customer was shown a receipt for a row that exists in no database, under a reference support
+  // cannot look up. `storeId` was pre-filled with `mcht-demo-grocery-1`, making that the DEFAULT behaviour
+  // of the only primary submit control (not an advertised demo path: there is no demo button and no Demo
+  // label on the order flow, unlike the Demo Catalog JSON import this guard separately protects at
+  // WCF-13), and `deliveryAddress` was pre-filled with `'Flat 402, Civil Lines, Delhi'`, which is how the
+  // client walked past the GRO-ADDR `400 PLACE_REQUIRED` refusal link 106 just installed. The screen also
+  // claimed `'Paid from Wallet'` / `'Debited at checkout'`: WCF-11 reads the real route body (server.js
+  // :9328, 298 lines) and every wallet-mutation name in the platform and proves the grocery checkout
+  // mutates no wallet at all, so that wording recorded a payment that never happens — and it promised a
+  // "Live Catalog Sync" while WCF-12 shows the page reads only this browser's stored catalog.
+  // Handlers are located by what they CALL (`bookingApi.checkoutGrocery`), never by name, and every scan
+  // reports what it found, so no check passes by finding nothing. WCF-08/09/13 are positive controls: one
+  // durable checkout feeding the receipt, the empty-cart and blank-place gates still present, and the
+  // advertised Demo Catalog transfer still behind a `type="button"` labelled Demo. WCF-14/15/16 boot this
+  // tree's own backend on an ephemeral loopback port and POST the deleted branch's exact payload with no
+  // session and with `Bearer demo-customer-token`: both are refused 401 with no order in the body, which
+  // is the proof the fabricated completion could never have produced a real order.
+  // NOT `isolated` and NOT `laneServer` and no shared :4000: it reads client sources and sends only those
+  // two refused POSTs, so it writes no row and needs no lane. 16 checks, measured 2026-10-20: RED first
+  // (7/16 — WCF-02..07, WCF-10, WCF-11, WCF-12), then 16/16 exit 0 after the page edits (demo branch
+  // deleted, both invented defaults emptied, a blank-store gate added, the status badge and payment label
+  // derived from durable/declared values, catalog wording corrected).
+  { file: 'web_checkout_fabrication_test.js',                                                        // 108
+    subtotalPattern: /WEB CHECKOUT FABRICATION: (\d+)\/\d+ passed, (\d+) failed/ },
+  // MRCH: the same grocery checkout route defaulted the STORE. `const requestedMerchant = req.body
+  // .merchantId || req.body.restaurantId || req.body.storeId || 'mcht_1'` meant a request that named no
+  // partner was placed on the seeded alias anyway — resolving through `LEGACY_MERCHANT_MAP` to
+  // 00000000-0000-0000-0000-000000000201, a row this run never touched. Measured 2026-10-20 that row is
+  // typed RESTAURANT in the seed and in PostgreSQL, so the type gate is what currently refuses it: this
+  // is a LATENT fail-open, and the open owner decision over that row's `merchant_type` (the …201
+  // RESTAURANT-vs-HYBRID_BOTH contestation, chain residue 2026-10-13) is exactly the switch that would
+  // turn it into a durable order plus a delivery job on a store nobody chose. The refusal now answers
+  // `400 MERCHANT_REQUIRED field:'merchantId'` after USER_NOT_FOUND and ahead of the dark-store gate, so
+  // every existing precedence (401, 403 FEATURE_DISABLED/USER_NOT_FOUND/MERCHANT_NOT_APPROVED/
+  // MERCHANT_CLOSED, 400 DARK_STORE/404/TYPE_MISMATCH/EMPTY_CART) is untouched, the `restaurantId` and
+  // `storeId` aliases still work, and the legacy alias map other readers depend on stays in place.
+  // Assertions are durable: MRCH-14..17 prove the four blank variants leave zero `orders` and zero
+  // `checkouts` rows and that no row this run wrote names the invented store; MRCH-18 re-uses a refused
+  // attempt's idempotency key, which only passes if the refusal precedes every side effect; MRCH-19..28
+  // is the over-broad-fix guard (named store succeeds, persisted `orders.merchant_id` and
+  // `checkouts.merchant_id` both equal the fixture store, aliases still 200, dark-store/unknown/anonymous
+  // keep their own codes, and exactly 4 accepted checkouts all on the named store); MRCH-30..36 pin the
+  // source (the alias token is gone from the route window and file-wide, the refusal index precedes
+  // item resolution, coupon redemption, both writes and the dark-store gate, and OrderRepository.js still
+  // carries the map).
+  // `isolated: true` because every row it writes is in a census-protected table. `laneServer` is NOT
+  // set — the suite boots its own backend on a free port via the link-106 idiom. Measured 2026-10-20
+  // before registration: RED first (20/29 — MRCH-10..13 answered MERCHANT_TYPE_MISMATCH/MERCHANT_NOT_FOUND
+  // instead of refusing, MRCH-31..35 found the literal and no gate), then 29/29 exit 0.
+  { file: 'grocery_merchant_required_test.js', isolated: true,                                       // 109
+    subtotalPattern: /GROCERY MERCHANT REQUIRED TEST: (\d+)\/\d+ passed, (\d+) failed/ },
+  // FOOD-WEB: the food screen's order path. Four defects, one of them more expensive than the fabrication
+  // it sits next to. (1) `setOrder(res.data.job)` at page.tsx:404 read a key the booking route never
+  // sends — `res.json({ success, duplicate, order, deliveryJob })` at server.js:5154 — so a SUCCESSFUL,
+  // durable, rider-dispatched order produced no receipt while the handler had already emptied the cart and
+  // rotated the idempotency key: the customer's only way to see the order was to reorder, and the retry
+  // carried a fresh key so the server could not dedupe it. (2) `active.id.startsWith("demo-")` finished the
+  // order in the browser with `DEMO-ORD-8812`/`DEMO-FOOD-8812`. (3) The discovery `catch` answered an
+  // unreachable backend with two invented Kolkata restaurants and `setListState("ready")`, and
+  // `setListState("error")` appeared nowhere in the file, so the error+Retry branch the screen ships was
+  // dead code — that fail-open is what let a REAL session reach a store id the order path then lied about.
+  // (4) `{order.status ?? "RECEIVED"}` declared a lifecycle and "Total charged (server priced)" asserted a
+  // payment, while an awk scan of the whole route body (server.js:4778-5164) for every wallet mutation
+  // name the platform uses — adjust_wallet_atomic, adjustWallet, updateWalletBalance, debitWallet,
+  // creditWallet — returned zero occurrences.
+  // The correction is page.tsx only, and it preserves the advertised development functionality: the
+  // labelled `type="button"` "📥 Import Demo Catalog (JSON)" and the declared demo persona's browsing path
+  // (`restaurant.id.startsWith("demo-")` → stored catalog, flagged degraded) both stay; only the demo gate
+  // on the ORDER path is deleted. WF-06 reddens a fix that erases the persona, and WF-15..WF-18 are the
+  // positive controls that keep the durable booking, the three pre-submit gates and the degraded labels
+  // intact. The receipt now reads the key the route sends, the badge renders the durable `order_state` with
+  // no fallback, and the outage is reported as an outage.
+  // NOT `isolated`, NOT `laneServer`, no shared :4000: it reads sources and sends three POSTs that carry
+  // either no session or the client-minted `demo-customer-token`, all refused 401 (WF-20..22), so it writes
+  // no row — placing a real order to prove the success path would break the chain's zero-order-residue
+  // property (#314), and the contract check WF-02 is derived from the route's own success object instead.
+  // Measured 2026-10-20: RED first (14/22 — WF-02, 04, 05, 06, 10, 11, 12, 13), then 22/22 exit 0 after the
+  // page edits; `tsc --noEmit` over customer-web was run after them and exits 0.
+  { file: 'web_food_fabrication_test.js',                                                            // 110
+    subtotalPattern: /WEB FOOD FABRICATION: (\d+)\/\d+ passed, (\d+) failed/ },
+  // ID-WEB: the customer-web demo session claimed an identity check that never ran. `AuthContext.tsx:33`
+  // rehydrated a user for ANY stored token starting with `demo-` and stamped it
+  // `identityStatus: 'VERIFIED'` (now :40) — a status the backend only ever sets after an admin approves
+  // documents — and `login/page.tsx:108` and `:160` minted the same claim on click. Two consumers read it:
+  // `ride/page.tsx:56` (`user.identityStatus && user.identityStatus !== "VERIFIED"`) suppressed the
+  // booking block, and `profile/page.tsx` rendered the success-tone "Verified" chip with "You can book
+  // every NABIN service." The claim was false in both directions: the durable default is unverified
+  // (`001_central_schema.sql:24` `identity_status VARCHAR(40) DEFAULT 'PENDING'`), the persona id
+  // `customer-demo-01` is not a UUID (`001_central_schema.sql:15`) so no `users` row can carry it, and
+  // sessions are minted at `database.js:7670` as `nabin_<role>_tok_<32 random bytes>` — a `demo-` string
+  // cannot be one. IDW-19..22 measured the refusals rather than asserting them: `GET /api/auth/me`
+  // (server.js:1675) with no credential → 401 "No session token provided.", with the app's own
+  // `demo-customer-token` → 401 "Invalid or expired session token.", `GET
+  // /api/identity/status/customer-demo-01` (server.js:4181) → 401, and `POST /api/customer/book-ride`
+  // (server.js:4364) with that bearer → 401 with no job. So this is a truthfulness defect, NOT an
+  // authorization hole, and the correction removes a claim rather than a capability.
+  // The correction is three literals: `'IDENTITY_VERIFICATION_PENDING'` in the AuthContext demo branch and
+  // `"IDENTITY_VERIFICATION_PENDING"` at both login mints. That value is not invented here — it is the
+  // backend's own answer for an undecided identity (`server.js:4211`
+  // `identityStatus: user.identityStatus || 'IDENTITY_VERIFICATION_PENDING'`, and `database.js:7444`
+  // hydrates the store's `'PENDING'` to exactly it). The field is ASSIGNED, not deleted: `ride/page.tsx:56`
+  // tests `user.identityStatus && …`, so an absent status reads as verified — deleting the field would have
+  // failed open, which IDW-08 and IDW-12 pin. In this phase the authoritative path (`authApi.me()` →
+  // `setUser(res.data.user)`), the `User` interface (`identityStatus?: string;`), `profile/page.tsx` and every
+  // backend KYC gate are untouched: IDW-16 keeps the legitimate verified flow total and IDW-17 counts the
+  // server's gate sites (1) so no verification requirement was loosened to make a test pass. IDW-09 preserves the
+  // declared demo feature (persona fields + both `type="button"` Demo-labelled mints) per P11 requirement 4.
+  // The guard does not hardcode its vocabulary: IDW-02/03/04/05 read the verified value from the server gate,
+  // the unresolved value from the status route's own fallback, the client-visible set from the hydration map
+  // and migration 001's CHECK, and the hydration mapping of PENDING, so a fix cannot pass by inventing a
+  // fourth status and the guard cannot drift when one is renamed. IDW-12 extracts the ride predicate from
+  // source and EVALUATES it against the real persona, an authoritative VERIFIED user, and a user with no
+  // status; IDW-11 parses the profile badge map as data and proves the persona renders "Pending review"/
+  // warning rather than "Verified"/success.
+  // NOT `isolated`, NOT `laneServer`, no shared :4000: it reads sources and boots its own backend on a free
+  // port (`scripts/spawned_server`) purely to send four credential-less or `demo-`-bearer requests, all
+  // refused 401, so it writes no session, no job, no order and no ledger row (#314 zero residue).
+  // Measured 2026-10-20: RED first (18/23 — IDW-06, 07, 10, 11, 12), then 23/23 exit 0 after the three
+  // literals; `tsc --noEmit` over customer-web exits 0 and links 107 (17/17) and 104 (56/56) and 110
+  // (22/22) stayed green with the edit in place.
+  // SECOND PHASE, same suite (added checks IDW-24 / IDW-25 / IDW-26 / IDW-27, 23 → 27). The demo literals are
+  // correct, so the remaining RUNTIME false-verification path was the gate itself: `ride/page.tsx:56` read
+  // ABSENCE as verification (`user.identityStatus && user.identityStatus !== "VERIFIED"`), so a persona with
+  // no status, `null` or `""` got an unlocked booking form the server then refused 403 at `server.js:4422`.
+  // The gate is now `user.identityStatus !== "VERIFIED"` plus an `identityUnread` branch, so the two states
+  // the old expression collapsed are said differently. IDW-24 evaluates that predicate over seven personas
+  // (authoritative VERIFIED → allowed; PENDING, the app's own demo persona, absent, null, empty, out-of-
+  // vocabulary → blocked); IDW-25 requires the notice to state a consequence for BOTH unread and pending.
+  // IDW-26 walks `e2e-tests/` and finds the six localStorage demo seeds that paired a `demo-` token with
+  // `identityStatus: 'VERIFIED'` — inert, because nothing in the tree reads `nabin_customer_user` and a
+  // `demo-` token makes AuthContext rebuild the persona in code, and misleading because they documented the
+  // demo state as verified; all six now seed the unresolved status. IDW-27 pins the four fixtures that
+  // REQUIRE a verified user (the durable-KYC suite, the profile-edit adversarial payload asserting VERIFIED
+  // does not move, the Flutter both-state identity widget test, and the corroborated `usr_2` seed) so the
+  // correction cannot pass by flattening every fixture. Measured 2026-10-21: RED 24/27 (IDW-24 on
+  // absent/null/empty ALLOWED, IDW-25 single-sentence notice, IDW-26 six lying seeds) then 27/27 exit 0.
+  { file: 'web_identity_fabrication_test.js',                                                        // 111
+    subtotalPattern: /WEB IDENTITY FABRICATION: (\d+)\/\d+ passed, (\d+) failed/ },
+  // WDW: the customer-web wallet screen authored its own money. `wallet/page.tsx` destructured the session
+  // and never read it again: `useState(1450)` seeded AVAILABLE BALANCE, `DEMO_TRANSACTIONS` was four closed
+  // rows (`DEMO-RECHARGE-101` ₹1,000, `DEMO-RD-9821` ₹220, `DEMO-ORD-4412` ₹380, `DEMO-PROMO-50` ₹50, each
+  // `status: "COMPLETED"` painted in the success tone), and `handleTopup` did `setBalance((prev) => prev + amt)`,
+  // prepended a fifth invented row and announced `Successfully credited ₹…`. None of it had a source: WDW-04
+  // counts 180 registrations in `server.js` and 0 name a wallet, top-up, recharge, balance or statement, and
+  // WDW-20 measured the two paths a customer would need (`GET /api/wallet`, `POST /api/wallet/topup`) answered
+  // 404 by the running server. The journal is not reachable either — WDW-05 reads 023 revoking every grant on
+  // `journal_lines` from `anon`/`authenticated` and making it append-only, with the seven ledger reads behind
+  // `authenticateAdmin` + `requirePermission('finance.view')` (WDW-21 measured 401). The page's own `Transaction`
+  // interface declared categories (`RIDE|FOOD|GROCERY|PARCEL|TOP_UP|REFUND`) that match none of migration 002's
+  // eight legal ones, which is how WDW-06 shows the shape was authored rather than projected.
+  // A balance DOES exist durably and needed no new endpoint: `users.wallet_balance NUMERIC(10,2)` (001:23),
+  // hydrated onto the session entity as `walletBalance` (database.js:1841, re-read at login at :7432) and sent
+  // whole by `/api/auth/me` through a projection that strips exactly one field (`rating`, server.js:1006). So
+  // the card now renders `user?.walletBalance ?? null`. The tempting second fix — delete the literal and print
+  // `inr(balance)` — would have swapped one false statement for another: `lib/format.ts:16` is
+  // `format(amount ?? 0)`, and WDW-12 EVALUATES that function to show `inr(null)` and `inr(0)` are the same
+  // string, so an unread balance must stay visibly unknown. The screen therefore branches on `authLoading`,
+  // renders "Not available" for a null, and never routes a null through `inr`. The demo persona gains no
+  // balance and is not deleted (WDW-14 re-reads the `demo-` branch, its persona fields and both `type="button"`
+  // Demo-labelled login buttons; WDW-19 proves the backend refuses `demo-customer-token` a session, so there
+  // was never a number for it to print). `walletBalance?: number` is added to the `User` interface as a type
+  // declaration of what the server already sends — the authoritative path, the ride identity gate and every
+  // backend KYC gate are untouched (WDW-15 re-evaluates the gate and still gets BLOCK).
+  // Removed rather than relabelled, because no read backs them: the top-up buttons and custom-amount input
+  // (client arithmetic on a ledger field is a claim, not a calculation — `database.js:3429` states the
+  // platform rule and WDW-10 quotes it out of that file), the invented receipt list, and the "Payment Gateway
+  // Integration / UNCONFIGURED (DEMO PREVIEW) / External Payment Gateway: Not Configured / Saved Payment
+  // Instruments: None" card. That last one is not fixed by saying "configured" either: four payment routes do
+  // exist, so WDW-16 asserts the page states nothing about infrastructure it never asked about — it says what
+  // it can do instead. The screen itself survives the correction (WDW-13: file present, `useSession` gate,
+  // AVAILABLE BALANCE card, and `/wallet` still in the nav at `Header.tsx:16`).
+  // NOT `isolated`, NOT `laneServer`, no shared :4000: it reads sources and boots its own backend on a free
+  // port (`scripts/spawned_server`) purely to send credential-less and `demo-`-bearer requests, every one
+  // refused 401/404, so it writes no session, no balance, no journal line, no order and no job (#314 zero
+  // residue). F-13: it boots with `NABIN_SESSION_PRUNE=off` so no shared row is pruned from under the chain.
+  // Measured 2026-10-20: RED first (13/21 — WDW-06, 07, 08, 09, 10, 11, 12, 16), then 21/21 exit 0 with the
+  // page at 122 lines; `npx tsc --noEmit` over customer-web exits 0.
+  { file: 'web_wallet_fabrication_test.js',                                                          // 112
+    subtotalPattern: /WEB WALLET FABRICATION: (\d+)\/\d+ passed, (\d+) failed/ },
+  // SSF: the emergency-killswitch switchboard invented how busy, fast and well-liked each platform
+  // service is, and the ANONYMOUS `GET /api/services/status` handed the invention out as measurement.
+  // Six of eighteen registry entries (database.js:1574 onward) carried `activeVolume` ('1,248 active
+  // drivers • 942 on trip', '18 Darkstores Active • 4,810 SKUs Live', '620 Partner Kitchens • 850
+  // Courier Fleet', '412 Courier Riders Active', 'UPI 2.0 Rails • 99.98% Gateway Success',
+  // 'Sub-second Geo-Proximity Matcher (18,400 sockets)'), `latencyMs` (38/42/45/34/55/19) and
+  // `metrics: { completedToday, satisfaction }` (3492/2180/1840/920/8432/8250 and '4.82★'/'4.91★'/
+  // '4.78★'/'4.88★'/'99.9%'/'99.4%'). Nothing computed any of it — no component records a latency, a
+  // socket count or an uptime percentage; there is no ratings table in the schema; and `jobs` has no
+  // `completed_at`, so "completed today" has no definition to measure even if one wanted to infer it.
+  // The admin dashboard then painted a fallback over the absence (`service.latencyMs || 40`,
+  // `statusMap[...] || 'Active'`, a 'System OK' capsule), turning a fabricated number into a fabricated
+  // number the operator never had to question.
+  // The correction is removal plus honest absence, NOT a new derived metric: 18 fabricated field
+  // assignments deleted from the constructor, the telemetry strip and the card bottom now read
+  // "not measured"/"No telemetry source", and no volume or count was moved onto the public response,
+  // because publishing platform-wide operational volumes is owner decision A and honest platform counts
+  // already exist on `/api/admin/metrics` (`getAdminPlatformMetrics`: exact head counts,
+  // `dataSource:'postgres'`, 503 `AUTH_STORE_UNAVAILABLE`). The allowlist SSF checks against is DERIVED
+  // (A3) from the fields the backend's own control machinery writes (C1), the fields AppConfigService
+  // keeps when projecting `/api/app/config`, and the fields the two type-pinned clients declare — the
+  // dashboard that painted the fabrication is checked against the list, never used to build it.
+  // Two invariants that a cleanup would break are pinned rather than "simplified": `getServicesStatus`
+  // stays SYNCHRONOUS (C2 — it answers an anonymous public route, and docs/ADMIN_FEATURE_SPECIFICATION
+  // .md:482 records that making it async lets a lost record 5xx the public endpoint), and the
+  // killswitch control contract survives the deletion whole (C1 + the executed C6, which feeds a genuine
+  // PAUSED suspension through the real boot merge and requires every control field to land, because
+  // `isServicePaused` and the 423 booking gate read exactly those fields).
+  // C4/C5 exist because the durable `PLATFORM_SERVICE_STATE` snapshot outlives the code that wrote it:
+  // `restoreServiceState` used to `Object.assign` the stored object wholesale onto the seeded one, so a
+  // snapshot written before this correction re-injects every retired field at every boot. Writing the
+  // check exposed a second defect, in the guard itself: anchoring a method with a bare
+  // `\bname\s*(` matched `await this.restoreServiceState()` at :2152 — 7,700 lines above its definition
+  // at :9867 — so C4 inspected a 434-char call-site window, found no `Object.assign`, and reported a
+  // PASS on a claim it had never measured. `methodDef` now anchors at the line start and matches the
+  // parenthesis pair before the brace pair (a naive body grab on the destructured `pauseService`
+  // signature captured the parameter object instead of the body), so every claim reads the body it names.
+  // NOT `isolated`, NOT `laneServer`, no shared :4000: the static half reads sources; C5/C6 execute the
+  // real `restoreServiceState` against a stubbed store and restore the in-process registry afterwards;
+  // the runtime half boots THIS tree's backend on a free loopback port through
+  // `scripts/chain_target_guard.requireLoopbackPgTarget` and issues only the four GETs
+  // (`/api/services/status`, `/api/ready`, `/api/app/config`, and the credential-less
+  // `/api/admin/services/status`, which F5 measures as a 4xx with no services payload), so it writes no
+  // session, no job, no order and no ledger line. `GET /api/services/status` is the one read in this
+  // tree that can WRITE — the auto-resume pass logs a `SERVICE_AUTO_RESUMED` audit row once a paused
+  // service's `resumeAt` has passed — so F7 proves from the recomputed summary that nothing it observed
+  // was paused, which is what makes #314 zero-residue a measured statement here instead of an
+  // assumption; F-13's prune is disabled for the booted process (`NABIN_SESSION_PRUNE=off`).
+  // Measured 2026-10-21: 29/29, exit 0. Its RED was produced by re-injecting the retired behaviour, not
+  // assumed: with the raw `Object.assign` merge restored, the snapshot still holding
+  // `rides.latencyMs: 38`, '1,248 active drivers • 942 on trip' and
+  // `{"satisfaction":"4.82★","completedToday":3492}` put those fields back into the anonymous public
+  // response, and the suite reddened C4, C5, F1 and F2 (25/29).
+  { file: 'services_status_fabrication_test.js',                                                     // 113
+    subtotalPattern: /SERVICES STATUS FABRICATION: (\d+)\/\d+ passed, (\d+) failed/ },
+  // NOT REPRODUCIBLE FROM A FRESH CHECKOUT YET: links 80 through 113 are all still untracked, so a
+  // `git archive HEAD` tree fails the runner's missing-link guard at 80/81/82/83/84/85/86/87/88/89/90/91/92/93/94/95/96/97/98/99/100/101/102/103/104/105/106/107/108/109/110/111/112/113
+  // instead of silently skipping them. They must join the commit unit that carries the MI-1, MI-3,
+  // MI-4, MI-5, MI-6, MI-7, MI-8, MI-9 fixes, the P2 handover-OTP hardening (migration 046), the P3
+  // delivery-lifecycle work (migration 047), migration 048_merchant_approval_lifecycle.sql, the P9
+  // admin stale-read fix (listAdminJobs / listAdminRestaurants + the two routes at server.js:8520/8521),
+  // the P10/D-8 admin-OTP-strip in `listAdminJobs` (ADMIN_JOB_SECRET_FIELDS + redactAdminJobSecrets),
+  // the P9 §2 store-matrix address and price-alerts source-label fixes, the #481 driver-position
+  // truthfulness fix (DriverRepository create/mapRowToDriver + the database.js driver hydration +
+  // the admin console's coordinate rendering), the #481 §5 admin-metrics truthfulness fix
+  // (`getAdminPlatformMetrics` + the /api/admin/metrics route), and the KYC-P1 customer-identity
+  // durability fix (`persistIdentityDecision` + its four callsites + the audit metadata + the login
+  // `identityStatus` sync in `verifyAuthOtp`), and the RPN refund-recipient attribution fix (the
+  // `usr_2` substitution removed from the /api/admin/finance/refund notification leg), and the GRO-ADDR
+  // grocery checkout refusal (the `typedDeliveryAddress` gate plus the three deleted invented-address
+  // substitutions on the /api/grocery/checkout/validate route, and the four test_phase4_orders.js
+  // payloads that used to rely on the substitution), and the GROCERY-WEB client fabrication fix
+  // (`customer-web/src/app/grocery/page.tsx`: the demo-prefix completion branch, both invented
+  // `useState` defaults, the wallet payment option and the receipt's status/payment/catalog claims), and
+  // the MRCH grocery merchant refusal (the `|| 'mcht_1'` default on the /api/grocery/checkout/validate
+  // route replaced by a trim-then-refuse `400 MERCHANT_REQUIRED` gate ahead of the dark-store check), and
+  // the FOOD-WEB food-order corrections (`customer-web/src/app/food/page.tsx`: the receipt reads the
+  // `order` key the booking route actually sends instead of `job`, the demo-prefix completion branch and
+  // its `DEMO-ORD-8812` reference are deleted, the discovery catch reports the outage instead of
+  // substituting two invented restaurants, and the status badge and total row make no payment or
+  // lifecycle claim the route does not), and the ID-WEB demo-identity correction
+  // (`customer-web/src/context/AuthContext.tsx` demo rehydration plus the two demo mints in
+  // `customer-web/src/app/login/page.tsx`: `identityStatus` 'VERIFIED' → 'IDENTITY_VERIFICATION_PENDING',
+  // the backend's own undecided status; the `User` interface, the authoritative `authApi.me()` path,
+  // `ride/page.tsx`, `profile/page.tsx` and every backend KYC gate are unchanged), and the SSF
+  // service-status fabrication fix (the 18 deleted `activeVolume`/`latencyMs`/`metrics` assignments and
+  // the bounded `restoreServiceState` merge in `backend/src/database.js`, plus the two
+  // "not measured"/"No telemetry source" cells in `admin_dashboard.html` — the `getServicesStatus`
+  // synchronicity, the pause/resume/killswitch authorization routes, the `/api/ready` semantics and the
+  // `/api/app/config` projection are all unchanged).
   // DELIBERATELY NOT REGISTERED, measured 2026-10-14 and re-measured 2026-10-15, so the next reader does
   // not re-litigate it:
   //   test_rms_e2e_integration.js used to fail on its second run against one store: it asked for table

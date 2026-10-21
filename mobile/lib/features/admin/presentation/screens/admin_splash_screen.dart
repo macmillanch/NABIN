@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import '../../../../core/widgets/nabin_brand_logo.dart';
 import '../theme/admin_theme.dart';
 
 class AdminSplashScreen extends StatefulWidget {
@@ -28,15 +29,11 @@ class _AdminSplashScreenState extends State<AdminSplashScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.admin_panel_settings, size: 80, color: Colors.white),
-            const SizedBox(height: 24),
-            const Text(
-              'NABIN Admin',
-              style: TextStyle(
-                fontSize: 32,
-                fontWeight: FontWeight.w900,
-                color: Colors.white,
-              ),
+            const NabinBrandLogo(
+              fontSize: 32,
+              isLight: true,
+              showIcon: true,
+              badge: 'ADMIN',
             ),
             const SizedBox(height: 8),
             Text(

@@ -29,7 +29,7 @@ export default function LineItems({
   return (
     <div className="nabin-stack" style={{ gap: "var(--space-xs)" }}>
       {lines.map((line, index) => (
-        <div key={line.id} className="nabin-row" style={{ gap: "var(--space-xs)" }}>
+        <div key={line.id} className="nabin-row" style={{ gap: "var(--space-xs)", alignItems: "center" }}>
           <input
             className="nabin-input"
             style={{ flex: 1, minWidth: 0 }}
@@ -42,7 +42,7 @@ export default function LineItems({
           />
           <input
             className="nabin-input nabin-num"
-            style={{ width: 84 }}
+            style={{ width: 76, minWidth: 60, textAlign: "center", padding: "10px var(--space-xs)" }}
             type="number"
             min={1}
             step={1}
@@ -54,7 +54,16 @@ export default function LineItems({
           <button
             type="button"
             className="nabin-btn nabin-btn--ghost"
-            style={{ minHeight: 44, padding: "0 var(--space-sm)" }}
+            style={{
+              minHeight: 44,
+              minWidth: 44,
+              width: 44,
+              padding: 0,
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              flexShrink: 0,
+            }}
             onClick={() => onChange(lines.filter((l) => l.id !== line.id))}
             disabled={disabled || lines.length === 1}
             aria-label={`Remove item ${index + 1}`}
@@ -66,7 +75,12 @@ export default function LineItems({
       <button
         type="button"
         className="nabin-btn nabin-btn--ghost"
-        style={{ minHeight: 40 }}
+        style={{
+          minHeight: 40,
+          alignSelf: "flex-start",
+          padding: "0 var(--space-md)",
+          fontSize: 14,
+        }}
         onClick={() => onChange([...lines, blankLine(Date.now() + lines.length)])}
         disabled={disabled}
       >

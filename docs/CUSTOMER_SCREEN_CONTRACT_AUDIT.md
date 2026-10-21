@@ -18,24 +18,29 @@ they were re-checked by hand on 2026-10-06.
 
 ## 1. Payment
 
-- `POST /api/payments/create-order` — server.js:9540, `authenticateUser`.
-- `POST /api/payments/verify-checkout` — server.js:9650, `authenticateUser`.
-- `GET /api/payments/session/:orderId` — server.js:9677, **no middleware**; parses its own bearer
+- `POST /api/payments/create-order` — server.js:10474, `authenticateUser`.
+- `POST /api/payments/verify-checkout` — server.js:10584, `authenticateUser`.
+- `GET /api/payments/session/:orderId` — server.js:10611, **no middleware**; parses its own bearer
   token at 7952–7984.
-- `POST /api/payments/webhook` — server.js:9739, no middleware, requires
+- `POST /api/payments/webhook` — server.js:10695, no middleware, requires
   `x-razorpay-signature` + `PAYMENT_WEBHOOK_SECRET` (8014, 8029).
-- `POST /api/admin/finance/refund` — server.js:2545, `authenticateAdmin` +
+- `POST /api/admin/finance/refund` — server.js:2826, `authenticateAdmin` +
   `requirePermission('finance.refund')` — admin-only, so a customer read can never show a refund.
-- Sandbox, not a gateway: `PAYMENT_MODE === 'live'` gates the real path
-  (PaymentRepository.js:51); `keyId` falls back to the literal `'rzp_test_nabin_beta_2026'`
-  (PaymentRepository.js:62); responses say `provider: 'RAZORPAY_SANDBOX'` (PaymentRepository.js:72,
+- Sandbox, not a gateway: there is no real path to gate — `PAYMENT_MODE === 'live'` is refused with
+  503 `PAYMENT_PROVIDER_NOT_CONFIGURED` before any id is minted (`PaymentRepository.js:94-104`), and
+  an undeclared `PAYMENT_MODE` on a production server is refused with 503 `PAYMENT_MODE_UNCONFIGURED`
+  (`PaymentRepository.js:111-120`); `keyId` is `process.env.PAYMENT_KEY_ID || null`, so the literal
+  `'rzp_test_nabin_beta_2026'` fallback is gone (`PaymentRepository.js:128`); every session says
+  `provider: 'RAZORPAY_SANDBOX'` **and** `simulated: true` (`PaymentRepository.js:138-140`,
   and the refund handler's `p_provider: 'RAZORPAY_SANDBOX'`). No Razorpay SDK in `backend/package.json`.
+  Pinned by `live_payment_truthfulness_test.js` (chain link 94).
 - Terminal states: `INITIATED|PENDING|SUCCESS|FAILED|CANCELLED|EXPIRED`
-  (006_payments_domain.sql:19-20), client spellings mapped at PaymentRepository.js:159-161.
-- PostgreSQL write only under `isLivePostgres` (PaymentRepository.js:80-97, `payment_sessions`),
-  mirrored to an in-memory `Map` (112-113) and read back from memory on a DB miss (180-186).
+  (006_payments_domain.sql:19-20), client spellings mapped at PaymentRepository.js:237-239.
+- PostgreSQL write only under `isLivePostgres` (PaymentRepository.js:153-187, `payment_sessions`),
+  mirrored to an in-memory `Map` (PaymentRepository.js:190-191) and read back from memory on a DB miss
+  (PaymentRepository.js:264, the Owner Decision 11 outage semantics recorded at 258-263).
   Payment responses carry **no `dataSource` field**, so a client cannot tell which it got — unlike
-  `GET /api/advertisements` (server.js:3058) and `GET /api/admin/campaigns` (server.js:3343), which
+  `GET /api/advertisements` (server.js:3344) and `GET /api/admin/campaigns` (server.js:3629), which
   both answer with one.
 - `last4` exists only for a **driver payout** destination (DriverRepository.js:69-73,
   format at database.js:2514-2515). No route returns a customer instrument.
@@ -43,31 +48,31 @@ they were re-checked by hand on 2026-10-06.
 ## 2. Grocery order tracking
 
 - Customer reads are PostgreSQL via `OrderRepository.js:432`/`:407` (`.from('orders')`):
-  `GET /api/customer/orders` (server.js:4852), `GET /api/customer/orders/:id` and
-  `/api/orders/:id` (server.js:4917), `GET /api/customer/activity` (server.js:4877) — all
+  `GET /api/customer/orders` (server.js:5167), `GET /api/customer/orders/:id` and
+  `/api/orders/:id` (server.js:5232), `GET /api/customer/activity` (server.js:5192) — all
   `authenticateUser`.
 - The stage vocabulary is one column, `orders.order_state`
   (`RECEIVED, ACCEPTED, PREPARING, PACKING, READY_FOR_PICKUP, PICKED_UP, DELIVERED, REJECTED,
   CANCELLED` — 018:20-25), emitted as `status` (`server.js → \`status: o.order_state\``) and, on the
   food order, also `orderState`.
-- Only writer: the merchant KDS route `POST /api/merchant/orders/:orderId/status` (server.js:5166,
+- Only writer: the merchant KDS route `POST /api/merchant/orders/:orderId/status` (server.js:5506,
   `APPROVED_KDS_STATES`) → `transitionOrderState` (OrderRepository.js:348-378).
 - A timeline table exists and is **never read**: `public.order_transitions` (018:73-87), zero
   references in `backend/src`. `checkout_events` (013:56) likewise has no reader. So a screen may
   show the current state, not a per-stage event history with timestamps.
 - Websocket updates arrive as `FOOD_ORDER_UPDATE` even for grocery orders — both the KDS route and
   the driver's delivery confirm send that type (`server.js → \`type: 'FOOD_ORDER_UPDATE'\``). The
-  packed-weight broadcast comes from `POST /api/grocery/orders/:id/packed-weight` (server.js:8793).
-- `POST /api/grocery/checkout/validate` (server.js:8550) projects `deliveryAddress` from the request
+  packed-weight broadcast comes from `POST /api/grocery/orders/:id/packed-weight` (server.js:9643).
+- `POST /api/grocery/checkout/validate` (server.js:9328) projects `deliveryAddress` from the request
   or the literal `'Default Address'` (`server.js → \`deliveryAddress: req.body.deliveryAddress || 'Default Address'\``).
-  `GET /api/grocery/products` can answer `dataSource: 'fixture', degraded: true` (server.js:7875).
+  `GET /api/grocery/products` can answer `dataSource: 'fixture', degraded: true` (server.js:8615).
 
 ## 3. Identity documents / KYC
 
-- `POST /api/identity/submit` (server.js:3813) and `GET /api/identity/status/:userId`
-  (server.js:3895) are the customer routes; admin review is the five `identity-verifications` routes
+- `POST /api/identity/submit` (server.js:4099) and `GET /api/identity/status/:userId`
+  (server.js:4181) are the customer routes; admin review is the five `identity-verifications` routes
   under `requirePermission('identity_verification.view')` / `.review`, opening at
-  `GET /api/admin/identity-verifications` (server.js:3942).
+  `GET /api/admin/identity-verifications` (server.js:4231).
 - **In-memory**: `submitIdentityApplication` (database.js:3469-3606) mutates `this.users` /
   `this.identityApplications` and contains no `supabaseAdmin` call. The `identity_documents` table
   (001:30) has **no writer** in `backend/src`.
@@ -114,20 +119,20 @@ they were re-checked by hand on 2026-10-06.
   of storing a caller-supplied URL that only an examiner's browser would ever load. Guarded by
   `backend/test_phase7_security.js` MODULE 4 case 4.
 - `/api/media*` has no auth middleware, and it is worse than the earlier note:
-  `POST /api/media/upload` (server.js:9902), `GET /api/media/signed-params` (server.js:10001),
-  `GET /api/media` (server.js:10013) are all unauthenticated. Only `DELETE /api/media/*`
-  (server.js:9959) checks a token and ownership, itself bypassable via
+  `POST /api/media/upload` (server.js:10858), `GET /api/media/signed-params` (server.js:10998),
+  `GET /api/media` (server.js:11022) are all unauthenticated. Only `DELETE /api/media/*`
+  (server.js:10940) checks a token and ownership, itself bypassable via
   `allowsTestConvenience('skipping an authentication check')` at the top of that handler.
 - Media metadata lives in `db.mediaAssets` (database.js:8669-8696), hydrated from `store.json`
   (database.js:1602-1607; `backend/src/store.json` via `database/persistentStore.js:6`).
 - Driver KYC has no document upload route — the driver reads carry a `kycStatus` scalar only
   (`server.js → \`kycStatus: driver.kycStatus || driver.status || null\``) plus the admin
-  `POST /api/admin/drivers/:id/verify-payout-destination` (server.js:6410).
+  `POST /api/admin/drivers/:id/verify-payout-destination` (server.js:6803).
 
 ## 4. Avatar
 
-- `POST /api/customer/profile/photo` (server.js:10023), `POST /api/driver/profile/photo`
-  (server.js:10088) and `POST /api/driver/vehicle/photo` (server.js:10149) have **no
+- `POST /api/customer/profile/photo` (server.js:11048), `POST /api/driver/profile/photo`
+  (server.js:11117) and `POST /api/driver/vehicle/photo` (server.js:11181) have **no
   `authenticateUser` middleware** — each hand-parses the bearer token and, with no token plus test
   convenience, falls back to a hard-coded id: `requestedCustomerId = … || 'usr_1'` on the customer
   route, `requestedDriverId = … || 'DRV-101'` on the two driver routes.
@@ -138,9 +143,9 @@ they were re-checked by hand on 2026-10-06.
 
 ## 5. Profile name / email
 
-- `/api/auth/*` is exactly five routes: `POST /api/auth/send-otp` (server.js:1380),
-  `POST /api/auth/verify-otp` (server.js:1398), `GET /api/auth/me` (server.js:1417),
-  `POST /api/auth/logout` (server.js:1473) and `POST /api/auth/refresh-token` (server.js:1547).
+- `/api/auth/*` is exactly five routes: `POST /api/auth/send-otp` (server.js:1638),
+  `POST /api/auth/verify-otp` (server.js:1656), `GET /api/auth/me` (server.js:1675),
+  `POST /api/auth/logout` (server.js:1731) and `POST /api/auth/refresh-token` (server.js:1805).
   **There is no profile write of any kind** — no `/api/auth/profile`, no `PATCH /api/auth/me`.
 - `GET /api/auth/me` answers with the session's **mint-time snapshot** of the users row
   (`server.js → \`user: session.role === 'CUSTOMER' ? projectUserForSelf(session.entity)\``), not a
@@ -148,7 +153,7 @@ they were re-checked by hand on 2026-10-06.
   `refresh-token` echo runs through the same helper; the driver, merchant and admin reads still
   echo `session.entity` whole, which is why the hydrator's `DEFAULT 5.00` still reaches *them*.
   Separately, a booked ride used to carry a `customerRating` copied from `users.rating`
-  (`POST /api/customer/book-ride`, server.js:4075); #144 deleted that write and both job
+  (`POST /api/customer/book-ride`, server.js:4364); #144 deleted that write and both job
   projections answer `null` for the field, so no read of a trip reports a score for the passenger
   — see §6. `walletBalance` on a customer read comes from the wallet work, not from `/auth/me`.
 - Saved-address book: **absent**. No `/api/addresses` route; `address` exists only as
@@ -169,8 +174,8 @@ they were re-checked by hand on 2026-10-06.
 - **A booking with no placed end is refused, not filled in** (#141; pinned by
   `backend/geo_adversarial_test.js`, `backend/test_phase4_orders.js` and
   `mobile/test/ride_booking_test.dart`): `POST /api/customer/book-ride`
-  (server.js:4075), `POST /api/customer/book-parcel` (server.js:4314) and
-  `POST /api/customer/book-food` (server.js:4489) each answer `400 PLACE_REQUIRED` from one helper
+  (server.js:4364), `POST /api/customer/book-parcel` (server.js:4603) and
+  `POST /api/customer/book-food` (server.js:4778) each answer `400 PLACE_REQUIRED` from one helper
   (`server.js → function placedEnd`) and write no row. The places they used to invent —
   `'Connaught Place Inner Circle, Block B'` at `28.6328, 77.2197`, `'Kamla Nagar Market, Block C,
   Delhi'` / `'Karol Bagh Electronics Hub, Delhi'`, and `'North Campus Girls Hostel, Delhi'` —
@@ -183,12 +188,12 @@ they were re-checked by hand on 2026-10-06.
   answered by the identity check, and the address check sits before the route redeems a coupon.
   The food route's placed address is what the durable row holds (`place_substitution_test.js`
   ADDR-01…05).
-- `POST /api/geofence/reverse-geocode` (server.js:3661) resolves nothing today
+- `POST /api/geofence/reverse-geocode` (server.js:3947) resolves nothing today
   (`place_substitution_test.js` RS-01…06): it answers `resolved: false` with
   `locality`/`landmark`/`city`/`formattedAddress` all `null` and `reason: 'NO_GEOCODER'`, in place of
   the `'Civil Lines, North Delhi'` it used to return for a point it had never heard of, and in place
   of the `200 … "Live Location (NaN° N, NaN° E)"` it used to return for a non-numeric input.
-- `GET /api/tracking/:jobId` (server.js:9430; no middleware, manual bearer + ownership check) returns
+- `GET /api/tracking/:jobId` (server.js:10360; no middleware, manual bearer + ownership check) returns
   `location`, `driver`, `pickup`/`drop`. As of task #138 the customer's `location` is a **projected
   position** — `lat, lng, heading, speed, accuracy, receivedAt, updatedAt` — through
   `projectLocationForCustomer`, which the two trip-channel telemetry pushes also use. It is no
@@ -337,7 +342,7 @@ because an error state also satisfies "the invented literal is gone".
   admin refund. The distinction the fix rests on is **recordable ≠ spendable** —
   `checkouts.payment_method` does permit the string `'WALLET'` (013_checkout_domain.sql) and the
   grocery checkout stamps it on any non-CASH call (`POST /api/grocery/checkout/validate`,
-  server.js:8550) without moving a rupee, so the
+  server.js:9328) without moving a rupee, so the
   column could record a payment that no code performed. Offering the tile gave that stale default a
   customer-facing meaning; it is removed rather than relabelled.
 

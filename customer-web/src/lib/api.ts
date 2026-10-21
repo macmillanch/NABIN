@@ -55,3 +55,7 @@ export const bookingApi = {
   checkoutGrocery: (data: Record<string, unknown>) => api.post('/grocery/checkout/validate', data),
   getOrders: () => api.get('/customer/orders'),
 };
+
+export const diningApi = {
+  resolveTableQr: (token: string) => api.get(`/food/table-qr/${encodeURIComponent(token)}`),
+};

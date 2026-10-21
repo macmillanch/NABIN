@@ -91,9 +91,13 @@ async function runRealWorldValidation() {
   const meRes = await request('GET', '/api/auth/me', null, { 'Authorization': `Bearer ${customerToken}` });
   assert('Session restored on app launch via /auth/me', meRes.status === 200 && meRes.body.success, `User ID: ${meRes.body.user?.id}`);
 
-  // Driver Auth Setup
-  const driverOtpSend = await request('POST', '/api/auth/send-otp', { phone: '9845011982', role: 'DRIVER' });
-  const driverOtpVerify = await request('POST', '/api/auth/verify-otp', { phone: '9845011982', otp: driverOtpSend.body.testOtp || '7729', role: 'DRIVER' });
+  // Driver Auth Setup. DRV-101 is the driver this scenario drives, so it signs in as
+  // DRV-101's own enrolled number. 9845011982 is Priya's CUSTOMER number and no `drivers`
+  // row carries it; before MI-4 closed the fallback an unenrolled DRIVER login still
+  // returned a token (`entityId="anon"` resolving to `drivers[0]`), so the driver half of
+  // this run was executing on a substituted identity.
+  const driverOtpSend = await request('POST', '/api/auth/send-otp', { phone: '9810122910', role: 'DRIVER' });
+  const driverOtpVerify = await request('POST', '/api/auth/verify-otp', { phone: '9810122910', otp: driverOtpSend.body.testOtp || '7729', role: 'DRIVER' });
   driverToken = driverOtpVerify.body.token || 'drv_session_verified';
 
   console.log('\n--- 2. REAL CUSTOMER -> DRIVER WEBSOCKET DISPATCH ---');

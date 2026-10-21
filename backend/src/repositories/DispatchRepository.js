@@ -194,7 +194,9 @@ class DispatchRepository {
           memJob.driverUuid = driverUuid;
           memJob.updatedAt = data.accepted_at || new Date().toISOString();
         }
-        const memDriver = this.db.getDriver(driverId);
+        // MI-4 (P1): strict — `getDriver` ends in `|| this.drivers[0]`, so an accept whose driverId
+        // does not resolve parked the active-job pointer on the first seeded driver.
+        const memDriver = this.db.getDriverStrict(driverId);
         if (memDriver) {
           memDriver.activeJobId = targetJobId || data.job_uuid;
         }
@@ -371,7 +373,9 @@ class DispatchRepository {
           memJob.driverUuid = driverUuid;
           memJob.updatedAt = data.accepted_at || new Date().toISOString();
         }
-        const memDriver = this.db.getDriver(driverId);
+        // MI-4 (P1): strict — `getDriver` ends in `|| this.drivers[0]`, so an accept whose driverId
+        // does not resolve parked the active-job pointer on the first seeded driver.
+        const memDriver = this.db.getDriverStrict(driverId);
         if (memDriver) {
           memDriver.activeJobId = targetJobId || data.job_uuid;
         }

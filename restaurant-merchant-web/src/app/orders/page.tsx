@@ -88,7 +88,7 @@ export default function OrdersPage() {
       <div className="nabin-stack">
         <div className="nabin-page-head" style={{ marginBottom: 0 }}>
           <div>
-            <h1>Order queue</h1>
+            <h1 className="nabin-visually-hidden">Order queue</h1>
             <p>
               Refreshes every {POLL_MS / 1000} seconds. Status changes follow the server-side order
               state machine; anything illegal is refused rather than faked.

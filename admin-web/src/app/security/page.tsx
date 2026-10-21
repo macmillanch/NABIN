@@ -526,7 +526,7 @@ export default function SecurityPage() {
           <TriangleAlert size={18} /> Failed-login lockouts
         </h2>
         <p className="nabin-cell-meta">
-          {lockoutScope.scope
+          {typeof lockoutScope.scope === 'string'
             ? `Scope: ${lockoutScope.scope.replace(/_/g, ' ').toLowerCase()}` +
               (lockoutScope.resetOnRestart ? ', and a restart clears them. ' : '. ')
             : ''}

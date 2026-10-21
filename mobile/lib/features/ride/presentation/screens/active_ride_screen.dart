@@ -8,7 +8,10 @@ import '../../../../core/models/passenger_booking_info.dart';
 import '../../../../core/network/nabin_api_service.dart';
 import '../../../../core/network/nabin_ws_service.dart';
 import '../../../../core/network/session_manager.dart';
+import '../../../../core/services/nabin_routing_service.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/widgets/active_trip_map_view.dart';
+import 'package:latlong2/latlong.dart';
 
 /// Follows one ride by reading its trip row back from the platform.
 ///
@@ -172,6 +175,14 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
   DateTime? _lastReadAt;
   Timer? _poll;
   StreamSubscription<Map<String, dynamic>>? _tripSub;
+  StreamSubscription<Map<String, dynamic>>? _driverLocationSub;
+
+  LatLng? _driverLiveLocation;
+  double? _driverLiveHeading;
+  DateTime? _driverLiveUpdatedAt;
+  List<LatLng>? _roadRoutePoints;
+  bool _routingLoading = false;
+  String? _routingError;
 
   @override
   void initState() {
@@ -184,10 +195,17 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
     _connectCustomerWs();
   }
 
+  StreamSubscription<Map<String, dynamic>>? _authWsSub;
+
   @override
   void dispose() {
     _poll?.cancel();
     _tripSub?.cancel();
+    _driverLocationSub?.cancel();
+    _authWsSub?.cancel();
+    if (_jobId.isNotEmpty) {
+      NabinWsService.instance.unsubscribeFromRide(_jobId);
+    }
     super.dispose();
   }
 
@@ -196,6 +214,37 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
     if (userId == null || userId.isEmpty) return;
     NabinWsService.instance.connect(role: 'customer', userId: userId);
     _tripSub = NabinWsService.instance.onTripUpdate.listen(_onTripUpdate);
+    _driverLocationSub =
+        NabinWsService.instance.onDriverLocation.listen(_onDriverLocationUpdate);
+    _authWsSub = NabinWsService.instance.onAuthenticated.listen((_) {
+      if (_jobId.isNotEmpty) {
+        NabinWsService.instance.subscribeToRide(_jobId);
+      }
+    });
+    if (_jobId.isNotEmpty) {
+      NabinWsService.instance.subscribeToRide(_jobId);
+    }
+  }
+
+  void _onDriverLocationUpdate(Map<String, dynamic> msg) {
+    if (!mounted) return;
+    final fromJob = msg['jobId']?.toString();
+    if (_jobId.isNotEmpty && fromJob != _jobId) return;
+
+    final loc = msg['location'];
+    if (loc is Map) {
+      final lat = (loc['lat'] ?? loc['latitude'] as num?)?.toDouble();
+      final lng = (loc['lng'] ?? loc['longitude'] as num?)?.toDouble();
+      final heading =
+          (loc['heading'] ?? loc['bearing'] as num?)?.toDouble() ?? 0.0;
+      if (lat != null && lng != null) {
+        setState(() {
+          _driverLiveLocation = LatLng(lat, lng);
+          _driverLiveHeading = heading;
+          _driverLiveUpdatedAt = DateTime.now();
+        });
+      }
+    }
   }
 
   void _onTripUpdate(Map<String, dynamic> msg) {
@@ -210,6 +259,44 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
     // The message says something changed; the row says what. Re-read rather than
     // presenting the push as the trip's state.
     _load(silent: true);
+  }
+
+  Future<void> _fetchRoadRoute(LatLng start, LatLng end) async {
+    if (_routingLoading) return;
+    setState(() => _routingLoading = true);
+    final res =
+        await NabinRoutingService.instance.getRoute(start: start, end: end);
+    if (!mounted) return;
+    setState(() {
+      _routingLoading = false;
+      if (res.success && res.points.isNotEmpty) {
+        _roadRoutePoints = res.points;
+        _routingError = null;
+      } else {
+        _roadRoutePoints = null;
+        _routingError = res.errorMessage ?? 'Route unavailable';
+      }
+    });
+  }
+
+  LatLng? get _pickupLatLng {
+    final p = _tracking?['pickup'];
+    if (p is Map) {
+      final lat = (p['lat'] as num?)?.toDouble();
+      final lng = (p['lng'] as num?)?.toDouble();
+      if (lat != null && lng != null) return LatLng(lat, lng);
+    }
+    return null;
+  }
+
+  LatLng? get _dropLatLng {
+    final d = _tracking?['drop'];
+    if (d is Map) {
+      final lat = (d['lat'] as num?)?.toDouble();
+      final lng = (d['lng'] as num?)?.toDouble();
+      if (lat != null && lng != null) return LatLng(lat, lng);
+    }
+    return null;
   }
 
   Future<void> _load({bool silent = false}) async {
@@ -232,6 +319,12 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
         _lastReadAt = DateTime.now();
         _failed = false;
         if (_isCompleted || _isStopped) _poll?.cancel();
+        if (_pickupLatLng != null &&
+            _dropLatLng != null &&
+            _roadRoutePoints == null &&
+            !_routingLoading) {
+          _fetchRoadRoute(_pickupLatLng!, _dropLatLng!);
+        }
       } else if (!silent) {
         _failed = true;
       }
@@ -1062,80 +1155,109 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
     final location = _location;
     final lat = location['lat'];
     final lng = location['lng'];
-    final bool hasPosition = lat != null && lng != null;
+    final bool hasDbPosition = lat != null && lng != null;
+    final LatLng? effectiveDriverLocation = _driverLiveLocation ??
+        (hasDbPosition
+            ? LatLng(
+                (lat as num).toDouble(),
+                (lng as num).toDouble(),
+              )
+            : null);
     final speed = _asDouble(location['speed']);
-    final heading = _asDouble(location['heading']);
+    final heading = _driverLiveHeading ?? _asDouble(location['heading']);
     final bits = <String>[
-      '$lat, $lng',
+      if (lat != null && lng != null)
+        '$lat, $lng'
+      else if (effectiveDriverLocation != null)
+        '${effectiveDriverLocation.latitude.toStringAsFixed(4)}, ${effectiveDriverLocation.longitude.toStringAsFixed(4)}',
       if (speed > 0) '${speed.toStringAsFixed(1)} km/h',
       if (heading > 0) 'heading ${heading.toStringAsFixed(0)}°',
     ];
 
-    return _card(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        ActiveTripMapView(
+          pickup: _pickupLatLng,
+          drop: _dropLatLng,
+          pickupLabel: _addressOf('pickup'),
+          dropLabel: _addressOf('drop'),
+          driverLocation: effectiveDriverLocation,
+          driverHeading: heading,
+          driverLocationUpdatedAt: _driverLiveUpdatedAt,
+          roadRoutePoints: _roadRoutePoints,
+          isSocketConnected: NabinWsService.instance.isConnected,
+          isRoutingLoading: _routingLoading,
+          routingError: _routingError,
+        ),
+        const SizedBox(height: 12),
+        _card(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                width: 36,
-                height: 36,
-                decoration: const BoxDecoration(
-                  color: AppTheme.surfaceContainerLow,
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.location_searching_rounded,
-                    size: 20, color: AppTheme.onSurfaceVariant),
+              Row(
+                children: [
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: const BoxDecoration(
+                      color: AppTheme.surfaceContainerLow,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.location_searching_rounded,
+                        size: 20, color: AppTheme.onSurfaceVariant),
+                  ),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Text(
+                      'Where the driver is',
+                      style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5),
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(width: 12),
-              const Expanded(
-                child: Text(
-                  'Where the driver is',
-                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5),
-                ),
+              const SizedBox(height: 10),
+              (hasDbPosition || effectiveDriverLocation != null)
+                  ? Text(
+                      'Last position the driver\'s app reported: ${bits.join(' • ')}',
+                      style: const TextStyle(
+                          fontSize: 12, fontWeight: FontWeight.w700, height: 1.4),
+                    )
+                  : const Text(
+                      'The driver\'s app has not reported a position for this trip yet.',
+                      style:
+                          TextStyle(fontSize: 12, color: AppTheme.onSurfaceVariant),
+                    ),
+              const SizedBox(height: 6),
+              const Text(
+                'NABIN publishes no route line, remaining distance or arrival time for a '
+                'trip, so none is drawn or counted down here.',
+                style: TextStyle(
+                    fontSize: 11.5,
+                    color: AppTheme.onSurfaceVariant,
+                    height: 1.4),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  const Icon(Icons.schedule_rounded,
+                      size: 14, color: AppTheme.onSurfaceVariant),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(
+                      'Checked ${_checkedAt()} from the trip row',
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 1,
+                      style: const TextStyle(
+                          fontSize: 11.5, color: AppTheme.onSurfaceVariant),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
-          const SizedBox(height: 10),
-          hasPosition
-              ? Text(
-                  'Last position the driver\'s app reported: ${bits.join(' • ')}',
-                  style: const TextStyle(
-                      fontSize: 12, fontWeight: FontWeight.w700, height: 1.4),
-                )
-              : const Text(
-                  'The driver\'s app has not reported a position for this trip yet.',
-                  style:
-                      TextStyle(fontSize: 12, color: AppTheme.onSurfaceVariant),
-                ),
-          const SizedBox(height: 6),
-          const Text(
-            'NABIN publishes no route line, remaining distance or arrival time for a '
-            'trip, so none is drawn or counted down here.',
-            style: TextStyle(
-                fontSize: 11.5,
-                color: AppTheme.onSurfaceVariant,
-                height: 1.4),
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              const Icon(Icons.schedule_rounded,
-                  size: 14, color: AppTheme.onSurfaceVariant),
-              const SizedBox(width: 6),
-              Flexible(
-                child: Text(
-                  'Checked ${_checkedAt()} from the trip row',
-                  overflow: TextOverflow.ellipsis,
-                  maxLines: 1,
-                  style: const TextStyle(
-                      fontSize: 11.5, color: AppTheme.onSurfaceVariant),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 

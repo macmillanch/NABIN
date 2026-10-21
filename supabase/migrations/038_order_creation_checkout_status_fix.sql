@@ -106,8 +106,8 @@ BEGIN
     END IF;
 
     -- Verify merchant exists in authoritative merchants table and check merchant capability
-    SELECT merchant_type INTO v_merchant_type 
-      FROM public.merchants 
+    SELECT merchant_type INTO v_merchant_type
+      FROM public.merchants
      WHERE id = p_merchant_id;
 
     IF NOT FOUND THEN

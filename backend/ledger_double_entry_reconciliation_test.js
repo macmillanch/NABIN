@@ -412,7 +412,7 @@ function check(id, name, cond, detail) {
     // REC-17: Historical Traceability from Book 2 to Book 1 & Underlying Payment
     // ------------------------------------------------------------------------
     const traceCheck = await one(`
-      SELECT 
+      SELECT
         jt.transaction_id,
         jt.reference_id,
         p.payment_id,

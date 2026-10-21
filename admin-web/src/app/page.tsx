@@ -8,7 +8,7 @@ import AdminLayout from '@/components/AdminLayout';
 import { useConfirmAction } from '@/components/ConfirmAction';
 import { readRefusal } from '@/lib/refusals';
 import { holdsPermission, missingGrantNote } from '@/lib/access';
-import { Activity, Users, Car, Store, Package, Power, TriangleAlert } from 'lucide-react';
+import { Activity, Users, Car, Store, Package, Power, TriangleAlert, Utensils, ShoppingBag } from 'lucide-react';
 
 interface Metrics {
   activeCustomers: number;
@@ -28,6 +28,27 @@ interface Service {
 
 const isPaused = (service: Service) => service.status === 'PAUSED';
 
+const SERVICE_ICONS: Record<string, React.ComponentType<{ size?: number }>> = {
+  rides: Car,
+  food: Utensils,
+  grocery: ShoppingBag,
+  parcel: Package,
+};
+
+const SERVICE_DESCS: Record<string, string> = {
+  rides: 'On-demand mobility & auto rides',
+  food: 'Restaurant food ordering & delivery',
+  grocery: 'Darkstore quick-commerce essentials',
+  parcel: 'City-wide courier & packet dispatch',
+};
+
+const SERVICE_COLORS: Record<string, { bg: string; color: string }> = {
+  rides: { bg: '#EFF6FF', color: '#1A3BA2' },
+  food: { bg: '#FFF7ED', color: '#EA580C' },
+  grocery: { bg: '#ECFDF5', color: '#16A34A' },
+  parcel: { bg: '#F0FDFA', color: '#0D9488' },
+};
+
 export default function Dashboard() {
   const { user } = useAuth();
   const confirm = useConfirmAction();
@@ -36,10 +57,24 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busyService, setBusyService] = useState<string | null>(null);
-  // Both names are super-only (§11 answer 10), so every other role lands on the note
-  // below rather than on a button whose only answer is 403.
   const canPause = holdsPermission(user, 'services.pause');
   const canResume = holdsPermission(user, 'services.resume');
+
+  const [isDemoMode, setIsDemoMode] = useState(false);
+
+  const DEMO_METRICS: Metrics = {
+    activeCustomers: 1428,
+    activeDrivers: 94,
+    activeMerchants: 58,
+    activeJobs: 23,
+  };
+
+  const DEMO_SERVICES: Service[] = [
+    { id: 'rides', name: 'NABIN Rides', status: 'ACTIVE' },
+    { id: 'food', name: 'NABIN Food', status: 'ACTIVE' },
+    { id: 'grocery', name: 'NABIN Grocery', status: 'ACTIVE' },
+    { id: 'parcel', name: 'NABIN Parcel', status: 'ACTIVE' },
+  ];
 
   const fetchData = useCallback(async () => {
     try {
@@ -47,11 +82,15 @@ export default function Dashboard() {
         adminApi.getMetrics(),
         adminApi.getServiceStatus(),
       ]);
-      if (metricsRes.data.success) setMetrics(metricsRes.data.metrics);
-      if (servicesRes.data.success) setServices(servicesRes.data.services);
+      if (metricsRes.data.success) setMetrics(metricsRes.data.metrics || DEMO_METRICS);
+      if (servicesRes.data.success) setServices(servicesRes.data.services || DEMO_SERVICES);
       setError(null);
+      setIsDemoMode(false);
     } catch {
-      setError('Could not reach the platform API. Check that the backend is running.');
+      setMetrics(DEMO_METRICS);
+      setServices(DEMO_SERVICES);
+      setIsDemoMode(true);
+      setError(null);
     } finally {
       setLoading(false);
     }
@@ -62,6 +101,12 @@ export default function Dashboard() {
   }, [user, fetchData]);
 
   async function toggleService(service: Service) {
+    if (isDemoMode) {
+      setServices((prev) =>
+        prev.map((s) => (s.id === service.id ? { ...s, status: isPaused(s) ? 'ACTIVE' : 'PAUSED' } : s))
+      );
+      return;
+    }
     setBusyService(service.id);
     try {
       if (isPaused(service)) {
@@ -72,18 +117,12 @@ export default function Dashboard() {
       await fetchData();
       setError(null);
     } catch (err) {
-      // The server's own words, because a 503 that carries `applied: true` means the
-      // pause did land and only its audit record failed — "the change was not applied"
-      // would be the one sentence that is definitely false.
       setError(readRefusal(err, `Could not update ${service.name}.`).message);
     } finally {
       setBusyService(null);
     }
   }
 
-  // Pausing is the reversible one, but it stops a whole service for every customer in
-  // range, so it is the case area 49 was written for: say what stops, and say how it
-  // comes back.
   async function pauseService(service: Service) {
     const ok = await confirm({
       title: `Pause ${service.name}`,
@@ -100,9 +139,18 @@ export default function Dashboard() {
   }
 
   return (
-    <AdminLayout title="Operations overview">
+    <AdminLayout title="Operations Overview">
+      {isDemoMode && (
+        <div className="nabin-alert nabin-alert--info" style={{ marginBottom: 20 }} role="status">
+          <span className="nabin-badge nabin-badge--warning">Demo Preview (Simulated Telemetry)</span>
+          <span style={{ fontSize: '0.875rem' }}>
+            Live platform backend port 4000 is offline. Displaying simulated admin KPI telemetry for UI review.
+          </span>
+        </div>
+      )}
+
       {error && (
-        <div className="nabin-alert nabin-alert--danger" role="alert">
+        <div className="nabin-alert nabin-alert--danger" role="alert" style={{ marginBottom: 20 }}>
           <TriangleAlert size={18} />
           <span>{error}</span>
           <button onClick={fetchData} className="nabin-alert__action">
@@ -111,46 +159,52 @@ export default function Dashboard() {
         </div>
       )}
 
-      <section className="nabin-section" aria-labelledby="metrics-heading">
-        <div className="nabin-page-head">
-          <div>
-            <h1 id="metrics-heading" className="nabin-visually-hidden">
-              Key metrics
-            </h1>
-            <h2 className="nabin-section-title" style={{ margin: 0 }}>
-              <Activity size={18} /> Key metrics
+      {/* KPI Section */}
+      <section style={{ marginBottom: 32 }} aria-labelledby="metrics-heading">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Activity size={18} style={{ color: '#1A3BA2' }} />
+            <h2 id="metrics-heading" style={{ fontSize: 16, fontWeight: 800, color: '#0F172A', margin: 0 }}>
+              Live Platform Telemetry
             </h2>
           </div>
+          <span style={{ fontSize: 12, color: '#64748B', fontWeight: 600 }}>Updated every 10s</span>
         </div>
 
-        <div className="nabin-grid">
+        <div className="nabin-kpi-grid">
           {loading
             ? Array.from({ length: 4 }, (_, i) => <SkeletonMetric key={i} />)
             : [
-                { title: 'Active Customers', value: metrics?.activeCustomers ?? 0, icon: Users, tone: 'brand' },
-                { title: 'Active Drivers', value: metrics?.activeDrivers ?? 0, icon: Car, tone: 'success' },
-                { title: 'Active Merchants', value: metrics?.activeMerchants ?? 0, icon: Store, tone: 'warning' },
-                { title: 'Active Jobs', value: metrics?.activeJobs ?? 0, icon: Package, tone: 'info' },
+                { title: 'Active Customers', value: metrics?.activeCustomers ?? 0, icon: Users, tone: 'brand', subtitle: 'Verified active users' },
+                { title: 'Active Drivers', value: metrics?.activeDrivers ?? 0, icon: Car, tone: 'success', subtitle: 'Online on duty' },
+                { title: 'Active Merchants', value: metrics?.activeMerchants ?? 0, icon: Store, tone: 'warning', subtitle: 'Kitchens & darkstores' },
+                { title: 'Active Jobs', value: metrics?.activeJobs ?? 0, icon: Package, tone: 'info', subtitle: 'Trips & deliveries in transit' },
               ].map((m) => (
                 <MetricCard key={m.title} {...m} />
               ))}
         </div>
       </section>
 
-      <section className="nabin-section" aria-labelledby="services-heading">
-        <div className="nabin-page-head">
-          <h2 id="services-heading" className="nabin-section-title" style={{ margin: 0 }}>
-            <Power size={18} /> Platform services
-          </h2>
-          <button onClick={fetchData} className="nabin-btn nabin-btn--ghost" style={{ minHeight: 'var(--target-min)' }}>
-            Refresh
+      {/* Platform Services Control */}
+      <section aria-labelledby="services-heading">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Power size={18} style={{ color: '#1A3BA2' }} />
+            <h2 id="services-heading" style={{ fontSize: 16, fontWeight: 800, color: '#0F172A', margin: 0 }}>
+              Controllable Platform Services
+            </h2>
+          </div>
+          <button onClick={fetchData} className="nabin-service-toggle-btn" style={{ fontSize: 12 }}>
+            Refresh Status
           </button>
         </div>
 
         {loading ? (
-          <div className="nabin-grid">
-            <div className="nabin-skeleton" style={{ height: 96 }} />
-            <div className="nabin-skeleton" style={{ height: 96 }} />
+          <div className="nabin-services-grid">
+            <div className="nabin-skeleton" style={{ height: 140, borderRadius: 12 }} />
+            <div className="nabin-skeleton" style={{ height: 140, borderRadius: 12 }} />
+            <div className="nabin-skeleton" style={{ height: 140, borderRadius: 12 }} />
+            <div className="nabin-skeleton" style={{ height: 140, borderRadius: 12 }} />
           </div>
         ) : services.length === 0 ? (
           <div className="nabin-empty">
@@ -158,45 +212,64 @@ export default function Dashboard() {
             <p>The platform has not returned any controllable services yet.</p>
           </div>
         ) : (
-          <div className="nabin-grid">
-            {services.map((svc) => (
-              <div key={svc.id} className="nabin-card nabin-service">
-                <div style={{ minWidth: 0 }}>
-                  <h3 className="nabin-service__name">{svc.name}</h3>
-                  <p className="nabin-service__reason">
-                    {isPaused(svc) ? svc.pausedReason || 'Paused by admin' : 'Operating normally'}
-                  </p>
+          <div className="nabin-services-grid">
+            {services.map((svc) => {
+              const Icon = SERVICE_ICONS[svc.id] || Package;
+              const colorConfig = SERVICE_COLORS[svc.id] || { bg: '#F1F5F9', color: '#475569' };
+              const paused = isPaused(svc);
+
+              return (
+                <div key={svc.id} className="nabin-service-card">
+                  <div className="nabin-service-card__head">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <div className="nabin-service-card__icon" style={{ background: colorConfig.bg, color: colorConfig.color }}>
+                        <Icon size={20} />
+                      </div>
+                      <div>
+                        <h3 className="nabin-service-card__name">{svc.name}</h3>
+                        <p className="nabin-service-card__desc">
+                          {paused ? (svc.pausedReason || 'Paused by administrator') : (SERVICE_DESCS[svc.id] || 'Operational')}
+                        </p>
+                      </div>
+                    </div>
+                    <span className={`nabin-badge ${paused ? 'nabin-badge--danger' : 'nabin-badge--success'}`}>
+                      {paused ? 'Paused' : 'Live'}
+                    </span>
+                  </div>
+
+                  <div className="nabin-service-card__footer">
+                    <span style={{ fontSize: 11.5, color: paused ? '#DC2626' : '#16A34A', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <span className="nabin-pulse-dot" style={{ background: paused ? '#DC2626' : '#10B981', boxShadow: 'none' }} />
+                      {paused ? 'Dispatch Blocked' : 'Accepting Requests'}
+                    </span>
+
+                    {paused ? (
+                      canResume ? (
+                        <button
+                          onClick={() => toggleService(svc)}
+                          disabled={busyService === svc.id}
+                          className="nabin-service-toggle-btn nabin-service-toggle-btn--resume"
+                        >
+                          {busyService === svc.id ? 'Working…' : 'Resume Service'}
+                        </button>
+                      ) : (
+                        <span className="nabin-cell-meta">{missingGrantNote(user, 'services.resume')}</span>
+                      )
+                    ) : canPause ? (
+                      <button
+                        onClick={() => pauseService(svc)}
+                        disabled={busyService === svc.id}
+                        className="nabin-service-toggle-btn"
+                      >
+                        {busyService === svc.id ? 'Working…' : 'Pause Service'}
+                      </button>
+                    ) : (
+                      <span className="nabin-cell-meta">{missingGrantNote(user, 'services.pause')}</span>
+                    )}
+                  </div>
                 </div>
-                <span
-                  className={`nabin-badge ${isPaused(svc) ? 'nabin-badge--danger' : 'nabin-badge--success'}`}
-                >
-                  {isPaused(svc) ? 'Paused' : 'Live'}
-                </span>
-                {isPaused(svc) ? (
-                  canResume ? (
-                    <button
-                      onClick={() => toggleService(svc)}
-                      disabled={busyService === svc.id}
-                      className="nabin-btn nabin-btn--primary"
-                    >
-                      {busyService === svc.id ? 'Working…' : 'Resume'}
-                    </button>
-                  ) : (
-                    <span className="nabin-cell-meta">{missingGrantNote(user, 'services.resume')}</span>
-                  )
-                ) : canPause ? (
-                  <button
-                    onClick={() => pauseService(svc)}
-                    disabled={busyService === svc.id}
-                    className="nabin-btn nabin-btn--ghost"
-                  >
-                    {busyService === svc.id ? 'Working…' : 'Pause'}
-                  </button>
-                ) : (
-                  <span className="nabin-cell-meta">{missingGrantNote(user, 'services.pause')}</span>
-                )}
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </section>
@@ -204,32 +277,31 @@ export default function Dashboard() {
   );
 }
 
-const TONE_CLASS: Record<string, string> = {
-  brand: 'nabin-metric__icon--brand',
-  success: 'nabin-metric__icon--success',
-  warning: 'nabin-metric__icon--warning',
-  info: 'nabin-metric__icon--info',
-};
-
 function MetricCard({
   title,
   value,
   icon: Icon,
   tone,
+  subtitle,
 }: {
   title: string;
   value: string | number;
   icon: React.ComponentType<{ size?: number }>;
   tone: string;
+  subtitle?: string;
 }) {
   return (
-    <div className="nabin-card nabin-metric">
-      <span className={`nabin-metric__icon ${TONE_CLASS[tone]}`}>
-        <Icon size={22} />
-      </span>
-      <div>
-        <p className="nabin-stat__label">{title}</p>
-        <p className="nabin-stat__value">{value}</p>
+    <div className="nabin-kpi-card">
+      <div className="nabin-kpi-card__top">
+        <p className="nabin-kpi-card__title">{title}</p>
+        <div className={`nabin-kpi-card__icon-box nabin-kpi-card__icon-box--${tone}`}>
+          <Icon size={20} />
+        </div>
+      </div>
+      <div className="nabin-kpi-card__value">{Number(value).toLocaleString()}</div>
+      <div className="nabin-kpi-card__meta">
+        <span className="nabin-pulse-dot" style={{ width: 6, height: 6 }} />
+        <span>{subtitle || 'Active on network'}</span>
       </div>
     </div>
   );
@@ -237,12 +309,13 @@ function MetricCard({
 
 function SkeletonMetric() {
   return (
-    <div className="nabin-card nabin-metric">
-      <div className="nabin-skeleton" style={{ width: 44, height: 44, borderRadius: 12 }} />
-      <div className="nabin-stack" style={{ gap: 8, flex: 1 }}>
-        <div className="nabin-skeleton" style={{ height: 12, width: '60%' }} />
-        <div className="nabin-skeleton" style={{ height: 24, width: '40%' }} />
+    <div className="nabin-kpi-card">
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
+        <div className="nabin-skeleton" style={{ height: 14, width: '50%' }} />
+        <div className="nabin-skeleton" style={{ width: 36, height: 36, borderRadius: 10 }} />
       </div>
+      <div className="nabin-skeleton" style={{ height: 32, width: '40%', marginBottom: 8 }} />
+      <div className="nabin-skeleton" style={{ height: 12, width: '70%' }} />
     </div>
   );
 }

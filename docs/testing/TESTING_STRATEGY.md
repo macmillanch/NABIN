@@ -439,4 +439,3 @@ is the trap it guarded against: it repoints the suite's own `pg` handle at `chai
 HTTP write still lands in `public`. Moving link 1 onto the lane raised the question of whether later
 links read rows it used to leave in `public`; the empirical answer is the 77/77 clean run above, with
 every other link unmodified in the same run.
-

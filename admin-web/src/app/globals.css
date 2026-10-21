@@ -23,8 +23,9 @@
 /*
   NABIN canonical design tokens + component layer.
   Source of truth: mobile/lib/core/theme/nabin_tokens.dart
-  Keep this file byte-identical across the four Next.js apps
-  (customer-web, admin-web, restaurant-merchant-web, grocery-merchant-web).
+  NOT byte-identical across the apps, despite looking like one file: the five copies have
+  drifted (admin-web leads with @import "tailwindcss"; the others differ in length), and nothing
+  checks or syncs them. A shared token or .nabin-* rule change must be repeated in each app.
   Product UI text uses Inter. The NABIN wordmark alone uses Neuron.
 */
 
@@ -57,13 +58,17 @@
   --success: #22a447;
   --success-dark: #1b8238;
   --success-tint: #e8f5e9;
+  /* Text ink on --success-tint. --success-dark is 4.34:1 there, under AA; #166534 is 6.34:1. */
+  --success-ink: #166534;
   --warning: #f59e0b;
   --warning-dark: #b45309;
   --warning-tint: #fff4ec;
   --danger: #dc2626;
   --danger-bright: #ef4444;
-  /* Filled danger controls carry a label, so they use the AA-safe variant:
-     white on #dc2626 is 4.4:1, white on #b91c1c is 5.9:1. */
+  /* The AA-safe danger variant, used two ways: as the fill behind white-labelled danger
+     controls (white on #dc2626 is 4.83:1, on #b91c1c 6.47:1), and as the text ink on the
+     #fdecec badge/alert tint (#dc2626 there is 4.23:1, under AA; #b91c1c is 5.66:1).
+     Error text on white keeps --danger, which measures 4.83:1 there. */
   --danger-dark: #b91c1c;
   --info: #0284c7;
 
@@ -73,7 +78,10 @@
   --surface-muted: #f1f5f9;
   --surface-emphasized: #e2e8f0;
   --ink: #0f172a;
-  --ink-muted: #64748b;
+  /* Muted ink has to clear AA on the surfaces it is used on, not only on white: #64748b is
+     4.76:1 on #ffffff but 4.34:1 on --surface-muted, 4.23:1 on the success tint, 4.17:1 on the
+     danger tint. #5a6a7f holds 4.83:1 on the worst of those and 5.52:1 on white. */
+  --ink-muted: #5a6a7f;
   --divider: #e2e8f0;
 
   /* Dark ramp — applied via [data-theme="dark"] */
@@ -103,9 +111,13 @@
   --radius-pill: 9999px;
 
   /* Elevation */
-  --shadow-low: 0 2px 4px rgba(0, 0, 0, 0.05);
-  --shadow-mid: 0 4px 12px rgba(0, 0, 0, 0.08);
-  --shadow-high: 0 12px 24px rgba(0, 0, 0, 0.12);
+  --shadow-low: 0 1px 3px rgba(15, 23, 42, 0.05), 0 1px 2px -1px rgba(15, 23, 42, 0.03);
+  --shadow-mid: 0 4px 12px rgba(15, 23, 42, 0.08);
+  --shadow-high: 0 16px 32px rgba(15, 23, 42, 0.12);
+  --shadow-subtle: 0 1px 2px 0 rgba(16, 24, 40, 0.04);
+  --shadow-card: 0 1px 3px 0 rgba(16, 24, 40, 0.06), 0 1px 2px -1px rgba(16, 24, 40, 0.04);
+  --shadow-card-hover: 0 10px 22px -3px rgba(16, 24, 40, 0.09), 0 4px 6px -2px rgba(16, 24, 40, 0.03);
+  --shadow-modal: 0 24px 48px -12px rgba(15, 23, 42, 0.25);
 
   /* Motion */
   --motion-instant: 120ms;
@@ -271,10 +283,10 @@ button {
 
 .nabin-card {
   background: var(--surface);
-  border: 1px solid var(--divider);
-  border-radius: var(--radius-lg);
+  border: 1px solid rgba(226, 232, 240, 0.88);
+  border-radius: 16px;
   padding: var(--space-lg);
-  box-shadow: var(--shadow-low);
+  box-shadow: var(--shadow-card);
   transition: box-shadow var(--motion-base) var(--motion-curve),
     transform var(--motion-base) var(--motion-curve),
     border-color var(--motion-base) var(--motion-curve);
@@ -282,8 +294,8 @@ button {
 
 .nabin-card--interactive:hover {
   transform: translateY(-2px);
-  border-color: var(--brand-bright);
-  box-shadow: var(--shadow-mid);
+  border-color: #cbd5e1;
+  box-shadow: var(--shadow-card-hover);
 }
 
 .nabin-card__header {
@@ -376,6 +388,16 @@ button {
   color: var(--ink);
 }
 
+/* 2.5.8 Target Size Minimum is 24x24 CSS px and Chrome paints a native box at ~13px,
+   so the box is sized here instead of page by page. */
+input[type='checkbox'],
+input[type='radio'] {
+  width: 24px;
+  height: 24px;
+  accent-color: var(--brand);
+  cursor: pointer;
+}
+
 .nabin-input {
   width: 100%;
   min-height: var(--target-comfortable);
@@ -425,7 +447,7 @@ button {
 
 .nabin-badge--success {
   background: var(--success-tint);
-  color: var(--success-dark);
+  color: var(--success-ink);
 }
 
 .nabin-badge--warning {
@@ -435,7 +457,7 @@ button {
 
 .nabin-badge--danger {
   background: #fdecec;
-  color: var(--danger);
+  color: var(--danger-dark);
 }
 
 .nabin-badge--neutral {
@@ -443,37 +465,50 @@ button {
   color: var(--ink-muted);
 }
 
+.nabin-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 /* --- Tables -------------------------------------------------------------- */
 
 .nabin-table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   font-variant-numeric: tabular-nums;
 }
 
 .nabin-table th {
+  background: #f8fafc;
+  display: table-cell;
   text-align: left;
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.06em;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: var(--ink-muted);
-  padding: var(--space-sm);
+  color: #64748b;
+  padding: 11px 16px;
   border-bottom: 1px solid var(--divider);
+  white-space: nowrap;
 }
 
 .nabin-table td {
-  padding: var(--space-sm);
-  border-bottom: 1px solid var(--divider);
+  display: table-cell;
+  padding: 12px 16px;
+  border-bottom: 1px solid #f1f5f9;
   vertical-align: middle;
+  font-size: 13.5px;
+  color: var(--ink);
 }
 
 .nabin-table tbody tr {
   transition: background-color var(--motion-fast) var(--motion-curve);
 }
 
-.nabin-table tbody tr:hover {
-  background: var(--surface-muted);
+.nabin-table tbody tr:hover td {
+  background: #f8fafc;
 }
 
 .nabin-table-wrap {
@@ -481,6 +516,52 @@ button {
   border: 1px solid var(--divider);
   border-radius: var(--radius-lg);
   overflow-x: auto;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+}
+
+.nabin-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 6px;
+  border: 1px solid var(--divider);
+  background: #ffffff;
+  color: #0f172a;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+  line-height: 1.4;
+}
+
+.nabin-action-btn:hover:not(:disabled) {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+}
+
+.nabin-action-btn--danger {
+  background: #fee2e2;
+  color: #991b1b;
+  border-color: #fecaca;
+}
+
+.nabin-action-btn--danger:hover:not(:disabled) {
+  background: #fca5a5;
+  color: #7f1d1d;
+  border-color: #f87171;
+}
+
+.nabin-action-btn--primary {
+  background: #1a3ba2;
+  color: #ffffff;
+  border-color: #1a3ba2;
+}
+
+.nabin-action-btn--primary:hover:not(:disabled) {
+  background: #142e80;
 }
 
 .nabin--end {
@@ -550,7 +631,8 @@ button.nabin-chip {
 }
 
 .nabin-chip.is-active {
-  background: var(--role-accent);
+  /* White on the bare accent is 3.58:1 (restaurant orange) / 3.25:1 (grocery green); the darkened mix every role clears 5:1. */
+  background: color-mix(in srgb, var(--role-accent) 78%, #000);
   border-color: transparent;
   color: var(--on-brand);
 }
@@ -599,15 +681,17 @@ button.nabin-chip {
 }
 
 .nabin-nav {
-  background: var(--brand);
-  border-right: none;
+  background: #ffffff;
+  border-right: 1px solid var(--divider);
   position: fixed;
   inset: 0 auto 0 0;
   width: var(--sidebar-width);
   z-index: 60;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
   transform: translateX(-100%);
   transition: transform var(--motion-base) var(--motion-curve);
+  box-shadow: 2px 0 8px rgba(0, 0, 0, 0.02);
 }
 
 .nabin-nav.is-open {
@@ -617,87 +701,188 @@ button.nabin-chip {
 .nabin-scrim {
   position: fixed;
   inset: 0;
-  background: rgba(11, 15, 20, 0.5);
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(4px);
   z-index: 55;
 }
 
 .nabin-nav__brand {
   display: flex;
   align-items: center;
-  gap: var(--space-xs);
+  justify-content: space-between;
   min-height: 64px;
   padding: 0 var(--space-md);
-  background: var(--brand-hover);
+  background: #ffffff;
+  border-bottom: 1px solid var(--divider);
 }
 
-.nabin-nav__role {
-  font-size: 11px;
+.nabin-admin-tag {
+  font-size: 10px;
   font-weight: 800;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--brand-bright);
-  margin-inline-start: auto;
+  color: #1a3ba2;
+  background: #eef2ff;
+  border: 1px solid #c7d2fe;
+  padding: 2px 7px;
+  border-radius: 6px;
+  display: inline-block;
 }
 
 .nabin-nav__close {
-  color: var(--on-brand);
+  color: #64748b;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   padding: var(--space-xxs);
-  /* Icon-only, so its box is its padding: 28px measured at 320px, under --target-min. */
-  min-height: var(--target-min);
-  min-width: var(--target-min);
+  min-height: 32px;
+  min-width: 32px;
+  border-radius: 6px;
+  border: 1px solid var(--divider);
+  background: transparent;
+  cursor: pointer;
 }
 
-.nabin-nav__user {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  padding: var(--space-md);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+.nabin-nav__close:hover {
+  background: #f1f5f9;
+  color: #0f172a;
 }
 
-.nabin-nav__username {
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--on-brand);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.nabin-nav__body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 10px;
+  scrollbar-width: thin;
 }
 
-.nabin-nav__subtitle {
-  font-size: 11px;
+.nabin-nav__section {
+  margin-bottom: 16px;
+}
+
+.nabin-nav__section-header {
+  font-size: 10.5px;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--brand-bright);
+  color: #94a3b8;
+  padding: 6px 10px;
+  user-select: none;
 }
 
 .nabin-nav__list {
   display: flex;
   flex-direction: column;
-  gap: var(--space-xxs);
-  padding: var(--space-sm) var(--space-md);
+  gap: 2px;
 }
 
 .nabin-nav .nabin-nav__item {
-  color: rgba(255, 255, 255, 0.78);
-  min-height: var(--target-comfortable);
-  padding: 0 var(--space-sm);
+  color: #475569;
+  min-height: 38px;
+  padding: 0 10px;
+  border-radius: 8px;
   font-weight: 600;
+  font-size: 13.5px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+  transition: all 0.15s ease;
+  position: relative;
 }
 
 .nabin-nav .nabin-nav__item:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: var(--on-brand);
+  background: #f8fafc;
+  color: #0f172a;
 }
 
+.nabin-nav .nabin-nav__item.is-active,
 .nabin-nav .nabin-nav__item[aria-current='page'] {
-  background: var(--on-brand);
-  color: var(--brand);
+  background: #eef2ff;
+  color: #1a3ba2;
+  font-weight: 700;
+}
+
+.nabin-nav .nabin-nav__item.is-active .nabin-nav__icon,
+.nabin-nav .nabin-nav__item[aria-current='page'] .nabin-nav__icon {
+  color: #1a3ba2;
+}
+
+.nabin-nav__active-pip {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #1a3ba2;
+  margin-left: auto;
+}
+
+.nabin-nav__footer {
+  padding: 12px;
+  border-top: 1px solid var(--divider);
+  background: #fafafa;
+}
+
+.nabin-nav__user-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #ffffff;
+  border: 1px solid var(--divider);
+}
+
+.nabin-avatar-modern {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: #eef2ff;
+  color: #1a3ba2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   font-weight: 800;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.nabin-nav__user-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin: 0;
+}
+
+.nabin-nav__user-role {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #64748b;
+  margin: 0;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.nabin-btn-icon-soft {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid var(--divider);
+  background: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+
+.nabin-btn-icon-soft:hover {
+  background: #fee2e2;
+  color: #dc2626;
+  border-color: #fecaca;
 }
 
 .nabin-header__menu {
@@ -753,6 +938,19 @@ button.nabin-chip {
   justify-content: space-between;
   gap: var(--space-md);
   min-height: 64px;
+  padding: 0 var(--space-xl);
+}
+
+@media (max-width: 768px) {
+  .nabin-header__inner {
+    padding: 0 var(--space-md);
+  }
+  .nabin-header__links {
+    display: none !important;
+  }
+  .nabin-header__account {
+    display: none !important;
+  }
 }
 
 .nabin-header__links {
@@ -792,6 +990,344 @@ button.nabin-chip {
   font-size: 14px;
   font-weight: 600;
   color: var(--ink-muted);
+}
+
+.nabin-pulse-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #10b981;
+  display: inline-block;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.25);
+  animation: nabin-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes nabin-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.9); }
+}
+
+.nabin-header__search-modern {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.nabin-header__search-modern input {
+  width: 280px;
+  height: 36px;
+  padding: 0 42px 0 12px;
+  background: #f8fafc;
+  border: 1px solid var(--divider);
+  border-radius: 8px;
+  font-size: 12.5px;
+  color: var(--ink);
+  outline: none;
+  transition: all 0.15s ease;
+}
+
+.nabin-header__search-modern input:focus {
+  background: #ffffff;
+  border-color: #1a3ba2;
+  box-shadow: 0 0 0 3px rgba(26, 59, 162, 0.1);
+}
+
+.nabin-kbd {
+  position: absolute;
+  right: 8px;
+  font-size: 10px;
+  font-weight: 700;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  color: #64748b;
+  padding: 2px 5px;
+  border-radius: 4px;
+  font-family: monospace;
+  pointer-events: none;
+}
+
+.nabin-btn-alert-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--divider);
+  background: #ffffff;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #475569;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.nabin-btn-alert-badge:hover {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+  color: #0f172a;
+}
+
+.nabin-header__user-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px 4px 5px;
+  border-radius: 20px;
+  background: #f8fafc;
+  border: 1px solid var(--divider);
+}
+
+.nabin-avatar-mini {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #1a3ba2;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.nabin-header__user-label {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+}
+
+.nabin-header__user-label strong {
+  color: #0f172a;
+  font-size: 12px;
+}
+
+.nabin-header__user-label small {
+  color: #64748b;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.nabin-btn-signout {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--divider);
+  background: #ffffff;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.nabin-btn-signout:hover {
+  background: #fee2e2;
+  color: #dc2626;
+  border-color: #fecaca;
+}
+
+/* --- Elevated KPI Grid & Service Cards --- */
+.nabin-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+@media (max-width: 1024px) {
+  .nabin-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .nabin-kpi-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.nabin-kpi-card {
+  background: #ffffff;
+  border: 1px solid var(--divider);
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+  transition: all 0.2s ease;
+  display: flex;
+  flex-direction: column;
+}
+
+.nabin-kpi-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.06);
+  border-color: #cbd5e1;
+}
+
+.nabin-kpi-card__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.nabin-kpi-card__title {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #64748b;
+  margin: 0;
+}
+
+.nabin-kpi-card__icon-box {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.nabin-kpi-card__icon-box--brand {
+  background: #eef2ff;
+  color: #1a3ba2;
+}
+
+.nabin-kpi-card__icon-box--success {
+  background: #ecfdf5;
+  color: #059669;
+}
+
+.nabin-kpi-card__icon-box--warning {
+  background: #fffbeb;
+  color: #d97706;
+}
+
+.nabin-kpi-card__icon-box--info {
+  background: #f5f3ff;
+  color: #7c3aed;
+}
+
+.nabin-kpi-card__value {
+  font-size: 32px;
+  font-weight: 800;
+  color: #0f172a;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+  margin: 0 0 8px 0;
+}
+
+.nabin-kpi-card__meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #64748b;
+  margin-top: auto;
+}
+
+/* Service cards grid */
+.nabin-services-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+
+@media (max-width: 1024px) {
+  .nabin-services-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .nabin-services-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.nabin-service-card {
+  background: #ffffff;
+  border: 1px solid var(--divider);
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+  display: flex;
+  flex-direction: column;
+  transition: all 0.2s ease;
+}
+
+.nabin-service-card:hover {
+  border-color: #cbd5e1;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+
+.nabin-service-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.nabin-service-card__icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.nabin-service-card__name {
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0 0 2px 0;
+}
+
+.nabin-service-card__desc {
+  font-size: 12.5px;
+  color: #64748b;
+  margin: 0;
+}
+
+.nabin-service-card__footer {
+  margin-top: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 14px;
+  border-top: 1px solid #f1f5f9;
+}
+
+.nabin-service-toggle-btn {
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  font-weight: 700;
+  border: 1px solid var(--divider);
+  background: #ffffff;
+  color: #0f172a;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.nabin-service-toggle-btn:hover:not(:disabled) {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+}
+
+.nabin-service-toggle-btn--resume {
+  background: #1a3ba2;
+  color: #ffffff;
+  border-color: #1a3ba2;
+}
+
+.nabin-service-toggle-btn--resume:hover:not(:disabled) {
+  background: #142e80;
 }
 
 /* --- Page scaffolding ---------------------------------------------------- */
@@ -1068,13 +1604,13 @@ button.nabin-chip {
 
 .nabin-alert--danger {
   background: #fdecec;
-  color: var(--danger);
+  color: var(--danger-dark);
   border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
 }
 
 .nabin-alert--success {
   background: var(--success-tint);
-  color: var(--success-dark);
+  color: var(--success-ink);
   border: 1px solid color-mix(in srgb, var(--success) 32%, transparent);
   display: block;
   padding: var(--space-md);
@@ -1388,13 +1924,11 @@ button.nabin-chip {
 
 .nabin-scrim--modal {
   display: flex;
-  /* A suspension dialog carries four consequences plus a reason field, which makes it
-     taller than a phone viewport. A fixed scrim that centres its child then puts the
-     title above the fold and the confirm button below it, and because a fixed element's
-     overflow creates no scroll box, neither half can be reached — the operator could not
-     complete the action at all. Aligning to the start and letting the panel carry auto
-     margins keeps it centred while there is room and scrollable end to end when there is
-     not. `overscroll-behavior` stops the wheel from leaking to the list behind it. */
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   align-items: flex-start;
   justify-content: center;
   overflow: auto;
@@ -1404,16 +1938,15 @@ button.nabin-chip {
 }
 
 .nabin-modal {
-  width: min(520px, 100%);
-  /* Auto margins, not `align-items: center`, because auto margins collapse to zero when
-     the box overflows its container, so the top stays in reach and the bottom scrolls in. */
+  width: min(540px, 100%);
   margin: auto;
   background: var(--surface);
   color: var(--ink);
-  border: 1px solid var(--divider);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-high);
-  padding: var(--space-lg);
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  border-radius: 18px;
+  box-shadow: var(--shadow-modal);
+  padding: var(--space-xl);
+  animation: nabin-rise var(--motion-base) var(--motion-curve);
 }
 
 .nabin-modal__title {
@@ -1426,15 +1959,13 @@ button.nabin-chip {
 }
 
 .nabin-modal__effect {
-  font-size: 15px;
+  font-size: 14px;
   line-height: 1.5;
+  color: var(--ink-muted);
   margin-bottom: var(--space-sm);
 }
 
 .nabin-modal__list {
-  /* Tailwind's preflight strips list markers from every ul, and an unmarked block of
-     four sentences reads as one paragraph. The consequences are separate facts the
-     operator has to weigh separately, so the bullets come back here. */
   list-style: disc;
   margin: 0 0 var(--space-md);
   padding-inline-start: 20px;
@@ -1445,6 +1976,154 @@ button.nabin-chip {
 
 .nabin-modal .nabin-row {
   margin-top: var(--space-md);
+}
+
+/* ==========================================================================
+   Admin Operations Console Specific Enhancements
+   ========================================================================== */
+
+/* Controllable Services Grid & Card */
+.nabin-services-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--space-md);
+}
+
+.nabin-service-card {
+  background: var(--surface);
+  border: 1px solid rgba(226, 232, 240, 0.88);
+  border-radius: 16px;
+  box-shadow: var(--shadow-card);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  transition: all var(--motion-fast) var(--motion-curve);
+}
+
+.nabin-service-card:hover {
+  border-color: #cbd5e1;
+  box-shadow: var(--shadow-card-hover);
+  transform: translateY(-1px);
+}
+
+.nabin-service-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.nabin-service-card__icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.nabin-service-card__name {
+  font-size: 16px;
+  font-weight: 800;
+  margin: 0;
+  color: var(--ink);
+}
+
+.nabin-service-card__desc {
+  font-size: 13px;
+  color: var(--ink-muted);
+  margin: 2px 0 0;
+  line-height: 1.4;
+}
+
+.nabin-service-card__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 14px;
+  border-top: 1px solid var(--divider);
+}
+
+.nabin-service-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  font-weight: 700;
+  border: 1px solid var(--divider);
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+  transition: all var(--motion-fast) var(--motion-curve);
+}
+
+.nabin-service-toggle-btn:hover:not(:disabled) {
+  background: var(--surface-muted);
+  border-color: #cbd5e1;
+}
+
+/* Modern Pill Filters */
+.nabin-filter-pill-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 4px;
+  background: var(--surface-muted);
+  border: 1px solid var(--divider);
+  border-radius: var(--radius-pill);
+  max-width: 100%;
+  scrollbar-width: none;
+}
+
+.nabin-filter-pill-bar::-webkit-scrollbar {
+  display: none;
+}
+
+.nabin-filter-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: var(--radius-pill);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all var(--motion-fast) var(--motion-curve);
+}
+
+.nabin-filter-pill:hover {
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.nabin-filter-pill--active {
+  color: var(--brand);
+  background: var(--surface);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  font-weight: 700;
+}
+
+.nabin-filter-pill__count {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-emphasized);
+  color: var(--ink-muted);
+}
+
+.nabin-filter-pill--active .nabin-filter-pill__count {
+  background: var(--brand-tint);
+  color: var(--brand);
 }
 
 

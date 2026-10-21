@@ -41,7 +41,7 @@ const { spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const { Client } = require('pg');
-const { PROTECTED, APPEND_PROBED, ADDITIONS_2026_10_15, tableOf } = require('./protected_tables');
+const { PROTECTED, APPEND_PROBED, DETECTION_OBLIGATIONS, tableOf } = require('./protected_tables');
 
 const A = 'nabin_guard_probe_a';
 const B = 'nabin_guard_probe_b';
@@ -124,7 +124,7 @@ async function main(client) {
   if (baseNames.length !== covered.length) {
     fail(`baseline counted ${baseNames.length} of ${covered.length} protected tables in ${A}`);
   }
-  for (const t of ADDITIONS_2026_10_15) {
+  for (const t of DETECTION_OBLIGATIONS) {
     const col = appendColumn(t);
     const res = await insertTemplate(client, 'public', t, A, col);
     if (res.rowCount !== 1) fail(`could not seed a probe row into ${A}.${t} (${res.rowCount})`);
@@ -133,7 +133,7 @@ async function main(client) {
   const ver = guard(A, 'verify');
   const driftLines = String(diff.stdout).split(/\r?\n/).filter((l) => l.startsWith(`DRIFT ${A}.`));
   const verLines = `${ver.stdout}${ver.stderr}`.split(/\r?\n/).filter((l) => /DRIFT|CONTAMINATION/.test(l));
-  const notRed = ADDITIONS_2026_10_15.filter(
+  const notRed = DETECTION_OBLIGATIONS.filter(
     (t) => !verLines.some((l) => l.includes(`${A}.${t}:`)));
   console.log(`  writes to ${A}: ${driftLines.length} diff line(s), verify exit=${ver.status}`);
   for (const l of driftLines.slice(0, 12)) console.log(`    ${l.trim()}`);
@@ -172,12 +172,12 @@ async function main(client) {
   // ---- 3. legitimate writes to the isolated target stay permitted
   const snapB = guard(A, 'snapshot');
   if (snapB.status !== 0) fail(`re-baseline on ${A} failed (exit ${snapB.status})`);
-  for (const t of ADDITIONS_2026_10_15) {
+  for (const t of DETECTION_OBLIGATIONS) {
     const res = await insertTemplate(client, 'public', t, B, appendColumn(t));
     if (res.rowCount !== 1) fail(`could not seed a legitimate row into ${B}.${t}`);
   }
   const verB = guard(A, 'verify');
-  console.log(`  ${ADDITIONS_2026_10_15.length} row(s) written to ${B} (the stand-in clone): verify exit=${verB.status}`);
+  console.log(`  ${DETECTION_OBLIGATIONS.length} row(s) written to ${B} (the stand-in clone): verify exit=${verB.status}`);
   if (verB.status !== 0) fail(`guard reddened an isolated link for writing its OWN target ${B}: ${verB.stdout}${verB.stderr}`);
   if (!/^CLEAN/m.test(String(verB.stdout).split(/\r?\n/).map((l) => l.trim()).join('\n'))) {
     fail(`guard did not report CLEAN after clone-only writes: ${verB.stdout}`);
@@ -323,7 +323,7 @@ async function main(client) {
     fail(`guard reddened a DELETE in its own clone ${B}: ${ver6b.stdout}${ver6b.stderr}`);
   }
 
-  console.log(`PROBE PASS: ${ADDITIONS_2026_10_15.length} newly protected table(s) reddened the hard guard, `
+  console.log(`PROBE PASS: ${DETECTION_OBLIGATIONS.length} newly protected table(s) reddened the hard guard, `
     + `writes to the stand-in clone stayed CLEAN, the cross-schema and empty-schema guards refuse, `
     + `a stale NABIN_GUARD_SCHEMA with no NABIN_GUARD_PROOF refuses before touching the baseline `
     + `(proof mode with both stays allowed), `

@@ -49,7 +49,14 @@ const PROTECTED = [
   'payment_refund_authorizations',   // +6
   'promotions',                      // +1  (per-run coupon mint)
   'promotion_redemptions',           // +1
-  'grocery_price_history'            // +1
+  'grocery_price_history',           // +1
+  // Media Security Phase 2 (migration 044, added 2026-10-17). `media_assets` is the durable ownership
+  // record the whole phase exists to create: every /api/media write upserts one row keyed by
+  // (provider, public_id) whose owner_type/owner_id are derived from the session, never the caller's
+  // body. A chain link that deleted or rewrote a row outside those routes would silently lose that
+  // provenance with no other guard noticing, so it is counted exactly before and after every link.
+  // Cheap: 7 rows in `public` measured 2026-10-17, so it joins the full-COUNT set, not APPEND_PROBED.
+  'media_assets'
 ];
 
 // Bulk accumulators that must still be attributed per link, but not by a full COUNT:
@@ -95,4 +102,16 @@ const ADDITIONS_2026_10_15 = [...APPEND_PROBED.map((p) => p.table), 'admin_accou
   'drivers', 'notifications', 'notification_deliveries', 'payment_refund_authorizations',
   'promotions', 'promotion_redemptions', 'grocery_price_history'];
 
-module.exports = { PROTECTED, APPEND_PROBED, ADDITIONS_2026_10_15, tableOf, isCovered };
+// Media Security Phase 2's addition (2026-10-17). A table entering `PROTECTED` is only a promise until
+// something proves a write to it actually reddens the guard, so every newly protected name owes a
+// detection proof. This is kept as its own dated list rather than appended to `ADDITIONS_2026_10_15`,
+// whose name records the 2026-10-15 census round it came from.
+const ADDITIONS_2026_10_17 = ['media_assets'];
+
+// The full set `scripts/guard_detection_probe.js` and the `scripts/test_store_census.js` selftest
+// iterate: every table that is protected must also be proven detectable. Derived, not hand-maintained,
+// so a name cannot be added to `PROTECTED` without automatically acquiring a detection obligation.
+const DETECTION_OBLIGATIONS = [...ADDITIONS_2026_10_15, ...ADDITIONS_2026_10_17];
+
+module.exports = { PROTECTED, APPEND_PROBED, ADDITIONS_2026_10_15, ADDITIONS_2026_10_17,
+  DETECTION_OBLIGATIONS, tableOf, isCovered };

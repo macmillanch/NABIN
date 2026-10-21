@@ -33,6 +33,11 @@ class _FoodCheckoutScreenState extends State<FoodCheckoutScreen> {
   late final String? _restaurantId;
   late final String? _restaurantName;
   late final int? _deliveryMinutes;
+  late final String _orderChannel;
+  late final String? _tableId;
+  late final String? _tableNumber;
+  late final String? _qrToken;
+  late final String? _pickupTime;
   late List<Map<String, dynamic>> _items;
   late num _itemTotal;
   late num _payable;
@@ -43,6 +48,13 @@ class _FoodCheckoutScreenState extends State<FoodCheckoutScreen> {
     _restaurantId = _readId(widget.cartData?['restaurantId']);
     _restaurantName = widget.cartData?['restaurantName'] as String?;
     _deliveryMinutes = intOrNull(widget.cartData?['deliveryMinutes']);
+    _orderChannel = (widget.cartData?['orderChannel'] ?? widget.cartData?['channel'] ?? 'DELIVERY')
+        .toString()
+        .toUpperCase();
+    _tableId = _readId(widget.cartData?['tableId']);
+    _tableNumber = _readId(widget.cartData?['tableNumber']);
+    _qrToken = _readId(widget.cartData?['qrToken']);
+    _pickupTime = _readId(widget.cartData?['pickupTime']);
 
     final itemsRaw = widget.cartData?['items'] as List<dynamic>?;
     _items = itemsRaw == null
@@ -86,8 +98,15 @@ class _FoodCheckoutScreenState extends State<FoodCheckoutScreen> {
 
   String get _deliveryAddress => _addressCtrl.text.trim();
 
-  bool get _canOrder =>
-      _items.isNotEmpty && _restaurantId != null && _deliveryAddress.isNotEmpty;
+  bool get _isDelivery => _orderChannel == 'DELIVERY';
+  bool get _isDineIn => _orderChannel == 'DINE_IN';
+  bool get _isTakeaway => _orderChannel == 'TAKEAWAY';
+
+  bool get _canOrder {
+    if (_items.isEmpty || _restaurantId == null) return false;
+    if (_isDelivery) return _deliveryAddress.isNotEmpty;
+    return true;
+  }
 
   /// `POST /api/promotions/apply` — the same read the grocery basket uses. The
   /// reply carries the code's name and its discount; a refusal is shown as the
@@ -154,7 +173,8 @@ class _FoodCheckoutScreenState extends State<FoodCheckoutScreen> {
   Future<void> _placeOrder() async {
     final restaurantId = _restaurantId;
     final address = _deliveryAddress;
-    if (restaurantId == null || _items.isEmpty || address.isEmpty) return;
+    if (restaurantId == null || _items.isEmpty) return;
+    if (_isDelivery && address.isEmpty) return;
 
     setState(() => _isPlacingOrder = true);
 
@@ -164,13 +184,16 @@ class _FoodCheckoutScreenState extends State<FoodCheckoutScreen> {
     final String? customerPhone = user?['phone']?.toString().trim();
 
     final payload = <String, dynamic>{
-      // Only identity values the session actually holds. The backend derives the
-      // customer from the auth token; a made-up stand-in id would be a false claim.
       if (customerId != null && customerId.isNotEmpty) 'customerId': customerId,
       if (customerName != null && customerName.isNotEmpty) 'customerName': customerName,
       if (customerPhone != null && customerPhone.isNotEmpty) 'customerPhone': customerPhone,
       'restaurantId': restaurantId,
-      'deliveryAddress': address,
+      'orderChannel': _orderChannel,
+      if (_isDelivery) 'deliveryAddress': address,
+      if (_isDineIn && _tableId != null) 'tableId': _tableId,
+      if (_isDineIn && _tableNumber != null) 'tableNumber': _tableNumber,
+      if (_isDineIn && _qrToken != null) 'qrToken': _qrToken,
+      if (_isTakeaway && _pickupTime != null) 'pickupTime': _pickupTime,
       // Real dish ids, names and quantities from the restaurant's own menu rows.
       'items': _items
           .map((item) => <String, dynamic>{
@@ -233,91 +256,204 @@ class _FoodCheckoutScreenState extends State<FoodCheckoutScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Delivery Location Card
-              Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: RestaurantTheme.white,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: RestaurantTheme.border),
-                  boxShadow: [
-                    BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.03),
-                        blurRadius: 6)
-                  ],
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(10),
-                          decoration: const BoxDecoration(
-                            color: RestaurantTheme.sectionFill,
-                            shape: BoxShape.circle,
+              // Channel / Location Card
+              if (_isDelivery)
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: RestaurantTheme.white,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: RestaurantTheme.border),
+                    boxShadow: [
+                      BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.03),
+                          blurRadius: 6)
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: const BoxDecoration(
+                              color: RestaurantTheme.sectionFill,
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(Icons.location_on_rounded,
+                                color: RestaurantTheme.headerBand, size: 22),
                           ),
-                          child: const Icon(Icons.location_on_rounded,
-                              color: RestaurantTheme.headerBand, size: 22),
-                        ),
-                        const SizedBox(width: 12),
-                        const Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text('DELIVERY ADDRESS',
-                                  style: TextStyle(
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w900,
-                                      color: RestaurantTheme.headerBand,
-                                      letterSpacing: 0.5)),
-                              SizedBox(height: 2),
-                              Text(
-                                  'Saved addresses are not available for food yet, '
-                                  'so type where this order should be delivered.',
-                                  style: TextStyle(
-                                      fontSize: 11,
-                                      color: RestaurantTheme.secondaryText)),
-                            ],
+                          const SizedBox(width: 12),
+                          const Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('DELIVERY ADDRESS',
+                                    style: TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w900,
+                                        color: RestaurantTheme.headerBand,
+                                        letterSpacing: 0.5)),
+                                SizedBox(height: 2),
+                                Text(
+                                    'Saved addresses are not available for food yet, '
+                                    'so type where this order should be delivered.',
+                                    style: TextStyle(
+                                        fontSize: 11,
+                                        color: RestaurantTheme.secondaryText)),
+                              ],
+                            ),
                           ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    TextField(
-                      controller: _addressCtrl,
-                      maxLines: 2,
-                      style: const TextStyle(
-                          fontSize: 13, fontWeight: FontWeight.w600),
-                      decoration: InputDecoration(
-                        hintText: 'House / flat, street or area, Aizawl',
-                        hintStyle: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w400,
-                            color: RestaurantTheme.secondaryText),
-                        filled: true,
-                        fillColor: RestaurantTheme.lightBg,
-                        border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide:
-                                const BorderSide(color: RestaurantTheme.border)),
-                        contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 10),
+                        ],
                       ),
-                      onChanged: (_) => setState(() {}),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      _deliveryMinutes == null
-                          ? 'Delivery time is confirmed by the restaurant'
-                          : 'Delivery time shown at the restaurant: ${foodEtaLabel(_deliveryMinutes)}',
-                      style: const TextStyle(
-                          fontSize: 11,
-                          color: RestaurantTheme.secondaryText),
-                    ),
-                  ],
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: _addressCtrl,
+                        maxLines: 2,
+                        style: const TextStyle(
+                            fontSize: 13, fontWeight: FontWeight.w600),
+                        decoration: InputDecoration(
+                          hintText: 'House / flat, street or area, Aizawl',
+                          hintStyle: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w400,
+                              color: RestaurantTheme.secondaryText),
+                          filled: true,
+                          fillColor: RestaurantTheme.lightBg,
+                          border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide:
+                                  const BorderSide(color: RestaurantTheme.border)),
+                          contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 10),
+                        ),
+                        onChanged: (_) => setState(() {}),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        _deliveryMinutes == null
+                            ? 'Delivery time is confirmed by the restaurant'
+                            : 'Delivery time shown at the restaurant: ${foodEtaLabel(_deliveryMinutes)}',
+                        style: const TextStyle(
+                            fontSize: 11,
+                            color: RestaurantTheme.secondaryText),
+                      ),
+                    ],
+                  ),
+                )
+              else if (_isDineIn)
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: RestaurantTheme.white,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: RestaurantTheme.border),
+                    boxShadow: [
+                      BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.03),
+                          blurRadius: 6)
+                    ],
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: const BoxDecoration(
+                          color: RestaurantTheme.sectionFill,
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.table_restaurant_rounded,
+                            color: RestaurantTheme.headerBand, size: 22),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('DINE-IN TABLE',
+                                style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w900,
+                                    color: RestaurantTheme.headerBand,
+                                    letterSpacing: 0.5)),
+                            const SizedBox(height: 2),
+                            Text(
+                                _tableNumber != null
+                                    ? 'Table: $_tableNumber'
+                                    : 'Table session linked via QR scan',
+                                style: const TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w800,
+                                    color: RestaurantTheme.charcoal)),
+                            const SizedBox(height: 2),
+                            const Text(
+                                'Order will be routed directly to the kitchen display.',
+                                style: TextStyle(
+                                    fontSize: 11,
+                                    color: RestaurantTheme.secondaryText)),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              else
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: RestaurantTheme.white,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: RestaurantTheme.border),
+                    boxShadow: [
+                      BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.03),
+                          blurRadius: 6)
+                    ],
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: const BoxDecoration(
+                          color: RestaurantTheme.sectionFill,
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.shopping_bag_rounded,
+                            color: RestaurantTheme.headerBand, size: 22),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('TAKEAWAY / COUNTER PICKUP',
+                                style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w900,
+                                    color: RestaurantTheme.headerBand,
+                                    letterSpacing: 0.5)),
+                            const SizedBox(height: 2),
+                            Text(
+                                _pickupTime != null
+                                    ? 'Pickup Time: $_pickupTime'
+                                    : 'Pickup at restaurant counter',
+                                style: const TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w800,
+                                    color: RestaurantTheme.charcoal)),
+                            const SizedBox(height: 2),
+                            const Text(
+                                'No delivery fee. Show your order ID at counter for handover.',
+                                style: TextStyle(
+                                    fontSize: 11,
+                                    color: RestaurantTheme.secondaryText)),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
 
               const SizedBox(height: 14),
 
@@ -599,7 +735,7 @@ class _FoodCheckoutScreenState extends State<FoodCheckoutScreen> {
                           Flexible(
                             child: Text(
                               _canOrder
-                                  ? 'Place Order • ₹${foodPrice(_payable)}'
+                                  ? 'Place ${_isDineIn ? "Dine-In" : _isTakeaway ? "Takeaway" : "Delivery"} Order • ₹${foodPrice(_payable)}'
                                   : _restaurantId == null
                                       ? 'Open a restaurant menu to order'
                                       : _items.isEmpty

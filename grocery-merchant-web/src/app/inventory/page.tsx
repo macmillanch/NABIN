@@ -135,7 +135,7 @@ export default function InventoryPage() {
       <div className="nabin-stack">
         <div className="nabin-page-head" style={{ marginBottom: 0 }}>
           <div>
-            <h1>Inventory</h1>
+            <h1 className="nabin-visually-hidden">Inventory</h1>
             <p>
               {items.length} stocked SKUs in this store&rsquo;s PostgreSQL inventory rows. Prices you
               save here are what the order engine re-validates against at checkout.

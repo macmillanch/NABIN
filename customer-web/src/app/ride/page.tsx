@@ -53,7 +53,8 @@ export default function RidePage() {
     );
   }
 
-  const unverified = user.identityStatus && user.identityStatus !== "VERIFIED";
+  const unverified = user.identityStatus !== "VERIFIED";
+  const identityUnread = typeof user.identityStatus !== "string" || user.identityStatus.trim() === "";
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -92,7 +93,9 @@ export default function RidePage() {
       <FlowPage title="Book a ride" subtitle="Choose a vehicle and we broadcast your request to nearby drivers.">
         {unverified && (
           <div className="nabin-notice" role="status">
-            Identity verification is pending on this account, so bookings are blocked.{" "}
+            {identityUnread
+              ? "NABIN could not read an identity status on this account, so bookings are blocked."
+              : "Identity verification is pending on this account, so bookings are blocked."}{" "}
             <Link href="/profile" className="nabin-alert__action" style={{ margin: 0 }}>
               View status
             </Link>

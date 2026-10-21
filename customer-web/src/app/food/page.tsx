@@ -187,32 +187,9 @@ export default function FoodPage() {
       setListDegraded(res.data.dataSource !== "postgres");
       setListState("ready");
     } catch {
-      setRestaurants([
-        {
-          id: "demo-rest-01",
-          name: "The Royal Biryani House",
-          merchantType: "RESTAURANT",
-          address: "Park Street, Kolkata",
-          cuisines: ["Biryani", "Mughlai", "North Indian"],
-          rating: 4.8,
-          deliveryTime: "25-35 mins",
-          isOpen: true,
-          location: { lat: 22.55, lng: 88.35 },
-        },
-        {
-          id: "demo-rest-02",
-          name: "Tandoori Nights & Rolls",
-          merchantType: "RESTAURANT",
-          address: "Sector V, Salt Lake",
-          cuisines: ["Rolls", "Kebabs", "Fast Food"],
-          rating: 4.5,
-          deliveryTime: "20-30 mins",
-          isOpen: true,
-          location: { lat: 22.58, lng: 88.43 },
-        },
-      ]);
-      setListDegraded(true);
-      setListState("ready");
+      setRestaurants([]);
+      setListError("The restaurant list could not be loaded. Check your connection, then retry.");
+      setListState("error");
     }
   }, [search, openOnly]);
 
@@ -376,22 +353,6 @@ export default function FoodPage() {
     setBusy(true);
     setFailure("");
     setOrder(null);
-    if (active.id.startsWith("demo-")) {
-      setOrder({
-        id: "DEMO-ORD-8812",
-        orderNumber: "DEMO-FOOD-8812",
-        status: "PLACED",
-        totalAmount: estimate,
-        lines: cart.map((c) => ({
-          product_name_snapshot: c.name,
-          quantity: c.quantity,
-          line_total: c.unitPrice * c.quantity,
-        })),
-      });
-      setCart([]);
-      setBusy(false);
-      return;
-    }
     try {
       const res = await bookingApi.bookFood({
         // No customerId: the session is the authority and the route rejects a mismatching one.
@@ -401,7 +362,7 @@ export default function FoodPage() {
         idempotencyKey: idemRef.current,
       });
       if (res.data.success) {
-        setOrder(res.data.job);
+        setOrder(res.data.order);
         setCart([]);
         setMenu([]);
         void openMenuRefresh(active);
@@ -853,12 +814,14 @@ export default function FoodPage() {
                   </div>
                 ))}
                 <div className="nabin-list-row">
-                  <span className="nabin-cell-meta">Total charged (server priced)</span>
+                  <span className="nabin-cell-meta">Order total (server priced)</span>
                   <span className="nabin-order__amount nabin-num">{inr(order.totalAmount)}</span>
                 </div>
                 <div className="nabin-list-row" style={{ borderBottom: "none" }}>
                   <span className="nabin-cell-meta">Delivering to {deliveryAddress}</span>
-                  <span className="nabin-badge nabin-badge--warning">{order.status ?? "RECEIVED"}</span>
+                  {order.status && (
+                    <span className="nabin-badge nabin-badge--neutral">{order.status}</span>
+                  )}
                 </div>
                 <p style={{ marginTop: "var(--space-sm)", fontSize: 13 }}>
                   <Link href="/orders" className="nabin-alert__action" style={{ margin: 0 }}>

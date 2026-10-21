@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:math';
 import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart';
 import '../../../../core/network/nabin_api_service.dart';
@@ -79,6 +80,16 @@ class _RideBookingScreenState extends State<RideBookingScreen> {
   bool _defaultsApplied = false;
 
   bool _submitting = false;
+
+  /// Fare estimate for each vehicle index, keyed by index. Null means not yet
+  /// fetched or the fetch failed.
+  final Map<int, Map<String, dynamic>?> _fareEstimates = {};
+
+  /// Whether a fare estimate is currently being fetched.
+  bool _fareLoading = false;
+
+  /// Error message from the last failed fare estimate, if any.
+  String? _fareError;
 
   // The vehicle list carries only what the platform defines: a name, the service
   // type the fare engine keys on, and a seat count. The fares and the "Nearest:
@@ -519,6 +530,142 @@ class _RideBookingScreenState extends State<RideBookingScreen> {
     );
   }
 
+  /// Great-circle distance between two points, in kilometres.
+  static double _distanceKm(LatLng a, LatLng b) {
+    const earthRadiusKm = 6371.0;
+    final lat1 = a.latitude * pi / 180;
+    final lat2 = b.latitude * pi / 180;
+    final dLat = (b.latitude - a.latitude) * pi / 180;
+    final dLng = (b.longitude - a.longitude) * pi / 180;
+    final h = sin(dLat / 2) * sin(dLat / 2) +
+        cos(lat1) * cos(lat2) * sin(dLng / 2) * sin(dLng / 2);
+    return 2 * earthRadiusKm * asin(sqrt(h));
+  }
+
+  /// Reads a fare amount from the pricing estimate map, trying the keys the
+  /// pricing service is most likely to use. Returns null when none parse.
+  static num? _fareAmount(Map<String, dynamic>? estimate) {
+    if (estimate == null) return null;
+    for (final key in [
+      'amount',
+      'price',
+      'fare',
+      'estimatedFare',
+      'total',
+      'estimate',
+    ]) {
+      final v = estimate[key];
+      if (v is num) return v;
+      if (v is String) return num.tryParse(v);
+    }
+    return null;
+  }
+
+  /// Fetch a fare estimate for the currently selected vehicle from NABIN's
+  /// pricing endpoint, using the straight-line distance between the pinned
+  /// pickup and drop points.
+  Future<void> _fetchFareEstimate() async {
+    final pickup = _pickupPoint;
+    final drop = _dropPoint;
+    if (pickup == null || drop == null) return;
+
+    final selected = _vehicles[_selectedVehicleIndex];
+    final type = selected['type'] as String;
+
+    setState(() {
+      _fareLoading = true;
+      _fareError = null;
+    });
+
+    try {
+      final distanceKm = _distanceKm(pickup, drop);
+      final estimate = await NabinApiService.calculateFareEstimate(
+        serviceType: type,
+        distanceKm: distanceKm,
+        pickupLat: pickup.latitude,
+        pickupLng: pickup.longitude,
+      );
+      if (!mounted) return;
+      setState(() {
+        _fareEstimates[_selectedVehicleIndex] = estimate;
+        _fareLoading = false;
+        if (estimate == null) _fareError = 'Could not fetch fare estimate.';
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _fareLoading = false;
+        _fareError = e.toString();
+      });
+    }
+  }
+
+  Widget _buildFareEstimate() {
+    final selected = _vehicles[_selectedVehicleIndex];
+    final estimate = _fareEstimates[_selectedVehicleIndex];
+
+    if (_fareLoading) {
+      return const SizedBox(
+        height: 24,
+        child: Row(
+          children: [
+            SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            SizedBox(width: 8),
+            Text(
+              'Calculating fare estimate…',
+              style: TextStyle(fontSize: 12, color: AppTheme.onSurfaceVariant),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (_fareError != null) {
+      return Text(
+        'Fare estimate unavailable',
+        style: TextStyle(fontSize: 12, color: AppTheme.error),
+      );
+    }
+
+    if (estimate == null) {
+      return const SizedBox.shrink();
+    }
+
+    final amount = _fareAmount(estimate);
+    final pickup = _pickupPoint;
+    final drop = _dropPoint;
+    final distance =
+        pickup != null && drop != null ? _distanceKm(pickup, drop) : null;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          amount != null
+              ? 'Estimated fare: ₹${amount.toDouble().toStringAsFixed(0)}'
+              : 'Fare estimate available',
+          style: const TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            color: AppTheme.onSurface,
+          ),
+        ),
+        if (distance != null)
+          Text(
+            '≈ ${distance.toStringAsFixed(1)} km • ${selected['name'] as String}',
+            style: TextStyle(
+              fontSize: 11,
+              color: AppTheme.onSurfaceVariant,
+            ),
+          ),
+      ],
+    );
+  }
+
   /// Opens the pin picker and, when the customer places a point, makes it this
   /// ride's pickup or drop. The typed label travels with it; the coordinate comes
   /// only from the pin.
@@ -555,6 +702,7 @@ class _RideBookingScreenState extends State<RideBookingScreen> {
         _dropPoint = point;
       }
     });
+    if (_pickupPoint != null && _dropPoint != null) _fetchFareEstimate();
     return point;
   }
 
@@ -611,6 +759,7 @@ class _RideBookingScreenState extends State<RideBookingScreen> {
                 _dropPoint = point;
               }
             });
+            if (_pickupPoint != null && _dropPoint != null) _fetchFareEstimate();
             Navigator.pop(ctx);
             _showNotice('${isPickup ? "Pickup" : "Drop"} set to: $label');
           }
@@ -1244,7 +1393,10 @@ class _RideBookingScreenState extends State<RideBookingScreen> {
                     final vehicle = _vehicles[idx];
                     final isSelected = _selectedVehicleIndex == idx;
                     return GestureDetector(
-                      onTap: () => setState(() => _selectedVehicleIndex = idx),
+                      onTap: () {
+                        setState(() => _selectedVehicleIndex = idx);
+                        _fetchFareEstimate();
+                      },
                       child: AnimatedContainer(
                         duration: const Duration(milliseconds: 200),
                         margin: const EdgeInsets.only(bottom: 8),
@@ -1297,6 +1449,7 @@ class _RideBookingScreenState extends State<RideBookingScreen> {
                       ),
                     );
                   }),
+                  _buildFareEstimate(),
                   const Align(
                     alignment: Alignment.centerLeft,
                     child: Text(
@@ -1366,7 +1519,8 @@ class _RideBookingScreenState extends State<RideBookingScreen> {
                       };
 
                       setState(() => _submitting = true);
-                      final res = await NabinApiService.bookRide(payload);
+                      final idemKey = 'ride_${DateTime.now().microsecondsSinceEpoch}_${Random().nextInt(1 << 32)}';
+                      final res = await NabinApiService.bookRide(payload, idempotencyKey: idemKey);
                       if (!mounted || !context.mounted) return;
                       setState(() => _submitting = false);
 

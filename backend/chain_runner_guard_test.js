@@ -711,6 +711,16 @@ check('CRG-56', /search_path%3Dchain_scratch/.test(laneUrl.connectionString),
     + `${mchFileTarget ? mchFileTarget.port : '?'}, ${mchFileTarget ? mchFileTarget.source : '?'}) and opens `
     + `${socketCount(mchFile)} socket(s), so a suite booted the way package.json boots the chain still resolves a real target`);
 
+  // A DSN is a fallback because of the SYNTAX around it — it is the right-hand side of a default or an
+  // assignment — not because of the characters inside it. The bare substring used to say "this file holds
+  // a 54322 address" also matched link 57's COR-50/COR-51 decoys, which are fabricated secrets whose whole
+  // job is to be caught and redacted in an error body (customer_order_read_reliability_test.js:694, :747).
+  // Editing those literals to duck the scan would have gutted the positive controls, so the criterion
+  // moved to the hazard shape instead. CRG-138 proves the narrowed test still catches a typed-back
+  // fallback, and CRG-137 remains the executed proof: every suite here exits 1 with 0 socket(s) when
+  // nothing declares a target, so a real fallback in any of them would connect and be caught anyway.
+  const FALLBACK_DSN = /(?:\|\||[=:])\s*['"`]postgres(?:ql)?:\/\/[^'"]*54322/;
+
   // The executed proofs above cover the four refusal paths and the resolution order. This one keeps the
   // fallback from being typed back in — and reads CODE lines only, because the comment at
   // merchant_operations_test.js:44 quotes the removed DSN to explain why it is gone.
@@ -719,7 +729,7 @@ check('CRG-56', /search_path%3Dchain_scratch/.test(laneUrl.connectionString),
   check('CRG-135', /require\('\.\/scripts\/chain_target_guard'\)/.test(mchCode)
     && /requireLoopbackPgTarget\(\{ label: 'merchant_operations_test' \}\)/.test(mchCode)
     && !/NABIN_PG_NOTIFY\s*\|\|/.test(mchCode)
-    && !/postgres(?:ql)?:\/\/[^\s'"]*@[^\s'"]*54322/.test(mchCode),
+    && !FALLBACK_DSN.test(mchCode),
     'merchant_operations_test.js resolves its store through the shared guard and its code holds no '
     + 'fallback DSN, so the refusals executed above are proofs about the file that actually loads');
 
@@ -757,12 +767,48 @@ check('CRG-56', /search_path%3Dchain_scratch/.test(laneUrl.connectionString),
       || !guardCall.test(code)
       || /NABIN_PG_NOTIFY\s*\|\|/.test(code)
       || /LOCAL_POSTGRES_URL\s*\|\|/.test(code)
-      || /postgres(?:ql)?:\/\/[^\s'"]*@[^\s'"]*54322/.test(code);
+      || FALLBACK_DSN.test(code);
   });
   check('CRG-136', unguarded.length === 0,
     `${EXPLICIT_TARGET_SUITES.length} suites that hold their own pg handle resolve their store through the `
     + `shared guard and hold no fallback DSN in code (deficient: ${unguarded.join(', ') || 'none'}) — the `
     + 'refusal proven above for one suite is the rule for every suite that writes fixture rows');
+
+  // CRG-138 — the non-vacuity proof for the narrowed criterion, and the record of what the narrowing cost.
+  // It holds nothing but shapes, each one line of suite source as the scanner reads it: the two forms that
+  // actually make a DSN load-bearing (a `||` default on an env read, a `connectionString:` property) must
+  // match; the three decoy forms, which carry the IDENTICAL `postgres://…@127.0.0.1:54322/postgres`
+  // characters but only as prose inside a string, must not. Delete the `||` arm and case 1 stops matching;
+  // loosen the quote requirement and all three decoys fire again — so this check cannot be satisfied by a
+  // regex too loose to discriminate or too tight to catch the hazard.
+  //
+  // What was measured, not assumed, when the criterion changed: across `backend/*.js` code lines the old
+  // substring matched 66 sites and this one matches 57. Every site it stopped matching is either a decoy
+  // payload in link 57 (3) or a positional `new Client('<dsn>')` in a scratch_* throwaway (5) — none is in
+  // EXPLICIT_TARGET_SUITES, and all 5 `NABIN_PG_NOTIFY || '<dsn>'` fallbacks the check exists to catch still
+  // match. The residual blind spot is stated rather than hidden: a DSN passed as a bare positional argument
+  // is not flagged here. That shape cannot be a FALLBACK (it has no default operator), so CRG-137 remains
+  // the guard against it — a suite holding one connects when nothing declares a target, and the executed
+  // 0-socket refusal fails.
+  const DSN = 'postgres://supabase:secret@127.0.0.1:54322/postgres';
+  const HAZARD_SHAPES = [
+    `const DB_URL = process.env.DATABASE_URL || '${DSN}';`,
+    `pool = createPool({ connectionString: '${DSN}' });`,
+  ];
+  const DECOY_SHAPES = [
+    `const PROSE_ID = 'password=${DSN} at Object.<anonymous> stack';`,
+    `{ error: 'could not connect with password=${DSN}' }`,
+    `const SECRET_MARKERS = ['password', '${DSN}', 'service_role'];`,
+  ];
+  const missed = HAZARD_SHAPES.filter((s) => !FALLBACK_DSN.test(s));
+  const falsePos = DECOY_SHAPES.filter((s) => FALLBACK_DSN.test(s));
+  check('CRG-138', missed.length === 0 && falsePos.length === 0,
+    `the fallback test fires on all ${HAZARD_SHAPES.length} load-bearing shapes `
+    + `(env `||` default, createPool property) and on none of the `
+    + `${DECOY_SHAPES.length} decoy shapes (${missed.length} missed, ${falsePos.length} false positive(s)`
+    + `${missed.length ? '; missed: ' + missed.join(' | ') : ''}`
+    + `${falsePos.length ? '; fired on: ' + falsePos.join(' | ') : ''}) — a redaction decoy is not a `
+    + 'connection default, and the scan tells them apart by the syntax around the literal, not its address');
 
   const bareRefusers = EXPLICIT_TARGET_SUITES.map((f) => {
     // `shellEnv` has SUPABASE_URL deleted, so a child would dotenv-load the hosted SECTION A pair and

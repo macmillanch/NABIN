@@ -4,6 +4,7 @@ import '../../../../core/theme/driver_theme.dart';
 import '../../../../core/network/nabin_api_service.dart';
 import '../../../../core/widgets/driver_button.dart';
 import '../../../../core/widgets/driver_card.dart';
+import '../../../../core/widgets/nabin_brand_logo.dart';
 
 class DriverLoginScreen extends StatefulWidget {
   const DriverLoginScreen({super.key});
@@ -77,12 +78,9 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
                     child: const Icon(Icons.local_taxi, color: Colors.white, size: 22),
                   ),
                   const SizedBox(width: 12),
-                  const Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('NABIN', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: DriverTheme.primaryBlue, letterSpacing: 1.0)),
-                      Text('DRIVER PARTNER', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: DriverTheme.textMuted, letterSpacing: 0.8)),
-                    ],
+                  const NabinBrandLogo(
+                    fontSize: 18,
+                    badge: 'DRIVER',
                   ),
                 ],
               ),

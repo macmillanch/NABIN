@@ -79,10 +79,19 @@ class PricingRepository {
       commissionPercent: parseFloat(row.commission_percent || 0),
       globalSurgeMultiplier: parseFloat(row.global_surge_multiplier || 1.0),
       activeSurgeZone: row.active_surge_zone || 'NONE',
+      // --- DEC-026: first 300 m included in base fare
+      includedKm: parseFloat(row.included_km ?? 0.3),
+      // --- DEC-021: waiting charges
+      freeWaitMins: parseInt(row.free_wait_mins ?? 3, 10),
+      waitChargePerMin: parseFloat(row.wait_charge_per_min ?? 2.0),
+      // --- DEC-020: cancellation fee
+      cancellationFee: parseFloat(row.cancellation_fee ?? 50.0),
+      cancellationDriverPct: parseFloat(row.cancellation_driver_pct ?? 80.0),
       updatedBy: row.updated_by,
       updatedAt: row.updated_at
     };
   }
+
 
   mapGeoFenceRowToDTO(row) {
     if (!row) return null;

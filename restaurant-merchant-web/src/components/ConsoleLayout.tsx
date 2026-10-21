@@ -4,12 +4,37 @@ import React, { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useMerchant } from '@/context/MerchantAuth';
-import { BarsIcon, CloseIcon, LogoutIcon, GridIcon, InboxIcon, MenuBookIcon } from '@/components/Icons';
+import {
+  BarsIcon,
+  CloseIcon,
+  LogoutIcon,
+  GridIcon,
+  InboxIcon,
+  MenuBookIcon,
+  TableIcon,
+  TakeawayIcon,
+  DeliveryIcon,
+  KdsIcon,
+  BoxesIcon,
+  StaffIcon,
+  ReportsIcon,
+  SettlementIcon,
+  SettingsIcon,
+} from '@/components/Icons';
 
 export const RESTAURANT_NAV: ConsoleNavItem[] = [
-  { name: 'Dashboard', href: '/', icon: GridIcon },
+  { name: 'Overview', href: '/', icon: GridIcon },
   { name: 'Orders', href: '/orders', icon: InboxIcon },
+  { name: 'Dine-In & Tables', href: '/tables', icon: TableIcon },
+  { name: 'Takeaway', href: '/takeaway', icon: TakeawayIcon },
+  { name: 'Delivery', href: '/delivery', icon: DeliveryIcon },
+  { name: 'Kitchen Display', href: '/kds', icon: KdsIcon },
   { name: 'Menu', href: '/menu', icon: MenuBookIcon },
+  { name: 'Inventory', href: '/inventory', icon: BoxesIcon },
+  { name: 'Staff & Roles', href: '/staff', icon: StaffIcon },
+  { name: 'Sales & Reports', href: '/reports', icon: ReportsIcon },
+  { name: 'Settlements', href: '/settlements', icon: SettlementIcon },
+  { name: 'RMS Settings', href: '/settings', icon: SettingsIcon },
 ];
 
 export interface ConsoleNavItem {
@@ -36,9 +61,7 @@ export default function ConsoleLayout({ children, title, roleLabel, nav }: Conso
 
       <aside className={`nabin-nav ${open ? 'is-open' : ''}`} aria-label="Merchant navigation">
         <div className="nabin-nav__brand">
-          <span className="nabin-wordmark" style={{ fontSize: 18, color: 'var(--on-brand)' }}>
-            NABIN
-          </span>
+          <img src="/nabin_logo_full.png" alt="NABIN" style={{ height: 24, width: 'auto', objectFit: 'contain' }} />
           <span className="nabin-nav__role">{roleLabel}</span>
           <button onClick={() => setOpen(false)} className="nabin-nav__close" aria-label="Close navigation">
             <CloseIcon />
@@ -73,6 +96,30 @@ export default function ConsoleLayout({ children, title, roleLabel, nav }: Conso
             );
           })}
         </nav>
+
+        <div style={{ padding: 'var(--space-md)', marginTop: 'auto', borderTop: '1px solid var(--border)' }}>
+          <a
+            href={process.env.NEXT_PUBLIC_UNIFIED_PORTAL_URL || 'http://localhost:3004'}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '10px 12px',
+              borderRadius: '8px',
+              background: '#EBF1FF',
+              color: '#1A3BA2',
+              fontSize: '13px',
+              fontWeight: 600,
+              textDecoration: 'none',
+              border: '1px solid #C9DAFF',
+            }}
+          >
+            <span>✨ Unified Portal</span>
+            <span style={{ fontSize: '11px', background: '#1A3BA2', color: '#fff', padding: '2px 6px', borderRadius: '4px', marginLeft: 'auto' }}>New</span>
+          </a>
+        </div>
       </aside>
 
       <div className="nabin-column">

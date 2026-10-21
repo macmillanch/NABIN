@@ -18,7 +18,7 @@ Answer: a pattern. Six of the platform's reads required a complete set and were 
 | 4 | Admin list reads that publish a newest-first window as a whole (`promotions` 815, `support_tickets` 751, `geo_fences` 445, `surge_zones` 443, `campaigns` 198) | **CAP-SENSITIVE** — recorded, deliberately not changed (`## 4.2`) |
 | 5 | Per-owner reads whose owner can itself hold hundreds of rows (one customer's sessions 254, one user's tickets 561) | **CAP-SENSITIVE**, headroom measured (`## 4.2`) |
 | 6 | Full-table point lookups on `admin_accounts` (`resolveAdminByPhone`, `setAdminAccountStatus`) | **REQUIRES BUSINESS DECISION** — the design comment relies on the table being staff-sized (`## 4.3`) |
-| 7 | In-memory fallback mirrors with explicit `.limit()` (`jobs` 200/1821, `audit_logs` 204/26752, `ledger_entries` 500/1210, `support_tickets` 205/751) | **BOUNDED, but a labelled window** — see the outage question in `## 4.4` |
+| 7 | In-memory fallback mirrors with explicit `.limit()` (`jobs` 200/1821, `audit_logs` 204/26752, `ledger_entries` 500/1210, `support_tickets` 205/751) | **BOUNDED, and the outage question is answered** — Decision 6 B, implemented and pinned; see `## 4.4` and `## 4.7` |
 | 8 | Every remaining unbounded read (36 sites) | **SAFE / BOUNDED** by a unique-key filter, a per-parent maximum, a small domain, or an explicit limit (`## 4.5`) |
 | 9 | `authoritativeRead` — the "loud store" wrapper | **CONFIRMED gap**: it turns a store *failure* into a 503; it does **not** detect a *truncated* set (`## 4.6`) |
 | 10 | Is `backend_sessions` isolated? | **NO — REPRODUCED as a pattern** (`## 5`) |
@@ -155,7 +155,40 @@ These are all *lists a human or a screen reads*, not complete-set authorities. E
 | `backend/src/database.js:1773` | jobs mirror | `jobs` | 200 of 1,821 | **BOUNDED** (explicit `.limit(200)`, newest first) |
 | `backend/src/database.js:1834` | ledger mirror | `ledger_entries` | 500 of 1,210 | **BOUNDED** |
 | `backend/src/database.js:1909` | support-ticket mirror | `support_tickets` | 205 of 751 | **BOUNDED** |
-| `backend/src/database.js:1947` | audit-log mirror | `audit_logs` | 204 of **26,752** (0.8%) | **BOUNDED — REQUIRES INVESTIGATION**: these mirrors are what the code falls back to when the store is unreachable. A 0.8% window of the audit trail is fine as a cache and wrong as an answer; the open question is whether any read path serves them as "the audit log" during an outage rather than refusing. That is the same fail-open shape `authoritativeRead` was written to close, on the mirror side. |
+| `backend/src/database.js:1947` | audit-log mirror | `audit_logs` | 204 of **26,752** (0.8%) at measurement; **200 of 225,571** measured 2026-10-10 | **ANSWERED AND CLOSED — Decision 6 chose B** (`docs/OWNER_SECURITY_DECISIONS.md:228`): the copy may serve a request during an outage, but only labelled. See `## 4.7` for what ships and what the marker now carries. |
+
+### 4.7 The audit mirror as it now stands (2026-10-10)
+
+The question `## 4.4` left open had an owner answer before this section was written: Decision 6 of
+`docs/OWNER_SECURITY_DECISIONS.md` chose option B for all three uses (ADMIN UI, COMPLIANCE, SECURITY
+INVESTIGATION) — serve the stale mirror, but say so. What was built is that saying-so, and it is data,
+not prose:
+
+- `hydrateAuditMirror()` reads the newest `AUDIT_MIRROR_LIMIT` (200) rows and **records** the read:
+  `source`, `limit`, `readAt`, `windowRows`, `storeRows`, `complete`, `error`. The page error is no
+  longer swallowed, and the store size comes from one `count: 'exact'` head request.
+- An incomplete window is named in the boot report's `INCOMPLETE MIRROR(S)` list, which previously
+  excluded `audit_logs` entirely.
+- Rows enter the mirror through `auditLogRepo.mapRowToDTO()`, the same mapper a read returns. Before
+  this, boot's mapping reached for that name out of scope, so mirrored rows kept snake_case keys and
+  every camelCase reader skipped them — the trail rendered `Invalid Date` and `System` for records the
+  store held in full.
+- `AuditLogRepository.list()` derives its labels from that record rather than asserting them: a
+  process with no store attached says `dataSource: 'memory'` and may report a total; a process serving
+  a store window says `degraded`/`stale`, reports `storeRows`/`mirroredRows`/`hydrationLimit`, and
+  leaves `total` **null**. The length of a window is never presented as the size of the trail, and an
+  unknown store size is not guessed from the rows present.
+- Both admin read routes carry the marker through one `auditTrailMarker()` helper, and the two
+  unlabelled `db.getAuditLogs()` fallbacks were deleted — that accessor returns rows with no
+  statement about what they are, which is exactly what Decision 6 forbids.
+- The live branch still **rejects** when the store refuses a read; it does not quietly demote to the
+  mirror. Whether R1 (500, unlabelled) and R2 (503, `AUDIT_TRAIL_UNAVAILABLE`) should answer the same
+  way is a recorded owner clarification, so neither was changed here. `AF-19` pins the difference to
+  make a future change a decision rather than an accident.
+
+Pinned by `backend/boot_mirror_read_test.js` BM-20..BM-27 (the record boot writes) and
+`backend/admin_audit_fail_closed_test.js` AF-12..AF-19 (the answer a reader gets).
+
 
 ### 4.5 SAFE / BOUNDED — the other 36 unbounded-flagged reads
 
@@ -164,8 +197,8 @@ Grouped by why the cap cannot bite. No action; changing any of these would be th
 | File:line | Function | Table | Bound that actually holds | Verdict |
 |---|---|---|---|---|
 | `SupportTicketRepository.js:401,525,622,701` | `getTicketById`, `attribution`, `assignTicket`, `resolveTicket` | `support_tickets` | `.or('id.eq.X,ticket_number.eq.Y')` / `.eq('ticket_number')` + `.maybeSingle()` on a unique column | BOUNDED (scanner artifact) |
-| `DispatchRepository.js:283` | `getActiveAssignmentForDriver` | `jobs` | `.limit(1).maybeSingle()` after the filter | BOUNDED |
-| `DispatchRepository.js:248` | `getOffersForDriver` | `dispatch_offers` | one driver + `status='OFFERED'` + unexpired = **0 rows today**; the table's 156,942 rows are 89,469 expired offers nobody deletes | SAFE as a read; the undeleted-expired-offers growth is a data-retention question, not a cap question |
+| `DispatchRepository.js → getActiveAssignmentForDriver` | `getActiveAssignmentForDriver` | `jobs` | `.limit(1).maybeSingle()` after the filter | BOUNDED |
+| `DispatchRepository.js → getOffersForDriver` | `getOffersForDriver` | `dispatch_offers` | one driver + `status='OFFERED'` + unexpired = **0 rows today**; the table's 156,942 rows are 89,469 expired offers nobody deletes | SAFE as a read; the undeleted-expired-offers growth is a data-retention question, not a cap question |
 | `OrderRepository.js:390` | `getOrderById` | `orders` | `eq id` (PK) / `eq order_number` (unique) | BOUNDED |
 | `OrderRepository.js:432` | `getOrdersByMerchant` | `orders` | `.range()` with a caller `limit` (max 1,013 orders for one merchant → pagination is load-bearing and already correct) | PAGINATED |
 | `OrderRepository.js:509` | `getCheckoutById` | `checkouts` | `eq id`/`checkout_id` + `.maybeSingle()` | BOUNDED |
@@ -210,7 +243,7 @@ Verdict: **CONFIRMED gap, NOT FIXED** — the honest fix is per call site (a wal
 
 1. `promotions list()` 838/1000 and `getTicketsAdmin()` 763/1000 — the two that will cross the cap under normal growth, and growing from test runs rather than users. Decide page size (product) or walk (engineering). `## 4.2`, `## 6.2`
 2. `admin_accounts` full-table identity resolution — decide between a normalised phone column (needs DDL → a migration, which this pass does not apply) or a walk. `## 4.3`
-3. Whether the 0.8% `audit_logs` mirror may answer a request during a store outage. `## 4.4`
+3. ~~Whether the 0.8% `audit_logs` mirror may answer a request during a store outage.~~ **Decided (Decision 6, option B) and implemented 2026-10-10** — see `## 4.7`. What remains is not a cap question: the two admin read routes still refuse an outage differently (R1 500 unlabelled, R2 503 coded), which is a recorded owner clarification, and the mirror is unbounded in memory. `## 4.4`
 4. `listCustomerSessions` when the per-customer maximum approaches 1000. `## 4.2`
 
 ### 6.2 The fixture leakage that made these numbers lie — now half fixed
@@ -251,3 +284,89 @@ node <scratch>/scan_reads.js backend/src
 ```
 
 `boot_mirror_read_test.js` and `session_reconcile_pagination_test.js` are wired into `npm test` (`backend/package.json:10`). The scratch scripts are deliberately outside the repository: they count rows and are not assertions.
+
+---
+
+## 8. Authoritative wrapper inventory (Phase 8, Decision 7 choice C)
+
+**Phase 8 deliverable:** Inventory and classify every call site of `authoritativeRead`, `authoritativeWrite`, and `settleAuthoritative` across `backend/src` by cardinality and PostgREST `max_rows` sensitivity.
+
+**Decision 7 is choice C: inventory first, implementation later — so this phase changes no behaviour.**
+
+The wrapper definitions are in `backend/src/database.js`:
+- `authoritativeRead`: `database.js:6074`
+- `authoritativeWrite`: `database.js:6081`
+- `settleAuthoritative`: `database.js:6089`
+
+The wrappers turn transport/PostgREST errors into fail-closed HTTP 503 (`AUTH_STORE_UNAVAILABLE`). As established in §4.6, they do **not** inspect `data.length` or detect silent PostgREST truncation at `max_rows = 1000`.
+
+### 8.1 Resolution of previously unclassified and flagged sites
+
+1. **Merchant lookup (`database.js:6564`) — RESOLVED: SAFE / NOT SENSITIVE.**
+   - Surrounding code inspection confirms the query executes:
+     `supabaseAdmin.from('merchants').select('*').eq('phone', normPhone).order('created_at', { ascending: true }).limit(1)`
+   - Both the SQL-side phone filter and `.limit(1)` are in place. The query returns at most 1 row and is completely unaffected by `max_rows`.
+2. **Driver status pre-read (`DriverRepository.js:505`) — RESOLVED: SAFE / NOT SENSITIVE.**
+   - The query executes `.from('drivers').select('operational_status, is_online, kyc_status').eq('id', targetUuid)`.
+   - Bounded by primary key `id = targetUuid`, returning at most 1 row.
+3. **Driver status write (`DriverRepository.js:536`) — RESOLVED: SAFE / NOT SENSITIVE.**
+   - The query executes `.from('drivers').update(updates).eq('id', targetUuid)`.
+   - Bounded by primary key `id = targetUuid`, returning at most 1 mutated row.
+4. **`resolveAdminByPhone` (previously `:5282`, formerly whole-table scan) — ALREADY REMEDIATED in Phase 41 / T1.**
+   - `resolveAdminByPhone` (`database.js:6150`) no longer calls `authoritativeRead`.
+   - It now routes through `this.readAllRows(supabaseAdmin, { table: 'admin_accounts', select: '*' })` with an explicit completeness check: if `!walk.complete`, it refuses with `ADMIN_DIRECTORY_INCOMPLETE` or `AUTH_STORE_UNAVAILABLE` rather than answering from a partial set.
+5. **`setAdminAccountStatus` (previously `:6995`, formerly whole-table scan) — ALREADY NARROWED in Phase 41.**
+   - The admin lookup is targeted via `.eq('id', wanted)`, `.in('username', wantedForms)`, and `.in('email', wantedForms)` (`database.js:8368, 8372, 8375`).
+   - The SUPER_ADMIN floor census (`database.js:8410`) is filtered to `.eq('role', 'SUPER_ADMIN').eq('is_active', true)`.
+
+### 8.2 Full call site census
+
+Enumerated across `backend/src`: 27 external call sites (15 `authoritativeRead`, 9 `authoritativeWrite`, 3 external `settleAuthoritative`).
+
+| # | File:line | Wrapper | Table + query shape | Enclosing use | Expected cardinality | Complete-set required? | `max_rows` sensitivity | Proposed remediation (Phase 9) |
+|---|---|---|---|---|---|---|---|---|
+| 1 | `DriverRepository.js:505` | `authoritativeRead` | `drivers` `.select(...).eq('id', targetUuid)` | `updateDriverStatus` (pre-read) | 1 | No | **SAFE / NOT SENSITIVE** (PK filter) | None |
+| 2 | `DriverRepository.js:536` | `settleAuthoritative` | `drivers` `.update(...).eq('id', targetUuid)` | `updateDriverStatus` (mutation) | 1 | No | **SAFE / NOT SENSITIVE** (PK filter) | None |
+| 3 | `database.js:4731` | `authoritativeWrite` | `admin_accounts` `.upsert([...]).select('id')` | `enrollAdmin` | 1 | No | **SAFE / NOT SENSITIVE** (username conflict key) | None |
+| 4 | `database.js:5637` | `authoritativeWrite` | `admin_accounts` `.update(...).eq('username', ...).select('username')` | `resetAdminPassword` | 1 | No | **SAFE / NOT SENSITIVE** (unique username) | None |
+| 5 | `database.js:5678` | `authoritativeWrite` | `admin_accounts` `.update(...).eq('username', ...)` | `resetAdminPassword` (compensating restore) | 1 | No | **SAFE / NOT SENSITIVE** (unique username) | None |
+| 6 | `database.js:6237` | `authoritativeRead` | `admin_accounts` `.select(...).eq('username', ...).limit(2)` | `authoritativeAdminByUsername` | 1–2 | Yes | **SAFE / NOT SENSITIVE** (bounded by `.limit(2)`) | None |
+| 7 | `database.js:6412` | `authoritativeRead` | `users` `.select('*').eq('phone', ...).maybeSingle()` | Customer OTP sign-in / verification | 1 | No | **SAFE / NOT SENSITIVE** (`phone` UNIQUE, `.maybeSingle()`) | None |
+| 8 | `database.js:6454` | `authoritativeWrite` | `users` `.insert(...)` | Customer OTP sign-in (new account creation) | 1 | No | **SAFE / NOT SENSITIVE** (1 row insert) | None |
+| 9 | `database.js:6518` | `authoritativeRead` | `drivers` `.select('*').eq('phone', ...).maybeSingle()` | Driver OTP sign-in / verification | 1 | No | **SAFE / NOT SENSITIVE** (`phone` UNIQUE, `.maybeSingle()`) | None |
+| 10 | `database.js:6542` | `authoritativeRead` | `users` `.select('*').eq('phone', ...).maybeSingle()` | Driver linked user profile lookup | 1 | No | **SAFE / NOT SENSITIVE** (`phone` UNIQUE, `.maybeSingle()`) | None |
+| 11 | `database.js:6564` | `authoritativeRead` | `merchants` `.select('*').eq('phone', ...).order(...).limit(1)` | Merchant OTP sign-in / verification | 1 | No | **SAFE / NOT SENSITIVE** (SQL filter + `.limit(1)`) | None |
+| 12 | `database.js:7477` | `authoritativeWrite` | `backend_sessions` `.delete().eq('token_hash', ...).select(...)` | `revokeAdminSession` | 1 | No | **SAFE / NOT SENSITIVE** (single token hash) | None |
+| 13 | `database.js:7522` | `authoritativeWrite` | `backend_sessions` `.delete().eq('entity_id', ...).select(...)` | `revokeAdminSessionsForAccount` | SET (1–5 typical) | Yes | **LOW SENSITIVITY** (admin sessions; delete `.select()` capped at 1000) | Keyset delete walk or RPC if admin sessions > 1000 |
+| 14 | `database.js:7589` | `authoritativeRead` | `backend_sessions` `.select(...).eq('role', 'CUSTOMER').in('entity_id', ...)` | `listCustomerSessions` (by customer IDs) | SET (max measured 254) | Yes | **SENSITIVE** (heavy customer could exceed 1000 sessions) | Keyset pagination on `created_at` or `token_hash` |
+| 15 | `database.js:7595` | `authoritativeRead` | `backend_sessions` `.select(...).eq('role', 'CUSTOMER').eq('phone', ...)` | `listCustomerSessions` (by phone) | SET | Yes | **SENSITIVE** (same as above) | Keyset pagination |
+| 16 | `database.js:7648` | `authoritativeWrite` | `backend_sessions` `.delete().in('token_hash', handles).select(...)` | `revokeCustomerSessions` | SET | Yes | **SENSITIVE** (bounded by `handles` length; `.in()` array limit & return cap) | Chunked delete batches (e.g. 500) |
+| 17 | `database.js:7814` | `authoritativeRead` | `users` `.select(...).eq('id', uuid).maybeSingle()` | `setCustomerAccountStatus` (pre-read) | 1 | No | **SAFE / NOT SENSITIVE** (PK filter) | None |
+| 18 | `database.js:7828` | `authoritativeWrite` | `users` `.update(...).eq('id', uuid).select(...)` | `setCustomerAccountStatus` (mutation) | 1 | No | **SAFE / NOT SENSITIVE** (PK filter) | None |
+| 19 | `database.js:7999` | `authoritativeRead` | `users` `.select(...).eq('id', uuid).maybeSingle()` | `updateCustomerAccount` (pre-read) | 1 | No | **SAFE / NOT SENSITIVE** (PK filter) | None |
+| 20 | `database.js:8015` | `authoritativeRead` | `users` `.select('id').neq('id', uuid).eq('email', ...).limit(1)` | `updateCustomerAccount` (email duplicate check) | 1 | No | **SAFE / NOT SENSITIVE** (bounded by `.limit(1)`) | None |
+| 21 | `database.js:8022` | `settleAuthoritative` | `users` `.update(...).eq('id', uuid).select(...)` | `updateCustomerAccount` (mutation) | 1 | No | **SAFE / NOT SENSITIVE** (PK filter) | None |
+| 22 | `database.js:8155` | `authoritativeRead` | `users` `.select(...).ilike(...).limit(200)` | `listCustomerAccounts` (search) | SET (max 200) | Declared | **DELIBERATE / NOT SENSITIVE** (self-declares `searchCappedAt: 200`) | Keep; documented contract |
+| 23 | `database.js:8162` | `settleAuthoritative` | `users` `.select(..., { count: 'exact' }).range(skip, skip + size - 1)` | `listCustomerAccounts` (pagination) | SET (page size) | Declared | **SAFE / NOT SENSITIVE** (paged with `count: 'exact'`) | Keep; canonical pattern |
+| 24 | `database.js:8199` | `authoritativeRead` | `users` `.select(...).eq('id', uuid).maybeSingle()` | `getCustomerAccount` | 1 | No | **SAFE / NOT SENSITIVE** (PK filter) | None |
+| 25 | `database.js:8305` | `authoritativeRead` | `users` `.select(...).eq('id', uuid).maybeSingle()` | `verifyCustomerSession` | 1 | No | **SAFE / NOT SENSITIVE** (PK filter) | None |
+| 26 | `database.js:8368` | `authoritativeRead` | `admin_accounts` `.select(cols).eq('id', wanted)` | `setAdminAccountStatus` (ID lookup) | 1 | No | **SAFE / NOT SENSITIVE** (PK filter) | None |
+| 27 | `database.js:8372` | `authoritativeRead` | `admin_accounts` `.select(cols).in('username', wantedForms)` | `setAdminAccountStatus` (username lookup) | 1–2 | No | **SAFE / NOT SENSITIVE** (unique username) | None |
+| 28 | `database.js:8375` | `authoritativeRead` | `admin_accounts` `.select(cols).in('email', wantedForms)` | `setAdminAccountStatus` (email lookup) | 1–2 | No | **SAFE / NOT SENSITIVE** (small domain) | None |
+| 29 | `database.js:8410` | `authoritativeRead` | `admin_accounts` `.select('id, role, is_active').eq('role', 'SUPER_ADMIN').eq('is_active', true)` | `setAdminAccountStatus` (SUPER_ADMIN floor) | Small SET (1–5) | Yes | **LOW SENSITIVITY** (SUPER_ADMIN accounts are few; would only truncate if > 1000 super admins) | Add `count: 'exact', head: true` or keyset walk in Phase 9 |
+| 30 | `database.js:8453` | `authoritativeWrite` | `admin_accounts` `.update(...).eq('id', target.id).select(...)` | `setAdminAccountStatus` (mutation) | 1 | No | **SAFE / NOT SENSITIVE** (PK filter) | None |
+
+### 8.3 Summary of findings & input into Phase 9
+
+1. **Only 3 call sites remain truly sensitive to `max_rows`:**
+   - `listCustomerSessions` (`database.js:7589`, `database.js:7595`) — reading a customer's active sessions without keyset pagination.
+   - `revokeCustomerSessions` (`database.js:7648`) — deleting session rows by handle array without chunking.
+2. **2 call sites have low theoretical sensitivity:**
+   - `revokeAdminSessionsForAccount` (`database.js:7522`) — deleting admin sessions where returning delete rows could theoretically be capped if >1000.
+   - `setAdminAccountStatus` SUPER_ADMIN census (`database.js:8410`) — reading active super admins.
+3. **22 call sites are completely SAFE:**
+   - 17 point lookups/mutations bounded by PK or unique column constraints (`id`, `username`, `phone`, `token_hash`).
+   - 3 queries with explicit caller `.limit(1)` or `.limit(2)`.
+   - 2 queries with explicit page ranges (`searchCappedAt: 200` or `.range()` with `count: 'exact'`).
+4. **Conclusion:**
+   The `authoritativeRead`/`authoritativeWrite` wrapper family is heavily concentrated on single-row lookups and mutations. The vulnerability to silent `max_rows` truncation is confined to the session listing/deletion functions in `database.js`. Phase 9 can cleanly target these specific session operations without touching the 22 safe point-lookup sites.

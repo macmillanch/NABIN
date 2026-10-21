@@ -38,7 +38,11 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
     return Scaffold(
       backgroundColor: AdminTheme.bgOffWhite,
       appBar: AppBar(
-        title: const Text('Admin Dashboard'),
+        backgroundColor: AdminTheme.primaryBlue,
+        foregroundColor: Colors.white,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        title: const Text('Admin Dashboard', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18, color: Colors.white)),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
@@ -149,49 +153,75 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
       width: 150,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AdminTheme.primaryBlue.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AdminTheme.primaryBlue.withOpacity(0.2)),
+        color: AdminTheme.surfaceWhite,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AdminTheme.borderLight),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
       ),
       child: Column(
         children: [
-          Icon(icon, size: 28, color: AdminTheme.primaryBlue),
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: AdminTheme.primaryBlue.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, size: 24, color: AdminTheme.primaryBlue),
+          ),
           const SizedBox(height: 8),
-          Text(value, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AdminTheme.primaryBlue)),
+          Text(value, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: AdminTheme.textDark)),
           const SizedBox(height: 4),
-          Text(title, textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
+          Text(title, textAlign: TextAlign.center, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: AdminTheme.textMuted)),
         ],
       ),
     );
   }
 
   Widget _buildActionCard(String title, IconData icon, VoidCallback onTap) {
-    return InkWell(
-      onTap: onTap,
-      child: Container(
-        width: 150,
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.05),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        child: Column(
-          children: [
-            Icon(icon, size: 40, color: AdminTheme.primaryBlue),
-            const SizedBox(height: 12),
-            Text(
-              title,
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontWeight: FontWeight.bold),
-            ),
-          ],
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          width: 150,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: AdminTheme.surfaceWhite,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: AdminTheme.borderLight),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.04),
+                blurRadius: 10,
+                offset: const Offset(0, 3),
+              ),
+            ],
+          ),
+          child: Column(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AdminTheme.primaryBlue.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, size: 32, color: AdminTheme.primaryBlue),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                title,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: AdminTheme.textDark),
+              ),
+            ],
+          ),
         ),
       ),
     );

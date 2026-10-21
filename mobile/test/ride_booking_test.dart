@@ -135,6 +135,15 @@ void serve({bool withSavedChild = true, bool withSavedSchool = true}) {
     if (path.contains('/customer/book-ride')) {
       return (_bookStatus, jsonEncode(_bookReply!));
     }
+    if (path.contains('/pricing/estimate')) {
+      // A quote is a preview; the confirmed fare still comes from the booking
+      // route. The number here is deliberately different from the booked fare
+      // (148.5) so the tests can tell a preview from a confirmation.
+      return (200, jsonEncode(<String, dynamic>{
+        'success': true,
+        'estimate': <String, dynamic>{'amount': 250},
+      }));
+    }
     if (path.endsWith('/schools')) {
       return (200, jsonEncode(<String, dynamic>{
         'success': true,
@@ -618,6 +627,36 @@ void main() {
         findsOneWidget,
       );
       expect(find.textContaining('jobId='), findsNothing);
+    });
+  });
+
+  group('the fare estimate and the idempotency key', () {
+    testWidgets('paints the fare the pricing endpoint returned, not one this screen computed',
+        (tester) async {
+      await pumpBooking(tester);
+      await placeBothEnds(tester);
+      // Let the async estimate fetch resolve and rebuild.
+      for (var i = 0; i < 8; i++) {
+        await tester.pump(const Duration(milliseconds: 60));
+      }
+
+      // The stub answers `{amount: 250}`; the screen must paint that number.
+      expect(stubSaw('POST', '/pricing/estimate'), isTrue);
+      expect(find.textContaining('₹250'), findsOneWidget);
+    });
+
+    testWidgets('sends an Idempotency-Key on the booking mutation', (tester) async {
+      await pumpBooking(tester);
+      await placeBothEnds(tester);
+      await book(tester);
+
+      final idx = stubSeen.indexWhere(
+          (s) => s.startsWith('POST') && s.contains('/customer/book-ride'));
+      expect(idx, isNot(-1), reason: 'the booking request must leave the app');
+
+      final key = stubHeaders[idx]['idempotency-key'];
+      expect(key, isNotNull, reason: 'the booking must carry an Idempotency-Key');
+      expect(key, startsWith('ride_'));
     });
   });
 }

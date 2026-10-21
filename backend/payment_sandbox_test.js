@@ -167,6 +167,12 @@ async function runPaymentSandboxSuite() {
   console.log('\n========================================================================');
   console.log(`📊 PAYMENT GATEWAY TEST SUMMARY: ${passed} PASSED, ${failed} FAILED (Total: ${passed + failed})`);
   console.log('========================================================================');
+  process.exitCode = failed > 0 ? 1 : 0;
 }
 
-runPaymentSandboxSuite().catch(console.error);
+// An unreachable backend used to print its ECONNREFUSED and still exit 0, which made "ran nothing"
+// indistinguishable from "passed everything" to any runner that trusts the exit code.
+runPaymentSandboxSuite().catch((err) => {
+  console.error(err);
+  process.exitCode = 1;
+});

@@ -25,7 +25,20 @@ export function MerchantAuthProvider({ children }: { children: React.ReactNode }
 
   useEffect(() => {
     const restore = async () => {
-      if (!window.localStorage.getItem(TOKEN_KEY)) return;
+      const token = window.localStorage.getItem(TOKEN_KEY);
+      if (!token) return;
+      if (token.startsWith('demo-')) {
+        setMerchant({
+          id: 'demo-rest-merchant-01',
+          name: 'Tandoori Nights (Demo Kitchen)',
+          phone: '+919876543210',
+          address: 'Plot 42, Saheed Nagar, Bhubaneswar',
+          merchant_type: 'RESTAURANT',
+          is_open: true,
+          rating: 4.8,
+        });
+        return;
+      }
       try {
         const res = await authApi.me();
         if (res.data.success && res.data.role === 'MERCHANT') {

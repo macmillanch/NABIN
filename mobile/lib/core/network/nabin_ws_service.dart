@@ -172,6 +172,24 @@ class NabinWsService {
     }
   }
 
+  void subscribeToRide(String jobId) {
+    if (_socket != null && _isConnected && _isAuthenticated && jobId.isNotEmpty) {
+      _socket!.add(jsonEncode({
+        'type': 'SUBSCRIBE_RIDE',
+        'jobId': jobId,
+      }));
+    }
+  }
+
+  void unsubscribeFromRide(String jobId) {
+    if (_socket != null && _isConnected && jobId.isNotEmpty) {
+      _socket!.add(jsonEncode({
+        'type': 'UNSUBSCRIBE_RIDE',
+        'jobId': jobId,
+      }));
+    }
+  }
+
   void disconnect() {
     _socket?.close();
     _socket = null;

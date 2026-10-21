@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/grocery_auth_provider.dart';
 import '../theme/grocery_theme.dart';
+import '../../../../core/widgets/nabin_brand_logo.dart';
 import 'grocery_app_shell.dart';
 import 'grocery_login_screen.dart';
 
@@ -125,36 +126,11 @@ class _GrocerySplashScreenState extends ConsumerState<GrocerySplashScreen>
                     const SizedBox(height: 24),
 
                     // App Title
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Text(
-                          'NABIN',
-                          style: TextStyle(
-                            fontSize: 34,
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: -1.0,
-                            color: Colors.white,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: GroceryTheme.primaryGreen,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: const Text(
-                            'GROCERY',
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w900,
-                              color: Colors.white,
-                              letterSpacing: 1.2,
-                            ),
-                          ),
-                        ),
-                      ],
+                    const NabinBrandLogo(
+                      fontSize: 34,
+                      isLight: true,
+                      badge: 'GROCERY',
+                      badgeColor: GroceryTheme.primaryGreen,
                     ),
                     const SizedBox(height: 12),
 

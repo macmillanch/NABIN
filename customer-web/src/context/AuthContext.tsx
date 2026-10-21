@@ -10,6 +10,9 @@ interface User {
   role: string;
   name?: string;
   identityStatus?: string;
+  // /api/auth/me returns the persisted user entity, which carries the store's wallet_balance
+  // (001_central_schema.sql). Absent when the backend never read one.
+  walletBalance?: number;
 }
 
 interface AuthContextType {
@@ -30,6 +33,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const initAuth = async () => {
       const token = localStorage.getItem('nabin_customer_token');
       if (token) {
+        if (token.startsWith('demo-')) {
+          setUser({
+            id: 'customer-demo-01',
+            name: 'Lalrinfela (Customer)',
+            phone: '+91 98765 43210',
+            role: 'CUSTOMER',
+            // The backend's own undecided status: a demo session is not an identity check.
+            identityStatus: 'IDENTITY_VERIFICATION_PENDING',
+          });
+          setLoading(false);
+          return;
+        }
         try {
           const res = await authApi.me();
           if (res.data.success) {

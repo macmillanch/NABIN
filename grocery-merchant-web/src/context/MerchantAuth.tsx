@@ -25,7 +25,20 @@ export function MerchantAuthProvider({ children }: { children: React.ReactNode }
 
   useEffect(() => {
     const restore = async () => {
-      if (!window.localStorage.getItem(TOKEN_KEY)) return;
+      const token = window.localStorage.getItem(TOKEN_KEY);
+      if (!token) return;
+      if (token.startsWith('demo-')) {
+        setMerchant({
+          id: 'demo-groc-merchant-01',
+          name: 'Fresh Harvest Mart (Demo Grocery)',
+          phone: '+919876543211',
+          address: 'Shop 12, Khandagiri Plaza, Bhubaneswar',
+          merchant_type: 'GROCERY',
+          is_open: true,
+          rating: 4.9,
+        });
+        return;
+      }
       try {
         const res = await authApi.me();
         if (res.data.success && res.data.role === 'MERCHANT') {

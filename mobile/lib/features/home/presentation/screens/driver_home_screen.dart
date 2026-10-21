@@ -546,6 +546,16 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                     style: const TextStyle(fontSize: 11, color: DriverTheme.roadGold)),
             ],
           ),
+          // The entry point to the partner's own feed. No count is drawn on it, because the
+          // unread count is a read of `GET /api/notifications` and this screen's payload does
+          // not carry one — a badge here would have to be invented.
+          IconButton(
+            key: const ValueKey('driver-home-notifications'),
+            onPressed: () => context.push('/notifications'),
+            icon: const Icon(Icons.notifications_none_rounded),
+            color: DriverTheme.primaryBlue,
+            tooltip: 'Notifications',
+          ),
         ],
       ),
     );

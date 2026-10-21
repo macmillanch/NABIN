@@ -1,0 +1,8 @@
+# NABIN Android Release Signing Configuration Example
+# Copy this file to mobile/android/key.properties and replace with real credentials.
+# NEVER commit key.properties or .jks files to Git.
+
+storePassword=YOUR_KEYSTORE_PASSWORD
+keyPassword=YOUR_KEY_PASSWORD
+keyAlias=nabin_release_key
+storeFile=../upload-keystore.jks

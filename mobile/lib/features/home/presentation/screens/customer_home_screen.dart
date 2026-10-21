@@ -8,6 +8,7 @@ import '../../../../core/config/nabin_build_env.dart';
 import '../../../../core/config/nabin_config_controller.dart';
 import '../../../../core/widgets/nabin_remote_banner.dart';
 import '../../../../core/widgets/nabin_campaign.dart';
+import '../../../../core/widgets/nabin_brand_logo.dart';
 import '../../../../core/models/school_child_repository.dart';
 import '../../../../core/network/nabin_api_service.dart';
 import '../../../../core/network/session_manager.dart';
@@ -270,17 +271,12 @@ class _CustomerHomeScreenState extends ConsumerState<CustomerHomeScreen> {
             ),
           ),
         ),
-        title: NabinCampaignWordmark(
+        title: const NabinCampaignWordmark(
           // The built-in wordmark is also the fallback for a campaign that
           // published none, so the header never depends on a fetch succeeding.
-          fallback: Text(
-            'NABIN',
-            style: TextStyle(
-              fontWeight: FontWeight.w900,
-              fontSize: 20,
-              color: palette.onBrand,
-              letterSpacing: 1.0,
-            ),
+          fallback: NabinBrandLogo(
+            fontSize: 20,
+            isLight: true,
           ),
         ),
         centerTitle: true,

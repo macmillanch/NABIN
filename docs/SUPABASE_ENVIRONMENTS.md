@@ -108,13 +108,19 @@ DATABASE_URL=<direct/pooler URL for that project only>
 NODE_ENV=production
 ```
 
-Templates, with every value blank:
+Templates, with every credential blank:
 
 - `backend/.env.example` — local Docker development
 - `backend/.env.testing.example` — pinned to `ywhxkzmbwppkdemvzlhv`
 - `backend/.env.production.example` — pinned to `ouxvqmhuyueklnegvmxe`
+- `backend/.env.staging.example` — the same `testing` project, in the shape
+  `backend/scripts/with_staging_target.js` expects. "Staging" is a name for the hosted
+  `nabin-test` project and for the harness that guards it; it is **not** a value of
+  `NABIN_ENV`. The file sets `NABIN_ENV=testing`, because
+  `NABIN_ENV="staging" is not one of development | testing | production.`
 
-Only variables that `src/` actually reads appear in them. `render.yaml` carries
+Only variables that `src/` actually reads appear in them. There is no `CORS_ORIGIN`:
+the allowed origins are a hard-coded list in `src/server.js`. `render.yaml` carries
 `NABIN_ENV` and `NABIN_SUPABASE_REF` for `nabin-beta-api` (testing) and
 `nabin-backend-prod` (production); the secrets themselves stay in the Render
 dashboard.
@@ -149,7 +155,7 @@ project's environment tab, never committed.
 
 ## The guards
 
-Four independent gates. A mismatch has to get past all four to cause damage.
+Seven independent gates. A mismatch has to get past all seven to cause damage.
 
 1. **Server boot** — `backend/src/supabase.js` calls
    `nabinEnv.assertConfigured()` at module scope, before any Supabase client is
@@ -162,17 +168,42 @@ Four independent gates. A mismatch has to get past all four to cause damage.
    `NABIN_ALLOW_REMOTE_TESTS=1`.
 4. **Flutter release build** — `NabinBuildEnv.validate()` in the API and WS URL
    getters.
+5. **Hosted-staging harness** — `backend/scripts/with_staging_target.js` wraps any
+   command aimed at `nabin-test`. It refuses the production ref, refuses a loopback
+   target, refuses an ambiguous configuration, refuses a TLS bypass, and refuses an
+   unfilled credential — naming the owner action and exiting 2 **without spawning the
+   wrapped command**, so a half-configured staging run cannot reach the network.
+   `backend/staging_target_guard_test.js`: 40/40.
+6. **Database TLS policy** — `backend/src/services/dbTls.js` decides `ssl` from the
+   target, not from operator convenience: a loopback host sends no TLS whatever
+   `DATABASE_SSL` says, and a hosted host verifies against the pinned
+   `backend/certs/supabase-root-2021-ca.pem`. `no-verify`, `insecure`, `allow`,
+   `disable` and `false` throw `DATABASE_TLS_BYPASS_REFUSED` on a hosted host; an
+   unrecognised value throws `DATABASE_TLS_MODE_UNKNOWN`; unset means `require`.
+   `backend/db_tls_policy_test.js`: 50/50.
+7. **Hosted-test verifier** — `backend/scripts/verify_hosted_test_env.js` answers one
+   question, read-only: is this configuration the hosted `nabin-test` project, *completely*?
+   Production and any `nabinEnv` problem exit 1. A missing credential exits 2 as a named
+   `PENDING CREDENTIALS` verdict — it no longer says PASS, which is what it used to do: on
+   2026-10-12 it printed `✅ PASS: Environment is safely and correctly configured for Hosted TEST`
+   against `backend/.env`, which has the two REST keys and **no `DATABASE_URL` at all**, because
+   the DSN check was computed, printed with a ⚠️, and never used in a condition. And under the
+   staging harness it loads no env file, because a local `.env.test.local` was loaded with
+   `override: true` and could move the target the harness had just pinned and audited.
+   `backend/verify_hosted_test_env_guard_test.js`: 27/27.
 
 ### What a refusal says, and how to read it
 
 ```
 NABIN_ENV_MISMATCH: this process refused to start.
-  - SUPABASE_URL points at project abcdef12345678901234 but NABIN_SUPABASE_REF declares ouxvqmhuyueklnegvmxe.
+  - SUPABASE_URL points at project abcdef12345678901234 but this environment declares NABIN_SUPABASE_REF=ouxvqmhuyueklnegvmxe.
   - SUPABASE_SERVICE_ROLE_KEY is a key for project ywhxkzmbwppkdemvzlhv but this environment uses ouxvqmhuyueklnegvmxe. Cross-environment credential — refusing to start.
 ```
 
-The last line is the important one: the key's own `iss: "supabase:<ref>"` claim
-is decoded and compared. A production service key pasted into a testing config —
+The last line is the important one: the key's own **`ref`** claim is decoded and
+compared. The legacy dashboard keys carry `iss: "supabase"` and name the project in
+a separate top-level `ref` claim (verified by decoding real keys on 2026-10-12), so
+the pin is read from `ref`. A production service key pasted into a testing config —
 or the reverse — is caught from the credential side, not just the URL side.
 
 The message names variables and refs. **It never prints a key value, and it
@@ -181,11 +212,16 @@ never prints the `DATABASE_URL` string**, because the password lives inside it.
 Local development needs no declaration: a loopback `SUPABASE_URL` with no
 `NABIN_ENV` passes, which is why the daily workflow is unchanged.
 
-Verify the guard yourself:
+Verify the guards yourself:
 
 ```
-cd backend && node nabin_env_guard_test.js    # 29 checks, covers all four gates' logic
+cd backend && node nabin_env_guard_test.js            # 42 checks, gates 1-2 plus the pin's logic
+cd backend && node staging_target_guard_test.js       # 40 checks, gate 5
+cd backend && node db_tls_policy_test.js              # 50 checks, gate 6
+cd backend && node verify_hosted_test_env_guard_test.js  # 27 checks, gate 7
 ```
+
+All four were re-run on 2026-10-12: **42/42, 40/40, 50/50, 27/27 — 159 checks, exit 0 each.**
 
 ## Explicit non-actions
 

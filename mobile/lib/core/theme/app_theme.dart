@@ -45,7 +45,7 @@ class AppTheme {
   static const Color textSecondary = NabinColor.onSurfaceMuted;
   static const Color customerAccent = NabinColor.brand;
   static const Color customerSecondary = NabinColor.groceryGreen;
-  static const Color driverAccent = NabinColor.foodOrange;
+  static const Color driverAccent = NabinColor.driverAccent;
   static const Color driverOnlineGreen = NabinColor.success;
   static const Color restaurantAccent = NabinColor.foodOrange;
   static const Color restaurantReady = NabinColor.warning;

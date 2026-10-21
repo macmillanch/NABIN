@@ -129,47 +129,6 @@ class _DriverAccountScreenState extends State<DriverAccountScreen> {
     context.go('/login');
   }
 
-  Future<void> _raiseHelpTicket() async {
-    final controller = TextEditingController();
-    final submitted = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Report an issue'),
-        content: TextField(
-          controller: controller,
-          maxLines: 4,
-          decoration: const InputDecoration(hintText: 'What happened?'),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Send')),
-        ],
-      ),
-    );
-    final description = controller.text.trim();
-    if (submitted != true || description.isEmpty) return;
-
-    final res = await NabinApiService.submitSupportTicket(
-      category: 'DRIVER_SUPPORT',
-      // The signed-in partner's own id, as the platform gave it. Ownership of the ticket is
-      // decided server-side from the bearer token; this only mirrors it.
-      userId: (SessionManager.instance.currentUser?['id'] as String?) ?? '',
-      title: 'Driver partner support',
-      description: description,
-    );
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(res != null && res['success'] == true
-            ? 'Helpdesk ticket opened. NABIN will reply in the app.'
-            : res?['error'] as String? ?? 'Could not open a ticket just now.'),
-        backgroundColor: res != null && res['success'] == true
-            ? DriverTheme.primaryBlue
-            : Colors.red.shade700,
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -358,7 +317,26 @@ class _DriverAccountScreenState extends State<DriverAccountScreen> {
                 ? 'No verified payout address yet'
                 : '${a.payoutDestination}${a.payoutVerified ? ' (verified)' : ''}',
             color: DriverTheme.primaryBlue,
-            onTap: () => context.push('/earnings'),
+            onTap: () => context.push('/payout'),
+          ),
+          const SizedBox(height: 24),
+
+          const Text('Alerts',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: DriverTheme.textDark)),
+          const SizedBox(height: 10),
+          _buildInfoRow(
+            icon: Icons.notifications_none_rounded,
+            title: 'Notifications',
+            subtitle: 'What NABIN has told you about, read from your own feed',
+            color: DriverTheme.primaryBlue,
+            onTap: () => context.push('/notifications'),
+          ),
+          _buildInfoRow(
+            icon: Icons.tune_rounded,
+            title: 'Notification preferences',
+            subtitle: 'Which messages, and through which channel',
+            color: DriverTheme.primaryBlue,
+            onTap: () => context.push('/notifications/preferences'),
           ),
           const SizedBox(height: 24),
 
@@ -368,9 +346,9 @@ class _DriverAccountScreenState extends State<DriverAccountScreen> {
           _buildInfoRow(
             icon: Icons.help_outline,
             title: 'Driver Help & Incident Support',
-            subtitle: 'Opens a ticket with the NABIN partner helpdesk',
+            subtitle: 'Your tickets with the NABIN partner helpdesk',
             color: DriverTheme.primaryBlue,
-            onTap: _raiseHelpTicket,
+            onTap: () => context.push('/support'),
           ),
           // The "Emergency 24/7 Safety SOS" row used to be a button wired to nothing at all.
           // An SOS that silently does nothing is worse than no button, so it stays off this

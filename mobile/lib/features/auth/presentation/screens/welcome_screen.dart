@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/theme/nabin_palette.dart';
 import '../../../../core/theme/nabin_tokens.dart';
+import '../../../../core/widgets/nabin_brand_logo.dart';
 
 import '../../../../core/network/session_manager.dart';
 
@@ -90,11 +91,11 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                       color: palette.brand,
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    child: Row(
+                    child: const Row(
                       children: [
-                        Icon(Icons.bolt, color: palette.onBrand, size: 16),
-                        const SizedBox(width: 4),
-                        Text('NABIN', style: TextStyle(color: palette.onBrand, fontWeight: FontWeight.w900, fontSize: 13, letterSpacing: 1.2)),
+                        Icon(Icons.bolt, color: Colors.white, size: 16),
+                        SizedBox(width: 4),
+                        NabinBrandLogo(fontSize: 13, isLight: true),
                       ],
                     ),
                   ),

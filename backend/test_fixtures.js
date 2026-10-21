@@ -129,8 +129,12 @@ async function openFixtures(label = 'suite', options = {}) {
     // only after proving no merchant row already answers to it.
     const number = phone || await freePhone('merchants');
     const { rows } = await client.query(
-      `INSERT INTO merchants (id, name, merchant_type, phone, address, lat, lng, is_open)
-       VALUES (gen_random_uuid(), $1, $2, $3, $4, 23.7176, 92.7176, $5)
+      // `approval_status = 'APPROVED'` is written, not defaulted: a fixture here stands for a store
+      // the platform has onboarded, which is what every caller's merchant-scoped request assumes.
+      // Migration 048's DEFAULT is PENDING on purpose, so an omitted column would make these suites
+      // test a storefront the gate is designed to refuse.
+      `INSERT INTO merchants (id, name, merchant_type, phone, address, lat, lng, is_open, approval_status)
+       VALUES (gen_random_uuid(), $1, $2, $3, $4, 23.7176, 92.7176, $5, 'APPROVED')
        RETURNING id::text id`,
       [marker(name), type, number, 'Fixture Street 1, Aizawl', is_open]
     );
@@ -373,6 +377,19 @@ async function openFixtures(label = 'suite', options = {}) {
     }
     // an order line can also belong to a fixture merchant without the order being listed here
     await del('order_lines', 'merchant_id', merchants, 'uuid');
+    // A delivery job hangs off the store it hands over from, and `jobs.merchant_id REFERENCES
+    // merchants(id)` carries no ON DELETE clause (001_central_schema.sql), so a job that outlives its
+    // order blocks the merchant delete below with 23503. It was unreachable before P3 #436 because
+    // nothing ever minted a FOOD/GROCERY job - measured 2026-10-19: the checkout fixture's four
+    // grocery orders left four jobs behind (`jobs:0` removed, `residue j:4`, merchants blocked), while
+    // the `jobs` delete under the users loop below matched nothing, because the order's customer is a
+    // seeded row and not one of this handle's. Scope is the same exact-id ownership as `orders`:
+    // `created.merchants` only ever holds stores this handle INSERTED (test_fixtures.js `merchant()`).
+    // A job that carries money is NOT reaped here by accident - `payments`, `payment_sessions`,
+    // `ledger_entries`, `journal_transactions` and `payment_refund_authorizations` all reference
+    // `jobs(id)` with NO ACTION, so such a delete is refused and surfaces in `blocked` as a red,
+    // which is the F-C1-4 rule: a fixture cannot silently delete the rows an audit points at.
+    await del('jobs', 'merchant_id', merchants, 'uuid');
     await del('orders', 'merchant_id', merchants, 'uuid');
     await del('orders', 'customer_id', users, 'uuid');
     await del('checkouts', 'merchant_id', merchants, 'uuid');

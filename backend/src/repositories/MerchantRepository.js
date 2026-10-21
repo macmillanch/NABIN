@@ -171,6 +171,16 @@ class MerchantRepository {
     }
 
     const fallbackId = crypto.randomUUID();
+    // A registration is a request to be reviewed, not a decision to accept the partner.
+    // Until this line changed, this was the whole onboarding funnel: `is_open: true` made
+    // the store orderable the instant the insert landed (the public read policy keyed on
+    // `is_open` alone), and `rating: 4.80` put a review score on a storefront that had
+    // never served a customer. Neither value was derived from anything — both were
+    // written here and read everywhere else as if the platform had decided them.
+    // Migration 048 adds `approval_status`, and the gate is now PENDING/`is_open: false`
+    // until an admin with `merchant.manage` decides otherwise through
+    // `DatabaseService.setMerchantApproval`. `rating` stays NULL: a rating is an
+    // aggregation of real reviews, and there are none yet.
     const insertData = {
       id: fallbackId,
       name: String(name || '').trim(),
@@ -180,8 +190,9 @@ class MerchantRepository {
       lat: Number(lat) || 23.7271,
       lng: Number(lng) || 92.7176,
       fssai_license: fssaiLicense ? String(fssaiLicense).trim() : null,
-      is_open: true,
-      rating: 4.80,
+      is_open: false,
+      approval_status: 'PENDING',
+      rating: null,
       wallet_balance: 0.00,
       commission_rate: 0.15,
       cuisines: Array.isArray(cuisines) ? cuisines : ['All'],
@@ -227,7 +238,12 @@ class MerchantRepository {
         fssai_license: persistentRecord.fssai_license,
         fssaiLicense: persistentRecord.fssai_license,
         is_open: Boolean(persistentRecord.is_open),
-        rating: Number(persistentRecord.rating) || 4.8,
+        // `|| 4.8` here re-fabricated the score on the degraded read path even after the
+        // durable column stopped carrying it, so a memory-served listing could still claim
+        // a rating for a store with no reviews.
+        rating: persistentRecord.rating == null ? null : Number(persistentRecord.rating),
+        approval_status: persistentRecord.approval_status || 'PENDING',
+        approvalStatus: persistentRecord.approval_status || 'PENDING',
         walletBalance: Number(persistentRecord.wallet_balance) || 0,
         commissionRate: Number(persistentRecord.commission_rate) || 0.15,
         cuisines: persistentRecord.cuisines || ['All'],

@@ -1,8 +1,9 @@
 /*
   NABIN canonical design tokens + component layer.
   Source of truth: mobile/lib/core/theme/nabin_tokens.dart
-  Keep this file byte-identical across the four Next.js apps
-  (customer-web, admin-web, restaurant-merchant-web, grocery-merchant-web).
+  NOT byte-identical across the apps, despite looking like one file: the five copies have
+  drifted (admin-web leads with @import "tailwindcss"; the others differ in length), and nothing
+  checks or syncs them. A shared token or .nabin-* rule change must be repeated in each app.
   Product UI text uses Inter. The NABIN wordmark alone uses Neuron.
 */
 
@@ -35,13 +36,17 @@
   --success: #22a447;
   --success-dark: #1b8238;
   --success-tint: #e8f5e9;
+  /* Text ink on --success-tint. --success-dark is 4.34:1 there, under AA; #166534 is 6.34:1. */
+  --success-ink: #166534;
   --warning: #f59e0b;
   --warning-dark: #b45309;
   --warning-tint: #fff4ec;
   --danger: #dc2626;
   --danger-bright: #ef4444;
-  /* Filled danger controls carry a label, so they use the AA-safe variant:
-     white on #dc2626 is 4.4:1, white on #b91c1c is 5.9:1. */
+  /* The AA-safe danger variant, used two ways: as the fill behind white-labelled danger
+     controls (white on #dc2626 is 4.83:1, on #b91c1c 6.47:1), and as the text ink on the
+     #fdecec badge/alert tint (#dc2626 there is 4.23:1, under AA; #b91c1c is 5.66:1).
+     Error text on white keeps --danger, which measures 4.83:1 there. */
   --danger-dark: #b91c1c;
   --info: #0284c7;
 
@@ -51,7 +56,10 @@
   --surface-muted: #f1f5f9;
   --surface-emphasized: #e2e8f0;
   --ink: #0f172a;
-  --ink-muted: #64748b;
+  /* Muted ink has to clear AA on the surfaces it is used on, not only on white: #64748b is
+     4.76:1 on #ffffff but 4.34:1 on --surface-muted, 4.23:1 on the success tint, 4.17:1 on the
+     danger tint. #5a6a7f holds 4.83:1 on the worst of those and 5.52:1 on white. */
+  --ink-muted: #5a6a7f;
   --divider: #e2e8f0;
 
   /* Dark ramp — applied via [data-theme="dark"] */
@@ -81,9 +89,13 @@
   --radius-pill: 9999px;
 
   /* Elevation */
-  --shadow-low: 0 2px 4px rgba(0, 0, 0, 0.05);
-  --shadow-mid: 0 4px 12px rgba(0, 0, 0, 0.08);
-  --shadow-high: 0 12px 24px rgba(0, 0, 0, 0.12);
+  --shadow-low: 0 1px 3px rgba(15, 23, 42, 0.05), 0 1px 2px -1px rgba(15, 23, 42, 0.03);
+  --shadow-mid: 0 4px 12px rgba(15, 23, 42, 0.08);
+  --shadow-high: 0 16px 32px rgba(15, 23, 42, 0.12);
+  --shadow-subtle: 0 1px 2px 0 rgba(16, 24, 40, 0.04);
+  --shadow-card: 0 1px 3px 0 rgba(16, 24, 40, 0.06), 0 1px 2px -1px rgba(16, 24, 40, 0.04);
+  --shadow-card-hover: 0 10px 22px -3px rgba(16, 24, 40, 0.09), 0 4px 6px -2px rgba(16, 24, 40, 0.03);
+  --shadow-modal: 0 24px 48px -12px rgba(15, 23, 42, 0.25);
 
   /* Motion */
   --motion-instant: 120ms;
@@ -246,10 +258,10 @@ button {
 
 .nabin-card {
   background: var(--surface);
-  border: 1px solid var(--divider);
-  border-radius: var(--radius-lg);
+  border: 1px solid rgba(226, 232, 240, 0.85);
+  border-radius: 16px;
   padding: var(--space-lg);
-  box-shadow: var(--shadow-low);
+  box-shadow: var(--shadow-card);
   transition: box-shadow var(--motion-base) var(--motion-curve),
     transform var(--motion-base) var(--motion-curve),
     border-color var(--motion-base) var(--motion-curve);
@@ -257,8 +269,8 @@ button {
 
 .nabin-card--interactive:hover {
   transform: translateY(-2px);
-  border-color: var(--brand-bright);
-  box-shadow: var(--shadow-mid);
+  border-color: #cbd5e1;
+  box-shadow: var(--shadow-card-hover);
 }
 
 .nabin-card__header {
@@ -350,6 +362,16 @@ button {
   color: var(--ink);
 }
 
+/* 2.5.8 Target Size Minimum is 24x24 CSS px and Chrome paints a native box at ~13px,
+   so the box is sized here instead of page by page. */
+input[type='checkbox'],
+input[type='radio'] {
+  width: 24px;
+  height: 24px;
+  accent-color: var(--brand);
+  cursor: pointer;
+}
+
 .nabin-input {
   width: 100%;
   min-height: var(--target-comfortable);
@@ -399,7 +421,7 @@ button {
 
 .nabin-badge--success {
   background: var(--success-tint);
-  color: var(--success-dark);
+  color: var(--success-ink);
 }
 
 .nabin-badge--warning {
@@ -409,7 +431,7 @@ button {
 
 .nabin-badge--danger {
   background: #fdecec;
-  color: var(--danger);
+  color: var(--danger-dark);
 }
 
 .nabin-badge--neutral {
@@ -512,7 +534,8 @@ button {
 }
 
 .nabin-chip.is-active {
-  background: var(--role-accent);
+  /* White on the bare accent is 3.58:1 (restaurant orange) / 3.25:1 (grocery green); the darkened mix every role clears 5:1. */
+  background: color-mix(in srgb, var(--role-accent) 78%, #000);
   border-color: transparent;
   color: var(--on-brand);
 }
@@ -597,7 +620,8 @@ button {
   font-weight: 800;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--brand-bright);
+  /* --brand-bright measures 2.04:1 on --brand-hover and 1.61:1 on --brand; nav text uses white at 78%. */
+  color: rgba(255, 255, 255, 0.78);
   margin-inline-start: auto;
 }
 
@@ -629,7 +653,7 @@ button {
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--brand-bright);
+  color: rgba(255, 255, 255, 0.78);
 }
 
 .nabin-nav__list {
@@ -693,10 +717,11 @@ button {
   position: sticky;
   top: 0;
   z-index: 50;
-  background: color-mix(in srgb, var(--surface) 88%, transparent);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border-bottom: 1px solid var(--divider);
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-bottom: 1px solid rgba(226, 232, 240, 0.85);
+  box-shadow: var(--shadow-subtle);
 }
 
 .nabin-header__inner {
@@ -720,14 +745,13 @@ button {
 }
 
 .nabin-header__links a {
-  padding: var(--space-xxs) var(--space-sm);
+  padding: 6px 14px;
   border-radius: var(--radius-pill);
-  font-size: 14px;
-  font-weight: 700;
+  font-size: 13.5px;
+  font-weight: 600;
   color: var(--ink-muted);
   white-space: nowrap;
-  transition: background-color var(--motion-fast) var(--motion-curve),
-    color var(--motion-fast) var(--motion-curve);
+  transition: all var(--motion-fast) var(--motion-curve);
 }
 
 .nabin-header__links a:hover {
@@ -736,8 +760,10 @@ button {
 }
 
 .nabin-header__links a.is-active {
-  color: var(--brand-hover);
-  background: var(--role-tint);
+  color: var(--brand);
+  background: #eff6ff;
+  box-shadow: 0 1px 2px rgba(26, 59, 162, 0.08);
+  font-weight: 700;
 }
 
 .nabin-header__account {
@@ -1020,13 +1046,13 @@ button {
 
 .nabin-alert--danger {
   background: #fdecec;
-  color: var(--danger);
+  color: var(--danger-dark);
   border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
 }
 
 .nabin-alert--success {
   background: var(--success-tint);
-  color: var(--success-dark);
+  color: var(--success-ink);
   border: 1px solid color-mix(in srgb, var(--success) 32%, transparent);
   display: block;
   padding: var(--space-md);
@@ -1326,6 +1352,384 @@ button {
 }
 
 .animate-fade-in {
+  animation: nabin-rise var(--motion-base) var(--motion-curve);
+}
+
+/* --- Responsive Flow Layout (640px max on desktop, full on mobile) ---- */
+
+.nabin-flow {
+  width: 100%;
+  max-width: 640px;
+  margin-inline: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+
+@media (max-width: 640px) {
+  .nabin-flow {
+    padding-inline: var(--space-xs);
+  }
+}
+
+/* ==========================================================================
+   Modern SaaS & Customer Web Enhancements
+   ========================================================================== */
+
+/* Hero Section */
+.nabin-hero {
+  background: linear-gradient(135deg, #1A3BA2 0%, #2546B8 60%, #355CD0 100%);
+  color: var(--on-brand);
+  border-radius: 20px;
+  padding: 36px 40px;
+  box-shadow: 0 12px 32px -8px rgba(26, 59, 162, 0.32);
+  position: relative;
+  overflow: hidden;
+  margin-bottom: var(--space-xl);
+}
+
+.nabin-hero::after {
+  content: '';
+  position: absolute;
+  top: -40%;
+  right: -20%;
+  width: 400px;
+  height: 400px;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.15) 0%, transparent 70%);
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.nabin-hero h1 {
+  font-size: 32px;
+  font-weight: 900;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+  margin: var(--space-xs) 0 var(--space-sm);
+  color: #ffffff;
+}
+
+.nabin-hero p {
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 15px;
+  max-width: 64ch;
+  line-height: 1.6;
+}
+
+@media (max-width: 640px) {
+  .nabin-hero {
+    padding: 24px 20px;
+    border-radius: 16px;
+  }
+  .nabin-hero h1 {
+    font-size: 24px;
+  }
+}
+
+/* Responsive 4-Column KPI Grid */
+.nabin-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-md);
+}
+
+@media (max-width: 1024px) {
+  .nabin-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .nabin-kpi-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Stat Card */
+.nabin-stat-card {
+  background: var(--surface);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 16px;
+  padding: var(--space-md);
+  box-shadow: var(--shadow-card);
+  transition: all var(--motion-fast) var(--motion-curve);
+}
+
+.nabin-stat-card:hover {
+  box-shadow: var(--shadow-card-hover);
+  border-color: #cbd5e1;
+}
+
+/* Modern Pill Filters */
+.nabin-filter-pill-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 4px;
+  background: var(--surface-muted);
+  border: 1px solid var(--divider);
+  border-radius: var(--radius-pill);
+  max-width: 100%;
+  scrollbar-width: none;
+}
+
+.nabin-filter-pill-bar::-webkit-scrollbar {
+  display: none;
+}
+
+.nabin-filter-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: var(--radius-pill);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all var(--motion-fast) var(--motion-curve);
+}
+
+.nabin-filter-pill:hover {
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.nabin-filter-pill--active {
+  color: var(--brand);
+  background: var(--surface);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  font-weight: 700;
+}
+
+.nabin-filter-pill__count {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-emphasized);
+  color: var(--ink-muted);
+}
+
+.nabin-filter-pill--active .nabin-filter-pill__count {
+  background: var(--brand-tint);
+  color: var(--brand);
+}
+
+/* Restaurant Cards & Food Items */
+.nabin-restaurant-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: var(--space-md);
+}
+
+.nabin-restaurant-card {
+  background: var(--surface);
+  border: 1px solid rgba(226, 232, 240, 0.88);
+  border-radius: 16px;
+  padding: 20px;
+  box-shadow: var(--shadow-card);
+  transition: all var(--motion-fast) var(--motion-curve);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  text-align: left;
+  cursor: pointer;
+  width: 100%;
+  border-top: 4px solid var(--food-orange);
+}
+
+.nabin-restaurant-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-card-hover);
+  border-color: #cbd5e1;
+  border-top-color: var(--food-orange);
+}
+
+.nabin-dish-card {
+  background: var(--surface);
+  border: 1px solid rgba(226, 232, 240, 0.85);
+  border-radius: 14px;
+  padding: 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-md);
+  transition: all var(--motion-fast) var(--motion-curve);
+}
+
+.nabin-dish-card:hover {
+  border-color: #cbd5e1;
+  box-shadow: var(--shadow-subtle);
+}
+
+/* Modern Order Ticket */
+.nabin-order-ticket {
+  background: var(--surface);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 16px;
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+  transition: box-shadow var(--motion-fast) var(--motion-curve),
+    border-color var(--motion-fast) var(--motion-curve),
+    transform var(--motion-fast) var(--motion-curve);
+  position: relative;
+}
+
+.nabin-order-ticket:hover {
+  border-color: #cbd5e1;
+  box-shadow: var(--shadow-card-hover);
+  transform: translateY(-1px);
+}
+
+.nabin-order-ticket--received {
+  border-left: 5px solid var(--warning);
+}
+
+.nabin-order-ticket--accepted,
+.nabin-order-ticket--preparing {
+  border-left: 5px solid var(--brand);
+}
+
+.nabin-order-ticket--packing {
+  border-left: 5px solid #8b5cf6;
+}
+
+.nabin-order-ticket--ready,
+.nabin-order-ticket--delivered,
+.nabin-order-ticket--completed {
+  border-left: 5px solid var(--success);
+}
+
+.nabin-order-ticket__header {
+  padding: 16px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+  background: #fcfdfe;
+  border-bottom: 1px solid var(--divider);
+}
+
+.nabin-order-ticket__body {
+  padding: 16px 20px;
+}
+
+.nabin-order-ticket__footer {
+  padding: 12px 20px;
+  background: #fafbfc;
+  border-top: 1px solid var(--divider);
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+}
+
+/* Linear Timeline Stepper */
+.nabin-stepper {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: relative;
+  margin: var(--space-md) 0;
+  padding: 0 var(--space-xs);
+}
+
+.nabin-stepper::before {
+  content: '';
+  position: absolute;
+  top: 14px;
+  left: 24px;
+  right: 24px;
+  height: 2px;
+  background: var(--divider);
+  z-index: 1;
+}
+
+.nabin-stepper__step {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+}
+
+.nabin-stepper__dot {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 2px solid var(--divider);
+  color: var(--ink-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  transition: all var(--motion-fast) var(--motion-curve);
+}
+
+.nabin-stepper__label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-muted);
+  white-space: nowrap;
+}
+
+.nabin-stepper__step--done .nabin-stepper__dot {
+  background: var(--success);
+  border-color: var(--success);
+  color: #ffffff;
+}
+
+.nabin-stepper__step--done .nabin-stepper__label {
+  color: var(--success-ink);
+}
+
+.nabin-stepper__step--active .nabin-stepper__dot {
+  background: var(--brand);
+  border-color: var(--brand);
+  color: #ffffff;
+  box-shadow: 0 0 0 4px var(--brand-tint);
+}
+
+.nabin-stepper__step--active .nabin-stepper__label {
+  color: var(--brand);
+  font-weight: 800;
+}
+
+/* Modal Dialog Scrim */
+.nabin-scrim--modal {
+  display: flex;
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  align-items: flex-start;
+  justify-content: center;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: var(--space-md);
+  z-index: 80;
+}
+
+.nabin-modal {
+  width: min(540px, 100%);
+  margin: auto;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  border-radius: 18px;
+  box-shadow: var(--shadow-modal);
+  padding: var(--space-xl);
   animation: nabin-rise var(--motion-base) var(--motion-curve);
 }
 

@@ -677,7 +677,12 @@ async function main() {
   const ownDish = (await readDishes(A.uuid)).find((i) => i && i.id) || null;
   const foreignDish = (await readDishes(B.uuid)).find((i) => i && i.id && i.id !== (ownDish && ownDish.id)) || null;
   const mediaCountOf = async () => {
-    const r = await request('GET', '/api/media');
+    // /api/media now requires an authenticated principal, and an ordinary caller sees only
+    // its own assets. Reading merchant A's scoped, durable count is the faithful witness:
+    // a refused menu-photo upload must not add an asset owned by A, so this stays flat
+    // across the refusal set — and under live PostgreSQL it is now a real `media_assets`
+    // read, not the process-local array the old anonymous call could never see.
+    const r = await request('GET', '/api/media', null, tok(A_T));
     return r.data && r.data.count;
   };
   const mediaCountBefore = await mediaCountOf();

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/glass_container.dart';
 import '../../../../core/widgets/nabin_demo_simulator_banner.dart';
+import 'restaurant_menu_management_screen.dart';
 
 class RestaurantAppShell extends StatefulWidget {
   const RestaurantAppShell({super.key});
@@ -218,7 +219,31 @@ class _RestaurantAppShellState extends State<RestaurantAppShell> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Menu & Stock Manager', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: Colors.white)),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Menu & Stock Manager', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Colors.white)),
+              InkWell(
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const RestaurantMenuManagementScreen())),
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: AppTheme.restaurantAccent,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.tune, size: 14, color: Colors.white),
+                      SizedBox(width: 4),
+                      Text('Catalog Studio', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white)),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: 16),
 
           ..._menuItems.map((dish) {

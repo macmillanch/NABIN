@@ -214,7 +214,7 @@ Because Express resolves routes in registration order, **Route 1 shadowed Route 
 
 ## 11. AUDIT LOGGING FINDINGS [CLASSIFICATION: P1 — HIGH]
 
-- **Driver Payout**: In `PaymentRepository.js:590`, `this.db.createAuditLog(...)` is invoked **without `await`**, creating an unhandled floating Promise that can crash the worker or fail silently.
+- **Driver Payout**: In `PaymentRepository.js:797→798`, `this.db.createAuditLog(...)` inside `recordPaymentWebhook` is invoked **without `await`**, creating an unhandled floating Promise that can crash the worker or fail silently.
 - **Cancellation Compensation**: Zero audit logging is performed for driver cancellation compensation.
 - **Admin Refund & KYC Changes**: Awaited and recorded into `public.audit_logs`.
 

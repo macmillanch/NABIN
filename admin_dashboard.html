@@ -5826,10 +5826,11 @@
 
               <p class="text-xs text-slate-500 leading-relaxed mb-3">${escHtml(service.description)}</p>
 
-              <!-- Live Telemetry Strip -->
+              <!-- The switchboard feed carries control state only. These cells state what is not measured
+                   instead of standing a number or a word in for one. -->
               <div class="p-2.5 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-between text-[11px] font-medium text-slate-600 mb-3">
-                <span class="truncate pr-2 font-mono">${escHtml(service.activeVolume || 'Active')}</span>
-                <span class="px-1.5 py-0.5 rounded bg-slate-200/80 text-slate-700 font-mono text-[10px] font-bold shrink-0">${escHtml(service.latencyMs || 40)}ms</span>
+                <span class="truncate pr-2 font-mono">Live volumes: not measured</span>
+                <span class="px-1.5 py-0.5 rounded bg-slate-200/80 text-slate-700 font-mono text-[10px] font-bold shrink-0">No telemetry source</span>
               </div>
 
               <!-- Paused Details Box (Shown when Paused) -->
@@ -5861,7 +5862,7 @@
             <!-- Card Bottom Actions -->
             <div class="pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
               <div class="text-[10px] font-mono text-slate-400">
-                ${service.metrics?.completedToday ? `Today: ${service.metrics.completedToday} orders` : 'System OK'}
+                Completions today: not measured
               </div>
 
               ${isPaused ? `
@@ -6135,6 +6136,18 @@
       renderDriversTable();
     }
 
+    // #481: `drivers.current_lat`/`current_lng` are nullable with no default, so a driver with no
+    // reported position is honest null data, not 0 and not a fixed city. Only a present, finite
+    // value counts as reported; anything else renders as not reported.
+    function reportedCoordinate(...candidates) {
+      for (const value of candidates) {
+        if (value === null || value === undefined || value === '') continue;
+        const parsed = Number(value);
+        if (Number.isFinite(parsed)) return parsed;
+      }
+      return null;
+    }
+
     function renderLiveDriversList(category) {
       const container = document.getElementById('liveDriversList');
       if (!container) return;
@@ -6146,7 +6159,7 @@
         const vehicleName = d.vehicle || d.vehicleName || (d.vehiclePlate ? `Vehicle (${d.vehiclePlate})` : 'Commercial Vehicle');
         const cat = d.category || d.vehicleType || '4W';
         const isOnline = (d.isOnline !== undefined) ? d.isOnline : (d.driverState === 'ONLINE');
-        const area = d.currentLocation?.area || d.location?.address || 'Delhi NCR';
+        const area = d.currentLocation?.area || d.location?.address || 'No area on record';
         return {
           ...d,
           vehicle: vehicleName,
@@ -6311,8 +6324,12 @@
         const todayEarnings = driver.todayEarnings || 2380.0;
         const acceptance = driver.acceptanceRate || '98.5%';
         const speedFuel = `${driver.speedKmH || 32} km/h • ${driver.batteryFuel || '84% (CNG)'}`;
-        const areaName = driver.currentLocation?.area || driver.location?.address || 'Connaught Place Radial Corridor, New Delhi';
-        const coordsStr = `${(driver.currentLocation?.lat || driver.location?.lat || 28.6139).toFixed(4)}° N, ${(driver.currentLocation?.lng || driver.location?.lng || 77.2090).toFixed(4)}° E`;
+        const areaName = driver.currentLocation?.area || driver.location?.address || 'No area on record';
+        const reportedLat = reportedCoordinate(driver.currentLocation?.lat, driver.location?.lat);
+        const reportedLng = reportedCoordinate(driver.currentLocation?.lng, driver.location?.lng);
+        const coordsStr = (reportedLat === null || reportedLng === null)
+          ? 'No position reported'
+          : `${reportedLat.toFixed(4)}° N, ${reportedLng.toFixed(4)}° E`;
         const dlNum = driver.dl || driver.drivingLicence || 'DL-04201992019';
         const plateNum = driver.vehiclePlate || 'DL 1RA 4892';
         const totalTrips = driver.totalRatingsCount || 384;

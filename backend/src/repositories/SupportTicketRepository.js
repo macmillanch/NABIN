@@ -594,11 +594,26 @@ class SupportTicketRepository {
         throw err;
       }
 
-      // Non-admin ownership check
+      // Non-admin ownership check.
+      //
+      // MI-7: this refused only `if (callerUuid && ticketOwnerUuid && callerUuid !== ticketOwnerUuid)`,
+      // so the guard vanished whenever either side resolved to null. `resolveUserUuid` returns null for
+      // any handle that is not a uuid and matches no users/drivers row, and `restoreSession` adopts a
+      // persisted `backend_sessions` row with its `entity_id` verbatim as long as the row carries an
+      // `entity` — so a bearer whose handle no longer names an account skipped the comparison entirely
+      // and was answered 200 with the whole of another customer's thread, having written into it.
+      // Measured 2026-10-18 (support_ticket_thread_ownership_test STF-14..STF-17): three such ghost
+      // sessions, one per role, each landed a message and received the thread back.
+      //
+      // An owner this store cannot resolve is not an owner anyone may write to. The condition is now
+      // inverted to fail closed, which is safe for every legitimate caller: `support_tickets.user_id`
+      // is `UUID NOT NULL` and every live `createTicket` mints its `user_id` from a uuid it has just
+      // resolved, so `ticketOwnerUuid` is always provable on the durable path; and a non-admin bearer
+      // that cannot be resolved to an account has no ticket of its own to be locked out of.
       if (caller.role !== 'ADMIN') {
         const callerUuid = this.resolveUserUuid(caller.id, caller.role);
         const ticketOwnerUuid = this.resolveUserUuid(row.user_id, row.user_type);
-        if (callerUuid && ticketOwnerUuid && callerUuid !== ticketOwnerUuid) {
+        if (!callerUuid || !ticketOwnerUuid || callerUuid !== ticketOwnerUuid) {
           const err = new Error('Ticket not found');
           err.statusCode = 404;
           throw err;
@@ -809,6 +824,24 @@ class SupportTicketRepository {
 
       // STEP 1: Process Customer Wallet Refund via adjust_wallet_atomic RPC
       if (amt > 0) {
+        /* Crediting a wallet is a finance act, and this leg is the sibling of the bounty leg below,
+         * which already says so (`BOUNTY_FINANCE_AUTHORITY_REQUIRED`). `finance.refund` is the
+         * existing authority for exactly this movement — it gates /api/admin/finance/refund — so it
+         * is reused rather than invented. Without it, `support.resolve` alone (which SUPPORT_AGENT
+         * and OPERATIONS hold, adminPermissions.js) was enough to post an admin-typed amount into a
+         * customer wallet, while the same account could not post one rupee through the finance
+         * routes. An unrecognised role has no grant list, so it is refused, not allowed. */
+        const { grantsForRole } = require('../adminPermissions');
+        const refundGrants = grantsForRole(adminRole);
+        if (!(Array.isArray(refundGrants) && refundGrants.includes('finance.refund'))) {
+          const err = new Error(`Role ${adminRole} may resolve support tickets but may not credit a`
+            + ` customer wallet: a refund of ${amt} on ${row.ticket_number} requires the`
+            + ' finance.refund authority.');
+          err.statusCode = 403;
+          err.code = 'REFUND_FINANCE_AUTHORITY_REQUIRED';
+          throw err;
+        }
+
         if (!this.db.ledgerRepo) {
           throw new Error('Fatal: LedgerRepository not initialized for atomic refund.');
         }
@@ -849,14 +882,12 @@ class SupportTicketRepository {
           const job = await this.resolveJob(row.job_id);
           if (job) targetDriverUuid = job.driverUuid || job.driverId;
         }
-        if (!targetDriverUuid && Array.isArray(row.messages) && row.messages[0]?.metadata?.driverId) {
-          targetDriverUuid = row.messages[0].metadata.driverId;
-        }
-        // Phase 21: the `drv_1` fallback is gone. `LEGACY_DRIVER_MAP` resolves it
-        // to a real durable driver (00000000-…-0101), so that line was not paying
-        // a fiction — it was letting a ticket with no job route a wallet credit to
-        // whichever demo driver the map happened to name. A bounty must now be
-        // resolved from the ticket's own job, or it is refused.
+        // Phase 21 removed the demo-driver literal. P6 removes the second untrusted source: the
+        // first message's driver reference. `createTicket` fills that field from the request body
+        // whenever the ticket carries no verified job driver, and `POST /api/support/ticket` passes
+        // `req.body` straight through — so a customer could name any driver and have this line pay
+        // that person from the platform. The ticket's own job is the only durable attribution a
+        // bounty accepts; with no job, the refusal below fires instead of a guess.
         if (bounty > 0 && this.db.driverRepo) {
           /* PHASE 21B Part E: crediting a wallet is a finance act, and
            * `support.resolve` alone must not be enough to perform it. `finance.adjust`
@@ -918,28 +949,36 @@ class SupportTicketRepository {
       const sanction = specializedData.driverSanction;
 
       if (isSafetyIncident && sanction && this.db.driverRepo) {
+        const changesDriverState = sanction === 'SUSPEND_48H' || sanction === 'DEACTIVATE_PERMANENT';
         let targetDriverUuid = null;
         if (row.job_id) {
           const job = await this.resolveJob(row.job_id);
           if (job) targetDriverUuid = job.driverUuid || job.driverId;
         }
 
-        if (!targetDriverUuid && Array.isArray(row.messages) && row.messages[0]?.metadata?.driverId) {
-          targetDriverUuid = row.messages[0].metadata.driverId;
+        // A sanction takes a driver's livelihood away, so the driver it names has to be
+        // provable from the ticket's own durable job. Two previous sources were removed:
+        // the first message's metadata driver reference (a customer can put any driver
+        // reference in the body that opens the ticket) and the seed ticket-number literal,
+        // which made whichever demo driver its map happened to name punishable forever. A
+        // sanction that cannot prove its driver is refused instead of silently skipping the
+        // sanction and still writing RESOLVED with "Driver suspended" in the notes.
+        if (changesDriverState && !targetDriverUuid) {
+          const err = new Error(`Cannot apply ${sanction} on ${row.ticket_number}: no driver is`
+            + ' provably responsible for this ticket (job_id is null, so the incident has no'
+            + ' assigned trip to attribute). The ticket is being left un-resolved rather than'
+            + ' suspending a driver the ticket cannot name.');
+          err.statusCode = 400;
+          err.code = 'SANCTION_DRIVER_UNRESOLVABLE';
+          throw err;
         }
 
-        if (!targetDriverUuid && (row.ticket_number === 'TCK-9479' || row.id === 'TCK-9479')) {
-          targetDriverUuid = 'drv_2';
-        }
-
-        if (targetDriverUuid) {
-          if (sanction === 'SUSPEND_48H' || sanction === 'DEACTIVATE_PERMANENT') {
-            const updatedDriver = await this.db.driverRepo.update(targetDriverUuid, {
-              operationalStatus: 'SUSPENDED',
-              isOnline: false
-            });
-            driverAdjusted = updatedDriver;
-          }
+        if (targetDriverUuid && changesDriverState) {
+          const updatedDriver = await this.db.driverRepo.update(targetDriverUuid, {
+            operationalStatus: 'SUSPENDED',
+            isOnline: false
+          });
+          driverAdjusted = updatedDriver;
         }
       }
 

@@ -34,8 +34,14 @@ const CONTAINER = process.env.NABIN_DB_CONTAINER || 'supabase_db_nabin';
 const ADMIN_IDENTITY = { username: 'superadmin', password: 'AdminPassword123!' };
 const CUSTOMER_PHONE = '9876543210';
 // A driver that exists in the authoritative store, since login now fails closed
-// rather than minting a session for an unenrolled number.
-const DRIVER_PHONE = '9810122334';
+// rather than minting a session for an unenrolled number. Measured against the local
+// store on 2026-10-18: +919810122910 is DRV-101 (`00000000-0000-0000-0000-000000000101`),
+// one `drivers` row with a `user_id` set, so `authenticateDriver` resolves it. The number
+// this file used to carry — 9810122334 — has 0 `drivers` rows and 0 `users` rows: before
+// MI-4 closed the fallback it still obtained a session, because an unenrolled DRIVER login
+// minted `entityId="anon"` and `getDriver("anon")` returned `drivers[0]`. OS-10 was
+// therefore asserting telemetry semantics on a substituted identity.
+const DRIVER_PHONE = '9810122910';
 
 // The coupon code is deliberately fixed. `POST /api/admin/promotions` upserts on
 // `code`, so a unique code per run would add a row to the local database every time

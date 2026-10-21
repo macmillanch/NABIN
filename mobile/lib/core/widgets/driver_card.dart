@@ -30,8 +30,8 @@ class DriverCard extends StatelessWidget {
         color: backgroundColor,
         borderRadius: BorderRadius.circular(borderRadius),
         border: Border.all(
-          color: borderColor ?? DriverTheme.borderLight,
-          width: 1.2,
+          color: borderColor ?? DriverTheme.borderGlass,
+          width: 1.0,
         ),
         boxShadow: [
           BoxShadow(

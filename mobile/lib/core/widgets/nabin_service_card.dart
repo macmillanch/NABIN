@@ -158,12 +158,13 @@ class NabinServiceCard extends StatelessWidget {
           color: isEnabled ? palette.surface : palette.surfaceEmphasized,
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
-              color: isEnabled ? (tagColor ?? palette.divider) : palette.divider),
+              color: palette.divider,
+              width: 1.0),
           boxShadow: isEnabled
               ? [
                   BoxShadow(
                       color: Colors.black.withValues(alpha: 0.04),
-                      blurRadius: 8,
+                      blurRadius: 10,
                       offset: const Offset(0, 3)),
                 ]
               : null,
@@ -221,8 +222,8 @@ class NabinServiceCard extends StatelessWidget {
             ),
             if (!isEnabled) ...[
               const SizedBox(height: 8),
-              const Text('Temporarily offline',
-                  style: TextStyle(fontSize: 10, color: Colors.red, fontWeight: FontWeight.bold)),
+              Text('Temporarily offline',
+                  style: TextStyle(fontSize: 10, color: palette.danger, fontWeight: FontWeight.bold)),
             ]
           ],
         ),

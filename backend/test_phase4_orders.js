@@ -425,7 +425,8 @@ async function runPhase4Tests() {
     // The shelf the other minted tenant stocked, carted against this one.
     const crossInvRes = await request('POST', '/api/grocery/checkout/validate', {
       merchantId: storeUuid,
-      cartItems: [{ inventoryId: foreignMilk.id, quantity: 1 }]
+      cartItems: [{ inventoryId: foreignMilk.id, quantity: 1 }],
+      deliveryAddress: FOOD_ADDRESS
     }, { 'Authorization': `Bearer ${customerToken}` });
     assert('Cross-merchant inventory item rejected with HTTP 400 MERCHANT_MISMATCH',
       crossInvRes.status === 400 && (crossInvRes.data.code === 'MERCHANT_MISMATCH' || crossInvRes.data.code === 'INVENTORY_NOT_FOUND')
@@ -435,7 +436,8 @@ async function runPhase4Tests() {
     const duplicateClaimRes = await request('POST', '/api/grocery/checkout/validate', {
       merchantId: storeUuid,
       checkoutId: createdGroceryOrder.checkoutId, // Already linked to createdGroceryOrder
-      cartItems: grocCart(1)
+      cartItems: grocCart(1),
+      deliveryAddress: FOOD_ADDRESS
     }, {
       'Authorization': `Bearer ${customerToken}`,
       'Idempotency-Key': 'claim_attempt_' + crypto.randomUUID()
@@ -460,7 +462,8 @@ async function runPhase4Tests() {
     const crossCustClaimRes = await request('POST', '/api/grocery/checkout/validate', {
       merchantId: storeUuid,
       checkoutId: foreignCheckoutId,
-      cartItems: grocCart(2)
+      cartItems: grocCart(2),
+      deliveryAddress: FOOD_ADDRESS
     }, {
       'Authorization': `Bearer ${customer2Token}`, // Customer 2 trying to claim Customer 1's checkout
       'Idempotency-Key': 'cross_cust_' + crypto.randomUUID()
@@ -815,7 +818,8 @@ async function runPhase4Tests() {
     const preRestartGrocKey = 'pre_restart_groc_' + crypto.randomUUID();
     const preGrocRes = await request('POST', '/api/grocery/checkout/validate', {
       merchantId: storeUuid,
-      cartItems: grocCart(1)
+      cartItems: grocCart(1),
+      deliveryAddress: FOOD_ADDRESS
     }, {
       'Authorization': `Bearer ${customerToken}`,
       'Idempotency-Key': preRestartGrocKey

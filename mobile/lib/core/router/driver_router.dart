@@ -7,7 +7,13 @@ import '../../features/auth/presentation/screens/driver_kyc_registration_screen.
 import '../../features/home/presentation/screens/driver_home_screen.dart';
 import '../../features/job/presentation/screens/active_job_execution_screen.dart';
 import '../../features/earnings/presentation/screens/driver_earnings_screen.dart';
+import '../../features/payout/presentation/screens/driver_payout_screen.dart';
 import '../../features/account/presentation/screens/driver_account_screen.dart';
+import '../../features/notifications/presentation/screens/driver_notifications_screen.dart';
+import '../../features/notifications/presentation/screens/driver_notification_preferences_screen.dart';
+import '../../features/support/presentation/screens/driver_support_screen.dart';
+import '../../features/support/presentation/screens/driver_support_new_ticket_screen.dart';
+import '../../features/support/presentation/screens/driver_support_ticket_screen.dart';
 
 /// Screens a partner may reach before NABIN has said who they are.
 const Set<String> _driverPublicRoutes = {'/', '/login', '/otp', '/kyc-registration'};
@@ -78,10 +84,56 @@ final GoRouter driverRouter = GoRouter(
       builder: (context, state) => const DriverEarningsScreen(),
     ),
 
+    // 4b. Payout destination. Both halves key on the bearer token — the read comes from the
+    // earnings block and the write is `POST /api/driver/payout-destination/request`, which
+    // derives the partner from the token — so the route carries no driver id. It is not in
+    // `_driverPublicRoutes`, so a cold deep link lands on the login gate rather than on a
+    // screen rendering a 401 as "no destination on file".
+    GoRoute(
+      path: '/payout',
+      builder: (context, state) => const DriverPayoutScreen(),
+    ),
+
     // 5. Driver Profile & Account Management
     GoRoute(
       path: '/account',
       builder: (context, state) => const DriverAccountScreen(),
+    ),
+
+    // 6. Notifications and what the partner is told about. Both reads and both writes key on
+    // the bearer token, so neither route carries an id — and neither is in the public set, so
+    // a cold deep link here goes through the login gate rather than rendering a 401 feed.
+    GoRoute(
+      path: '/notifications',
+      builder: (context, state) => const DriverNotificationsScreen(),
+    ),
+    GoRoute(
+      path: '/notifications/preferences',
+      builder: (context, state) => const DriverNotificationPreferencesScreen(),
+    ),
+
+    // 7. Support tickets. All three reads and writes derive the partner from the bearer token,
+    // so none of them takes an identity from a link: `/support/ticket/:ref` carries a ticket
+    // reference, which the server resolves against the caller's own rows and answers 404 for
+    // anything else. None of these is in `_driverPublicRoutes`, so a cold deep link goes through
+    // the sign-in gate rather than rendering a 401 as an empty inbox.
+    GoRoute(
+      path: '/support',
+      builder: (context, state) => const DriverSupportScreen(),
+    ),
+    GoRoute(
+      path: '/support/new',
+      builder: (context, state) => const DriverSupportNewTicketScreen(),
+    ),
+    GoRoute(
+      path: '/support/ticket/:ref',
+      builder: (context, state) {
+        final ref = state.pathParameters['ref'] ?? '';
+        // A thread needs a row to reply to. With no reference in the link there is nothing to
+        // select, so the list is the honest destination rather than an empty conversation.
+        if (ref.isEmpty) return const DriverSupportScreen();
+        return DriverSupportTicketScreen(ticketRef: ref);
+      },
     ),
   ],
 );

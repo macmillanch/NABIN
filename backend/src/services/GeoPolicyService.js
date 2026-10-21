@@ -329,8 +329,10 @@ function minutesNow(timestamp) {
   return date.getUTCHours() * 60 + date.getUTCMinutes() + date.getUTCSeconds() / 60;
 }
 
-// A time-of-day window, which may wrap midnight. Reported, never enforced:
-// whether these columns bind at all is §14 decision 4.
+// A time-of-day window, which may wrap midnight.
+// DEC-025 (2026-10-17): windows are now ENFORCED — a rule outside its scheduled
+// window is reported but does not move the price. The prior comment said this was
+// §14 decision 4; the owner has now made that decision.
 function windowStatus(rule, now) {
   const start = minutesOfDay(rule.startTime ?? rule.start_time);
   const end = minutesOfDay(rule.endTime ?? rule.end_time);
@@ -670,10 +672,15 @@ class GeoPolicyService {
         // price today, and switching that off is a price change that §14 decision
         // 4 has to authorise. `inWindow === false` + `wouldApplyIfEnforced` is the
         // number that would move, so the decision can be made with it in hand.
-        applied: contribution > effectiveSurgeMultiplier,
+        // DEC-025: inWindow is now enforced. A rule outside its window is still
+        // reported (so the admin console can see it) but its multiplier does not
+        // move the price. `wouldApplyIfEnforced` is kept for backward-compatibility
+        // of the API shape even though it is now always equal to `applied`.
+        applied: inWindow !== false && contribution > effectiveSurgeMultiplier,
         wouldApplyIfEnforced: inWindow !== false && contribution > effectiveSurgeMultiplier
       });
-      if (contribution > effectiveSurgeMultiplier) effectiveSurgeMultiplier = contribution;
+      // Only apply the multiplier when the rule's window is currently active (DEC-025).
+      if (inWindow !== false && contribution > effectiveSurgeMultiplier) effectiveSurgeMultiplier = contribution;
     }
 
     // `platformWideSurgeRule` is reported exactly as the pricing path has always

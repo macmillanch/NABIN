@@ -1,8 +1,9 @@
 /*
   NABIN canonical design tokens + component layer.
   Source of truth: mobile/lib/core/theme/nabin_tokens.dart
-  Keep this file byte-identical across the four Next.js apps
-  (customer-web, admin-web, restaurant-merchant-web, grocery-merchant-web).
+  NOT byte-identical across the apps, despite looking like one file: the five copies have
+  drifted (admin-web leads with @import "tailwindcss"; the others differ in length), and nothing
+  checks or syncs them. A shared token or .nabin-* rule change must be repeated in each app.
   Product UI text uses Inter. The NABIN wordmark alone uses Neuron.
 */
 
@@ -35,13 +36,17 @@
   --success: #22a447;
   --success-dark: #1b8238;
   --success-tint: #e8f5e9;
+  /* Text ink on --success-tint. --success-dark is 4.34:1 there, under AA; #166534 is 6.34:1. */
+  --success-ink: #166534;
   --warning: #f59e0b;
   --warning-dark: #b45309;
   --warning-tint: #fff4ec;
   --danger: #dc2626;
   --danger-bright: #ef4444;
-  /* Filled danger controls carry a label, so they use the AA-safe variant:
-     white on #dc2626 is 4.4:1, white on #b91c1c is 5.9:1. */
+  /* The AA-safe danger variant, used two ways: as the fill behind white-labelled danger
+     controls (white on #dc2626 is 4.83:1, on #b91c1c 6.47:1), and as the text ink on the
+     #fdecec badge/alert tint (#dc2626 there is 4.23:1, under AA; #b91c1c is 5.66:1).
+     Error text on white keeps --danger, which measures 4.83:1 there. */
   --danger-dark: #b91c1c;
   --info: #0284c7;
 
@@ -51,7 +56,10 @@
   --surface-muted: #f1f5f9;
   --surface-emphasized: #e2e8f0;
   --ink: #0f172a;
-  --ink-muted: #64748b;
+  /* Muted ink has to clear AA on the surfaces it is used on, not only on white: #64748b is
+     4.76:1 on #ffffff but 4.34:1 on --surface-muted, 4.23:1 on the success tint, 4.17:1 on the
+     danger tint. #5a6a7f holds 4.83:1 on the worst of those and 5.52:1 on white. */
+  --ink-muted: #5a6a7f;
   --divider: #e2e8f0;
 
   /* Dark ramp — applied via [data-theme="dark"] */
@@ -81,9 +89,13 @@
   --radius-pill: 9999px;
 
   /* Elevation */
-  --shadow-low: 0 2px 4px rgba(0, 0, 0, 0.05);
-  --shadow-mid: 0 4px 12px rgba(0, 0, 0, 0.08);
-  --shadow-high: 0 12px 24px rgba(0, 0, 0, 0.12);
+  --shadow-low: 0 1px 3px rgba(15, 23, 42, 0.05), 0 1px 2px -1px rgba(15, 23, 42, 0.03);
+  --shadow-mid: 0 4px 12px rgba(15, 23, 42, 0.08);
+  --shadow-high: 0 16px 32px rgba(15, 23, 42, 0.12);
+  --shadow-subtle: 0 1px 2px 0 rgba(16, 24, 40, 0.04);
+  --shadow-card: 0 1px 3px 0 rgba(16, 24, 40, 0.06), 0 1px 2px -1px rgba(16, 24, 40, 0.04);
+  --shadow-card-hover: 0 10px 22px -3px rgba(16, 24, 40, 0.09), 0 4px 6px -2px rgba(16, 24, 40, 0.03);
+  --shadow-modal: 0 24px 48px -12px rgba(15, 23, 42, 0.25);
 
   /* Motion */
   --motion-instant: 120ms;
@@ -246,10 +258,10 @@ button {
 
 .nabin-card {
   background: var(--surface);
-  border: 1px solid var(--divider);
-  border-radius: var(--radius-lg);
+  border: 1px solid rgba(226, 232, 240, 0.88);
+  border-radius: 16px;
   padding: var(--space-lg);
-  box-shadow: var(--shadow-low);
+  box-shadow: var(--shadow-card);
   transition: box-shadow var(--motion-base) var(--motion-curve),
     transform var(--motion-base) var(--motion-curve),
     border-color var(--motion-base) var(--motion-curve);
@@ -257,8 +269,8 @@ button {
 
 .nabin-card--interactive:hover {
   transform: translateY(-2px);
-  border-color: var(--brand-bright);
-  box-shadow: var(--shadow-mid);
+  border-color: #cbd5e1;
+  box-shadow: var(--shadow-card-hover);
 }
 
 .nabin-card__header {
@@ -315,13 +327,19 @@ button {
   transform: none;
 }
 
+.nabin-btn:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--brand) 20%, transparent);
+}
+
 .nabin-btn--primary {
-  background: var(--role-accent);
+  background: var(--brand);
   color: var(--on-brand);
 }
 
 .nabin-btn--primary:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--role-accent) 82%, #000);
+  background: var(--brand-hover);
 }
 
 .nabin-btn--ghost {
@@ -343,30 +361,52 @@ button {
   background: color-mix(in srgb, var(--danger-dark) 85%, #000);
 }
 
-/* On-accent override for light role accents (grocery green, food orange):
-   white labels fail AA there, so those roles flip to ink. */
-[data-role='grocery'] .nabin-btn--primary,
-[data-role='restaurant'] .nabin-btn--primary {
-  color: var(--ink);
+/* 2.5.8 Target Size Minimum is 24x24 CSS px and Chrome paints a native box at ~13px,
+   so the box is sized here instead of page by page. */
+input[type='checkbox'],
+input[type='radio'] {
+  width: 24px;
+  height: 24px;
+  accent-color: var(--brand);
+  cursor: pointer;
 }
 
 .nabin-input {
   width: 100%;
-  min-height: var(--target-comfortable);
-  padding: var(--space-sm) var(--space-md);
+  min-height: 44px;
+  padding: 10px var(--space-md);
   background: var(--surface);
   color: var(--ink);
   border: 1px solid var(--divider);
   border-radius: var(--radius-md);
   font: inherit;
+  font-size: 14px;
   transition: border-color var(--motion-fast) var(--motion-curve),
     box-shadow var(--motion-fast) var(--motion-curve);
 }
 
-.nabin-input:focus {
+.nabin-input:focus,
+.nabin-input:focus-visible {
   outline: none;
-  border-color: var(--role-accent);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--role-accent) 18%, transparent);
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 18%, transparent);
+}
+
+.nabin-input:disabled {
+  background: var(--surface-muted);
+  color: var(--ink-muted);
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.nabin-input.has-error {
+  border-color: var(--danger);
+}
+
+.nabin-input.has-error:focus,
+.nabin-input.has-error:focus-visible {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 18%, transparent);
 }
 
 .nabin-label {
@@ -399,7 +439,7 @@ button {
 
 .nabin-badge--success {
   background: var(--success-tint);
-  color: var(--success-dark);
+  color: var(--success-ink);
 }
 
 .nabin-badge--warning {
@@ -409,7 +449,7 @@ button {
 
 .nabin-badge--danger {
   background: #fdecec;
-  color: var(--danger);
+  color: var(--danger-dark);
 }
 
 .nabin-badge--neutral {
@@ -512,7 +552,8 @@ button {
 }
 
 .nabin-chip.is-active {
-  background: var(--role-accent);
+  /* White on the bare accent is 3.58:1 (restaurant orange) / 3.25:1 (grocery green); the darkened mix every role clears 5:1. */
+  background: color-mix(in srgb, var(--role-accent) 78%, #000);
   border-color: transparent;
   color: var(--on-brand);
 }
@@ -597,7 +638,8 @@ button {
   font-weight: 800;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--brand-bright);
+  /* --brand-bright measures 2.04:1 on --brand-hover and 1.61:1 on --brand; nav text uses white at 78%. */
+  color: rgba(255, 255, 255, 0.78);
   margin-inline-start: auto;
 }
 
@@ -629,7 +671,7 @@ button {
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--brand-bright);
+  color: rgba(255, 255, 255, 0.78);
 }
 
 .nabin-nav__list {
@@ -1020,13 +1062,13 @@ button {
 
 .nabin-alert--danger {
   background: #fdecec;
-  color: var(--danger);
+  color: var(--danger-dark);
   border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
 }
 
 .nabin-alert--success {
   background: var(--success-tint);
-  color: var(--success-dark);
+  color: var(--success-ink);
   border: 1px solid color-mix(in srgb, var(--success) 32%, transparent);
   display: block;
   padding: var(--space-md);
@@ -1327,5 +1369,64 @@ button {
 
 .animate-fade-in {
   animation: nabin-rise var(--motion-base) var(--motion-curve);
+}
+
+/* --- Modal & Dialog layer (WCAG 2.2 compliant) ------------------------ */
+
+.nabin-scrim--modal {
+  display: flex;
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  align-items: flex-start;
+  justify-content: center;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: var(--space-md);
+  z-index: 80;
+}
+
+.nabin-modal {
+  width: min(520px, 100%);
+  margin: auto;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--divider);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-high);
+  padding: var(--space-xl);
+  animation: nabin-rise var(--motion-base) var(--motion-curve);
+}
+
+.nabin-modal__title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  font-size: 18px;
+  font-weight: 900;
+  color: var(--ink);
+  margin-bottom: var(--space-sm);
+}
+
+.nabin-modal__effect {
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ink-muted);
+  margin-bottom: var(--space-md);
+}
+
+.nabin-modal__list {
+  list-style: disc;
+  margin: 0 0 var(--space-md);
+  padding-inline-start: 20px;
+  color: var(--ink-muted);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.nabin-modal .nabin-row {
+  margin-top: var(--space-md);
 }
 

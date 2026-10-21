@@ -5,7 +5,10 @@
 // B1 (live store): a merchant write reference that matches more than one ACTIVE master product must be
 //   refused instead of silently bound to whichever row came back first. Admin behaviour must be intact.
 // C1 (degraded store): a grocery price mutation must be refused while `groceryProducts` is only the
-//   in-memory fallback, and must not leave a fixture change or a PRICE_UPDATE audit row behind.
+//   in-memory fallback, and must not leave a fixture change or a PRICE_UPDATE audit row behind. That
+//   now covers both pricing paths: the fixture method the admin review still uses, and the durable
+//   `updateMerchantListingPrice` / `bulkUpdateMerchantListingPrices` the two merchant price routes
+//   call (C1-06/07) — a durable write has no in-memory branch to fall back to.
 //
 // Run twice on purpose:
 //   node grocery_reference_and_degraded_pricing_test.js                 -> B1 (live Postgres)
@@ -69,6 +72,30 @@ const merchantWrite = async (ref) => {
     check('C1-05 bulk price path cannot bypass the guard', !!refused, item ? JSON.stringify(item) : (bulk.err || {}).message);
     check('C1-02b fixture price still unchanged after the bulk attempt',
       db.groceryProducts.find((p) => p.id === product.id).currentPrice === before, 'changed');
+
+    // C1-06/07: the DURABLE price methods the merchant routes now call. They have no in-memory
+    // branch at all — without a store there is no `merchant_grocery_inventory` row to move and no
+    // `grocery_price_history` to record — so a degraded backend must refuse them outright instead
+    // of answering with a price that exists only until the process exits. A UUID-shaped
+    // reference is used deliberately: the shape check runs first, so `gprod_1` here would prove
+    // the shape guard and not the durability guard.
+    const ANY_UUID = '00000000-0000-0000-0000-000000000401';
+    let durable = null;
+    try { await db.updateMerchantListingPrice({ merchantId: ANY_UUID, productRef: ANY_UUID, newPrice: 45.5, reason: `c1-${TS}` }); }
+    catch (err) { durable = err; }
+    check('C1-06 the durable listing-price write is refused while the store is degraded',
+      !!durable && durable.code === 'GROCERY_DEGRADED_READ_ONLY' && durable.status === 503,
+      durable ? `${durable.code || ''} ${durable.message}` : 'NO ERROR THROWN');
+
+    let durableBulk = null;
+    try { durableBulk = await db.bulkUpdateMerchantListingPrices({ merchantId: ANY_UUID, updates: [{ productId: ANY_UUID, newPrice: 46.5 }] }); }
+    catch (err) { durableBulk = { err }; }
+    const bulkRow = durableBulk && durableBulk.results && durableBulk.results[0];
+    check('C1-07 the durable bulk write reports the refusal per item and applies nothing',
+      !!bulkRow && bulkRow.success === false && bulkRow.code === 'GROCERY_DEGRADED_READ_ONLY'
+        && durableBulk.applied === 0 && db.groceryProducts.find((p) => p.id === product.id).currentPrice === before,
+      bulkRow ? JSON.stringify(bulkRow) : ((durableBulk && durableBulk.err) || {}).message);
+
     console.log('\nC1 note: no durable audit_logs assertion is possible without a store, so C1-03 above');
     console.log('asserts the in-memory history instead; the live-mode block below proves audit stays clean.');
     console.log(`\ngrocery_reference_and_degraded_pricing_test (degraded): ${pass} passed, ${fail} failed`);

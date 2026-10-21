@@ -41,7 +41,7 @@ const os = require('os');
 const path = require('path');
 const child = require('child_process');
 const { Client } = require('pg');
-const { PROTECTED, APPEND_PROBED, ADDITIONS_2026_10_15, tableOf, isCovered } = require('./protected_tables');
+const { PROTECTED, APPEND_PROBED, DETECTION_OBLIGATIONS, tableOf, isCovered } = require('./protected_tables');
 const targetGuard = require('./chain_target_guard');
 const censusVerdict = require('./census_verdict');
 
@@ -273,7 +273,7 @@ async function selftest(client) {
   }
   const publicTables = (await client.query(
     `SELECT tablename FROM pg_tables WHERE schemaname='public'`)).rows.map((r) => r.tablename);
-  const obligations = ['products', ...ADDITIONS_2026_10_15];
+  const obligations = ['products', ...DETECTION_OBLIGATIONS];
   const absent = obligations.filter((t) => !publicTables.includes(t));
   if (absent.length) {
     throw new Error(`selftest: ${absent.join(', ')} is named as a #329 obligation but is not a table in public `

@@ -313,6 +313,13 @@ class JobRepository {
       ...jobData.metadata
     };
 
+    // Migration 046 leaves the per-type expiry columns NULL (so a legacy row is treated as
+    // unbounded by verify_job_otp_atomic). A NEW booking must stamp them here or the RPC
+    // would never enforce expiry on a fresh trip. Prefer the value createJob already minted,
+    // fall back to now+24h when a caller reaches the repository directly.
+    const otpExpiryIso = jobData.startOtpExpiresAt
+      || new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+
     const payload = {
       job_number: jobNumber,
       service_type: serviceType,
@@ -341,6 +348,9 @@ class JobRepository {
       start_otp: jobData.startOtp || Math.floor(1000 + Math.random() * 9000).toString(),
       pickup_otp: jobData.pickupOtp || null,
       delivery_otp: jobData.deliveryOtp || Math.floor(1000 + Math.random() * 9000).toString(),
+      start_otp_expires_at: jobData.startOtpExpiresAt || otpExpiryIso,
+      pickup_otp_expires_at: jobData.pickupOtpExpiresAt || otpExpiryIso,
+      delivery_otp_expires_at: jobData.deliveryOtpExpiresAt || otpExpiryIso,
       payment_method: jobData.paymentMethod || 'WALLET',
       payment_status: jobData.paymentStatus || 'PENDING',
       metadata

@@ -1290,12 +1290,19 @@ async function main() {
   const priya = await geoLogin('9845011982', 'CUSTOMER');
   const token = priya.token;
   const rahul = await geoLogin('9876543210', 'CUSTOMER');
-  // 9810122334 is the driver the main suite drives as well: its profile is linked
+  // DRV-101 (+919810122910) is the driver the main suite drives as well: its profile is linked
   // to a user account, which `authenticateDriver` requires. The neighbouring
   // fixture 9822233445 is a profile with no account behind it, so every driver
   // route answers 403 UNLINKED_DRIVER_ACCOUNT there — which is the right answer
   // and the wrong fixture for a lifecycle probe.
-  const drv = await geoLogin('9810122334', 'DRIVER');
+  // This suite used to ask for 9810122334, a number no `drivers` row and no `users` row
+  // carries (measured: 0 of each). It still got a session because MI-4's unenrolled-phone
+  // DRIVER login minted `entityId="anon"` and `getDriver("anon")` fell through to
+  // `drivers[0]` — which happens to be DRV-101. So the live half of Phase 11 was probing a
+  // substituted identity, not the fixture it named. Measured on 2026-10-18: with the
+  // substitution closed the same call answers 401 DRIVER_PHONE_NOT_ENROLLED and DRV-03
+  // reports "no driver session could be opened". The fix is the fixture, not the assertion.
+  const drv = await geoLogin('9810122910', 'DRIVER');
   const driverHeaders = drv.token ? { Authorization: `Bearer ${drv.token}` } : null;
 
   if (!token) {

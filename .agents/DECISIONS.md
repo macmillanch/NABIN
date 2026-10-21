@@ -128,6 +128,51 @@
 
 ---
 
+### DEC-020: Cancellation Fee — ₹50 Flat, 80/20 Driver/Platform Split
+- **Date**: 2026-10-17
+- **Status**: APPROVED BY USER
+- **Decision**: Charge a flat ₹50 cancellation fee when a customer cancels after the free window. ₹40 (80%) is credited to the driver as compensation; ₹10 (20%) is retained by the platform as an administration fee. A free cancellation window must be defined (see DEC-021 for its relationship with waiting charges).
+- **Rationale**: Protects drivers from time and fuel waste. Flat fee is simpler to communicate than a percentage and aligns with Ola/Rapido practice in India.
+- **Implementation constraints**: Fee posted via double-entry ledger. Driver compensation credited atomically with job cancellation. No fee charged if driver has not yet been dispatched.
+
+### DEC-021: Waiting Charges — 3 Minutes Free, Then ₹2/min
+- **Date**: 2026-10-17
+- **Status**: APPROVED BY USER
+- **Decision**: Driver waiting time at pickup is free for the first 3 minutes. After 3 minutes, ₹2 per minute is added to the final customer charge. Waiting charges pass 100% to the driver (no platform commission on waiting charges). Waiting begins from `driver_arrived_at` timestamp (new column required on `jobs`).
+- **Rationale**: Industry standard in India. 3-minute grace prevents penalizing minor delays; ₹2/min is consistent with Ola/Rapido. Full pass-through to driver is consistent with DEC-022 (no commission on pass-through items).
+
+### DEC-022: Zone Surcharges and Pass-Throughs Excluded from Commission Base
+- **Date**: 2026-10-17
+- **Status**: APPROVED BY USER
+- **Decision**: `geo.totalSurcharge` (fixed surcharge amounts from geo-fences, e.g. airport ₹150) and toll/parking charges are excluded from the commissionable base. Platform commission is computed only on `(base_fare + distance_cost + time_cost) × surge_multiplier`. Pass-through amounts (surcharges, tolls, waiting charges) go 100% to the driver.
+- **Rationale**: Industry standard — platforms should not profit from government-mandated tolls or physical zone surcharges. Simplifies driver trust in earnings.
+
+### DEC-023: Coupons Are Fully Platform-Funded — Driver Always Earns on Gross Fare
+- **Date**: 2026-10-17
+- **Status**: APPROVED BY USER
+- **Decision**: When a promotion discount is applied, the driver's earnings are calculated on the full pre-discount fare (`gross_fare`). The platform absorbs the discount from its commission revenue. `driver_earnings = gross_fare × (1 - commission_pct)`. The customer is charged `gross_fare - discount`.
+- **Rationale**: Prevents driver churn caused by invisible income reduction. Platform uses its marketing budget to fund customer acquisition. This changes the current NABIN implementation which incorrectly computes driver earnings on the post-discount customer charge.
+
+### DEC-024: GST / Tax Line Is Optional — Not Implemented in Current Phase
+- **Date**: 2026-10-17
+- **Status**: APPROVED BY USER (deferred)
+- **Decision**: GST (5% ECO on platform commission) and fare tax itemization will not be implemented in the current fare engine phase. The fare breakdown will include a `tax: null` placeholder field so the schema is extensible. Implementation is deferred to a future billing/compliance phase with explicit re-approval.
+- **Rationale**: Tax compliance requires legal review of NABIN's ECO status. Deferring prevents premature compliance assumptions.
+
+### DEC-025: Surge Remains Admin-Controlled — Automated Demand/Supply Is a Future Phase
+- **Date**: 2026-10-17
+- **Status**: APPROVED BY USER (phased)
+- **Decision**: Phase 1 (current): enforce the existing `surge_zones.start_time/end_time` window in the fare engine and clamp applied multiplier at `max_multiplier`. Phase 2 (future, requires separate approval): automated demand/supply ratio calculation using online driver count vs active requests per geo-zone. Phase 2 is NOT approved by this decision.
+- **Rationale**: Real-time demand/supply automation requires driver GPS density data, a computation scheduler, and new schema columns. Current priority is correctness of the manual system (time windows and cap enforcement).
+
+### DEC-026: First 300 Metres Included in Base Fare
+- **Date**: 2026-10-17
+- **Status**: APPROVED BY USER
+- **Decision**: The base fare includes the first 300 metres (0.3 km) of travel. Distance charges begin only after 300 m. Stored as `included_km: 0.3` on `pricing_configurations`. Formula: `distance_cost = MAX(0, distanceKm - 0.3) × per_km_rate`.
+- **Rationale**: Improves short-trip fairness perception. Consistent with Ola/Rapido practice of including a small threshold in the base. 300 m is appropriate for a dense urban market like Delhi NCR.
+
+---
+
 ## REJECTED DECISIONS
 
 ### DEC-R1: DarkStore Quick Commerce Model

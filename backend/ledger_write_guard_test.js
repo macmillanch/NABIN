@@ -650,14 +650,22 @@ function main() {
   // too. The accepted shapes are therefore "no rider balance arithmetic here" or "arithmetic only
   // where there is no durable store", and the count comparison is what makes an unguarded
   // re-introduction fail rather than read as a style choice.
-  const riderSlice = stripComments(dbSrc.slice(
-    dbSrc.indexOf("const driver = this.getDriver(job.driverId"),
-    dbSrc.indexOf('async recordPayout(')));
+  // The bounds are the settlement's own money vocabulary, deliberately NOT the party-resolution line.
+  // Measured 2026-10-18: this anchor used to be `const driver = this.getDriver(job.driverId`, and the
+  // MI-4 (P1) fix renamed exactly that call to `getDriverStrict`, so `indexOf` answered -1, `slice`
+  // came back empty, and the check went red reporting `riderAssigns:0, guardedRiderAssigns:0` for a
+  // mutation that was still there and still guarded. A region defined by the line a security fix is
+  // expected to edit deletes itself, and the indices are reported so the next drift names the bound
+  // that vanished instead of looking like a settlement with no wallet arithmetic in it.
+  const riderFrom = dbSrc.indexOf("const netKey = `RIDE_SETTLEMENT:");
+  const riderTo = dbSrc.indexOf('async recordPayout(');
+  const riderBoundsOk = riderFrom >= 0 && riderTo > riderFrom;
+  const riderSlice = riderBoundsOk ? stripComments(dbSrc.slice(riderFrom, riderTo)) : '';
   const riderAssigns = (riderSlice.match(/user\.walletBalance\s*[-+]?=/g) || []).length;
   const guardedRiderAssigns = (riderSlice.match(/if \(\s*!isLivePostgres[^{}]*\)\s*\{\s*user\.walletBalance\s*[-+]?=/g) || []).length;
   check('DEC-13', 'the rider balance is mutated in the settlement only where the mirror is the store',
-    riderSlice.length > 0 && riderAssigns === guardedRiderAssigns,
-    { riderAssigns, guardedRiderAssigns, slice: riderSlice.length });
+    riderBoundsOk && riderSlice.length > 0 && riderAssigns === guardedRiderAssigns,
+    { riderAssigns, guardedRiderAssigns, slice: riderSlice.length, from: riderFrom, to: riderTo });
 
   const failed = results.filter((r) => !r.pass);
   console.log('\n========================================================================');

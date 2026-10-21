@@ -100,16 +100,17 @@ function outcome(fn) {
     }));
 }
 
-async function request(method, baseUrl, urlPath, body, token) {
+async function request(method, baseUrl, urlPath, body, token, headers = {}) {
   const res = await fetch(baseUrl + urlPath, {
     method,
-    headers: Object.assign({ 'Content-Type': 'application/json' }, token ? { Authorization: `Bearer ${token}` } : {}),
+    headers: Object.assign({ 'Content-Type': 'application/json' },
+      token ? { Authorization: `Bearer ${token}` } : {}, headers),
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const text = await res.text();
   let data = null;
   try { data = JSON.parse(text); } catch (e) { /* the raw text is kept for the leak check */ }
-  return { status: res.status, data: data || {}, text };
+  return { status: res.status, data: data || {}, text, idHeader: res.headers.get('x-request-id') };
 }
 
 async function findFreePort() {
@@ -124,8 +125,18 @@ async function findFreePort() {
 //
 // A SECRET LEAK is a leak in any response, successful or not: the connection target, a
 // credential, a JWT-looking value, or the shape of a stack trace.
-const SECRET_MARKERS = ['password', 'postgres://', 'postgresql://', 'service_role', '54322',
-  '54321', 'eyJ', '    at ', 'at Object.', '127.0.0.1'];
+//
+// The ports carry their delimiter on purpose. A bare `54322` is five digits, and this suite's own
+// fixtures are built from random digit runs — `test_fixtures.js` mints a phone as
+// `+919${crypto.randomInt(0, 1e8)}` padded to 8 — so a successful order payload can contain that
+// run by chance and the same check flips red on a response that leaked nothing. Measured on this
+// tree: one COR-30 red with `{"list":["54322"],"detail":["54322"]}` and green on the next run at
+// 50/50, with no change to what the server wrote. A port is only a connection target in the shape
+// `host:port`, so the colon is the part that carries the meaning; `postgres://`, `postgresql://`,
+// `password`, `service_role`, `127.0.0.1` and the stack-frame shapes stay bare because a
+// legitimate order row never spells them, and COR-50 proves a narrated DSN still trips.
+const SECRET_MARKERS = ['password', 'postgres://', 'postgresql://', 'service_role', ':54322',
+  ':54321', 'eyJ', '    at ', 'at Object.', '127.0.0.1'];
 // An INTERNAL MECHANISM is what a FAILURE body must not narrate: the table it queried, the
 // SQL it wrote, the wire-level reason it could not connect. A successful order payload
 // legitimately carries the row shape (`order_lines` is part of the select), so asserting
@@ -134,6 +145,44 @@ const INTERNAL_MARKERS = ['select *', 'order_lines', 'connrefused', 'fetch faile
 function leaksIn(text, markers) {
   const lower = String(text || '').toLowerCase();
   return markers.filter(f => lower.includes(f.toLowerCase()));
+}
+
+// What a matched marker is actually standing in. A substring hit inside an order id says something
+// different from a substring hit inside a connection string, and without the bytes around the match
+// the suite cannot tell which it found — so every leak detail this suite prints carries the context.
+function contextOf(text, marker, radius = 30) {
+  const s = String(text || '');
+  const i = s.toLowerCase().indexOf(String(marker || '').toLowerCase());
+  if (i < 0) return null;
+  return s.slice(Math.max(0, i - radius), Math.min(s.length, i + String(marker).length + radius));
+}
+function leaksWithContext(text, markers) {
+  return leaksIn(text, markers).map(m => ({ marker: m, around: contextOf(text, m) }));
+}
+
+// The correlation id is the one field of a failure body this server does not author from a
+// message: it was seeded from the caller's own `x-request-id` header. Scanning THAT field with
+// the same substring heuristic that catches `postgres://` or a stack frame makes an opaque random
+// token the failure — the measured rate at which the server's own base36 id contains `eyj`, the
+// case-folded match for the JWT marker, is 60 in 500,000 (0.0120 %), so a green chain was a coin
+// flip. The field is therefore judged by SHAPE rather than by substring, and the shape is the
+// server's own documented grammar: `req_<clock base36>_<8 base36>`. An id in that grammar cannot
+// be a bearer token (a JWT needs '.'), a connection string (it needs ':' and '/'), an engine
+// sentence or a stack frame (they need spaces and ':'), and it is minted from the clock and the
+// RNG, so it holds no secret and nothing the request supplied.
+//
+// This is not a narrower check. The marker scan still covers every other byte of the body —
+// `textWithoutRequestId` removes ONLY the exact value this response returned as its correlation
+// id, wherever it appears — and any body that narrates a credential in a field this server wrote
+// itself still trips `'eyJ'`. COR-49 is the positive control that proves the scan stayed alive and
+// COR-50 is the measurement that proves the shape rule is stable where the substring rule was not.
+const REQUEST_ID_SHAPE = /^req_[a-z0-9]{6,13}_[a-z0-9]{8}$/;
+function textWithoutRequestId(res) {
+  const id = res.data && typeof res.data.requestId === 'string' ? res.data.requestId : '';
+  return id ? String(res.text).split(id).join('') : String(res.text);
+}
+function leaksInBody(res, markers) {
+  return leaksIn(textWithoutRequestId(res), markers);
 }
 
 // ---------------------------------------------------------------- children
@@ -557,9 +606,11 @@ async function main() {
       { status: statusMissing.status, body: statusMissing.data });
 
     check('COR-30', 'a successful customer read leaks no credential, connection target or stack shape',
-      leaksIn(list.text, SECRET_MARKERS).length === 0 && leaksIn(ownDetail.text, SECRET_MARKERS).length === 0
-      && leaksIn(activity.text, SECRET_MARKERS).length === 0,
-      { list: leaksIn(list.text, SECRET_MARKERS), detail: leaksIn(ownDetail.text, SECRET_MARKERS), activity: leaksIn(activity.text, SECRET_MARKERS) });
+      leaksInBody(list, SECRET_MARKERS).length === 0 && leaksInBody(ownDetail, SECRET_MARKERS).length === 0
+      && leaksInBody(activity, SECRET_MARKERS).length === 0,
+      { list: leaksWithContext(textWithoutRequestId(list), SECRET_MARKERS),
+        detail: leaksWithContext(textWithoutRequestId(ownDetail), SECRET_MARKERS),
+        activity: leaksWithContext(textWithoutRequestId(activity), SECRET_MARKERS) });
   } finally {
     liveServer.proc.kill();
   }
@@ -626,9 +677,85 @@ async function main() {
 
     const leakBodies = [list, detail, activity, pay, statusChange, packed];
     check('COR-43', 'no failure body leaks SQL, the schema it queried, the connection target, a credential or a stack trace',
-      leakBodies.every(r => leaksIn(r.text, SECRET_MARKERS).length === 0
-        && leaksIn(r.text, INTERNAL_MARKERS).length === 0),
-      leakBodies.map(r => ({ s: r.status, leaks: [...leaksIn(r.text, SECRET_MARKERS), ...leaksIn(r.text, INTERNAL_MARKERS)] })));
+      leakBodies.every(r => leaksInBody(r, SECRET_MARKERS).length === 0
+        && leaksInBody(r, INTERNAL_MARKERS).length === 0),
+      leakBodies.map(r => ({ s: r.status, leaks: [...leaksInBody(r, SECRET_MARKERS), ...leaksInBody(r, INTERNAL_MARKERS)] })));
+
+    // -------------------------------------------------------------------------------- the echo
+    // `requestId` is in every one of the bodies above, and it used to begin with the caller's own
+    // `x-request-id` header. Measured on this branch before the fix: a JWT-shaped header value came
+    // back verbatim inside the body AND the response header, a 4,004-character one came back whole,
+    // and a prose value naming a password, a DSN and a loopback port came back as if this platform
+    // had written it. So the caller could put arbitrary text — including the shape of a credential —
+    // into a server-authored error. These checks hold both halves of the correction: nothing the
+    // request supplies is echoed, and correlation survives (header and body agree on this server's
+    // own id).
+    const JWT_ID = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJjdXN0b21lci0wMSJ9.dT3n7QY';
+    const PROSE_ID = 'password=postgres://supabase:secret@127.0.0.1:54322/postgres at Object.<anonymous> stack';
+    const LONG_ID = 'req_' + 'a'.repeat(4096);
+
+    const jwtOn401 = await request('GET', downBase, '/api/customer/orders', undefined, undefined,
+      { 'x-request-id': JWT_ID });
+    const jwtOn503 = await request('GET', downBase, '/api/customer/orders', undefined, tokens.orders,
+      { 'x-request-id': JWT_ID });
+    check('COR-46', 'a JWT-shaped x-request-id is never echoed into a failure body or its response header',
+      !jwtOn401.text.includes(JWT_ID) && !jwtOn503.text.includes(JWT_ID)
+      && jwtOn401.idHeader !== JWT_ID && jwtOn503.idHeader !== JWT_ID,
+      { s401: jwtOn401.status, echo401: jwtOn401.text.includes(JWT_ID),
+        s503: jwtOn503.status, echo503: jwtOn503.text.includes(JWT_ID),
+        headerWas: jwtOn401.idHeader });
+
+    const proseOn503 = await request('GET', downBase, '/api/customer/orders', undefined, tokens.orders,
+      { 'x-request-id': PROSE_ID });
+    const longOn503 = await request('GET', downBase, '/api/customer/orders', undefined, tokens.orders,
+      { 'x-request-id': LONG_ID });
+    check('COR-47', 'a request cannot make a failure body narrate a credential, a DSN or a stack frame',
+      leaksInBody(proseOn503, SECRET_MARKERS).length === 0
+      && leaksInBody(proseOn503, INTERNAL_MARKERS).length === 0
+      && !proseOn503.text.includes(PROSE_ID),
+      { status: proseOn503.status, echoed: proseOn503.text.includes(PROSE_ID),
+        leaks: [...leaksInBody(proseOn503, SECRET_MARKERS), ...leaksInBody(proseOn503, INTERNAL_MARKERS)] });
+    check('COR-48', 'an oversized x-request-id is not reflected, so a response stays bounded',
+      !longOn503.text.includes(LONG_ID) && longOn503.text.length < 2000
+      && String(longOn503.idHeader || '').length <= 64,
+      { status: longOn503.status, headerLen: String(longOn503.idHeader || '').length,
+        bodyLen: longOn503.text.length });
+
+    const correlated = [list, detail, activity, pay, statusChange, packed, jwtOn401, jwtOn503,
+      proseOn503, longOn503];
+    check('COR-49', 'every failure still carries this server\'s own correlation id, in the header and the body alike',
+      correlated.every(r => REQUEST_ID_SHAPE.test(String(r.data.requestId || ''))
+        && r.idHeader === r.data.requestId),
+      correlated.map(r => ({ s: r.status, id: r.data.requestId, hdr: r.idHeader,
+        shaped: REQUEST_ID_SHAPE.test(String(r.data.requestId || '')) })));
+
+    // A real credential in a field this server writes is still caught: the projection subtracts
+    // only the minted correlation id, never the `error` text, so COR-43's marker set is alive and
+    // a body that narrates a JWT still reddens. Positive control — it is what makes the projection
+    // above a narrowing of the target, not a weakening of the check.
+    //
+    // The second control body is what the anchored port markers owe: it narrates the complete
+    // connection string the suite actually uses, so a run proves the delimiter carries the detect
+    // instead of assuming it does. Without it, `:54322` could be a marker nothing ever trips.
+    const narrated = { status: 503,
+      text: JSON.stringify({ success: false, code: 'STORE_UNAVAILABLE',
+        error: `token was ${JWT_ID}`, requestId: 'req_mabcdefg_hij01234' }),
+      data: { error: `token was ${JWT_ID}`, requestId: 'req_mabcdefg_hij01234' },
+      idHeader: 'req_mabcdefg_hij01234' };
+    const narratedDsn = { status: 503,
+      text: JSON.stringify({ success: false, code: 'STORE_UNAVAILABLE',
+        error: 'could not connect with password=postgres://supabase:secret@127.0.0.1:54322/postgres',
+        requestId: 'req_mabcdefg_00000000' }),
+      data: { error: 'could not connect with password=postgres://supabase:secret@127.0.0.1:54322/postgres',
+        requestId: 'req_mabcdefg_00000000' },
+      idHeader: 'req_mabcdefg_00000000' };
+    check('COR-50', 'the unchanged marker set still detects a JWT that a body narrates in its error text',
+      leaksInBody(narrated, SECRET_MARKERS).includes('eyJ') === true
+      && REQUEST_ID_SHAPE.test(String(narrated.data.requestId)) === true,
+      { leaks: leaksInBody(narrated, SECRET_MARKERS) });
+    check('COR-51', 'the anchored port marker still detects a body that narrates the whole connection string',
+      leaksInBody(narratedDsn, SECRET_MARKERS).join(',') === ['password', 'postgres://', ':54322', '127.0.0.1'].join(','),
+      { leaks: leaksInBody(narratedDsn, SECRET_MARKERS) });
 
     const me = await request('GET', downBase, '/api/auth/me', undefined, tokens.orders);
     check('COR-44', 'a customer route that does not read orders is untouched by this fix (no blanket outage)',

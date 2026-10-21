@@ -109,7 +109,8 @@ class OrderRepository {
               id: rest.uuid || rest.id,
               name: rest.name,
               merchant_type: rest.merchant_type || rest.merchantType || 'RESTAURANT',
-              is_open: rest.isOpen !== false
+              is_open: rest.isOpen !== false,
+              approval_status: rest.approval_status ?? rest.approvalStatus ?? null
             };
           }
         }
@@ -124,7 +125,8 @@ class OrderRepository {
           id: rest.uuid || rest.id,
           name: rest.name,
           merchant_type: rest.merchant_type || rest.merchantType || 'RESTAURANT',
-          is_open: rest.isOpen !== false
+          is_open: rest.isOpen !== false,
+          approval_status: rest.approval_status ?? rest.approvalStatus ?? null
         };
       }
     }
@@ -629,6 +631,51 @@ class OrderRepository {
       throw new Error(`Error expiring stale orders: ${error.message}`);
     }
     return data || 0;
+  }
+
+  /**
+   * Migration 047 handover RPCs. A delivery job/link is durable-or-nothing: the in-memory
+   * fallback used by createOrderWithLinesAtomic would answer "success" for an order that
+   * no driver can ever pick up, so these refuse when there is no real Postgres target.
+   */
+  async _deliveryHandoverRpc(name, params) {
+    if (!supabaseAdmin || !isLivePostgres) {
+      const err = new Error(`Delivery handover requires the live PostgreSQL target: ${name}`);
+      err.code = 'DELIVERY_RPC_UNAVAILABLE';
+      err.statusCode = 503;
+      throw err;
+    }
+
+    const { data, error } = await supabaseAdmin.rpc(name, params);
+    if (error) {
+      const err = new Error(`Delivery handover write failed: ${error.message}`);
+      err.code = 'DELIVERY_WRITE_UNAVAILABLE';
+      err.statusCode = 503;
+      throw err;
+    }
+    return data;
+  }
+
+  async createDeliveryJobAtomic({ orderId, idempotencyKey = null }) {
+    return this._deliveryHandoverRpc('create_delivery_job_atomic', {
+      p_order_id: orderId,
+      p_idempotency_key: idempotencyKey
+    });
+  }
+
+  async recordDeliveryPickupAtomic({ orderId, driverId }) {
+    return this._deliveryHandoverRpc('record_delivery_pickup_atomic', {
+      p_order_id: orderId,
+      p_driver_id: driverId
+    });
+  }
+
+  async recordDeliveryCompletionAtomic({ orderId, driverId, otp }) {
+    return this._deliveryHandoverRpc('record_delivery_completion_atomic', {
+      p_order_id: orderId,
+      p_driver_id: driverId,
+      p_otp: otp
+    });
   }
 
   /**

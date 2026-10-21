@@ -5,6 +5,7 @@
 // =========================================================================
 const crypto = require('crypto');
 const { supabaseAdmin, isLivePostgres } = require('../supabase');
+const { isProduction } = require('../services/RuntimeMode');
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ALLOWED_PAYMENT_METHODS = ['UPI', 'CARD', 'NETBANKING', 'WALLET', 'CASH'];
@@ -65,7 +66,12 @@ class PaymentRepository {
 
   /**
    * 1. Create a Payment Session
-   * Persists to PostgreSQL payment_sessions table with status INITIATED.
+   *
+   * Persists to PostgreSQL payment_sessions with status INITIATED. This is a *simulated* checkout:
+   * it records the intent to pay and nothing else. No gateway is contacted, because no gateway
+   * integration exists in this repository, so the returned id is not a provider order id and
+   * `simulated: true` travels with the record. A request that names `PAYMENT_MODE=live` is refused
+   * rather than answered with a simulated order wearing a live label.
    */
   async createPaymentSession({ customerId, amount, currency = 'INR', serviceType = 'RIDE', jobId = null, metadata = {} }) {
     const numAmount = Number(amount);
@@ -73,18 +79,53 @@ class PaymentRepository {
       throw new Error('Valid transaction amount is required to create a payment session.');
     }
 
-    const isLiveMode = process.env.PAYMENT_MODE === 'live';
-    if (isLiveMode && (!process.env.PAYMENT_KEY_ID || !process.env.PAYMENT_KEY_SECRET)) {
-      throw new Error('Live payment gateway is not yet activated on this production instance.');
+    // A live checkout can only be offered by an integration that actually reaches a gateway, and this
+    // repository has none: an inventory of every file under `backend/src` for a Razorpay SDK import, an
+    // `api.razorpay.com` request or any other payment client returns zero hits (pinned by LPT-15).
+    // `PAYMENT_MODE=live` used to be satisfied by two non-empty environment variables, after which the
+    // "gateway order id" was minted here from Date.now() and Math.random() and the row labelled
+    // RAZORPAY_LIVE. The caller was handed an identifier nothing can charge, and no webhook or
+    // reconciliation could ever settle against it. Until a provider is chosen by the owner and its
+    // integration exists, the truthful answer is a refusal — raised before an id is minted, so nothing
+    // is persisted, cached, audited or booked, and a retry of the same request cannot manufacture the
+    // success this one refused. Both `status` and `statusCode` are set because the route below answers
+    // from `statusCode`, while the rest of the platform's typed refusals carry `.status`.
+    const paymentMode = (process.env.PAYMENT_MODE || '').trim().toLowerCase();
+    if (paymentMode === 'live') {
+      const err = new Error(
+        'Live payment processing is not configured on this server: PAYMENT_MODE=live names a payment '
+        + 'provider this deployment has no integration for, so no gateway order can be created. '
+        + 'Set PAYMENT_MODE=sandbox or test for a simulated checkout, or provision the provider '
+        + 'integration and its credentials before retrying.'
+      );
+      err.code = 'PAYMENT_PROVIDER_NOT_CONFIGURED';
+      err.status = err.statusCode = 503;
+      throw err;
     }
 
-    const orderId = isLiveMode
-      ? `order_rzp_live_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-      : `order_rzp_test_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    // The same fabrication ran the other way: anything that was not `live` fell through to the sandbox
+    // branch, including production with PAYMENT_MODE never declared, which answered with a simulated
+    // order while saying nothing about it being simulated. Simulation is the intended rail here
+    // (backend/.env.production.example:47 declares `PAYMENT_MODE=sandbox` on purpose), so an explicit
+    // declaration keeps working and now labels itself; what is refused is an undeclared one.
+    if (!paymentMode && isProduction()) {
+      const err = new Error(
+        'PAYMENT_MODE is not configured, and this server will not default a payment rail. '
+        + 'Set PAYMENT_MODE=sandbox or test for a simulated checkout; live is refused until a real '
+        + 'provider integration exists.'
+      );
+      err.code = 'PAYMENT_MODE_UNCONFIGURED';
+      err.status = err.statusCode = 503;
+      throw err;
+    }
+
+    const orderId = `order_rzp_test_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
     const customerUuid = this.resolveCustomerUuid(customerId);
     const jobUuid = (jobId && UUID_REGEX.test(jobId)) ? jobId : null;
-    const keyId = isLiveMode ? process.env.PAYMENT_KEY_ID : (process.env.PAYMENT_KEY_ID || 'rzp_test_nabin_beta_2026');
+    // The key id belongs to the gateway account, not to this file. It used to fall back to a literal
+    // written here, which told a client that some account would be charged.
+    const keyId = process.env.PAYMENT_KEY_ID || null;
 
     const sessionRecord = {
       orderId,
@@ -94,9 +135,11 @@ class PaymentRepository {
       serviceType,
       jobId: jobUuid || jobId || null,
       status: 'PAYMENT_PENDING',
-      provider: isLiveMode ? 'RAZORPAY_LIVE' : 'RAZORPAY_SANDBOX',
+      provider: 'RAZORPAY_SANDBOX',
+      simulated: true,
+      paymentMode,
       keyId,
-      metadata: { ...metadata, callerCustomerId: customerId },
+      metadata: { ...metadata, callerCustomerId: customerId, simulated: true, paymentMode },
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
@@ -151,7 +194,7 @@ class PaymentRepository {
     if (this.db.createAuditLog) {
       this.db.createAuditLog({
         adminId: customerId || 'CUSTOMER_CHECKOUT',
-        adminName: 'Payment Gateway Client',
+        adminName: 'Simulated Payment Checkout',
         role: 'CUSTOMER',
         action: 'PAYMENT_SESSION_CREATED',
         module: 'PAYMENTS',
@@ -159,7 +202,7 @@ class PaymentRepository {
         targetEntityId: orderId,
         previousState: 'NONE',
         newState: 'PAYMENT_PENDING',
-        reason: `Created payment order for ${serviceType}. Amount: ₹${numAmount}`
+        reason: `Created simulated payment order for ${serviceType} (PAYMENT_MODE=${paymentMode || 'unset'}, no gateway contacted). Amount: ₹${numAmount}`
       });
     }
 
@@ -368,10 +411,29 @@ class PaymentRepository {
       throw err;
     }
 
-    // Enforce customer ownership if caller customerId is known
+    // Enforce customer ownership — on both sides, because two branches below (the client-reported
+    // FAILED and CANCELLED ones) write this row's durable status and require NO gateway signature,
+    // so this comparison is the only thing between one customer's checkout and somebody else's pen.
+    // It used to run only `if (callerUuid && sessionUuid && callerUuid !== sessionUuid)`, which
+    // vanished whenever EITHER side failed to resolve: `resolveCustomerUuid` answers null for a
+    // handle that is neither a uuid nor a mapped account, and `payment_sessions.customer_id` is
+    // NULLABLE. Measured 2026-10-18 before the fix (`payment_verify_ownership_test.js`, 20/25): a
+    // persisted session row whose `entity_id` named no account still passed the bearer gate because
+    // its phone matched an active customer, and it moved ANOTHER customer's INITIATED session to
+    // FAILED carrying the caller's own `failureReason` text; a row with `customer_id IS NULL` was
+    // flipped the same way by any signed-in customer, and left an `audit_logs` row naming
+    // `usr_cust_anon` — a person who does not exist — as the actor. Third measured instance of the
+    // same shape (MI-1 read half of this record, MI-7 support thread), which is why both halves are
+    // pinned: ownership that cannot be resolved is not ownership, so both sides must resolve AND agree.
     const callerUuid = this.resolveCustomerUuid(customerId);
     const sessionUuid = this.resolveCustomerUuid(session.customerId || session.customer_id);
-    if (callerUuid && sessionUuid && callerUuid !== sessionUuid) {
+    if (!callerUuid || !sessionUuid) {
+      const err = new Error('This payment session has no verifiable owner, so its status cannot be reported.');
+      err.statusCode = 403;
+      err.code = 'SESSION_OWNER_UNRESOLVED';
+      throw err;
+    }
+    if (callerUuid !== sessionUuid) {
       const err = new Error('Customer does not own payment session.');
       err.statusCode = 403;
       err.code = 'CUSTOMER_MISMATCH';
@@ -596,33 +658,80 @@ class PaymentRepository {
         ? (refundEntity.amount > 100 && Number.isInteger(refundEntity.amount) ? refundEntity.amount / 100 : refundEntity.amount)
         : amount;
 
-      if (refundTarget) {
-        try {
-          await this.refundPaymentAtomic({
-            orderOrPayment: refundTarget,
-            refundEventId: eventId,
-            reason: 'Webhook refund notification',
-            authorizedBy: 'GATEWAY_WEBHOOK',
-            provider: 'RAZORPAY',
-            declaredAmount: refundAmt
-          });
-        } catch (rErr) {
-          console.warn('⚠️ [PaymentRepository.recordPaymentWebhook] Refund RPC warning:', rErr.message);
-        }
+      // In-memory dev fallback (Postgres offline): there is no atomic store to consult, so
+      // recordStandaloneWebhook is the refund authority. This is the mock path only — never the
+      // production money path, which is the live branch below.
+      if (!(isLivePostgres && supabaseAdmin)) {
+        await this.recordStandaloneWebhook({
+          eventId,
+          eventType,
+          paymentId: refundTarget || paymentId,
+          amount: refundAmt,
+          status: status || 'REFUNDED',
+          signature,
+          payload
+        });
+        if (this.db.processedWebhookIds) this.db.processedWebhookIds.add(eventId);
+        return { success: true, duplicate: false, message: 'Refund webhook processed' };
       }
 
-      await this.recordStandaloneWebhook({
-        eventId,
-        eventType,
-        paymentId: refundTarget || paymentId,
-        amount: refundAmt,
-        status: status || 'REFUNDED',
-        signature,
-        payload
+      // refund_payment_atomic (migrations/006_payments_domain.sql:223-309) is the sole authority for a
+      // durable refund: under a FOR UPDATE lock it claims the event id, writes the payment_webhooks row
+      // AND the DISPUTE_REFUND ledger entry, and flips payments/jobs to REFUNDED — or refuses with
+      // {success:false, code} and writes NOTHING under this event id. Its verdict, not the payload's
+      // say-so, decides the response. The previous code awaited it, discarded the result, then journaled
+      // a refund and answered 200 regardless — so a refund the store refused booked ledger money that
+      // never moved and consumed the event id, dropping a corrected delivery as a duplicate.
+      if (!refundTarget) {
+        // A refund event that names no payment. Refusing leaves the event unclaimed for a corrected
+        // delivery; journaling it would claim REFUNDED for a reversal of money that cannot be located.
+        return {
+          success: false,
+          code: 'REFUND_TARGET_MISSING',
+          error: 'Refund event carried no payment reference.',
+          duplicate: false
+        };
+      }
+
+      // refundPaymentAtomic throws storeFailure when the store rejects the call. An outage is not a
+      // refused refund, so it propagates here rather than being swallowed: the route answers a
+      // retryable 503 and the event stays unclaimed until the gateway redelivers.
+      const verdict = await this.refundPaymentAtomic({
+        orderOrPayment: refundTarget,
+        refundEventId: eventId,
+        reason: 'Webhook refund notification',
+        authorizedBy: 'GATEWAY_WEBHOOK',
+        provider: 'RAZORPAY',
+        declaredAmount: refundAmt
       });
 
+      if (!verdict || verdict.success !== true) {
+        // PAYMENT_NOT_FOUND / INVALID_STATE / REFUND_AMOUNT_MISMATCH: the RPC journaled nothing under
+        // this event id, so nothing here may either — no webhook row, no ledger entry, event left
+        // replayable. The refusal is returned typed so the route reports it truthfully.
+        const refusal = {
+          success: false,
+          code: (verdict && verdict.code) || 'REFUND_FAILED',
+          error: (verdict && verdict.error) || `Refund refused by the payment store (${(verdict && verdict.code) || 'UNKNOWN'}).`,
+          duplicate: false
+        };
+        if (verdict && verdict.expected !== undefined) {
+          refusal.expected = verdict.expected;
+          refusal.received = verdict.received;
+        }
+        return refusal;
+      }
+
+      // Granted (or already a duplicate): the RPC did the journaling and the claim, so this path books
+      // no money and re-claims nothing — only reports what the store actually did.
       if (this.db.processedWebhookIds) this.db.processedWebhookIds.add(eventId);
-      return { success: true, duplicate: false, message: 'Refund webhook processed' };
+      return {
+        success: true,
+        duplicate: Boolean(verdict.duplicate),
+        paymentId: verdict.paymentId || refundTarget,
+        amount: verdict.refundedAmount !== undefined ? Number(verdict.refundedAmount) : refundAmt,
+        message: verdict.duplicate ? 'Refund already processed' : 'Refund webhook processed'
+      };
     }
 
     // Check if this is a payment failure event
@@ -875,7 +984,11 @@ class PaymentRepository {
       });
 
       if (error) {
-        throw new Error(`refund_payment_atomic RPC error: ${error.message}`);
+        // An unreachable store is not a refused refund. A codeless Error was caught by the webhook
+        // caller as a warning and answered 200, telling the gateway a refund landed when the database
+        // never answered at all. Mark it the way the capture sibling does (this file, capturePaymentAtomic)
+        // so the route's classifier gives it a retryable 503 instead.
+        throw storeFailure('payment refund', error);
       }
       return data;
     }

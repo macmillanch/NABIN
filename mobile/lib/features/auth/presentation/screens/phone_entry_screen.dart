@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/nabin_text_field.dart';
 import '../../../../core/widgets/nabin_button.dart';
+import '../../../../core/widgets/nabin_brand_logo.dart';
 
 import '../../../../core/network/nabin_api_service.dart';
 import '../../../../core/config/nabin_build_env.dart';
@@ -71,7 +72,7 @@ class _PhoneEntryScreenState extends State<PhoneEntryScreen> {
           icon: const Icon(Icons.arrow_back_ios_new, color: AppTheme.onSurface, size: 20),
           onPressed: () => context.canPop() ? context.pop() : context.go('/'),
         ),
-        title: const Text('NABIN', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 20, color: AppTheme.primary, letterSpacing: 0.5)),
+        title: const NabinBrandLogo(fontSize: 20),
         centerTitle: true,
       ),
       body: SafeArea(

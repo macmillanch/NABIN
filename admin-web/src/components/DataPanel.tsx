@@ -59,6 +59,131 @@ export function useAdminData<T = Row[]>(path: string, pick?: (payload: unknown) 
   const load = useCallback(async () => {
     setPanel(p => ({ ...p, state: 'loading', error: null }));
     try {
+      const isDemo = typeof window !== 'undefined' && localStorage.getItem('nabin_admin_token')?.startsWith('demo-');
+      if (isDemo) {
+        let demoPayload: any = null;
+        if (path.includes('/services/status')) {
+          demoPayload = {
+            success: true,
+            services: [
+              { id: 'rides', name: 'NABIN Rides', category: 'mobility', status: 'ACTIVE', pausedReason: null },
+              { id: 'food', name: 'NABIN Food', category: 'delivery', status: 'ACTIVE', pausedReason: null },
+              { id: 'grocery', name: 'NABIN Grocery', category: 'delivery', status: 'ACTIVE', pausedReason: null },
+              { id: 'parcel', name: 'NABIN Parcel', category: 'logistics', status: 'ACTIVE', pausedReason: null },
+            ],
+            summary: { active: 4, paused: 0, status: 'NORMAL' },
+          };
+        } else if (path.includes('/finance/metrics') || path.includes('/metrics')) {
+          demoPayload = {
+            success: true,
+            metrics: {
+              activeCustomers: 1248,
+              activeDrivers: 86,
+              activeMerchants: 42,
+              activeJobs: 19,
+              servicesActive: 4,
+              servicesPaused: 0,
+              platformStatus: 'OPERATIONAL',
+              grossFareToday: '₹1,42,850',
+              driversOnline: 86,
+              grossGtv: 4850250,
+              totalCustomerPayments: 4850250,
+              driverEarnings: 3880200,
+              platformRevenue: 970050,
+              totalRefunds: 14200,
+              pendingSettlements: 125400,
+              completedSettlements: 3754800,
+              outstandingBalances: 45000,
+            },
+          };
+        } else if (path.includes('/support')) {
+          demoPayload = {
+            success: true,
+            tickets: [
+              { ticketNumber: 'TICK-4011', title: 'Driver fare dispute for ride #8921', category: 'RIDE_FARE', userName: 'Rahul Mehra', userRole: 'CUSTOMER', driverName: 'Vikram Singh', status: 'OPEN', priority: 'HIGH', createdAt: '2026-10-09T18:40:00Z' },
+              { ticketNumber: 'TICK-4012', title: 'Order item missing from grocery delivery', category: 'ORDER_ISSUE', userName: 'Ananya Sen', userRole: 'CUSTOMER', driverName: 'Sunil Kumar', status: 'IN_PROGRESS', priority: 'MEDIUM', createdAt: '2026-10-09T17:15:00Z' },
+              { ticketNumber: 'TICK-4013', title: 'Payout delay query for week 40', category: 'PAYOUT', userName: 'Suresh Yadav', userRole: 'DRIVER', driverName: null, status: 'PENDING', priority: 'LOW', createdAt: '2026-10-09T16:00:00Z' },
+              { ticketNumber: 'TICK-4014', title: 'Restaurant food spilled during transit', category: 'FOOD_QUALITY', userName: 'Pooja Verma', userRole: 'CUSTOMER', driverName: 'Amit Shah', status: 'RESOLVED', priority: 'MEDIUM', createdAt: '2026-10-09T14:20:00Z' },
+            ],
+          };
+        } else if (path.includes('/identity-verifications')) {
+          demoPayload = {
+            success: true,
+            metrics: { total: 42, pending: 5, underReview: 3, resubmission: 1, verified: 31, rejected: 2 },
+            applications: [
+              { userName: 'Vikram Rathore', phone: '+919876543210', aadhaarNumberMasked: 'XXXX-XXXX-8921', status: 'PENDING', aadhaarDocStatus: 'UPLOADED', submittedAt: '2026-10-09T19:10:00Z' },
+              { userName: 'Deepak Kumar', phone: '+919812345678', aadhaarNumberMasked: 'XXXX-XXXX-4512', status: 'UNDER_REVIEW', aadhaarDocStatus: 'VERIFIED', submittedAt: '2026-10-09T18:05:00Z' },
+              { userName: 'Manoj Joshi', phone: '+919890123456', aadhaarNumberMasked: 'XXXX-XXXX-7731', status: 'PENDING', aadhaarDocStatus: 'UPLOADED', submittedAt: '2026-10-09T16:30:00Z' },
+              { userName: 'Rajesh Sharma', phone: '+919834567890', aadhaarNumberMasked: 'XXXX-XXXX-1120', status: 'AWAITING_RESUBMISSION', aadhaarDocStatus: 'BLURRED_PHOTO', submittedAt: '2026-10-09T15:00:00Z' },
+            ],
+          };
+        } else if (path.includes('/audit-logs')) {
+          demoPayload = {
+            success: true,
+            logs: [
+              { timestamp: '2026-10-09T19:25:00Z', adminName: 'superadmin', role: 'SUPER_ADMIN', action: 'VIEW_METRICS', module: 'FINANCE', targetEntityType: 'SYSTEM', targetEntityId: 'SYS-FIN', newState: 'SUCCESS' },
+              { timestamp: '2026-10-09T18:50:00Z', adminName: 'superadmin', role: 'SUPER_ADMIN', action: 'SERVICE_STATUS_CHECK', module: 'OPERATIONS', targetEntityType: 'SERVICE', targetEntityId: 'RIDES', newState: 'ACTIVE' },
+              { timestamp: '2026-10-09T17:30:00Z', adminName: 'ops_lead', role: 'OPERATIONS', action: 'KYC_VERIFICATION_PASS', module: 'KYC', targetEntityType: 'DRIVER', targetEntityId: 'DRV-1044', newState: 'VERIFIED' },
+              { timestamp: '2026-10-09T16:15:00Z', adminName: 'superadmin', role: 'SUPER_ADMIN', action: 'PARAMETER_AUDIT', module: 'SETTINGS', targetEntityType: 'CONFIG', targetEntityId: 'GEO_FENCE', newState: 'COMPLIANT' },
+            ],
+          };
+        } else if (path.includes('/platform-settings')) {
+          demoPayload = {
+            success: true,
+            settings: [
+              {
+                setting_key: 'APP_CONFIG_THEME',
+                setting_value: {
+                  brand: '#1A3BA2',
+                  brandTint: '#E8EDF9',
+                  onBrand: '#FFFFFF',
+                  canvas: '#F8FAFC',
+                  surface: '#FFFFFF',
+                  surfaceMuted: '#F1F5F9',
+                  surfaceEmphasized: '#E2E8F0',
+                  onSurface: '#0F172A',
+                  onSurfaceMuted: '#64748B',
+                  divider: '#E2E8F0',
+                  success: '#10B981',
+                  warning: '#F59E0B',
+                  danger: '#EF4444',
+                  foodAccent: '#E11D48',
+                  groceryAccent: '#059669',
+                },
+                description: 'Production design system kinetic tokens and brand hex codes',
+                updated_by: 'superadmin',
+                updated_at: '2026-10-09T18:00:00Z',
+              },
+              { setting_key: 'geo.fence.strict_mode', setting_value: true, description: 'Enforce strict geofencing validation on ride and delivery orders', updated_by: 'superadmin', updated_at: '2026-10-08T12:00:00Z' },
+              { setting_key: 'dispatch.radius.km', setting_value: 7.5, description: 'Default driver search radius in kilometers', updated_by: 'superadmin', updated_at: '2026-10-08T12:00:00Z' },
+              { setting_key: 'commission.rate.rides', setting_value: 0.18, description: 'Platform take rate for ride hailing transactions', updated_by: 'superadmin', updated_at: '2026-10-08T12:00:00Z' },
+              { setting_key: 'commission.rate.delivery', setting_value: 0.22, description: 'Platform take rate for food & grocery deliveries', updated_by: 'superadmin', updated_at: '2026-10-08T12:00:00Z' },
+            ],
+          };
+        } else if (path.includes('/jobs')) {
+          demoPayload = {
+            success: true,
+            jobs: [
+              { id: 'JOB-9821', service: 'rides', status: 'ASSIGNED', customer: 'Rohan Sharma', driver: 'Vikram Singh', fare: '₹145.00', createdAt: '2026-10-09 23:15' },
+              { id: 'JOB-9822', service: 'food', status: 'PREPARING', customer: 'Priya Patel', merchant: 'Tandoori Nights', fare: '₹420.00', createdAt: '2026-10-09 23:22' },
+              { id: 'JOB-9823', service: 'grocery', status: 'PACKING', customer: 'Amit Verma', merchant: 'Fresh Daily Market', fare: '₹890.00', createdAt: '2026-10-09 23:30' },
+            ],
+          };
+        } else {
+          demoPayload = { success: true, data: [] };
+        }
+        const chooser = pickRef.current;
+        const val = (chooser ? chooser(demoPayload) : (demoPayload?.data ?? demoPayload)) as T;
+        setPanel({
+          state: 'ready',
+          data: val ?? null,
+          error: null,
+          fetchedAt: new Date(),
+          source: `${path} (Demo Mode)`,
+        });
+        return;
+      }
+
       // Reuse the configured client: it already carries the base URL and the bearer token,
       // so a panel cannot accidentally start talking to a different backend than the shell.
       const res = await api.get(path.replace(/^\/api\/admin/, '/admin'));
@@ -209,7 +334,7 @@ export function RecordsTable({ rows, columns, caption }: {
       <table className="nabin-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
         <caption className="nabin-cell-meta" style={{ textAlign: 'left', padding: '0 0 var(--space-xs)' }}>{caption}</caption>
         <thead>
-          <tr>{columns.map(c => <th key={c.key} scope="col" className="nabin-label" style={{ textAlign: 'left', padding: '6px 8px' }}>{c.label}</th>)}</tr>
+          <tr>{columns.map(c => <th key={c.key} scope="col" style={{ textAlign: 'left', padding: '10px 12px', fontSize: '12px', fontWeight: 800, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--ink-muted)', borderBottom: '1px solid var(--divider)' }}>{c.label}</th>)}</tr>
         </thead>
         <tbody>
           {rows.map((row, i) => (

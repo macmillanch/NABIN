@@ -1,6 +1,6 @@
 -- Migration 039: Atomic Double-Entry Ledger Posting for Payment Captures and Refunds
 -- Authoritative General Ledger Consolidation
--- 
+--
 -- Objectives:
 -- 1. Ensure capture_payment_atomic writes balanced journal_transactions & journal_lines atomically with payment capture.
 -- 2. Ensure refund_payment_atomic writes balanced journal_transactions & journal_lines atomically with refund authorization.
@@ -13,14 +13,14 @@
 -- ============================================================================
 
 CREATE OR REPLACE FUNCTION public.capture_payment_atomic(
-    p_order_id text, 
-    p_payment_id text, 
-    p_customer uuid, 
-    p_service text DEFAULT NULL::text, 
-    p_method text DEFAULT 'WALLET'::text, 
-    p_signature_valid boolean DEFAULT true, 
-    p_provider text DEFAULT 'RAZORPAY_SANDBOX'::text, 
-    p_webhook_event_id text DEFAULT NULL::text, 
+    p_order_id text,
+    p_payment_id text,
+    p_customer uuid,
+    p_service text DEFAULT NULL::text,
+    p_method text DEFAULT 'WALLET'::text,
+    p_signature_valid boolean DEFAULT true,
+    p_provider text DEFAULT 'RAZORPAY_SANDBOX'::text,
+    p_webhook_event_id text DEFAULT NULL::text,
     p_declared_amount numeric DEFAULT NULL::numeric
 )
 RETURNS json
@@ -208,12 +208,12 @@ $function$;
 DROP FUNCTION IF EXISTS public.refund_payment_atomic(text, text, text, text, text, numeric);
 
 CREATE OR REPLACE FUNCTION public.refund_payment_atomic(
-    p_order_or_payment text, 
-    p_refund_event_id text, 
-    p_reason text DEFAULT NULL::text, 
-    p_authorized_by text DEFAULT 'SUPPORT_AGENT'::text, 
-    p_provider text DEFAULT 'RAZORPAY_SANDBOX'::text, 
-    p_declared_amount numeric DEFAULT NULL::numeric, 
+    p_order_or_payment text,
+    p_refund_event_id text,
+    p_reason text DEFAULT NULL::text,
+    p_authorized_by text DEFAULT 'SUPPORT_AGENT'::text,
+    p_provider text DEFAULT 'RAZORPAY_SANDBOX'::text,
+    p_declared_amount numeric DEFAULT NULL::numeric,
     p_ticket_id text DEFAULT NULL::text
 )
 RETURNS json
@@ -261,11 +261,11 @@ BEGIN
     -- 5. Idempotency Check (Case D1 vs D3)
     SELECT * INTO v_auth FROM payment_refund_authorizations WHERE idempotency_key = v_event_id;
     IF FOUND THEN
-        IF v_auth.payment_id = v_pay.payment_id AND 
-           v_auth.amount = v_refund_amount AND 
+        IF v_auth.payment_id = v_pay.payment_id AND
+           v_auth.amount = v_refund_amount AND
            v_auth.payload_hash = v_payload_hash THEN
             RETURN json_build_object(
-                'success', true, 
+                'success', true,
                 'duplicate', true,
                 'paymentId', v_pay.payment_id,
                 'refundAmount', v_auth.amount,
@@ -274,7 +274,7 @@ BEGIN
             );
         ELSE
             RETURN json_build_object(
-                'success', false, 
+                'success', false,
                 'code', 'IDEMPOTENCY_CONFLICT',
                 'error', 'Idempotency key has already been used with different parameters.'
             );
@@ -287,7 +287,7 @@ BEGIN
          WHERE payment_id = v_pay.payment_id AND ticket_id = p_ticket_id;
         IF FOUND THEN
             RETURN json_build_object(
-                'success', false, 
+                'success', false,
                 'code', 'TICKET_ALREADY_REFUNDED',
                 'error', 'This support ticket has already been used for a refund on this payment.'
             );
@@ -306,7 +306,7 @@ BEGIN
     END IF;
     IF v_refund_amount > v_refundable_left THEN
         RETURN json_build_object(
-            'success', false, 
+            'success', false,
             'code', 'EXCEEDS_REFUNDABLE_BALANCE',
             'requested', v_refund_amount,
             'remaining', v_refundable_left
@@ -371,7 +371,7 @@ BEGIN
     );
 
     -- 12. Mutate Payment Row
-    UPDATE payments 
+    UPDATE payments
        SET status = v_new_status,
            refunded_amount = v_new_refunded,
            refunded_at = now(),
@@ -407,4 +407,3 @@ GRANT EXECUTE ON FUNCTION public.capture_payment_atomic(text, text, uuid, text, 
 
 REVOKE ALL ON FUNCTION public.refund_payment_atomic(text, text, text, text, text, numeric, text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.refund_payment_atomic(text, text, text, text, text, numeric, text) TO service_role;
-

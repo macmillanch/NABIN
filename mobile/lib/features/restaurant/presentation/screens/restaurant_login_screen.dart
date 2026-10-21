@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/theme/restaurant_theme.dart';
+import '../../../../core/widgets/nabin_brand_logo.dart';
 import '../../../../core/network/nabin_api_service.dart';
 
 class RestaurantLoginScreen extends StatefulWidget {
@@ -67,32 +68,16 @@ class _RestaurantLoginScreenState extends State<RestaurantLoginScreen> {
                     child: const Icon(Icons.storefront_rounded, color: RestaurantTheme.neonOrange, size: 24),
                   ),
                   const SizedBox(width: 12),
-                  Column(
+                  const Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        children: [
-                          const Text(
-                            'NABIN',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w900,
-                              color: RestaurantTheme.charcoal,
-                              letterSpacing: 0.5,
-                            ),
-                          ),
-                          const SizedBox(width: 6),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
-                            decoration: BoxDecoration(
-                              color: RestaurantTheme.neonOrange,
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: const Text('RESTAURANT', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w900, color: Colors.white)),
-                          ),
-                        ],
+                      NabinBrandLogo(
+                        fontSize: 16,
+                        badge: 'RESTAURANT',
+                        badgeColor: RestaurantTheme.neonOrange,
+                        badgeTextColor: Colors.white,
                       ),
-                      const Text(
+                      Text(
                         'Merchant Portal & Kitchen KDS',
                         style: TextStyle(
                           fontSize: 11,

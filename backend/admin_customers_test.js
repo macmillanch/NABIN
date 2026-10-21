@@ -631,13 +631,42 @@ async function main() {
     ['POST', '/api/customer/profile/photo', { fileData: 'data:image/png;base64,aGk=', mimeType: 'image/png' }, true]
   ];
   const openAnswers = [];
-  for (const [method, route, body, inControl] of bearerProbes) {
-    if (!inControl) continue;
-    const probe = await request(method, route, body, bearer(controlSignIn.token));
-    openAnswers.push(`${method} ${route.split('/').slice(2).join('/')}=${probe.status}${probe.data.code ? `/${probe.data.code}` : ''}`);
+  // The open-account profile-photo probe succeeds, and since Media Security Phase 2 that
+  // route persists a durable `media_assets` ownership row (provider + the deterministic
+  // public_id it minted). Capture those exact identifiers AT CREATION so teardown can remove
+  // ONLY this run's asset. The public_id is never re-derived here and the delete never matches
+  // on owner, tenant, provider or a table-wide condition — it uses the key the route returned.
+  const mintedControlAssets = [];
+  let controlMediaCleanup = null;
+  try {
+    for (const [method, route, body, inControl] of bearerProbes) {
+      if (!inControl) continue;
+      const probe = await request(method, route, body, bearer(controlSignIn.token));
+      const asset = probe.data && probe.data.asset;
+      if (asset && (asset.public_id || asset.cloudinaryPublicId)) {
+        mintedControlAssets.push({
+          publicId: asset.public_id || asset.cloudinaryPublicId,
+          provider: asset.provider || 'cloudinary',
+          resourceType: asset.resourceType || 'image',
+        });
+      }
+      openAnswers.push(`${method} ${route.split('/').slice(2).join('/')}=${probe.status}${probe.data.code ? `/${probe.data.code}` : ''}`);
+    }
+  } finally {
+    // Reliable teardown: runs on the normal path and on any throw before INP-19, so the
+    // harness leaves no `media_assets` residue behind regardless of an assertion failing.
+    controlMediaCleanup = await purgeMintedMediaAssets(db, mintedControlAssets);
   }
   check('INP-19', Boolean(controlSignIn.token) && !openAnswers.some(a => a.includes('ACCOUNT_SUSPENDED')),
     `an open account is served normally by every route probed below — a 403 there comes from the status, not the route (${openAnswers.join(', ')})`);
+  // The census proof is per-record, not per-count: every public_id this run minted is read
+  // back by that exact key after cleanup and must be gone. A matching total alone would not
+  // show this. If nothing was minted the run leaked nothing, so the check still holds.
+  check('CU-MEDIA-01', Boolean(controlMediaCleanup) && controlMediaCleanup.surviving.length === 0
+    && controlMediaCleanup.rowDeleted === mintedControlAssets.length,
+    mintedControlAssets.length === 0
+      ? 'the open-account probes minted no media_assets row, so there was nothing for this run to tear down'
+      : `the run minted ${mintedControlAssets.length} media_assets row(s) and removed exactly those by (provider, public_id), each proven absent afterward (${controlMediaCleanup.detail})`);
 
   // Close the account the way an operator does, then hand it a session this instance did not
   // issue. Inserted after the sweep so it survives it: a handset signed in on a second
@@ -842,6 +871,46 @@ async function teardown(fixtureId) {
   } catch (err) {
     return { ok: false, detail: `cleanup threw: ${err.message}` };
   }
+}
+
+// Removes ONLY the media_assets rows the given minted list names, by the exact
+// (provider, public_id) key captured at creation. It never matches on owner, tenant,
+// provider alone, or a table-wide condition, so a shared or pre-existing asset can't be
+// swept up. The provider object is destroyed only when a real provider holds one (upload
+// configured); on the local target the profile-photo route takes the mock branch, no object
+// exists, and that is reported rather than claimed. Each public_id is read back by key after
+// deletion so absence is proven per record, not inferred from a matching count.
+async function purgeMintedMediaAssets(db, minted) {
+  const surviving = [];
+  const notes = [];
+  let rowDeleted = 0;
+  const cloudinaryService = require('./src/services/cloudinaryService');
+  for (const a of minted) {
+    // Provider object first: only if the upload path actually created one.
+    if (cloudinaryService.isConfigured) {
+      try {
+        const r = await cloudinaryService.deleteAsset(a.publicId, a.resourceType);
+        notes.push(`${a.provider}/${a.publicId}: provider destroy=${r && r.result}`);
+      } catch (err) {
+        // Provider failed but the durable row is still the harness's own — remove it and
+        // report the provider failure honestly rather than leaving the row (and the census)
+        // dirty for a failure outside the store's control.
+        notes.push(`${a.provider}/${a.publicId}: provider delete FAILED (${err.message})`);
+      }
+    } else {
+      notes.push(`${a.provider}/${a.publicId}: no provider object (mock upload)`);
+    }
+    try {
+      const res = await db.mediaAssetRepo.delete(a.publicId, a.provider);
+      if (res.deleted) rowDeleted++;
+      const still = await db.mediaAssetRepo.getByPublicId(a.publicId, a.provider);
+      if (still) surviving.push(a.publicId);
+    } catch (err) {
+      surviving.push(a.publicId);
+      notes.push(`${a.provider}/${a.publicId}: row delete threw (${err.message})`);
+    }
+  }
+  return { rowDeleted, surviving, detail: notes.join('; ') || 'nothing minted' };
 }
 
 main().catch(err => {

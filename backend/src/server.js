@@ -1,7 +1,6 @@
 const path = require('path');
 require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 const express = require('express');
-const cors = require('cors');
 const http = require('http');
 const crypto = require('crypto');
 const { WebSocketServer } = require('ws');
@@ -19,6 +18,7 @@ const appConfigService = require('./services/AppConfigService');
 const { validateDriverTelemetry } = require('./services/TelemetryValidator');
 const geoPolicy = require('./services/GeoPolicyService');
 const { allowsTestConvenience } = require('./services/RuntimeMode');
+const { createCorsMiddleware } = require('./services/corsConfig');
 const SmsGatewayService = require('./services/SmsGatewayService');
 const AdvertisementRepository = require('./repositories/AdvertisementRepository');
 
@@ -43,7 +43,12 @@ function resolveCustomerUserUuid(customerId) {
   if (!customerId) return null;
   if (UUID_REGEX.test(customerId)) return customerId;
   if (LEGACY_CUSTOMER_MAP[customerId]) return LEGACY_CUSTOMER_MAP[customerId];
-  const user = db.getUser ? db.getUser(customerId) : null;
+  // Strict lookup, deliberately not db.getUser(): that answers an unknown id with this.users[0],
+  // so every unresolvable id — a driver's entity id, the 'usr_cust_anon' a session with no
+  // customer_id maps to — resolved to whichever fixture customer happens to be first. Callers
+  // that compare two principals then saw a match that no record supports.
+  const user = (db.userRepo && db.userRepo.findById ? db.userRepo.findById(customerId) : null)
+    || (Array.isArray(db.users) ? db.users.find(u => u.id === customerId || u.userId === customerId) : null);
   if (user?.uuid && UUID_REGEX.test(user.uuid)) return user.uuid;
   if (user?.id && UUID_REGEX.test(user.id)) return user.id;
   if (user?.userId && UUID_REGEX.test(user.userId)) return user.userId;
@@ -157,7 +162,11 @@ function replyGeoAdminError(res, req, err) {
 
 async function resolveDriverUserUuid(driverId) {
   if (!driverId) return null;
-  const driver = db.getDriver ? db.getDriver(driverId) : null;
+  // MI-4 (P1): strict. `getDriver` ends in `|| this.drivers[0]`, so an event naming a driver that
+  // resolves to nobody was answered with the first seeded driver's `user_id` - a payout or KYC
+  // notification delivered into an unrelated person's account. The durable lookup below is the
+  // correct route for an id this process never hydrated, so nothing legitimate is lost.
+  const driver = db.getDriverStrict ? db.getDriverStrict(driverId) : null;
   let userId = driver?.userId || driver?.user_id;
   if (userId && UUID_REGEX.test(userId)) return userId;
 
@@ -265,64 +274,31 @@ process.on('uncaughtException', (error) => {
 });
 
 // Environment-Specific Whitelisted CORS
-const allowedOrigins = [
-  'http://localhost:3000',
-  'http://localhost:3001',
-  'http://localhost:3002',
-  'http://localhost:3003',
-  'http://localhost:4000',
-  'http://localhost:5000',
-  'http://localhost:5173',
-  'http://localhost:8080',
-  'http://127.0.0.1:3000',
-  'http://127.0.0.1:3001',
-  'http://127.0.0.1:3002',
-  'http://127.0.0.1:3003',
-  'http://127.0.0.1:4000',
-  'http://127.0.0.1:5000',
-  'http://127.0.0.1:5173',
-  'https://admin.nabin.in',
-  'https://api.nabin.in',
-  'https://api-beta.nabin.in',
-  'https://beta.nabin.in',
-  'https://nabin.in'
-];
-
-app.use(cors({
-  origin: function(origin, callback) {
-    if (!origin || allowedOrigins.includes(origin) || origin.endsWith('.nabin.in')) {
-      callback(null, true);
-    } else {
-      callback(new Error('Origin blocked by NABIN security CORS policy'));
-    }
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  // If-Match and If-None-Match are conditions, not payload, and both are part of a
-  // contract this API already offers: a campaign save is refused unless it names the
-  // revision it edited, and the config feed answers 304 so a client can revalidate cheaply.
-  // A browser preflights either header, so leaving them out would break exactly the
-  // clients the contract was written for — the admin console and a web app on another
-  // origin — while Node and Flutter clients sail past it, which is why the test suite
-  // cannot see this.
-  //
-  // Idempotency-Key joins X-Idempotency-Key for the same reason and with the same blind
-  // spot: six routes read the canonical spelling FIRST (`req.headers['idempotency-key']
-  // || req.headers['x-idempotency-key']`) — ride and parcel booking, grocery checkout,
-  // offer acceptance, food ordering, coupon redemption — and the ledger and dispatch
-  // procedures deduplicate on the value it carries. A browser that honoured that contract
-  // preflighted a header this list did not allow, so the request never left the browser,
-  // and a retry after a dropped response could book the trip or redeem the coupon twice.
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id', 'Idempotency-Key', 'X-Idempotency-Key', 'X-App-Version', 'X-Device-Id', 'If-Match', 'If-None-Match'],
-  // Without this, `response.headers.get('ETag')` reads as null in a browser even though
-  // the server sent it, so a cross-origin client could never obtain the revision a
-  // conditional write or a conditional GET has to echo back.
-  exposedHeaders: ['ETag']
-}));
+// The allowlist, the exact-origin match, the no-Origin pass-through, and the
+// startup validation all live in services/corsConfig.js. Reaching here runs
+// that validation: an invalid production allowlist throws on boot.
+app.use(createCorsMiddleware());
 
 // Request Tracking ID Middleware
+//
+// `req.id` is echoed back to the caller as the `requestId` field of every API failure reply and as
+// the X-Request-Id header, so whatever it holds is something this platform is on the record as
+// saying. It used to begin with the caller's own `x-request-id` header, which made that true of
+// anything a request chose to put there: measured on this tree before the change, a JWT-shaped
+// header value came back verbatim inside a 401 body and its response header, a 4,004-character
+// value came back whole, and a value naming a password, a postgres DSN and a loopback port came
+// back as though this server had written it. A correlation id is not a channel for caller-authored
+// text, so the id is minted here — from the clock and the RNG, never from the request — in one
+// documented shape. `customer_order_read_reliability_test.js` COR-46..COR-49 holds that rule to:
+// nothing the request supplies is echoed, and the header and body still agree, so a caller can
+// still put the id it received into a support message and an operator can still find the log line.
+function newRequestId() {
+  // padEnd keeps the tail exactly 8 characters. `Math.random().toString(36)` is shorter for values
+  // like 0.5, and a correlation id whose shape varies is one nothing downstream can pin.
+  return `req_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 10).padEnd(8, '0')}`;
+}
 app.use((req, res, next) => {
-  req.id = req.headers['x-request-id'] || `req_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 10)}`;
+  req.id = newRequestId();
   res.setHeader('X-Request-Id', req.id);
   next();
 });
@@ -355,6 +331,170 @@ function replyStoreError(res, req, err, what, options = {}) {
     error: reply.error,
     requestId: req.id
   });
+}
+
+/**
+ * How many dispatch offers a job already has, read from PostgreSQL.
+ *
+ * `DispatchRepository` has no per-job offer read, and the caller needs exactly one bit of
+ * information — has the fleet been summoned for this job yet — so this is a head-count read on the
+ * indexed `job_uuid` and nothing else. A `null` answer means the read failed; the caller treats
+ * that as "unknown" rather than "none", because guessing "none" here would re-fan-out one offer row
+ * per eligible driver (#252) on a job that already has them.
+ */
+async function countDispatchOffersForJob(jobId) {
+  if (!supabaseHelper.isLivePostgres || !supabaseHelper.supabaseAdmin) return null;
+  const { count, error } = await supabaseHelper.supabaseAdmin
+    .from('dispatch_offers')
+    .select('id', { head: true, count: 'exact' })
+    .eq('job_uuid', jobId);
+  if (error) {
+    console.warn(`[DISPATCH_OFFER_WARN] Could not count the offers already held by job ${jobId}: ${error.message}`);
+    return null;
+  }
+  return Number.isFinite(count) ? count : 0;
+}
+
+/**
+ * P3 #436 — hand a FOOD/GROCERY DELIVERY order to the driver fleet.
+ *
+ * The defect this closes: nothing in the platform ever created a job for a delivery order.
+ * `orders.job_id` was NULL on every one of the 1,354 durable rows, `jobs` held 2,134 RIDE and 518
+ * PARCEL rows and no FOOD or GROCERY row at all, and 92 orders sat at READY_FOR_PICKUP with no
+ * rider who could ever pick them up. Worse, the two places that claimed otherwise were fabricating
+ * the evidence: `book-food` answered `job: orderPayload` (an ORDER id wearing a job's name) and the
+ * KDS route broadcast `NEW_JOB_DISPATCH` carrying that same order id, so a driver app was handed an
+ * id no job table answers to.
+ *
+ * Migration 047's `create_delivery_job_atomic` is now the only thing that writes the link — it
+ * locks the order, mints the job and sets `orders.job_id` in one transaction, and it refuses rather
+ * than inventing a missing store address, a missing drop point or a non-delivery channel. This
+ * function is the caller, not the authority: it never papers over a refusal.
+ *
+ * It is called twice by design. At placement, where the job and its offers must exist before the
+ * kitchen has even accepted the order; and again from the merchant's READY_FOR_PICKUP advance, which
+ * is the retry for a handover that failed after the order was already durable. The second call
+ * cannot create a second job — the link is write-once — and it re-summons the fleet only for a job
+ * that is still SEARCHING with no offer row behind it, so a replay is row-neutral instead of
+ * ~1,750 duplicate writes.
+ *
+ * The delivery OTP is never broadcast and never logged. It is the proof-of-delivery control, and it
+ * goes to the customer who owns the order and nowhere else.
+ */
+async function dispatchDeliveryJob(order, { merchantName = null } = {}) {
+  if (!order || !order.id) return { attempted: false, dispatched: false, code: 'ORDER_UNRESOLVED' };
+
+  const serviceType = String(order.service_type || '').toUpperCase();
+  if (serviceType !== 'FOOD' && serviceType !== 'GROCERY') {
+    return { attempted: false, dispatched: false, code: 'NOT_DELIVERY_SERVICE' };
+  }
+
+  // The channel the customer chose lives in metadata. `orders.order_channel` is a migration 041
+  // column DEFAULT of 'DELIVERY' that no INSERT writes, so gating on it would dispatch dine-in and
+  // takeaway orders too — which is precisely how the old broadcast came out.
+  const channel = String((order.metadata && order.metadata.orderChannel) || '').trim().toLowerCase();
+  if (channel !== 'delivery') {
+    return { attempted: false, dispatched: false, code: 'NOT_DELIVERY_CHANNEL' };
+  }
+
+  let verdict;
+  try {
+    verdict = await db.orderRepo.createDeliveryJobAtomic({
+      orderId: order.id,
+      idempotencyKey: `delivery-job:${order.id}`
+    });
+  } catch (err) {
+    // The order is already committed. Failing the request here would tell a customer their placed,
+    // paid order had not gone through, when the truth is that it has — and it is retried by the
+    // merchant advance. So: name the gap in the log, report it in the response, do not 500.
+    console.error(`[DELIVERY_DISPATCH_WARN] handover for order ${order.id} was not written (${err.code || 'UNCLASSIFIED'}): ${err.message}`);
+    return { attempted: true, dispatched: false, code: err.code || 'DELIVERY_DISPATCH_FAILED', error: err.message };
+  }
+
+  if (!verdict || verdict.success !== true) {
+    const code = (verdict && verdict.code) || 'DELIVERY_DISPATCH_REFUSED';
+    console.error(`[DELIVERY_DISPATCH_WARN] order ${order.id} was not handed to a rider (${code}): ${(verdict && verdict.error) || 'the store returned no verdict'}`);
+    return { attempted: true, dispatched: false, code, error: (verdict && verdict.error) || null };
+  }
+
+  const jobId = String(verdict.jobId);
+  const handover = {
+    attempted: true,
+    dispatched: true,
+    duplicate: !!verdict.duplicate,
+    code: verdict.code,
+    jobId,
+    jobNumber: verdict.jobNumber || null,
+    jobStatus: verdict.jobStatus || null,
+    deliveryOtp: verdict.deliveryOtp || null,
+    otpExpiresAt: verdict.deliveryOtpExpiresAt || null,
+    offers: null
+  };
+
+  // The job is durable, but this process has never seen it: 047 writes PostgreSQL, and the mirror is
+  // a cache. Read it through, which both hydrates `db.jobs` for the driver routes and gives the
+  // broadcast the job's own address fields instead of anything this function could guess.
+  const job = await (db.jobRepo && db.jobRepo.findByIdAsync ? db.jobRepo.findByIdAsync(jobId) : Promise.resolve(null));
+  if (!job) {
+    console.error(`[DELIVERY_DISPATCH_WARN] delivery job ${jobId} is linked to order ${order.id} in PostgreSQL but could not be read back; no dispatch offers were written for it`);
+    return handover;
+  }
+  handover.jobStatus = job.status || handover.jobStatus;
+
+  const fresh = !verdict.duplicate;
+  let needsOffers = fresh;
+  if (!fresh && job.status === 'SEARCHING') {
+    const existing = await countDispatchOffersForJob(jobId);
+    if (existing === null) {
+      console.error(`[DELIVERY_DISPATCH_WARN] job ${jobId} is still SEARCHING and its offer count is unreadable; the fleet was not re-summoned, because a wrong guess here costs one offer row per eligible driver`);
+    } else {
+      needsOffers = existing === 0;
+    }
+  }
+
+  if (!needsOffers) return handover;
+
+  try {
+    if (db.dispatchRepo) {
+      const candidateDrivers = db.drivers.filter(d => d.operationalStatus !== 'SUSPENDED');
+      const fanout = await db.dispatchRepo.createOffersForDrivers(candidateDrivers, {
+        jobId,
+        ttlSeconds: 60,
+        metadata: { serviceType, deliveryOrderId: order.id }
+      });
+      handover.offers = {
+        candidates: fanout.candidates,
+        written: fanout.written,
+        duplicates: fanout.duplicates,
+        failed: fanout.failed
+      };
+      if (fanout.failed > 0) {
+        console.warn(`[DISPATCH_OFFER_WARN] Could not persist ${fanout.failed} of ${fanout.candidates} ${serviceType.toLowerCase()} delivery dispatch offers: ${fanout.firstError}`);
+      }
+    }
+  } catch (err) {
+    console.warn(`[DISPATCH_OFFER_WARN] Could not persist dispatch offers for delivery job ${jobId}:`, err.message);
+  }
+
+  // The job id in this broadcast is the job's own uuid, and it is the only id a driver app needs to
+  // accept it. The order id travels beside it, labelled as the order, never in its place.
+  broadcastToDrivers({
+    type: 'NEW_JOB_DISPATCH',
+    job: {
+      id: jobId,
+      jobNumber: job.jobNumber || verdict.jobNumber || null,
+      orderId: order.id,
+      orderNumber: order.order_number,
+      type: serviceType,
+      title: `Delivery pickup: ${merchantName || (job.pickup && job.pickup.address) || 'store'}`,
+      pickup: job.pickup,
+      drop: job.drop,
+      fare: job.fare,
+      handoverPriced: false
+    }
+  });
+
+  return handover;
 }
 
 // Root API Discovery Endpoint
@@ -638,7 +778,10 @@ wss.on('connection', (ws, req) => {
       });
 
       // Synchronize in-memory driver location
-      const driver = db.getDriver(driverId);
+      // MI-4 (P1): strict. `getDriver` falls through to `|| this.drivers[0]`, so telemetry from a
+      // driver this process never hydrated moved the FIRST SEEDED driver's marker on the admin
+      // fleet map. The durable write above (`updateDriverLocation`) is the authoritative path.
+      const driver = db.getDriverStrict(driverId);
       if (driver) {
         driver.location = { lat, lng };
       }
@@ -1037,7 +1180,13 @@ async function authenticateUser(req, res, next) {
     });
   }
 
-  req.user = session.entity || db.getUser(session.entityId);
+  // MI-4 (P1): a bearer is served as the person their own session names, never as whoever the
+  // mirror happens to hold first. `db.getUser` ends in `|| this.users[0]`, so a session whose
+  // `entityId` resolves to nobody was given `req.user` = the first seeded customer, and every route
+  // that scopes through `req.user.id` read or wrote that unrelated account. The id-only stand-in
+  // carries no name, wallet or profile of anybody - the same shape the admin branch of
+  // `requireSupportCallerAuth` already falls back to, and what `POST /api/support/ticket` scopes by.
+  req.user = session.entity || db.getUserStrict(session.entityId) || { id: session.entityId };
   req.session = session;
   next();
 }
@@ -1079,6 +1228,7 @@ function authenticateDriver(req, res, next) {
   if (!token) {
     return res.status(401).json({
       success: false,
+      code: 'UNAUTHORIZED',
       error: 'Unauthorized: Driver authentication token required. Please log in with Bearer token.',
       requestId: req.id
     });
@@ -1088,15 +1238,33 @@ function authenticateDriver(req, res, next) {
   if (!session) {
     return res.status(401).json({
       success: false,
+      code: 'UNAUTHORIZED',
       error: 'Unauthorized: Invalid or expired driver session token.',
       requestId: req.id
     });
   }
 
-  const driver = session.entity || db.getDriver(session.entityId);
+  // MI-4: a driver route must be reached by a driver identity that resolves. Two gaps here were
+  // live, not theoretical. (1) No role check: a CUSTOMER, MERCHANT or ADMIN bearer fell straight
+  // into driver resolution. (2) `db.getDriver()` ends in `|| this.drivers[0]`, so it can never
+  // return null and the refusal below was unreachable: a session carrying `entityId: 'anon'` (what
+  // the pre-fix DRIVER OTP mint stored for an unenrolled number) was served as the first seeded
+  // driver - measured on the unfixed tree at 200 with that driver's wallet, and a device_tokens
+  // row written under that driver's user id. getDriverStrict answers null instead.
+  if (session.role !== 'DRIVER') {
+    return res.status(401).json({
+      success: false,
+      code: 'DRIVER_SESSION_REQUIRED',
+      error: 'Unauthorized: A driver session is required for driver operations.',
+      requestId: req.id
+    });
+  }
+
+  const driver = session.entity || db.getDriverStrict(session.entityId);
   if (!driver) {
     return res.status(401).json({
       success: false,
+      code: 'DRIVER_IDENTITY_UNRESOLVED',
       error: 'Unauthorized: Driver profile not found.',
       requestId: req.id
     });
@@ -1301,6 +1469,96 @@ function requireMerchantService(service) {
       });
     }
   };
+}
+
+// -----------------------------------------------------------------------------
+// Merchant approval gate (MI-5)
+//
+// `POST /api/merchant/register` used to mint a store that was immediately
+// orderable: `MerchantRepository.createMerchant` wrote `is_open: true` with a
+// fabricated `rating: 4.80`, and nothing between that row and a customer's cart
+// asked whether the platform had ever decided to accept the partner. Anyone with
+// a phone number could open a tradeable storefront that could take payments
+// (merchant UPI settings), publish a menu, and accept orders — an unreviewed
+// storefront taking customer money is a fraud surface, not a growth hack.
+//
+// Migration 048 adds `merchants.approval_status` (PENDING/APPROVED/REJECTED,
+// fail-closed DEFAULT 'PENDING') and makes the public read policy require
+// APPROVED. This is the application rung that makes the same promise for writes:
+// merchant identity -> tenant binding -> service entitlement -> APPROVAL.
+// Ordering it last among the auth rungs means the 403 a pending merchant gets is
+// about its approval state and not about a token it does not have.
+//
+// Why it reads the durable row instead of `req.merchant`: the session `entity` is
+// a snapshot taken at login, and an approval decision made after that login has
+// to be honoured on the merchant's next request rather than their next sign-in.
+// A row whose approval state the read cannot speak to (a legacy demo handle, or
+// the memory mirror of a store created before 048) is treated the way migration
+// 048 treated the 83 rows already in the table at upgrade time — grandfathered,
+// because refusing it would close live storefronts on a read gap rather than on
+// a decision. A row that *does* answer with PENDING or REJECTED is refused.
+// -----------------------------------------------------------------------------
+function merchantApprovalStatus(row) {
+  if (!row) return null;
+  const raw = row.approval_status != null ? row.approval_status
+    : (row.approvalStatus != null ? row.approvalStatus : null);
+  return raw == null ? null : String(raw).trim().toUpperCase();
+}
+
+function requireMerchantApproved(req, res, next) {
+  return merchantApprovalGuard(req, res, next);
+}
+
+async function merchantApprovalGuard(req, res, next) {
+  try {
+    if (!req.merchant) {
+      return res.status(401).json({
+        success: false,
+        code: 'MERCHANT_AUTH_REQUIRED',
+        error: 'Unauthorized: Merchant authentication required.',
+        requestId: req.id
+      });
+    }
+
+    const merchantId = req.merchant.id || req.merchant.merchantId;
+    let row = null;
+    try {
+      row = await db.orderRepo.resolveMerchant(merchantId);
+    } catch (readErr) {
+      // The approval decision lives in PostgreSQL. A store that cannot be read is
+      // not a store that has been approved — and it is not a 403 either, because
+      // the merchant did nothing wrong and would be signed out by an outage.
+      if (supabaseHelper.isStoreUnreachable(readErr)) {
+        return replyStoreError(res, req, readErr, 'merchant approval status');
+      }
+      throw readErr;
+    }
+
+    const status = merchantApprovalStatus(row);
+    if (status && status !== 'APPROVED') {
+      return res.status(403).json({
+        success: false,
+        code: 'MERCHANT_NOT_APPROVED',
+        error: status === 'REJECTED'
+          ? 'Forbidden: this merchant account was rejected during review, so its store cannot be operated. Contact partner support.'
+          : 'Forbidden: this merchant account is awaiting approval, so its store cannot be operated yet.',
+        approvalStatus: status,
+        requestId: req.id
+      });
+    }
+
+    req.merchantApprovalStatus = status || 'UNKNOWN';
+    return next();
+  } catch (err) {
+    if (supabaseHelper.isStoreUnreachable(err)) return replyStoreError(res, req, err, 'merchant approval status');
+    console.error('[merchant approval gate] failed:', err);
+    return res.status(err.status || 500).json({
+      success: false,
+      code: err.code || 'MERCHANT_APPROVAL_CHECK_FAILED',
+      error: err.message,
+      requestId: req.id
+    });
+  }
 }
 
 function authenticateAdmin(req, res, next) {
@@ -2167,11 +2425,23 @@ function requireSupportCallerAuth(req, res, next) {
   }
 
   if (session.role === 'DRIVER') {
-    const driver = session.entity || db.getDriver(session.entityId);
+    // MI-4: same strict resolution as `authenticateDriver` - one contract for every boundary that
+    // turns a bearer into a driver. `db.getDriver()` ends in `|| this.drivers[0]`, so an
+    // unresolvable identity (the `anon` entityId the pre-fix DRIVER OTP mint stored) was handed to
+    // every route reached through this middleware as the first seeded driver.
+    const driver = session.entity || db.getDriverStrict(session.entityId);
+    if (!driver) {
+      return res.status(401).json({
+        success: false,
+        code: 'DRIVER_IDENTITY_UNRESOLVED',
+        error: 'Unauthorized: Driver profile not found.',
+        requestId: req.id
+      });
+    }
     req.driver = driver;
     req.caller = {
       id: session.entityId,
-      name: driver ? driver.name : 'Driver',
+      name: driver.name,
       role: 'DRIVER',
       type: 'DRIVER'
     };
@@ -2203,8 +2473,11 @@ function requireSupportCallerAuth(req, res, next) {
     return next();
   }
 
-  const user = session.entity || db.getUser(session.entityId);
-  req.user = user;
+  // MI-4 (P1): strict; see `authenticateUser`. `db.getUser` answers an unresolvable `entityId` with
+  // `this.users[0]`, so a ticket could be filed and scoped to the first seeded customer by a bearer
+  // whose own account this process never resolved.
+  const user = session.entity || db.getUserStrict(session.entityId);
+  req.user = user || { id: session.entityId };
   req.caller = {
     id: session.entityId,
     name: user ? user.name : 'Customer',
@@ -2359,7 +2632,15 @@ app.post('/api/admin/support/:id/resolve', authenticateAdmin, requirePermission(
     if (err && (err.storeFailure || supabaseHelper.isStoreUnreachable(err))) {
       return replyStoreError(res, req, err, 'ticket resolution');
     }
-    res.status(err.statusCode || 400).json({ success: false, error: err.message, requestId: req.id });
+    // The code is what tells an operator WHICH gate refused: SANCTION_DRIVER_UNRESOLVABLE,
+    // BOUNTY_DRIVER_UNRESOLVABLE and BOUNTY_NOT_BOOKED all arrive as 400/503 with different
+    // meanings, and without the code the console only has a sentence to eyeball.
+    res.status(err.statusCode || 400).json({
+      success: false,
+      error: err.message,
+      ...(err.code ? { code: err.code } : {}),
+      requestId: req.id
+    });
   }
 });
 
@@ -2605,20 +2886,25 @@ app.post('/api/admin/finance/refund', authenticateAdmin, requirePermission('fina
         const memJob = db.getJob(jobId);
         if (memJob?.customerId) refundRecipient = resolveCustomerUserUuid(memJob.customerId);
       }
-      if (!refundRecipient) {
-        refundRecipient = resolveCustomerUserUuid('usr_2');
+      // A refund notification names the customer whose money moved. None of the three legitimate
+      // sources answering — the RPC returns no user identity at all, `payments.customer_id` is
+      // nullable, and the mirror job only exists for a booked job — means there is nobody to tell,
+      // not somebody to substitute. The refusal is to the publish, not a return from the route:
+      // the money has already committed, so the response still has to go out.
+      if (refundRecipient) {
+        notificationEventBus.publish('REFUND_PROCESSED', {
+          paymentId: data.paymentId || targetIdentifier,
+          recipientUserId: refundRecipient,
+          eventKey: `refund_proc:${targetIdentifier}:${eventId}`,
+          title: 'Refund Processed',
+          body: `Refund of ₹${data.refundAmount !== undefined ? data.refundAmount : amt} has been processed for ${data.paymentId || targetIdentifier}.`,
+          notificationType: 'REFUND_PROCESSED',
+          priority: 'HIGH',
+          data: { paymentId: data.paymentId || targetIdentifier, refundAmount: data.refundAmount !== undefined ? data.refundAmount : amt, reason }
+        });
+      } else {
+        console.warn(`[NOTIF_BUS_SKIPPED] REFUND_PROCESSED event for ${data.paymentId || targetIdentifier} skipped: the refunded customer could not be resolved to a users.id.`);
       }
-
-      notificationEventBus.publish('REFUND_PROCESSED', {
-        paymentId: data.paymentId || targetIdentifier,
-        recipientUserId: refundRecipient,
-        eventKey: `refund_proc:${targetIdentifier}:${eventId}`,
-        title: 'Refund Processed',
-        body: `Refund of ₹${data.refundAmount !== undefined ? data.refundAmount : amt} has been processed for ${data.paymentId || targetIdentifier}.`,
-        notificationType: 'REFUND_PROCESSED',
-        priority: 'HIGH',
-        data: { paymentId: data.paymentId || targetIdentifier, refundAmount: data.refundAmount !== undefined ? data.refundAmount : amt, reason }
-      });
     } catch (notifErr) {
       console.warn(`[NOTIF_DISPATCH_WARN] Failed to emit REFUND_PROCESSED:`, notifErr.message);
     }
@@ -3906,7 +4192,10 @@ app.get('/api/identity/status/:userId', authenticateUser, (req, res) => {
       });
     }
   }
-  const user = db.getUser(req.params.userId);
+  // MI-4 (P1): strict, so the 404 under this call is reachable. `db.getUser` ends in
+  // `|| this.users[0]`, so a `userId` naming nobody was answered with the first seeded customer's
+  // identity record - name, documents and verification state - to whoever held a valid session.
+  const user = db.getUserStrict(req.params.userId);
   if (!user) return res.status(404).json({ success: false, error: 'User record not found.' });
 
   const application = user.currentApplicationId
@@ -4600,9 +4889,25 @@ app.post('/api/customer/book-food', authenticateUser, async (req, res) => {
     });
   }
 
+  // A store that has never been approved cannot take a customer's money. This is
+  // checked before the closure branch because a pending store is also `is_open:
+  // false`, and answering `MERCHANT_CLOSED` would report a temporary state the
+  // merchant itself controls instead of the platform's own outstanding decision.
+  const foodApproval = merchantApprovalStatus(merchant);
+  if (foodApproval && foodApproval !== 'APPROVED') {
+    return res.status(403).json({
+      success: false,
+      code: 'MERCHANT_NOT_APPROVED',
+      error: `Restaurant ${merchant.name} is not an approved partner yet, so it cannot accept orders.`,
+      approvalStatus: foodApproval,
+      requestId: req.id
+    });
+  }
+
   if (merchant.is_open === false || merchant.operationalStatus === 'SUSPENDED') {
     return res.status(403).json({
       success: false,
+      code: 'MERCHANT_CLOSED',
       error: `Restaurant ${merchant.name} is closed or suspended and cannot accept orders.`
     });
   }
@@ -4836,11 +5141,21 @@ app.post('/api/customer/book-food', authenticateUser, async (req, res) => {
       gst: Math.round(Number(dbOrder.total_amount) * 0.05)
     };
 
+    // P3 #436: a DELIVERY-channel food order becomes a driver job here, before the kitchen has
+    // even accepted it. Takeaway and dine-in come back as NOT_DELIVERY_CHANNEL and write nothing.
+    // The handover cannot fail the request — the order is durable and this response already names
+    // it — so a refusal is reported in `deliveryJob.dispatched: false` and retried by the merchant's
+    // READY_FOR_PICKUP advance.
+    const deliveryJob = await dispatchDeliveryJob(dbOrder, { merchantName: merchant.name });
+    if (deliveryJob.attempted && !deliveryJob.dispatched) {
+      console.error(`[DELIVERY_DISPATCH_WARN] food order ${dbOrder.id} placed at ${dbOrder.order_state} has no rider: ${deliveryJob.code}`);
+    }
+
     return res.json({
       success: true,
       duplicate: !!result.duplicate,
       order: orderPayload,
-      job: orderPayload
+      deliveryJob
     });
   } catch (err) {
     if (supabaseHelper.isStoreUnreachable(err)) return replyStoreError(res, req, err, 'food order');
@@ -4916,13 +5231,32 @@ app.get('/api/customer/activity', authenticateUser, async (req, res) => {
 
 app.get(['/api/customer/orders/:id', '/api/orders/:id'], authenticateUser, async (req, res) => {
   try {
+    // The caller's identity has to be a name the store answers with, not merely a bearer token
+    // this process happens to hold. `resolveUserUuid` returns null for a handle that is neither a
+    // uuid nor a mapped/seeded account, and a restored `backend_sessions` row is adopted verbatim
+    // while `authenticateUser`'s own account check falls back to the session's PHONE — so a session
+    // naming no account used to arrive here with a null uuid, skip the comparison below entirely,
+    // and be handed another customer's order. `if (customerUuid && …)` failed open; the identity
+    // check now comes first and fails closed, before any read, in the shape
+    // `/api/customer/activity` above already used. It is safe to require because
+    // `orders.customer_id` is `UUID NOT NULL`, so a real order always names an owner and only the
+    // caller side of that comparison can be missing (pinned by `order_read_ownership_test.js`).
+    // Same class as MI-1's session read, MI-7's support thread and MI-8's session write.
     const customerUuid = db.orderRepo.resolveUserUuid(req.user.uuid || req.user.id);
+    if (!customerUuid) {
+      return res.status(403).json({
+        success: false,
+        code: 'CUSTOMER_IDENTITY_UNRESOLVED',
+        error: 'Forbidden: This session does not resolve to a customer account.',
+        requestId: req.id
+      });
+    }
     const order = await db.orderRepo.getOrderById(req.params.id);
     if (!order) {
       return res.status(404).json({ success: false, error: 'Order not found' });
     }
     // Reject cross-customer IDOR if caller is customer
-    if (customerUuid && order.customer_id !== customerUuid) {
+    if (order.customer_id !== customerUuid) {
       return res.status(403).json({ success: false, error: 'Forbidden: Cannot access another customer\'s order.' });
     }
     res.json({ success: true, order });
@@ -5008,15 +5342,21 @@ app.post('/api/merchant/register', async (req, res) => {
       throw new Error('Merchant repository unavailable.');
     }
 
+    // Truthful about what just happened: an account exists, a store does not yet. The
+    // approval state is read back from the record the repository wrote rather than
+    // restated here, so the response cannot claim a decision the store doesn't hold.
+    const approvalStatus = createdRecord.approval_status || createdRecord.approvalStatus || 'PENDING';
     res.status(201).json({
       success: true,
-      message: 'Merchant account registered successfully.',
+      message: 'Merchant account registered. The store is pending approval and is not yet open for orders.',
       merchant: {
         id: createdRecord.id,
         name: createdRecord.name,
         phone: createdRecord.phone,
         merchantType: createdRecord.merchant_type || createdRecord.merchantType,
-        address: createdRecord.address
+        address: createdRecord.address,
+        approvalStatus,
+        isOpen: Boolean(createdRecord.is_open)
       },
       requestId: req.id
     });
@@ -5163,7 +5503,7 @@ app.get(['/api/merchant/:restaurantId/orders', '/api/merchant/orders'], authenti
   }
 });
 
-app.post(['/api/merchant/:restaurantId/orders/:orderId/status', '/api/merchant/orders/:orderId/status'], authenticateMerchant, requireMerchantTenant, async (req, res) => {
+app.post(['/api/merchant/:restaurantId/orders/:orderId/status', '/api/merchant/orders/:orderId/status'], authenticateMerchant, requireMerchantTenant, requireMerchantApproved, async (req, res) => {
   try {
     const { status, reason } = req.body;
     // `Idempotency-Key` is the canonical spelling every other mutating route here accepts (and
@@ -5231,20 +5571,23 @@ app.post(['/api/merchant/:restaurantId/orders/:orderId/status', '/api/merchant/o
       return res.status(400).json(transitionRes);
     }
 
+    // P3 #436: the handover is attempted at placement; this is its retry. A food or grocery order
+    // whose rider was never minted — because the store had no address then, because the write lost
+    // a race with an outage, because the process died between the two — gets a second chance at the
+    // moment the kitchen says the parcel is collectable. It cannot produce a second job: 047's link
+    // is write-once, and an already-linked job is only re-offered to the fleet if it is still
+    // SEARCHING with no offer row behind it.
+    //
+    // The channel is read from metadata only. `orders.order_channel` is a column DEFAULT of
+    // 'DELIVERY' that no INSERT writes, so the line this replaced —
+    // `order.order_channel || order.metadata?.orderChannel || 'DELIVERY'` — was true for every
+    // order in the store, and the broadcast under it named the ORDER id as `job.id`, which is how
+    // a driver app came to be handed an id no job table answers to.
+    let deliveryHandover = null;
     if (status === 'READY_FOR_PICKUP') {
-      const orderChannel = order.order_channel || order.metadata?.orderChannel || 'DELIVERY';
-      if (orderChannel === 'DELIVERY') {
-        broadcastToDrivers({
-          type: 'NEW_JOB_DISPATCH',
-          job: {
-            id: order.id,
-            orderId: order.id,
-            orderNumber: order.order_number,
-            type: order.service_type,
-            title: `Order Pickup: ${merchant.name}`,
-            totalAmount: order.total_amount
-          }
-        });
+      deliveryHandover = await dispatchDeliveryJob(order, { merchantName: merchant.name });
+      if (deliveryHandover.attempted && !deliveryHandover.dispatched) {
+        console.error(`[DELIVERY_DISPATCH_WARN] order ${order.id} is READY_FOR_PICKUP with no rider: ${deliveryHandover.code}`);
       }
     }
 
@@ -5264,12 +5607,7 @@ app.post(['/api/merchant/:restaurantId/orders/:orderId/status', '/api/merchant/o
       status: status,
       newState: status,
       order: updatedOrder,
-      job: {
-        id: order.id,
-        orderId: order.id,
-        orderStatus: status,
-        status: status
-      }
+      deliveryJob: deliveryHandover
     });
   } catch (err) {
     if (supabaseHelper.isStoreUnreachable(err)) return replyStoreError(res, req, err, 'order status change');
@@ -5277,7 +5615,7 @@ app.post(['/api/merchant/:restaurantId/orders/:orderId/status', '/api/merchant/o
   }
 });
 
-app.post('/api/merchant/:restaurantId/menu/:itemId/toggle', authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+app.post('/api/merchant/:restaurantId/menu/:itemId/toggle', authenticateMerchant, requireMerchantTenant, requireMerchantApproved, requireMerchantService('RESTAURANT'), async (req, res) => {
   try {
     // Phase 8: Fail-closed (DEC-005) — no fallback to first restaurant
     const rest = db.restaurants.find(r => r.id === req.params.restaurantId);
@@ -5334,7 +5672,7 @@ app.post('/api/merchant/:restaurantId/menu/:itemId/toggle', authenticateMerchant
 // itself lives in `db.updateMerchantRestaurantProfile`, which refuses to pretend on
 // a non-PostgreSQL boot; `rating` is not accepted anywhere in this body.
 // -----------------------------------------------------------------------------
-app.patch('/api/merchant/:restaurantId/profile', authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+app.patch('/api/merchant/:restaurantId/profile', authenticateMerchant, requireMerchantTenant, requireMerchantApproved, requireMerchantService('RESTAURANT'), async (req, res) => {
   try {
     const [callerMerchant, requestedMerchant] = await Promise.all([
       db.orderRepo.resolveMerchant(req.merchant.id),
@@ -5487,7 +5825,7 @@ app.get(['/api/merchant/dishes/:id', '/api/merchant/:restaurantId/dishes/:id'], 
 });
 
 // 3. Create dish
-app.post(['/api/merchant/dishes', '/api/merchant/:restaurantId/dishes'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+app.post(['/api/merchant/dishes', '/api/merchant/:restaurantId/dishes'], authenticateMerchant, requireMerchantTenant, requireMerchantApproved, requireMerchantService('RESTAURANT'), async (req, res) => {
   try {
     const merchantId = await resolveRestaurantMerchantCaller(req, res);
     if (!merchantId) return;
@@ -5501,7 +5839,7 @@ app.post(['/api/merchant/dishes', '/api/merchant/:restaurantId/dishes'], authent
 });
 
 // 4. Update dish
-app.put(['/api/merchant/dishes/:id', '/api/merchant/:restaurantId/dishes/:id'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+app.put(['/api/merchant/dishes/:id', '/api/merchant/:restaurantId/dishes/:id'], authenticateMerchant, requireMerchantTenant, requireMerchantApproved, requireMerchantService('RESTAURANT'), async (req, res) => {
   try {
     const merchantId = await resolveRestaurantMerchantCaller(req, res);
     if (!merchantId) return;
@@ -5515,7 +5853,7 @@ app.put(['/api/merchant/dishes/:id', '/api/merchant/:restaurantId/dishes/:id'], 
 });
 
 // 5. Safe Archival of dish (DELETE)
-app.delete(['/api/merchant/dishes/:id', '/api/merchant/:restaurantId/dishes/:id'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+app.delete(['/api/merchant/dishes/:id', '/api/merchant/:restaurantId/dishes/:id'], authenticateMerchant, requireMerchantTenant, requireMerchantApproved, requireMerchantService('RESTAURANT'), async (req, res) => {
   try {
     const merchantId = await resolveRestaurantMerchantCaller(req, res);
     if (!merchantId) return;
@@ -5529,7 +5867,7 @@ app.delete(['/api/merchant/dishes/:id', '/api/merchant/:restaurantId/dishes/:id'
 });
 
 // 6. Toggle dish availability (PATCH)
-app.patch(['/api/merchant/dishes/:id/availability', '/api/merchant/:restaurantId/dishes/:id/availability'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+app.patch(['/api/merchant/dishes/:id/availability', '/api/merchant/:restaurantId/dishes/:id/availability'], authenticateMerchant, requireMerchantTenant, requireMerchantApproved, requireMerchantService('RESTAURANT'), async (req, res) => {
   try {
     const merchantId = await resolveRestaurantMerchantCaller(req, res);
     if (!merchantId) return;
@@ -5543,7 +5881,7 @@ app.patch(['/api/merchant/dishes/:id/availability', '/api/merchant/:restaurantId
 });
 
 // 7. Variants CRUD
-app.post(['/api/merchant/dishes/:id/variants', '/api/merchant/:restaurantId/dishes/:id/variants'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+app.post(['/api/merchant/dishes/:id/variants', '/api/merchant/:restaurantId/dishes/:id/variants'], authenticateMerchant, requireMerchantTenant, requireMerchantApproved, requireMerchantService('RESTAURANT'), async (req, res) => {
   try {
     const merchantId = await resolveRestaurantMerchantCaller(req, res);
     if (!merchantId) return;
@@ -5556,7 +5894,7 @@ app.post(['/api/merchant/dishes/:id/variants', '/api/merchant/:restaurantId/dish
   }
 });
 
-app.put(['/api/merchant/dishes/:id/variants/:variantId', '/api/merchant/:restaurantId/dishes/:id/variants/:variantId'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+app.put(['/api/merchant/dishes/:id/variants/:variantId', '/api/merchant/:restaurantId/dishes/:id/variants/:variantId'], authenticateMerchant, requireMerchantTenant, requireMerchantApproved, requireMerchantService('RESTAURANT'), async (req, res) => {
   try {
     const merchantId = await resolveRestaurantMerchantCaller(req, res);
     if (!merchantId) return;
@@ -5569,7 +5907,7 @@ app.put(['/api/merchant/dishes/:id/variants/:variantId', '/api/merchant/:restaur
   }
 });
 
-app.delete(['/api/merchant/dishes/:id/variants/:variantId', '/api/merchant/:restaurantId/dishes/:id/variants/:variantId'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+app.delete(['/api/merchant/dishes/:id/variants/:variantId', '/api/merchant/:restaurantId/dishes/:id/variants/:variantId'], authenticateMerchant, requireMerchantTenant, requireMerchantApproved, requireMerchantService('RESTAURANT'), async (req, res) => {
   try {
     const merchantId = await resolveRestaurantMerchantCaller(req, res);
     if (!merchantId) return;
@@ -5583,7 +5921,7 @@ app.delete(['/api/merchant/dishes/:id/variants/:variantId', '/api/merchant/:rest
 });
 
 // 8. Add-on Groups CRUD
-app.post(['/api/merchant/dishes/:id/add-on-groups', '/api/merchant/:restaurantId/dishes/:id/add-on-groups'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+app.post(['/api/merchant/dishes/:id/add-on-groups', '/api/merchant/:restaurantId/dishes/:id/add-on-groups'], authenticateMerchant, requireMerchantTenant, requireMerchantApproved, requireMerchantService('RESTAURANT'), async (req, res) => {
   try {
     const merchantId = await resolveRestaurantMerchantCaller(req, res);
     if (!merchantId) return;
@@ -5596,7 +5934,7 @@ app.post(['/api/merchant/dishes/:id/add-on-groups', '/api/merchant/:restaurantId
   }
 });
 
-app.put(['/api/merchant/dishes/:id/add-on-groups/:groupId', '/api/merchant/:restaurantId/dishes/:id/add-on-groups/:groupId'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+app.put(['/api/merchant/dishes/:id/add-on-groups/:groupId', '/api/merchant/:restaurantId/dishes/:id/add-on-groups/:groupId'], authenticateMerchant, requireMerchantTenant, requireMerchantApproved, requireMerchantService('RESTAURANT'), async (req, res) => {
   try {
     const merchantId = await resolveRestaurantMerchantCaller(req, res);
     if (!merchantId) return;
@@ -5609,7 +5947,7 @@ app.put(['/api/merchant/dishes/:id/add-on-groups/:groupId', '/api/merchant/:rest
   }
 });
 
-app.delete(['/api/merchant/dishes/:id/add-on-groups/:groupId', '/api/merchant/:restaurantId/dishes/:id/add-on-groups/:groupId'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+app.delete(['/api/merchant/dishes/:id/add-on-groups/:groupId', '/api/merchant/:restaurantId/dishes/:id/add-on-groups/:groupId'], authenticateMerchant, requireMerchantTenant, requireMerchantApproved, requireMerchantService('RESTAURANT'), async (req, res) => {
   try {
     const merchantId = await resolveRestaurantMerchantCaller(req, res);
     if (!merchantId) return;
@@ -5623,7 +5961,7 @@ app.delete(['/api/merchant/dishes/:id/add-on-groups/:groupId', '/api/merchant/:r
 });
 
 // 9. Add-on Options CRUD
-app.post(['/api/merchant/dishes/:id/add-on-groups/:groupId/options', '/api/merchant/:restaurantId/dishes/:id/add-on-groups/:groupId/options'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+app.post(['/api/merchant/dishes/:id/add-on-groups/:groupId/options', '/api/merchant/:restaurantId/dishes/:id/add-on-groups/:groupId/options'], authenticateMerchant, requireMerchantTenant, requireMerchantApproved, requireMerchantService('RESTAURANT'), async (req, res) => {
   try {
     const merchantId = await resolveRestaurantMerchantCaller(req, res);
     if (!merchantId) return;
@@ -5636,7 +5974,7 @@ app.post(['/api/merchant/dishes/:id/add-on-groups/:groupId/options', '/api/merch
   }
 });
 
-app.put(['/api/merchant/dishes/:id/add-on-groups/:groupId/options/:optionId', '/api/merchant/:restaurantId/dishes/:id/add-on-groups/:groupId/options/:optionId'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+app.put(['/api/merchant/dishes/:id/add-on-groups/:groupId/options/:optionId', '/api/merchant/:restaurantId/dishes/:id/add-on-groups/:groupId/options/:optionId'], authenticateMerchant, requireMerchantTenant, requireMerchantApproved, requireMerchantService('RESTAURANT'), async (req, res) => {
   try {
     const merchantId = await resolveRestaurantMerchantCaller(req, res);
     if (!merchantId) return;
@@ -5649,7 +5987,7 @@ app.put(['/api/merchant/dishes/:id/add-on-groups/:groupId/options/:optionId', '/
   }
 });
 
-app.delete(['/api/merchant/dishes/:id/add-on-groups/:groupId/options/:optionId', '/api/merchant/:restaurantId/dishes/:id/add-on-groups/:groupId/options/:optionId'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+app.delete(['/api/merchant/dishes/:id/add-on-groups/:groupId/options/:optionId', '/api/merchant/:restaurantId/dishes/:id/add-on-groups/:groupId/options/:optionId'], authenticateMerchant, requireMerchantTenant, requireMerchantApproved, requireMerchantService('RESTAURANT'), async (req, res) => {
   try {
     const merchantId = await resolveRestaurantMerchantCaller(req, res);
     if (!merchantId) return;
@@ -5718,7 +6056,7 @@ app.get(['/api/merchant/:restaurantId/rms/settings', '/api/merchant/rms/settings
   }
 });
 
-app.put(['/api/merchant/:restaurantId/rms/settings', '/api/merchant/rms/settings'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+app.put(['/api/merchant/:restaurantId/rms/settings', '/api/merchant/rms/settings'], authenticateMerchant, requireMerchantTenant, requireMerchantApproved, requireMerchantService('RESTAURANT'), async (req, res) => {
   try {
     const merchantId = await resolveRestaurantMerchantCaller(req, res);
     if (!merchantId) return;
@@ -5757,7 +6095,7 @@ app.get(['/api/merchant/:restaurantId/rms/settings/payments', '/api/merchant/rms
   }
 });
 
-app.put(['/api/merchant/:restaurantId/rms/settings/payments', '/api/merchant/rms/settings/payments'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+app.put(['/api/merchant/:restaurantId/rms/settings/payments', '/api/merchant/rms/settings/payments'], authenticateMerchant, requireMerchantTenant, requireMerchantApproved, requireMerchantService('RESTAURANT'), async (req, res) => {
   try {
     const merchantId = await resolveRestaurantMerchantCaller(req, res);
     if (!merchantId) return;
@@ -5781,7 +6119,7 @@ app.put(['/api/merchant/:restaurantId/rms/settings/payments', '/api/merchant/rms
   }
 });
 
-app.post(['/api/merchant/:restaurantId/rms/settings/payments/upload-qr', '/api/merchant/rms/settings/payments/upload-qr'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+app.post(['/api/merchant/:restaurantId/rms/settings/payments/upload-qr', '/api/merchant/rms/settings/payments/upload-qr'], authenticateMerchant, requireMerchantTenant, requireMerchantApproved, requireMerchantService('RESTAURANT'), async (req, res) => {
   try {
     const merchantId = await resolveRestaurantMerchantCaller(req, res);
     if (!merchantId) return;
@@ -5804,7 +6142,7 @@ app.post(['/api/merchant/:restaurantId/rms/settings/payments/upload-qr', '/api/m
   }
 });
 
-app.delete(['/api/merchant/:restaurantId/rms/settings/payments/qr', '/api/merchant/rms/settings/payments/qr'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+app.delete(['/api/merchant/:restaurantId/rms/settings/payments/qr', '/api/merchant/rms/settings/payments/qr'], authenticateMerchant, requireMerchantTenant, requireMerchantApproved, requireMerchantService('RESTAURANT'), async (req, res) => {
   try {
     const merchantId = await resolveRestaurantMerchantCaller(req, res);
     if (!merchantId) return;
@@ -5838,7 +6176,7 @@ app.get(['/api/merchant/:restaurantId/rms/tables', '/api/merchant/rms/tables'], 
   }
 });
 
-app.post(['/api/merchant/:restaurantId/rms/tables', '/api/merchant/rms/tables'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+app.post(['/api/merchant/:restaurantId/rms/tables', '/api/merchant/rms/tables'], authenticateMerchant, requireMerchantTenant, requireMerchantApproved, requireMerchantService('RESTAURANT'), async (req, res) => {
   try {
     const merchantId = await resolveRestaurantMerchantCaller(req, res);
     if (!merchantId) return;
@@ -5852,7 +6190,7 @@ app.post(['/api/merchant/:restaurantId/rms/tables', '/api/merchant/rms/tables'],
   }
 });
 
-app.put(['/api/merchant/:restaurantId/rms/tables/:tableId', '/api/merchant/rms/tables/:tableId'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+app.put(['/api/merchant/:restaurantId/rms/tables/:tableId', '/api/merchant/rms/tables/:tableId'], authenticateMerchant, requireMerchantTenant, requireMerchantApproved, requireMerchantService('RESTAURANT'), async (req, res) => {
   try {
     const merchantId = await resolveRestaurantMerchantCaller(req, res);
     if (!merchantId) return;
@@ -5867,7 +6205,7 @@ app.put(['/api/merchant/:restaurantId/rms/tables/:tableId', '/api/merchant/rms/t
   }
 });
 
-app.patch(['/api/merchant/:restaurantId/rms/tables/:tableId/status', '/api/merchant/rms/tables/:tableId/status'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+app.patch(['/api/merchant/:restaurantId/rms/tables/:tableId/status', '/api/merchant/rms/tables/:tableId/status'], authenticateMerchant, requireMerchantTenant, requireMerchantApproved, requireMerchantService('RESTAURANT'), async (req, res) => {
   try {
     const merchantId = await resolveRestaurantMerchantCaller(req, res);
     if (!merchantId) return;
@@ -5882,7 +6220,7 @@ app.patch(['/api/merchant/:restaurantId/rms/tables/:tableId/status', '/api/merch
   }
 });
 
-app.post(['/api/merchant/:restaurantId/rms/tables/:tableId/qr/regenerate', '/api/merchant/rms/tables/:tableId/qr/regenerate'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+app.post(['/api/merchant/:restaurantId/rms/tables/:tableId/qr/regenerate', '/api/merchant/rms/tables/:tableId/qr/regenerate'], authenticateMerchant, requireMerchantTenant, requireMerchantApproved, requireMerchantService('RESTAURANT'), async (req, res) => {
   try {
     const merchantId = await resolveRestaurantMerchantCaller(req, res);
     if (!merchantId) return;
@@ -5898,7 +6236,7 @@ app.post(['/api/merchant/:restaurantId/rms/tables/:tableId/qr/regenerate', '/api
 });
 
 // 3. RMS Table Sessions
-app.post(['/api/merchant/:restaurantId/rms/tables/:tableId/session/open', '/api/merchant/rms/tables/:tableId/session/open'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+app.post(['/api/merchant/:restaurantId/rms/tables/:tableId/session/open', '/api/merchant/rms/tables/:tableId/session/open'], authenticateMerchant, requireMerchantTenant, requireMerchantApproved, requireMerchantService('RESTAURANT'), async (req, res) => {
   try {
     const merchantId = await resolveRestaurantMerchantCaller(req, res);
     if (!merchantId) return;
@@ -5930,7 +6268,7 @@ app.get(['/api/merchant/:restaurantId/rms/tables/:tableId/session', '/api/mercha
   }
 });
 
-app.post(['/api/merchant/:restaurantId/rms/sessions/:sessionId/transfer', '/api/merchant/rms/sessions/:sessionId/transfer'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+app.post(['/api/merchant/:restaurantId/rms/sessions/:sessionId/transfer', '/api/merchant/rms/sessions/:sessionId/transfer'], authenticateMerchant, requireMerchantTenant, requireMerchantApproved, requireMerchantService('RESTAURANT'), async (req, res) => {
   try {
     const merchantId = await resolveRestaurantMerchantCaller(req, res);
     if (!merchantId) return;
@@ -5944,7 +6282,7 @@ app.post(['/api/merchant/:restaurantId/rms/sessions/:sessionId/transfer', '/api/
   }
 });
 
-app.post(['/api/merchant/:restaurantId/rms/sessions/:sessionId/close', '/api/merchant/rms/sessions/:sessionId/close'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+app.post(['/api/merchant/:restaurantId/rms/sessions/:sessionId/close', '/api/merchant/rms/sessions/:sessionId/close'], authenticateMerchant, requireMerchantTenant, requireMerchantApproved, requireMerchantService('RESTAURANT'), async (req, res) => {
   try {
     const merchantId = await resolveRestaurantMerchantCaller(req, res);
     if (!merchantId) return;
@@ -5977,7 +6315,7 @@ app.get(['/api/merchant/:restaurantId/rms/sessions/:sessionId/bill', '/api/merch
   }
 });
 
-app.post(['/api/merchant/:restaurantId/rms/sessions/:sessionId/bill/split', '/api/merchant/rms/sessions/:sessionId/bill/split'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+app.post(['/api/merchant/:restaurantId/rms/sessions/:sessionId/bill/split', '/api/merchant/rms/sessions/:sessionId/bill/split'], authenticateMerchant, requireMerchantTenant, requireMerchantApproved, requireMerchantService('RESTAURANT'), async (req, res) => {
   try {
     const merchantId = await resolveRestaurantMerchantCaller(req, res);
     if (!merchantId) return;
@@ -5998,7 +6336,7 @@ app.post(['/api/merchant/:restaurantId/rms/sessions/:sessionId/bill/split', '/ap
   }
 });
 
-app.post(['/api/merchant/:restaurantId/rms/sessions/:sessionId/bill/pay', '/api/merchant/rms/sessions/:sessionId/bill/pay'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+app.post(['/api/merchant/:restaurantId/rms/sessions/:sessionId/bill/pay', '/api/merchant/rms/sessions/:sessionId/bill/pay'], authenticateMerchant, requireMerchantTenant, requireMerchantApproved, requireMerchantService('RESTAURANT'), async (req, res) => {
   try {
     const merchantId = await resolveRestaurantMerchantCaller(req, res);
     if (!merchantId) return;
@@ -6054,7 +6392,7 @@ app.get(['/api/merchant/:restaurantId/rms/bills/:billId/receipt', '/api/merchant
   }
 });
 
-app.post(['/api/merchant/:restaurantId/rms/sessions/:sessionId/bill/refund', '/api/merchant/rms/sessions/:sessionId/bill/refund'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+app.post(['/api/merchant/:restaurantId/rms/sessions/:sessionId/bill/refund', '/api/merchant/rms/sessions/:sessionId/bill/refund'], authenticateMerchant, requireMerchantTenant, requireMerchantApproved, requireMerchantService('RESTAURANT'), async (req, res) => {
   try {
     const merchantId = await resolveRestaurantMerchantCaller(req, res);
     if (!merchantId) return;
@@ -6102,7 +6440,7 @@ app.get(['/api/merchant/:restaurantId/rms/reservations', '/api/merchant/rms/rese
   }
 });
 
-app.post(['/api/merchant/:restaurantId/rms/reservations', '/api/merchant/rms/reservations'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+app.post(['/api/merchant/:restaurantId/rms/reservations', '/api/merchant/rms/reservations'], authenticateMerchant, requireMerchantTenant, requireMerchantApproved, requireMerchantService('RESTAURANT'), async (req, res) => {
   try {
     const merchantId = await resolveRestaurantMerchantCaller(req, res);
     if (!merchantId) return;
@@ -6116,7 +6454,7 @@ app.post(['/api/merchant/:restaurantId/rms/reservations', '/api/merchant/rms/res
   }
 });
 
-app.patch(['/api/merchant/:restaurantId/rms/reservations/:id/status', '/api/merchant/rms/reservations/:id/status'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+app.patch(['/api/merchant/:restaurantId/rms/reservations/:id/status', '/api/merchant/rms/reservations/:id/status'], authenticateMerchant, requireMerchantTenant, requireMerchantApproved, requireMerchantService('RESTAURANT'), async (req, res) => {
   try {
     const merchantId = await resolveRestaurantMerchantCaller(req, res);
     if (!merchantId) return;
@@ -6145,7 +6483,7 @@ app.get(['/api/merchant/:restaurantId/rms/kds/tickets', '/api/merchant/rms/kds/t
   }
 });
 
-app.patch(['/api/merchant/:restaurantId/rms/kds/tickets/:ticketId/status', '/api/merchant/rms/kds/tickets/:ticketId/status'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+app.patch(['/api/merchant/:restaurantId/rms/kds/tickets/:ticketId/status', '/api/merchant/rms/kds/tickets/:ticketId/status'], authenticateMerchant, requireMerchantTenant, requireMerchantApproved, requireMerchantService('RESTAURANT'), async (req, res) => {
   try {
     const merchantId = await resolveRestaurantMerchantCaller(req, res);
     if (!merchantId) return;
@@ -6160,7 +6498,7 @@ app.patch(['/api/merchant/:restaurantId/rms/kds/tickets/:ticketId/status', '/api
 });
 
 // 7. RMS Takeaway Handover
-app.post(['/api/merchant/:restaurantId/rms/orders/:orderId/handover', '/api/merchant/rms/orders/:orderId/handover'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+app.post(['/api/merchant/:restaurantId/rms/orders/:orderId/handover', '/api/merchant/rms/orders/:orderId/handover'], authenticateMerchant, requireMerchantTenant, requireMerchantApproved, requireMerchantService('RESTAURANT'), async (req, res) => {
   try {
     const merchantId = await resolveRestaurantMerchantCaller(req, res);
     if (!merchantId) return;
@@ -6191,7 +6529,7 @@ app.get(['/api/merchant/:restaurantId/rms/staff', '/api/merchant/rms/staff'], au
   }
 });
 
-app.post(['/api/merchant/:restaurantId/rms/staff', '/api/merchant/rms/staff'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+app.post(['/api/merchant/:restaurantId/rms/staff', '/api/merchant/rms/staff'], authenticateMerchant, requireMerchantTenant, requireMerchantApproved, requireMerchantService('RESTAURANT'), async (req, res) => {
   try {
     const merchantId = await resolveRestaurantMerchantCaller(req, res);
     if (!merchantId) return;
@@ -6205,7 +6543,7 @@ app.post(['/api/merchant/:restaurantId/rms/staff', '/api/merchant/rms/staff'], a
   }
 });
 
-app.delete(['/api/merchant/:restaurantId/rms/staff/:staffId', '/api/merchant/rms/staff/:staffId'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+app.delete(['/api/merchant/:restaurantId/rms/staff/:staffId', '/api/merchant/rms/staff/:staffId'], authenticateMerchant, requireMerchantTenant, requireMerchantApproved, requireMerchantService('RESTAURANT'), async (req, res) => {
   try {
     const merchantId = await resolveRestaurantMerchantCaller(req, res);
     if (!merchantId) return;
@@ -6400,6 +6738,61 @@ app.post('/api/admin/restaurants/:id/status', authenticateAdmin, requirePermissi
   }
 });
 
+// MERCHANT APPROVAL LIFECYCLE (migration 048)
+//
+// A registration is a declaration, not a storefront: it lands as PENDING and only an approval
+// decision makes it tradeable. These two routes are the whole of that decision surface, and they
+// require `merchant.manage` — the same grant the operational-status door above already requires,
+// so no second permission system was invented for it (FINANCE_AUDITOR, which holds finance and
+// audit grants only, is refused by name).
+//
+// The decision is written to PostgreSQL by `DatabaseService.setMerchantApproval` and nowhere else:
+// a merchant's own profile PATCH refuses approval keys, so self-approval has no path. An approval
+// kept in this process's memory would disappear on restart and exist on one instance, which is why
+// a store that cannot record the decision answers 503 instead of 200.
+app.get('/api/admin/merchants/pending', authenticateAdmin, requirePermission('merchant.manage'), async (req, res) => {
+  try {
+    const queue = await db.getMerchantsPendingApproval();
+    res.json({
+      success: true,
+      count: queue.count,
+      merchants: queue.merchants,
+      dataSource: queue.dataSource,
+      requestId: req.id
+    });
+  } catch (err) {
+    if (supabaseHelper.isStoreUnreachable(err)) return replyStoreError(res, req, err, 'the pending merchant approval queue');
+    console.error('[admin] pending merchant queue read failed:', err);
+    res.status(err.status || 500).json({
+      success: false,
+      ...(err.code ? { code: err.code } : {}),
+      error: err.message,
+      requestId: req.id
+    });
+  }
+});
+
+app.post('/api/admin/merchants/:id/approval', authenticateAdmin, requirePermission('merchant.manage'), async (req, res) => {
+  try {
+    const { decision, reason } = req.body || {};
+    const result = await db.setMerchantApproval(req.params.id, decision, reason, req.admin.id, req.admin.name);
+    if (!result.success) {
+      return res.status(400).json({ ...result, requestId: req.id });
+    }
+    res.json({ ...result, requestId: req.id });
+  } catch (err) {
+    if (supabaseHelper.isStoreUnreachable(err)) return replyStoreError(res, req, err, 'the merchant approval decision');
+    // 404 for an id with no row and 400 for an unusable decision both come from the method's own
+    // status; a 400 default would turn an infrastructure refusal into a claim about the request.
+    res.status(err.status || 400).json({
+      success: false,
+      ...(err.code ? { code: err.code } : {}),
+      error: err.message,
+      requestId: req.id
+    });
+  }
+});
+
 // DRIVER FLEET GOVERNANCE & TELEMETRY
 // (POST /api/admin/drivers/:id/status is declared above, with its
 //  fleet.manage guard. A second, identical registration of that path used to sit
@@ -6504,7 +6897,11 @@ app.post('/api/driver/:driverId/toggle-online', authenticateDriver, async (req, 
     });
   }
 
-  const driver = db.getDriver(req.driver.id) || req.driver;
+  // MI-4 (P1): the driver routes read their own account through `db.getDriver(req.driver.id)`,
+  // which ends in `|| this.drivers[0]` — so a driver this process never hydrated was served as the
+  // first seeded driver, and availability, wallet and job writes landed on that unrelated account.
+  // Strict resolution plus `|| req.driver` keeps the caller as the only possible subject.
+  const driver = db.getDriverStrict(req.driver.id) || req.driver;
   try {
     res.json(await applyDriverAvailability(driver, req.body.isOnline ?? !driver.isOnline));
   } catch (err) {
@@ -6523,7 +6920,7 @@ app.post('/api/driver/status', authenticateDriver, async (req, res) => {
       error: 'A true or false `isOnline` value is required.'
     });
   }
-  const driver = db.getDriver(req.driver.id) || req.driver;
+  const driver = db.getDriverStrict(req.driver.id) || req.driver;
   try {
     res.json(await applyDriverAvailability(driver, isOnline));
   } catch (err) {
@@ -6543,7 +6940,7 @@ app.get('/api/driver/:driverId/dashboard', authenticateDriver, (req, res) => {
     });
   }
 
-  const driver = db.getDriver(req.driver.id) || req.driver;
+  const driver = db.getDriverStrict(req.driver.id) || req.driver;
   res.json({ success: true, driver });
 });
 
@@ -6635,7 +7032,7 @@ async function buildDriverHomePayload(driver) {
 
 app.get('/api/driver/home', authenticateDriver, async (req, res) => {
   try {
-    res.json(await buildDriverHomePayload(db.getDriver(req.driver.id) || req.driver));
+    res.json(await buildDriverHomePayload(db.getDriverStrict(req.driver.id) || req.driver));
   } catch (err) {
     if (supabaseHelper.isStoreUnreachable(err)) return replyStoreError(res, req, err, 'driver console state');
     console.error('[driver/home] failed:', err);
@@ -6714,7 +7111,7 @@ app.post('/api/driver/offers/:offerId/accept', authenticateDriver, async (req, r
 
     const targetJobId = result.job_id || result.job_uuid;
     const job = db.jobRepo?.findById(targetJobId) || await db.jobRepo?.findByIdAsync(targetJobId);
-    const driver = db.getDriver(req.driver.id) || req.driver;
+    const driver = db.getDriverStrict(req.driver.id) || req.driver;
 
     if (driver && job) {
       driver.activeJobId = job.id;
@@ -6803,7 +7200,7 @@ app.post('/api/driver/accept-job', authenticateDriver, async (req, res) => {
   }
 
   const effectiveDriverId = req.driver.id;
-  let driver = db.getDriver(effectiveDriverId) || req.driver;
+  let driver = db.getDriverStrict(effectiveDriverId) || req.driver;
 
   const { supabaseAdmin, isLivePostgres } = require('./supabase');
   if (isLivePostgres && supabaseAdmin) {
@@ -7034,7 +7431,19 @@ app.post('/api/driver/verify-otp', authenticateDriver, async (req, res) => {
         console.warn(`[NOTIF_DISPATCH_WARN] Failed to emit RIDE_COMPLETED for job ${result.job.id}:`, notifErr.message);
       }
     } else if (result.status === 'OUT_FOR_DELIVERY') {
-      broadcastToCustomer(result.job.customerId, { type: 'FOOD_ORDER_UPDATE', orderId: result.job.id, orderStatus: 'OUT_FOR_DELIVERY' });
+      // `orderId` means the order. The job's own uuid goes in `jobId`, and a job that names no
+      // order (a ride, or a delivery job predating the 047 link) gets null rather than its own id
+      // in the order field — the order and the job are two records, and a customer app that keys
+      // on `orderId` was being handed an id no orders row answers to. `deliveryOrderId` arrives
+      // flattened from `mapRowToJob`'s metadata spread, so both shapes are read.
+      const linkedOrderId = (result.job && (result.job.deliveryOrderId
+        || (result.job.metadata && result.job.metadata.deliveryOrderId))) || null;
+      broadcastToCustomer(result.job.customerId, {
+        type: 'FOOD_ORDER_UPDATE',
+        orderId: linkedOrderId,
+        jobId: result.job.id,
+        orderStatus: 'OUT_FOR_DELIVERY'
+      });
     } else {
       broadcastToCustomer(result.job.customerId, { type: 'TRIP_STARTED', jobId: result.job.id });
 
@@ -7068,8 +7477,312 @@ app.post('/api/driver/verify-otp', authenticateDriver, async (req, res) => {
         verified: false
       });
     }
+    // Migration 046 answers every handover submit with a typed verdict code; the HTTP
+    // status is that code's meaning, not this route's opinion. A locked code is a
+    // throttle (429 + retry), an expired or already-consumed code is a conflict/gone,
+    // a wrong code is a 400 that reports how many guesses remain. None of these bodies
+    // carry the entered digits — `validateAuthoritativeJobOtp` builds the message from
+    // the verdict, so a failed guess cannot leak itself.
+    const OTP_HTTP_STATUS = {
+      OTP_LOCKED: 429,
+      OTP_EXPIRED: 410,
+      OTP_ALREADY_CONSUMED: 409,
+      OTP_VERIFICATION_REJECTED_NO_BOUND_CODE: 409,
+      OTP_MISMATCH: 400,
+      OTP_INPUT_REQUIRED: 400,
+      OTP_EMPTY: 400,
+      OTP_TYPE_INVALID: 400,
+      OTP_VERIFICATION_REJECTED: 400,
+      JOB_NOT_FOUND: 404,
+      OTP_VERIFICATION_UNAVAILABLE: 503,
+      JOB_ADVANCE_FAILED: 500
+    };
+    if (err.code && OTP_HTTP_STATUS[err.code] !== undefined) {
+      const body = { success: false, code: err.code, error: err.message, verified: false };
+      if (err.retryAfterMs !== undefined) body.retryAfterMs = err.retryAfterMs;
+      if (err.attemptsRemaining !== undefined) body.attemptsRemaining = err.attemptsRemaining;
+      return res.status(OTP_HTTP_STATUS[err.code]).json(body);
+    }
     res.status(400).json({ success: false, error: err.message, verified: false });
   }
+});
+
+// ===========================================================================
+// P3 #439 — the driver half of the FOOD/GROCERY delivery handover.
+//
+// Migration 047 owns every fact these two routes report: it locks the order, checks who the job
+// is assigned to, moves the state through 018's authoritative transition and consumes the 046
+// delivery code, all inside one transaction. So a retried request cannot write a second
+// transition row, burn a second code, or settle anything twice — and these routes add only the
+// boundary: the driver comes from the session, the ids are checked before they reach a UUID
+// parameter, and a verdict is answered with the status that verdict means.
+//
+// Neither route moves money. A handover job carries 0.00 in every money column because no
+// delivery-fee rule exists in any migration or in PricingRepository, so crediting a wallet here
+// would be inventing one. That is an open owner decision, not something this file can settle.
+// ===========================================================================
+
+// 047 — and the 018/046 verdicts it delegates to — refuse with a fixed vocabulary. Every code
+// below describes the state of a record, not the shape of the request, which is why an
+// unrecognised code lands on 409 with its code intact and a line in the log: a 400 would tell a
+// driver app its own data was wrong when the order has simply moved on. Only the codes these two
+// RPCs can actually answer are listed; a future verdict joins that list or shows up as a warning.
+const DELIVERY_HANDOVER_HTTP_STATUS = {
+  ORDER_NOT_FOUND: 404,
+  JOB_NOT_FOUND: 404,
+  ORDER_NOT_LINKED_TO_JOB: 409,
+  ORDER_ALREADY_PICKED_UP: 409,
+  ORDER_ALREADY_DELIVERED: 409,
+  ORDER_NOT_READY_FOR_PICKUP: 409,
+  ORDER_NOT_PICKED_UP: 409,
+  IDEMPOTENCY_CONFLICT: 409,
+  INVALID_TRANSITION: 409,
+  REJECTION_REASON_REQUIRED: 400,
+  INVALID_REJECTION_REASON: 400,
+  FORBIDDEN_ACTOR: 403,
+  JOB_NOT_ASSIGNED_TO_DRIVER: 403,
+  OTP_EXPIRED: 410,
+  OTP_LOCKED: 429,
+  OTP_ALREADY_CONSUMED: 409,
+  OTP_VERIFICATION_REJECTED_NO_BOUND_CODE: 409,
+  OTP_MISMATCH: 400,
+  OTP_EMPTY: 400,
+  OTP_TYPE_INVALID: 400,
+  OTP_INPUT_REQUIRED: 400,
+  OTP_VERIFICATION_REJECTED: 400,
+  OTP_VERIFICATION_UNAVAILABLE: 503
+};
+
+/**
+ * The two ids a handover route acts on, or the refusal that says why there are none.
+ *
+ * The driver comes from the session and nowhere else. A `driverId` in the body would let any
+ * driver's bearer record a pickup under another driver's name, and 047 writes that id into
+ * `order_transitions.actor_id` — the audit row, not a display field. A driver whose identity has
+ * no durable uuid (a legacy in-memory profile) is refused here rather than passed into a `UUID`
+ * parameter, where it would reach PostgreSQL as 22P02 and answer 503 for what is an identity
+ * problem. The order id must be a uuid for the same reason: `orders.id` is one, and a fabricated
+ * or human-number id is refused at the boundary instead of surfacing later as a store error.
+ */
+function handoverCaller(req) {
+  const sessionId = req.driver && req.driver.id;
+  const driverUuid = (db.driverRepo && db.driverRepo.resolveUuid(sessionId)) || (req.driver && req.driver.uuid) || sessionId;
+  if (!driverUuid || !UUID_REGEX.test(String(driverUuid))) {
+    return { refusal: { status: 403, body: {
+      success: false,
+      code: 'DRIVER_IDENTITY_UNRESOLVED',
+      error: 'The signed-in driver has no durable identity, so a delivery handover cannot be recorded against it.'
+    } } };
+  }
+
+  const bodyDriverId = req.body && (req.body.driverId || req.body.driver_id || req.body.driverUuid);
+  if (bodyDriverId) {
+    const targetUuid = (db.driverRepo && db.driverRepo.resolveUuid(bodyDriverId)) || bodyDriverId;
+    if (bodyDriverId !== sessionId && String(targetUuid) !== String(driverUuid)) {
+      return { refusal: { status: 403, body: {
+        success: false,
+        code: 'IDENTITY_SPOOFING_REJECTED',
+        error: 'Driver impersonation rejected: driverId does not match authenticated credentials.'
+      } } };
+    }
+  }
+
+  const orderId = req.body && (req.body.orderId || req.body.order_id);
+  if (!orderId || !UUID_REGEX.test(String(orderId))) {
+    return { refusal: { status: 400, body: {
+      success: false,
+      code: 'ORDER_ID_INVALID',
+      error: 'An orderId naming exactly one durable order is required.'
+    } } };
+  }
+
+  return { driverUuid: String(driverUuid), orderId: String(orderId) };
+}
+
+/**
+ * Answer a handover write that never landed.
+ *
+ * The repository refuses to serve either of these codes from the mirror — a delivery link is
+ * durable or it does not exist — so both mean the record was not written. That is our condition
+ * and it is retryable, never the caller's bad data. 047's own abort path (the code was consumed
+ * but the transition refused) arrives here too, and answers 503 rather than a success, because
+ * the whole transaction rolled back: the consumption, the transition row and the state with it.
+ */
+function replyDeliveryHandoverFault(res, req, err, what) {
+  if (err && (err.code === 'DELIVERY_RPC_UNAVAILABLE' || err.code === 'DELIVERY_WRITE_UNAVAILABLE')) {
+    console.error(`[store] ${req.method} ${req.originalUrl} 503 ${err.code}: ${err.message}`);
+    return res.status(503).json({
+      success: false,
+      code: err.code,
+      error: `The ${what} was not recorded because its write to the store did not complete. Nothing was changed — try again.`,
+      requestId: req.id
+    });
+  }
+  return replyStoreError(res, req, err, what);
+}
+
+/**
+ * Answer a 047 verdict that is not a fresh success: a refusal, or a step already recorded.
+ *
+ * 047 reports an already-landed pickup or delivery as `success: true, duplicate: true`, which is
+ * the right answer for a transaction and the wrong one for a driver app — a 200 invites that app
+ * to run its "delivery complete" flow a second time. So a duplicate becomes 409 with
+ * `duplicate: true`: the effect exists, this request did not cause it. `/api/driver/verify-otp`
+ * above already answers `TRIP_ALREADY_SETTLED` the same way, for the same reason.
+ *
+ * The ids are withheld on `JOB_NOT_ASSIGNED_TO_DRIVER`, where 047 names the order and the job to
+ * a caller who is by definition not that job's driver.
+ */
+function replyDeliveryHandoverVerdict(res, req, verdict) {
+  const code = String((verdict && verdict.code) || 'DELIVERY_HANDOVER_REFUSED');
+  const duplicate = Boolean(verdict && verdict.duplicate === true);
+  let status = DELIVERY_HANDOVER_HTTP_STATUS[code];
+  if (status === undefined) {
+    console.warn(`[DELIVERY_HANDOVER_WARN] a delivery handover answered with the unmapped verdict code ${code}; reported as 409 with the code intact`);
+    status = 409;
+  }
+
+  const body = {
+    success: false,
+    code,
+    error: (verdict && verdict.error) || (duplicate
+      ? 'This step of the delivery was already recorded.'
+      : 'The delivery handover was refused.'),
+  };
+  if (duplicate) body.duplicate = true;
+  if (code.indexOf('OTP_') === 0) body.verified = false;
+  if (verdict && verdict.otpConsumed !== undefined) body.otpConsumed = verdict.otpConsumed;
+  if (code !== 'JOB_NOT_ASSIGNED_TO_DRIVER') {
+    if (verdict && verdict.orderId !== undefined) body.orderId = verdict.orderId;
+    if (verdict && verdict.orderState !== undefined) body.orderState = verdict.orderState;
+    if (verdict && verdict.jobId !== undefined) body.jobId = verdict.jobId;
+    if (verdict && verdict.jobStatus !== undefined) body.jobStatus = verdict.jobStatus;
+  }
+  return res.status(status).json(body);
+}
+
+// READY_FOR_PICKUP -> PICKED_UP. Only the driver the linked job names can do this, and only the
+// order that links to that exact job can be moved: both checks are 047's, inside its transaction.
+app.post('/api/driver/pickup-order', authenticateDriver, async (req, res) => {
+  const caller = handoverCaller(req);
+  if (caller.refusal) return res.status(caller.refusal.status).json(caller.refusal.body);
+
+  let verdict;
+  try {
+    verdict = await db.orderRepo.recordDeliveryPickupAtomic({
+      orderId: caller.orderId,
+      driverId: caller.driverUuid
+    });
+  } catch (err) {
+    return replyDeliveryHandoverFault(res, req, err, 'pickup');
+  }
+
+  if (!(verdict && verdict.success === true && verdict.duplicate !== true)) {
+    return replyDeliveryHandoverVerdict(res, req, verdict);
+  }
+
+  // The row is durable; this process's mirror has not seen it. `findByIdAsync` both refreshes the
+  // cached job — `/api/driver/verify-otp` reads the mirror first, so a stale copy there would show
+  // a job that is already IN_TRANSIT as still ASSIGNED — and names the customer to broadcast to.
+  let job = null;
+  try {
+    job = await (db.jobRepo && db.jobRepo.findByIdAsync ? db.jobRepo.findByIdAsync(verdict.jobId) : Promise.resolve(null));
+  } catch (readErr) {
+    console.warn(`[DELIVERY_HANDOVER_WARN] the pickup on order ${caller.orderId} landed but job ${verdict.jobId} could not be read back: ${readErr.message}`);
+  }
+
+  if (job && job.customerId) {
+    // The order id and the job id travel as themselves: `orderId` is the order, `jobId` is the job.
+    broadcastToCustomer(job.customerId, {
+      type: 'FOOD_ORDER_UPDATE',
+      orderId: caller.orderId,
+      jobId: verdict.jobId,
+      serviceType: job.type || null,
+      orderStatus: verdict.orderState || 'PICKED_UP'
+    });
+  } else {
+    console.warn(`[DELIVERY_HANDOVER_WARN] the pickup on order ${caller.orderId} landed but the customer behind job ${verdict.jobId} could not be resolved, so no update was broadcast`);
+  }
+
+  res.json({
+    success: true,
+    duplicate: false,
+    code: verdict.code,
+    orderId: verdict.orderId,
+    orderState: verdict.orderState,
+    jobId: verdict.jobId,
+    jobStatus: verdict.jobStatus,
+    transitionId: verdict.transitionId || null
+  });
+});
+
+// PICKED_UP -> DELIVERED, with the customer's 046 delivery code as the proof. The entry check is
+// the state precheck, not the code: an order already delivered is refused before the code is
+// touched, so a replay cannot consume it a second time. The code itself is never echoed in a
+// response and never written to a log.
+app.post('/api/driver/deliver-order', authenticateDriver, async (req, res) => {
+  const caller = handoverCaller(req);
+  if (caller.refusal) return res.status(caller.refusal.status).json(caller.refusal.body);
+
+  const enteredOtp = req.body.otp || req.body.enteredOtp;
+  if (!enteredOtp || !String(enteredOtp).trim()) {
+    return res.status(400).json({
+      success: false,
+      code: 'OTP_INPUT_REQUIRED',
+      error: 'The customer\'s delivery verification code is required.',
+      verified: false
+    });
+  }
+
+  let verdict;
+  try {
+    verdict = await db.orderRepo.recordDeliveryCompletionAtomic({
+      orderId: caller.orderId,
+      driverId: caller.driverUuid,
+      otp: String(enteredOtp).trim()
+    });
+  } catch (err) {
+    return replyDeliveryHandoverFault(res, req, err, 'delivery completion');
+  }
+
+  if (!(verdict && verdict.success === true && verdict.duplicate !== true)) {
+    return replyDeliveryHandoverVerdict(res, req, verdict);
+  }
+
+  let job = null;
+  try {
+    job = await (db.jobRepo && db.jobRepo.findByIdAsync ? db.jobRepo.findByIdAsync(verdict.jobId) : Promise.resolve(null));
+  } catch (readErr) {
+    console.warn(`[DELIVERY_HANDOVER_WARN] the delivery on order ${caller.orderId} landed but job ${verdict.jobId} could not be read back: ${readErr.message}`);
+  }
+
+  if (job && job.customerId) {
+    // No `fare` and no earnings: the handover job is unpriced, and an update that named a number
+    // here would be a number this route made up.
+    broadcastToCustomer(job.customerId, {
+      type: 'FOOD_ORDER_UPDATE',
+      orderId: caller.orderId,
+      jobId: verdict.jobId,
+      serviceType: job.type || null,
+      orderStatus: verdict.orderState || 'DELIVERED'
+    });
+  } else {
+    console.warn(`[DELIVERY_HANDOVER_WARN] the delivery on order ${caller.orderId} landed but the customer behind job ${verdict.jobId} could not be resolved, so no update was broadcast`);
+  }
+  broadcastToDrivers({ type: 'JOB_COMPLETED', jobId: verdict.jobId });
+
+  res.json({
+    success: true,
+    duplicate: false,
+    verified: true,
+    code: verdict.code,
+    orderId: verdict.orderId,
+    orderState: verdict.orderState,
+    jobId: verdict.jobId,
+    jobStatus: verdict.jobStatus,
+    transitionId: verdict.transitionId || null,
+    moneyMovement: Boolean(verdict.moneyMovement)
+  });
 });
 
 app.post('/api/driver/complete-trip', authenticateDriver, async (req, res) => {
@@ -7168,7 +7881,7 @@ app.post('/api/driver/complete-trip', authenticateDriver, async (req, res) => {
       console.warn(`[NOTIF_DISPATCH_WARN] Failed to emit RIDE_COMPLETED for job ${updatedJob.id}:`, notifErr.message);
     }
 
-    res.json({ success: true, job: updatedJob, driver: db.getDriver(effectiveDriverId) || req.driver });
+    res.json({ success: true, job: updatedJob, driver: db.getDriverStrict(effectiveDriverId) || req.driver });
   } else {
     res.status(404).json({ success: false, error: 'Job not found' });
   }
@@ -7206,13 +7919,40 @@ app.post('/api/driver/payout', authenticateDriver, async (req, res) => {
   // intention. The key is scoped to the authenticated driver inside the repository, so it
   // cannot be used to address another partner's wallet.
   const idempotencyKey = readIdempotencyHeader(req);
-  const result = await db.recordPayout(effectiveDriverId, parsedAmount, undefined, { idempotencyKey });
-  if (!result.success) {
-    const statusCode = result.code === 'UNLINKED_DRIVER_ACCOUNT' ||
+  // This call THROWS rather than returning a failure object: LedgerRepository.adjustWallet rejects
+  // with IDEMPOTENCY_CONFLICT when a key is reused under different financial semantics, and rejects
+  // outright on a genuine store outage. Express 4 does not forward a rejected async handler to error
+  // middleware, so awaiting it here with no guard left the driver's money socket unanswered - no
+  // status, no classification, and no way to tell whether the balance moved. Same channel the admin
+  // payout route answers with: 409 for a deterministic conflict, 503 only when the outcome is
+  // genuinely unknown.
+  let result;
+  try {
+    result = await db.recordPayout(effectiveDriverId, parsedAmount, undefined, { idempotencyKey });
+  } catch (err) {
+    if (err && err.code === 'IDEMPOTENCY_CONFLICT') {
+      return res.status(409).json({
+        success: false,
+        code: 'IDEMPOTENCY_CONFLICT',
+        error: err.message,
+        note: 'No payout was made. This Idempotency-Key already belongs to a different payout; '
+          + 'resend the original amount, or use a new key for a new operation.'
+      });
+    }
+    return res.status(503).json({
+      success: false,
+      code: 'PAYOUT_OUTCOME_UNKNOWN',
+      error: err.message,
+      note: 'The payout could not be completed or confirmed. Retry with the same Idempotency-Key: '
+        + 'if the money did move, the replay returns the original result instead of paying twice.'
+    });
+  }
+  if (!result || result.success !== true) {
+    const statusCode = result && (result.code === 'UNLINKED_DRIVER_ACCOUNT' ||
       result.code === 'KYC_VERIFICATION_REQUIRED' ||
       result.code === 'UNVERIFIED_PAYOUT_DESTINATION' ||
-      result.code === 'PAYOUT_DESTINATION_COOLING_ACTIVE' ? 403 : 400;
-    return res.status(statusCode).json(result);
+      result.code === 'PAYOUT_DESTINATION_COOLING_ACTIVE') ? 403 : 400;
+    return res.status(statusCode).json(result || { success: false, error: 'Payout produced no result' });
   }
 
   // Phase 17 M4: Publish post-commit PAYOUT_SETTLED event
@@ -7355,9 +8095,14 @@ app.post(['/api/rides/:id/cancel', '/api/jobs/:id/cancel'], async (req, res) => 
     let jobUuid = memJob?.uuid || jobId;
     let userUuid = requesterId;
     if (requesterRole === 'CUSTOMER') {
-      userUuid = db.userRepo?.resolveUuid(requesterId) || (db.getUser(requesterId)?.uuid) || requesterId;
+      // MI-4 (P1): strict `?·uuid` read-throughs. `getUser`/`getDriver` end in `|| this.users[0]`
+      // and `|| this.drivers[0]`, so when the repository could not resolve the caller these lines
+      // handed `cancel_ride_atomic` the first seeded account's uuid as p_requester_id - the durable
+      // RPC was told an unrelated person asked for this cancellation. Falling through to
+      // `requesterId` is the correct answer for an id nobody resolves.
+      userUuid = db.userRepo?.resolveUuid(requesterId) || (db.getUserStrict(requesterId)?.uuid) || requesterId;
     } else if (requesterRole === 'DRIVER') {
-      userUuid = db.driverRepo?.resolveUuid(requesterId) || (db.getDriver(requesterId)?.uuid) || requesterId;
+      userUuid = db.driverRepo?.resolveUuid(requesterId) || (db.getDriverStrict(requesterId)?.uuid) || requesterId;
     }
 
     if (isLivePostgres && supabaseAdmin) {
@@ -7382,7 +8127,10 @@ app.post(['/api/rides/:id/cancel', '/api/jobs/:id/cancel'], async (req, res) => 
         memJob.refundStatus = data.refundStatus;
       }
       if (memJob?.driverId) {
-        const memDrv = db.getDriver(memJob.driverId);
+        // MI-4 (P1): strict. `getDriver` falls through to `|| this.drivers[0]`, so a cancelled job
+        // whose assigned driver this process never hydrated marked the FIRST SEEDED driver available
+        // and overwrote that unrelated account's mirror wallet with this job's compensation.
+        const memDrv = db.getDriverStrict(memJob.driverId);
         if (memDrv) {
           memDrv.operationalStatus = 'AVAILABLE';
           memDrv.isOnline = true;
@@ -7605,7 +8353,7 @@ app.get('/api/driver/earnings', authenticateDriver, async (req, res) => {
     // `/api/driver/:driverId/earnings` route performs, which is precisely what EARN-21 pins: one
     // implementation, including where each route reads from. Identity still comes only from the
     // bearer token; nothing here accepts a driver id from the client.
-    const driver = db.getDriver(req.driver.id) || req.driver;
+    const driver = db.getDriverStrict(req.driver.id) || req.driver;
     res.json(await buildDriverEarningsPayload(driver, req.driver));
   } catch (err) {
     if (supabaseHelper.isStoreUnreachable(err)) return replyStoreError(res, req, err, 'driver earnings');
@@ -7626,7 +8374,7 @@ app.get('/api/driver/:driverId/earnings', authenticateDriver, async (req, res) =
     });
   }
 
-  const driver = db.getDriver(req.driver.id) || req.driver;
+  const driver = db.getDriverStrict(req.driver.id) || req.driver;
   if (!driver) {
     return res.status(404).json({ success: false, code: 'DRIVER_NOT_FOUND', error: 'Driver profile not found.' });
   }
@@ -7765,34 +8513,26 @@ app.delete('/api/children/:id', requireCustomerAuth, async (req, res) => {
   }
 });
 
-// MASTER ADMIN METRICS & HEALTH
-app.get('/api/admin/metrics', authenticateAdmin, (req, res) => {
-  const activeDrivers = db.drivers.filter(d => d.isOnline).length;
-  const pendingKyc = db.identityApplications.filter(a => a.status === 'IDENTITY_VERIFICATION_PENDING').length;
-  const activeJobs = db.jobs.filter(j => j.status !== 'COMPLETED' && j.status !== 'CANCELLED').length;
-  const totalCompletedJobs = db.jobs.filter(j => j.status === 'COMPLETED').length;
-  const totalGrossFare = db.jobs
-    .filter(j => j.status === 'COMPLETED')
-    .reduce((sum, j) => sum + (j.fare || 0), 0);
-
-  res.json({
-    success: true,
-    metrics: {
-      activeDrivers,
-      pendingKyc,
-      activeJobs,
-      totalCompletedJobs,
-      totalGrossFare,
-      totalUsers: db.users.length,
-      totalRestaurants: db.restaurants.length,
-      fleetStatus: 'OPTIMAL_OPERATION',
-      timestamp: new Date().toISOString()
-    }
-  });
+// MASTER ADMIN METRICS
+// Every number here is one exact read of the authoritative store, and a store that cannot
+// answer is an outage rather than this process's boot-time mirror. See
+// `getAdminPlatformMetrics` in src/database.js for the measured gap this closes.
+app.get('/api/admin/metrics', authenticateAdmin, async (req, res) => {
+  try {
+    res.json({ success: true, metrics: await db.getAdminPlatformMetrics() });
+  } catch (err) {
+    const status = err.status || err.statusCode || 500;
+    res.status(status).json({
+      success: false,
+      code: err.code || 'ADMIN_METRICS_FAILED',
+      error: err.message,
+      requestId: req.id
+    });
+  }
 });
 
-app.get('/api/admin/jobs', authenticateAdmin, (req, res) => res.json({ success: true, jobs: db.jobs }));
-app.get('/api/admin/restaurants', authenticateAdmin, (req, res) => res.json({ success: true, restaurants: db.restaurants }));
+app.get('/api/admin/jobs', authenticateAdmin, (req, res) => db.listAdminJobs({ type: req.query.type, status: req.query.status, limit: req.query.limit, offset: req.query.offset }).then((result) => res.json({ success: true, ...result })).catch((err) => res.status(err.status || err.statusCode || 503).json({ success: false, code: err.code || 'ADMIN_JOBS_READ_FAILED', error: err.message, requestId: req.id })));
+app.get('/api/admin/restaurants', authenticateAdmin, (req, res) => db.listAdminRestaurants({ merchantType: req.query.merchant_type, limit: req.query.limit, offset: req.query.offset }).then((result) => res.json({ success: true, ...result })).catch((err) => res.status(err.status || err.statusCode || 503).json({ success: false, code: err.code || 'ADMIN_RESTAURANTS_READ_FAILED', error: err.message, requestId: req.id })));
 
 // Document previews. The gate is the point: `identity_documents.view` is the permission the
 // examiners' queue already runs on, and the day one of these paths names a real upload, an ungated
@@ -7887,6 +8627,10 @@ app.get('/api/grocery/products', async (req, res) => {
       .from('merchants')
       .select('id, name')
       .in('merchant_type', GROCERY_TYPES)
+      // A store the platform has not approved is not a store whose shelves a customer can
+      // browse — and its checkout is refused above anyway, so listing it would be a dead
+      // door with a price on it.
+      .eq('approval_status', 'APPROVED')
       .order('name', { ascending: true });
     if (storeError) return replyStoreError(res, req, storeError, 'grocery catalogue');
 
@@ -7979,7 +8723,7 @@ app.get('/api/merchant/grocery/price-history', authenticateMerchant, requireMerc
 // for a change that touched nothing. `POST /api/merchant/inventory` remains the way to create or
 // re-stock a listing; this route re-prices one that exists, by either id the customer read
 // projects. `req.body.actor` is no longer read: the price record's actor is the session's store.
-app.put('/api/grocery/products/:id/price', authenticateMerchant, requireMerchantTenant, requireMerchantService('GROCERY'), async (req, res) => {
+app.put('/api/grocery/products/:id/price', authenticateMerchant, requireMerchantTenant, requireMerchantApproved, requireMerchantService('GROCERY'), async (req, res) => {
   try {
     const product = await db.updateMerchantListingPrice({
       merchantId: req.merchant.id,
@@ -8122,6 +8866,7 @@ app.get('/api/restaurants', async (req, res) => {
   if (!isLivePostgres || !supabaseAdmin) {
     const fixtures = db.restaurants
       .filter((r) => (openOnly ? r.isOpen === true : true))
+      .filter((r) => !merchantApprovalStatus(r) || merchantApprovalStatus(r) === 'APPROVED')
       .filter((r) => (search ? r.name.toLowerCase().includes(search.toLowerCase()) : true))
       // Element match, not substring: the live path below asks Postgres whether the
       // array CONTAINS the label, and a fixture path that matched 'North' to
@@ -8138,6 +8883,12 @@ app.get('/api/restaurants', async (req, res) => {
       .from('merchants')
       .select(CUSTOMER_RESTAURANT_COLUMNS)
       .in('merchant_type', RESTAURANT_TYPES)
+      // Unconditional, unlike `is_open` below. A store the platform has not approved is
+      // not a storefront a customer can browse, whatever the merchant has done to its
+      // own open/closed switch. Migration 048 makes the RLS policy say the same thing;
+      // this is the read the service_role key actually uses, which policies do not
+      // restrict, so the filter has to be here too.
+      .eq('approval_status', 'APPROVED')
       // `name ASC`, where the old query sorted `rating DESC` first. That ordering was
       // only ever meaningful while someone believed the rating column: with
       // DEFAULT 4.80 on every row it sorted a constant, and the Customer app turned
@@ -8167,7 +8918,12 @@ app.get('/api/restaurants/:id', async (req, res) => {
   const { supabaseAdmin, isLivePostgres } = require('./supabase');
   if (!isLivePostgres || !supabaseAdmin) {
     const restaurant = db.restaurants.find((r) => r.id === req.params.id);
-    if (!restaurant) return res.status(404).json({ success: false, error: 'Restaurant not found.' });
+    // Same answer as the live path: an unapproved store is not there, because the list
+    // route above cannot show it either and a 403 would confirm which ids exist.
+    const fixtureApproval = merchantApprovalStatus(restaurant);
+    if (!restaurant || (fixtureApproval && fixtureApproval !== 'APPROVED')) {
+      return res.status(404).json({ success: false, error: 'Restaurant not found.' });
+    }
     return res.json({ success: true, restaurant: projectRestaurantForCustomer(restaurant), degraded: true });
   }
 
@@ -8176,6 +8932,10 @@ app.get('/api/restaurants/:id', async (req, res) => {
     .select(CUSTOMER_RESTAURANT_COLUMNS)
     .eq('id', req.params.id)
     .in('merchant_type', RESTAURANT_TYPES)
+    // A pending or rejected store is answered as "not found" rather than "not approved":
+    // to a customer the two are the same question, and the list route above already
+    // cannot show it, so a 403 here would advertise which ids exist.
+    .eq('approval_status', 'APPROVED')
     .maybeSingle();
   if (error) return replyStoreError(res, req, error, 'restaurant');
   if (!data) return res.status(404).json({ success: false, error: 'Restaurant not found.' });
@@ -8191,10 +8951,17 @@ app.get('/api/restaurants/:id/menu', async (req, res) => {
     try {
       const { data: merchant } = await supabaseAdmin
         .from('merchants')
-        .select('id, merchant_type')
+        .select('id, merchant_type, approval_status')
         .eq('id', req.params.id)
         .in('merchant_type', RESTAURANT_TYPES)
         .maybeSingle();
+
+      // Refused here rather than filtered in SQL, because falling through to the mirror
+      // below would answer the same request from memory and hand the menu back anyway.
+      const menuApproval = merchantApprovalStatus(merchant);
+      if (menuApproval && menuApproval !== 'APPROVED') {
+        return res.status(404).json({ success: false, error: 'Restaurant not found.' });
+      }
 
       if (merchant) {
         let query = supabaseAdmin
@@ -8228,6 +8995,10 @@ app.get('/api/restaurants/:id/menu', async (req, res) => {
   const resolvedId = db.restaurantCatalogRepo ? db.restaurantCatalogRepo.resolveMerchantId(req.params.id) : req.params.id;
   const restaurant = (db.restaurants || []).find((r) => r.id === req.params.id || r.uuid === req.params.id || r.id === resolvedId || r.uuid === resolvedId);
   if (!restaurant) return res.status(404).json({ success: false, error: 'Restaurant not found.' });
+  const mirrorMenuApproval = merchantApprovalStatus(restaurant);
+  if (mirrorMenuApproval && mirrorMenuApproval !== 'APPROVED') {
+    return res.status(404).json({ success: false, error: 'Restaurant not found.' });
+  }
 
   let rawDishes = [];
   if (db.restaurantCatalogRepo) {
@@ -8255,6 +9026,13 @@ app.get('/api/restaurants/:id/dishes/:dishId', async (req, res) => {
   try {
     const dish = await db.restaurantCatalogRepo.getDishById(req.params.id, req.params.dishId);
     if (!dish || dish.isArchived) {
+      return res.status(404).json({ success: false, code: 'DISH_NOT_FOUND', error: 'Dish not found or no longer available.' });
+    }
+    // A dish row outlives the decision about its store (approved, then rejected), and this
+    // route reaches the row without going through `/menu`, so it needs the same gate.
+    const dishMerchant = await db.orderRepo.resolveMerchant(dish.merchantId || dish.merchant_id || req.params.id);
+    const dishApproval = merchantApprovalStatus(dishMerchant);
+    if (dishApproval && dishApproval !== 'APPROVED') {
       return res.status(404).json({ success: false, code: 'DISH_NOT_FOUND', error: 'Dish not found or no longer available.' });
     }
     res.json({ success: true, dish: projectMenuItemForCustomer(dish) });
@@ -8343,7 +9121,7 @@ app.get('/api/merchant/inventory', authenticateMerchant, requireMerchantTenant, 
   }
 });
 
-app.post('/api/merchant/inventory', authenticateMerchant, requireMerchantTenant, requireMerchantService('GROCERY'), async (req, res) => {
+app.post('/api/merchant/inventory', authenticateMerchant, requireMerchantTenant, requireMerchantApproved, requireMerchantService('GROCERY'), async (req, res) => {
   try {
     // The store comes from the token and is placed after the spread on purpose: a
     // `merchantId` in the body can never retarget somebody else's shelf.
@@ -8365,7 +9143,7 @@ app.post('/api/merchant/inventory', authenticateMerchant, requireMerchantTenant,
 
 // Un-stock a listing the merchant added themselves. The store is taken from the
 // bearer token, so an id in the URL can only ever address the caller's own shelf.
-app.delete('/api/merchant/inventory/:masterProductId', authenticateMerchant, requireMerchantTenant, requireMerchantService('GROCERY'), async (req, res) => {
+app.delete('/api/merchant/inventory/:masterProductId', authenticateMerchant, requireMerchantTenant, requireMerchantApproved, requireMerchantService('GROCERY'), async (req, res) => {
   try {
     const result = await db.deleteMerchantInventoryItem({
       merchantId: req.merchant.id,
@@ -8439,7 +9217,7 @@ app.get('/api/merchant/master-catalog', authenticateMerchant, requireMerchantTen
 // record names the session's store, and a merchant used to be able to write `"actor": "Admin
 // Finance"` into the trail. `applied` is the number of rows whose stored price actually moved,
 // which is what the count in a price response has to mean.
-app.post('/api/grocery/products/bulk-price-update', authenticateMerchant, requireMerchantTenant, requireMerchantService('GROCERY'), async (req, res) => {
+app.post('/api/grocery/products/bulk-price-update', authenticateMerchant, requireMerchantTenant, requireMerchantApproved, requireMerchantService('GROCERY'), async (req, res) => {
   try {
     const { results, applied } = await db.bulkUpdateMerchantListingPrices({
       merchantId: req.merchant.id,
@@ -8587,7 +9365,22 @@ app.post('/api/grocery/checkout/validate', authenticateUser, async (req, res) =>
       });
     }
 
-    const requestedMerchant = req.body.merchantId || req.body.restaurantId || req.body.storeId || 'mcht_1';
+    // The store must come from the request. This route used to fall through to the first key of
+    // LEGACY_MERCHANT_MAP, which would have written an order and a delivery job against whichever row
+    // that seeded alias happens to point at.
+    const requestedMerchantRaw = req.body.merchantId || req.body.restaurantId || req.body.storeId;
+    const requestedMerchant = typeof requestedMerchantRaw === 'string'
+      ? requestedMerchantRaw.trim()
+      : requestedMerchantRaw;
+    if (!requestedMerchant) {
+      return res.status(400).json({
+        success: false,
+        code: 'MERCHANT_REQUIRED',
+        field: 'merchantId',
+        error: 'Choose the partner store this grocery order is for.'
+      });
+    }
+
     if (requestedMerchant === 'mcht_darkstore_1' || (requestedMerchant && String(requestedMerchant).toLowerCase().includes('darkstore'))) {
       return res.status(400).json({
         success: false,
@@ -8613,12 +9406,54 @@ app.post('/api/grocery/checkout/validate', authenticateUser, async (req, res) =>
       });
     }
 
+    // MI-5: same boundary rule as book-food. This route is the one that actually writes
+    // the checkout and order rows for grocery, so an unapproved storefront passing the
+    // Food gate and taking money here would be the same defect with a different name.
+    const groceryApproval = merchantApprovalStatus(merchant);
+    if (groceryApproval && groceryApproval !== 'APPROVED') {
+      return res.status(403).json({
+        success: false,
+        code: 'MERCHANT_NOT_APPROVED',
+        error: `Grocery merchant ${merchant.name} is not an approved partner yet, so it cannot accept orders.`,
+        approvalStatus: groceryApproval
+      });
+    }
+
+    // This route is misnamed - it writes the durable checkout and the order row. Closure is a
+    // policy at every boundary that can take an order, not only at the food one.
+    if (merchant.is_open === false || merchant.operationalStatus === 'SUSPENDED') {
+      return res.status(403).json({
+        success: false,
+        code: 'MERCHANT_CLOSED',
+        error: `Grocery merchant ${merchant.name} is closed or suspended and cannot accept orders.`
+      });
+    }
+
     const cartItems = req.body.cartItems || req.body.items || [];
     if (!Array.isArray(cartItems) || cartItems.length === 0) {
       return res.status(400).json({
         success: false,
         code: 'EMPTY_CART',
         error: 'Cart items cannot be empty.'
+      });
+    }
+
+    // A DELIVERY order needs the place the customer typed. This route used to accept an address-less
+    // cart and complete it, writing an invented place into the durable order and charging for it;
+    // the food booking route already refuses the same request with PLACE_REQUIRED, and both clients
+    // gate placement before sending. The refusal sits here — after the merchant gates, so a closed or
+    // unapproved store still answers 403, and before item resolution, coupon redemption and both
+    // writes, so a refusal cannot burn a coupon or leave a checkout row for an order that never ran.
+    const typedDeliveryAddress = typeof req.body.deliveryAddress === 'string'
+      ? req.body.deliveryAddress.trim()
+      : '';
+    if (!typedDeliveryAddress) {
+      return res.status(400).json({
+        success: false,
+        code: 'PLACE_REQUIRED',
+        field: 'deliveryAddress',
+        error: 'Add a delivery address before ordering. NABIN writes the address you give; it does not fill one in.',
+        requestId: req.id
       });
     }
 
@@ -8673,7 +9508,7 @@ app.post('/api/grocery/checkout/validate', authenticateUser, async (req, res) =>
         finalPayableAmount: payableAmount,
         checkoutStatus: 'CONFIRMED',
         metadata: {
-          deliveryAddress: req.body.deliveryAddress || 'Default Address',
+          deliveryAddress: typedDeliveryAddress,
           deliveryInstructions: req.body.deliveryInstructions || null
         }
       });
@@ -8689,8 +9524,14 @@ app.post('/api/grocery/checkout/validate', authenticateUser, async (req, res) =>
       totalAmount: payableAmount,
       items: resolved.lines,
       metadata: {
-        deliveryAddress: req.body.deliveryAddress || 'Default Address',
+        deliveryAddress: typedDeliveryAddress,
         deliveryInstructions: req.body.deliveryInstructions || null,
+        // P3 #436: this checkout has always been a delivery — the route rejects a cart with no
+        // delivery address downstream and the store has no counter to pick up from. What it never
+        // recorded is the channel, so the order row read back as no channel at all and nothing in
+        // migration 047 could tell a grocery delivery from a collect-at-counter order. Naming it is
+        // the smallest change that lets the handover be gated on a fact the store holds.
+        orderChannel: 'DELIVERY',
         ...(coupon.applied ? {
           coupon: {
             code: coupon.code,
@@ -8736,6 +9577,14 @@ app.post('/api/grocery/checkout/validate', authenticateUser, async (req, res) =>
       priority: 'HIGH'
     });
 
+    // P3 #436: the delivery handover for a grocery order. The address gate above is what makes this
+    // reachable at all — the route now arrives here only with a place the customer typed, so a rider
+    // is never sent to an invented one. A dispatch that still fails is reported, not papered over.
+    const deliveryHandover = await dispatchDeliveryJob(dbOrder, { merchantName: merchant.name });
+    if (deliveryHandover.attempted && !deliveryHandover.dispatched) {
+      console.error(`[DELIVERY_DISPATCH_WARN] grocery order ${dbOrder.id} placed at ${dbOrder.order_state} has no rider: ${deliveryHandover.code}`);
+    }
+
     const orderSnapshot = {
       id: dbOrder.id,
       order_id: dbOrder.id,
@@ -8746,7 +9595,7 @@ app.post('/api/grocery/checkout/validate', authenticateUser, async (req, res) =>
       customerId: dbOrder.customer_id,
       serviceType: dbOrder.service_type,
       checkoutId: dbOrder.checkout_id,
-      deliveryAddress: req.body.deliveryAddress || 'Default Address',
+      deliveryAddress: typedDeliveryAddress,
       items: (dbOrder.lines || []).map(l => ({
         id: l.id,
         productId: l.grocery_inventory_id,
@@ -8776,7 +9625,8 @@ app.post('/api/grocery/checkout/validate', authenticateUser, async (req, res) =>
       success: true,
       code: 'CHECKOUT_SUCCESS',
       duplicate: !!result.duplicate,
-      order: orderSnapshot
+      order: orderSnapshot,
+      deliveryJob: deliveryHandover
     });
   } catch (err) {
     if (supabaseHelper.isStoreUnreachable(err)) return replyStoreError(res, req, err, 'grocery checkout');
@@ -8790,7 +9640,7 @@ app.post('/api/grocery/checkout/validate', authenticateUser, async (req, res) =>
 });
 
 // Merchant Submit Actual Packed Weight & Recalculate Order Total (PostgreSQL Authoritative)
-app.post('/api/grocery/orders/:id/packed-weight', authenticateMerchant, requireMerchantTenant, requireMerchantService('GROCERY'), async (req, res) => {
+app.post('/api/grocery/orders/:id/packed-weight', authenticateMerchant, requireMerchantTenant, requireMerchantApproved, requireMerchantService('GROCERY'), async (req, res) => {
   try {
     const { itemId, packedWeight } = req.body;
     const merchantId = req.merchant.id;
@@ -8827,8 +9677,8 @@ app.post('/api/admin/orders/expire-stale', authenticateAdmin, requirePermission(
 
 // Admin Price Alerts & Audit Trail API
 app.get('/api/admin/grocery/price-alerts', authenticateAdmin, (req, res) => {
-  const alerts = db.getUnusualPriceAlerts();
-  res.json({ success: true, count: alerts.length, alerts });
+  const { alerts, dataSource, degraded } = db.getUnusualPriceAlerts();
+  res.json({ success: true, count: alerts.length, alerts, dataSource, degraded });
 });
 
 // Admin Price Freeze / Correction API
@@ -9298,6 +10148,86 @@ async function mediaTargetStore(caller, suppliedId) {
   throw denied;
 }
 
+// =========================================================================
+// MEDIA PRINCIPAL — who is acting on the generic /api/media/* endpoints
+// =========================================================================
+// The four generic media doors (upload / list / signed-params / delete) used to answer
+// whoever knocked: upload took `ownerType`/`ownerId` straight from the request body, so any
+// caller could claim another account's asset; signed-params and list read only `req.query`;
+// and DELETE's owner check was guarded by `if (existing && !isAdmin)` against an
+// in-process-only array that is empty under live PostgreSQL, so `existing` was always null
+// and authorisation no-oped. `merchant_operations_test.js` (MCMD-01…06) and
+// `cloudinary_test.js` measured that behaviour before this existed.
+//
+// This is the `resolveMediaCaller` decision generalised to every role and lifted into the
+// read doors: a token is mandatory, the session (minted through the real OTP/admin paths,
+// or a live admin bearer) is resolved by the server, and ownership is derived from that
+// principal — never from anything the client typed. Test convenience is a credential
+// affordance for *other* routes, never a way to become somebody here; there is deliberately
+// no `allowsTestConvenience` branch, matching the mandatory-token rule already on the
+// merchant media doors. A closed/suspended customer is refused by the caller-facing
+// `refusedClosedCustomerAccount` guard before any ownership record is consulted, so a
+// surviving bearer cannot read or delete an account the operator shut.
+async function resolveMediaPrincipal(req, res) {
+  const authHeader = req.headers['authorization'] || '';
+  const token = authHeader.replace(/^Bearer\s+/, '').trim();
+  if (!token) {
+    res.status(401).json({
+      success: false,
+      code: 'AUTH_REQUIRED',
+      error: 'Authentication required to access media assets.',
+      requestId: req.id
+    });
+    return null;
+  }
+  const session = db.getSessionByToken(token) || (activeAdminSessions.has(token)
+    // A live admin bearer that this process knows even if its store row has aged out.
+    ? { role: (activeAdminSessions.get(token) || {}).role, entityId: (activeAdminSessions.get(token) || {}).id, entity: activeAdminSessions.get(token) }
+    : null);
+  if (!session) {
+    res.status(401).json({
+      success: false,
+      code: 'INVALID_SESSION',
+      error: 'Invalid or expired session.',
+      requestId: req.id
+    });
+    return null;
+  }
+  const role = session.role;
+  const isAdmin = role === 'ADMIN' || role === 'SUPER_ADMIN';
+  const callerId = session.entityId || session.userId || null;
+  // Owner type is a function of the authenticated role, never of the body.
+  let ownerType = 'PUBLIC';
+  if (isAdmin) ownerType = 'ADMIN';
+  else if (role === 'CUSTOMER') ownerType = 'CUSTOMER';
+  else if (role === 'DRIVER') ownerType = 'DRIVER';
+  else if (role === 'MERCHANT') ownerType = 'MERCHANT';
+  return {
+    token,
+    session,
+    isAdmin,
+    callerId,
+    ownerType,
+    ownerId: callerId,
+    // A merchant's media is scoped to its own store; other roles carry no tenant.
+    tenantId: role === 'MERCHANT' ? callerId : null,
+  };
+}
+
+// The Cloudinary namespace a non-admin principal may write into — always its own, so a
+// forged `folder` can never place bytes in another account's path. Admins name a folder and
+// it is still allowlist-validated by CloudinaryService.validateFolder before use.
+function deriveMediaNamespace(caller) {
+  if (caller.isAdmin) return 'nabin/public';
+  const id = caller.callerId || 'anon';
+  switch (caller.ownerType) {
+    case 'CUSTOMER': return `nabin/users/${id}`;
+    case 'DRIVER': return `nabin/drivers/${id}`;
+    case 'MERCHANT': return `nabin/restaurants/${id}`;
+    default: return 'nabin/public';
+  }
+}
+
 app.post(['/api/v1/driver/location', '/api/driver/location'], authenticateDriver, async (req, res) => {
   const { driverId, lat, lng, latitude, longitude, heading, bearing, speed, speedKmph, accuracy, timestamp, jobId, activeJobId, isOnline, status, serviceType } = req.body;
   const effectiveLat = lat !== undefined ? lat : latitude;
@@ -9490,7 +10420,11 @@ app.get(['/api/v1/tracking/:jobId', '/api/tracking/:jobId'], async (req, res) =>
     }
 
     const effectiveDriverId = job.driverId || null;
-    const driverObj = effectiveDriverId ? (db.getDriver(effectiveDriverId) || null) : null;
+    // MI-4 (P1): strict. `getDriver` ends in `|| this.drivers[0]`, so the `|| null` here could never
+    // fire: a job whose assigned driver resolves to nobody was answered with the FIRST SEEDED
+    // driver's id, name and dialable phone number to whoever was allowed to track the trip. The
+    // route already renders `driver: null`, so an unresolvable assignment is the honest answer.
+    const driverObj = effectiveDriverId ? db.getDriverStrict(effectiveDriverId) : null;
 
     // Neither of these may be invented. A customer reading this route can see a position and a
     // name, so a fallback here is a fact the platform never measured: `lat 28.6853, lng 77.2185`
@@ -9703,6 +10637,17 @@ app.get('/api/payments/session/:orderId', async (req, res) => {
       if (session.role === 'ADMIN' || session.role === 'SUPER_ADMIN') {
         isAdmin = true;
       } else {
+        // A payment session belongs to a customer, so only a customer bearer may read one. The
+        // id comparison below cannot stand in for this: a DRIVER or MERCHANT principal has no
+        // customer identity, and refusing it by an accidental id mismatch is not a policy.
+        if (String(session.role || '').toUpperCase() !== 'CUSTOMER') {
+          return res.status(403).json({
+            success: false,
+            error: 'Forbidden: Payment sessions are readable only by the customer who owns them.',
+            code: 'ROLE_NOT_AUTHORIZED',
+            requestId: req.id
+          });
+        }
         authUser = session.user || session.entity || { id: session.userId || session.id };
         // A payment session is the step before money moves, so it cannot be readable on a
         // bearer that outlived a failed revocation.
@@ -9719,7 +10664,18 @@ app.get('/api/payments/session/:orderId', async (req, res) => {
     if (!isAdmin && authUser) {
       const callerUuid = resolveCustomerUserUuid(authUser.id || authUser.uuid);
       const sessionCustomerUuid = resolveCustomerUserUuid(session.customerId || session.customer_id);
-      if (callerUuid && sessionCustomerUuid && callerUuid !== sessionCustomerUuid) {
+      // Fail closed: a session whose owner cannot be named is not nobody's, and "unknown" is not
+      // a match. Rows with a NULL customer_id exist in the store, and reading them with the old
+      // truthiness guard disclosed the whole session to any bearer whose id failed to resolve.
+      if (!callerUuid || !sessionCustomerUuid) {
+        return res.status(403).json({
+          success: false,
+          error: 'Forbidden: This payment session has no verifiable owner.',
+          code: 'SESSION_OWNER_UNRESOLVED',
+          requestId: req.id
+        });
+      }
+      if (callerUuid !== sessionCustomerUuid) {
         return res.status(403).json({
           success: false,
           error: 'Forbidden: You do not own this payment session.',
@@ -9901,31 +10857,50 @@ app.get('/api/admin/finance/ledger-double-entry', authenticateAdmin, requirePerm
 // 1. Upload Media Asset (Image / Video)
 app.post('/api/media/upload', async (req, res) => {
   try {
+    const caller = await resolveMediaPrincipal(req, res);
+    if (!caller) return;
+    if (await refusedClosedCustomerAccount(req, res, caller.session)) return;
+
     const {
       fileData,
-      folder = 'nabin/public',
+      folder = null,
       publicId = null,
       tags = [],
-      ownerType = 'PUBLIC',
-      ownerId = 'system',
       mediaType = 'IMAGE',
       mimeType = 'image/jpeg',
       bytes = 0,
       replacePublicId = null
     } = req.body;
+    // Ownership comes from the authenticated principal, never from `ownerType`/`ownerId`
+    // in the body — those keys are deliberately not read here.
+    const { ownerType, ownerId, tenantId } = caller;
 
     if (!fileData) {
-      return res.status(400).json({ success: false, error: 'fileData (Base64 Data URI or URL) is required.' });
+      return res.status(400).json({ success: false, code: 'FILE_DATA_REQUIRED', error: 'fileData (Base64 Data URI or URL) is required.' });
     }
 
-    const isVideo = mediaType === 'VIDEO' || mimeType.startsWith('video/');
-    const uploadResult = isVideo
-      ? await cloudinaryService.uploadVideo({ fileData, folder, publicId, tags, mimeType, bytes })
-      : await cloudinaryService.uploadImage({ fileData, folder, publicId, tags, mimeType, bytes });
+    // The caller's requested folder is still allowlist/KYC-validated so a sensitive
+    // namespace is rejected 400 regardless of who asks — but for a non-admin it is not
+    // honoured as the destination; placement is forced into the caller's own namespace so
+    // the request cannot write into another account's path. A supplied publicId is only
+    // honoured for admins for the same reason.
+    const requestedFolder = folder || 'nabin/public';
+    cloudinaryService.validateFolder(requestedFolder);
+    const namespace = caller.isAdmin ? requestedFolder : deriveMediaNamespace(caller);
+    const effectivePublicId = caller.isAdmin ? publicId : null;
 
-    const savedAsset = db.saveMediaAsset({
+    const isVideo = mediaType === 'VIDEO' || String(mimeType).startsWith('video/');
+    const uploadResult = isVideo
+      ? await cloudinaryService.uploadVideo({ fileData, folder: namespace, publicId: effectivePublicId, tags, mimeType, bytes })
+      : await cloudinaryService.uploadImage({ fileData, folder: namespace, publicId: effectivePublicId, tags, mimeType, bytes });
+
+    // Durable ownership record: without it the asset has no owner a later DELETE can check,
+    // and a live failure here must surface rather than answer 200 over an unproven save.
+    const savedAsset = await db.mediaAssetRepo.save({
+      provider: 'cloudinary',
       ownerType,
       ownerId,
+      tenantId,
       mediaType: isVideo ? 'VIDEO' : 'IMAGE',
       public_id: uploadResult.public_id,
       secure_url: uploadResult.secure_url,
@@ -9936,22 +10911,28 @@ app.post('/api/media/upload', async (req, res) => {
       height: uploadResult.height,
       bytes: uploadResult.bytes,
       folder: uploadResult.folder,
+      tags,
       created_at: uploadResult.created_at
     });
 
-    // If replacing an existing asset, delete the old one after DB save succeeds
+    // Replacing an old asset is a delete: it may only run against a durable record the
+    // caller owns (or any record, for an admin). A prior id that is absent or another
+    // account's is left untouched rather than removed on the caller's word.
     if (replacePublicId && replacePublicId !== uploadResult.public_id) {
-      try {
-        await cloudinaryService.deleteAsset(replacePublicId);
-        db.deleteMediaAsset(replacePublicId);
-      } catch (delErr) {
-        console.warn(`⚠️ Could not delete replaced asset [${replacePublicId}]:`, delErr.message);
+      const prior = await db.mediaAssetRepo.getByPublicId(replacePublicId);
+      if (prior && (caller.isAdmin || String(prior.ownerId) === String(ownerId))) {
+        try {
+          await cloudinaryService.deleteAsset(replacePublicId, prior.resourceType || 'image');
+          await db.mediaAssetRepo.delete(replacePublicId);
+        } catch (delErr) {
+          console.warn(`⚠️ Could not delete replaced asset [${replacePublicId}]:`, delErr.message);
+        }
       }
     }
 
     res.json({ success: true, asset: savedAsset });
   } catch (err) {
-    res.status(400).json({ success: false, error: err.message, requestId: req.id });
+    res.status(err.status || 400).json({ success: false, code: err.code || 'MEDIA_UPLOAD_FAILED', error: err.message, requestId: req.id });
   }
 });
 
@@ -9963,60 +10944,104 @@ app.delete('/api/media/*', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Cloudinary public_id is required.' });
     }
 
-    const authHeader = req.headers['authorization'] || '';
-    const token = authHeader.replace(/^Bearer\s+/, '').trim();
-    const isTestOrDev = allowsTestConvenience('skipping an authentication check');
+    const caller = await resolveMediaPrincipal(req, res);
+    if (!caller) return;
+    // The closed-account bearer is refused before the record lookup, so a shut account
+    // gets ACCOUNT_SUSPENDED rather than a 404 that would leak whether the asset exists
+    // (admin_customers_test.js INP-22).
+    if (await refusedClosedCustomerAccount(req, res, caller.session)) return;
 
-    if (!token && !isTestOrDev) {
-      return res.status(401).json({ success: false, code: 'AUTH_REQUIRED', error: 'Authentication required to delete media assets.' });
+    // The durable ownership record is required before anything is deleted. An id with no
+    // record here is refused, not deleted on the bearer's say-so — this is the check the
+    // old `if (existing && !isAdmin)` could never run because `existing` came from an
+    // in-process array that is empty under live PostgreSQL.
+    const existing = await db.mediaAssetRepo.getByPublicId(rawPublicId);
+    if (!existing) {
+      return res.status(404).json({
+        success: false,
+        code: 'MEDIA_ASSET_NOT_FOUND',
+        error: 'No durable media asset record exists for this id; nothing was deleted.',
+        requestId: req.id
+      });
     }
 
-    const existing = db.getMediaAsset(rawPublicId);
-    if (token) {
-      const session = db.getSessionByToken(token);
-      // The owner check below proves the bearer belongs to this owner; it does not prove
-      // the owner's account is still open, which is what a surviving bearer defeats.
-      if (await refusedClosedCustomerAccount(req, res, session)) return;
-      const admin = activeAdminSessions.get(token);
-      const isAdmin = (admin && admin.role) || (session && (session.role === 'ADMIN' || session.role === 'SUPER_ADMIN'));
-
-      if (existing && !isAdmin) {
-        const callerId = session ? (session.entityId || session.userId) : null;
-        if (!callerId || (existing.ownerId !== callerId && existing.ownerId !== session?.entity?.id)) {
-          return res.status(403).json({ success: false, code: 'FORBIDDEN_NOT_OWNER', error: 'Forbidden: You do not own this media asset.' });
-        }
+    if (!caller.isAdmin) {
+      const owns = String(existing.ownerId) === String(caller.callerId)
+        || (caller.session && caller.session.entity && String(existing.ownerId) === String(caller.session.entity.id));
+      if (!owns) {
+        return res.status(403).json({ success: false, code: 'FORBIDDEN_NOT_OWNER', error: 'Forbidden: You do not own this media asset.', requestId: req.id });
       }
     }
 
-    await cloudinaryService.deleteAsset(rawPublicId, existing?.resourceType || 'image');
-    db.deleteMediaAsset(rawPublicId);
+    // Provider delete runs first, and a failed delete is reported as a failure with the
+    // record kept — "the provider said OK" and "the row is gone" stay separate claims, and
+    // neither is asserted on the other's behalf.
+    let providerResult;
+    try {
+      providerResult = await cloudinaryService.deleteAsset(rawPublicId, existing.resourceType || 'image');
+    } catch (delErr) {
+      return res.status(delErr.status || 502).json({ success: false, code: delErr.code || 'PROVIDER_DELETE_FAILED', error: `Provider deletion failed; the asset record was kept: ${delErr.message}`, requestId: req.id });
+    }
+    if (providerResult && providerResult.success === false) {
+      return res.status(502).json({ success: false, code: 'PROVIDER_DELETE_FAILED', error: 'Provider reported a failed deletion; the asset record was kept.', requestId: req.id });
+    }
+
+    await db.mediaAssetRepo.delete(rawPublicId);
 
     res.json({ success: true, message: `Media asset [${rawPublicId}] deleted successfully.` });
   } catch (err) {
-    res.status(400).json({ success: false, error: err.message, requestId: req.id });
+    res.status(err.status || 400).json({ success: false, code: err.code || 'MEDIA_DELETE_FAILED', error: err.message, requestId: req.id });
   }
 });
 
 // 3. Generate Signed Upload Parameters for Client Direct Uploads
-app.get('/api/media/signed-params', (req, res) => {
+app.get('/api/media/signed-params', async (req, res) => {
   try {
-    const { folder = 'nabin/public', publicId = null, tags = '' } = req.query;
-    const tagList = tags ? tags.split(',').map(t => t.trim()) : [];
-    const params = cloudinaryService.generateSignedUploadParams({ folder, publicId, tags: tagList });
+    const caller = await resolveMediaPrincipal(req, res);
+    if (!caller) return;
+    if (await refusedClosedCustomerAccount(req, res, caller.session)) return;
+
+    // The namespace is derived from the caller, never taken from the query, so a signed
+    // grant cannot be aimed at another account's folder or an arbitrary publicId. Only an
+    // admin may name a folder/publicId, and the folder is still allowlist-validated.
+    const namespace = caller.isAdmin ? (req.query.folder || 'nabin/public') : deriveMediaNamespace(caller);
+    cloudinaryService.validateFolder(namespace);
+    const publicId = caller.isAdmin ? (req.query.publicId || null) : null;
+    const tagList = caller.isAdmin && req.query.tags
+      ? String(req.query.tags).split(',').map(t => t.trim()).filter(Boolean)
+      : [String(caller.ownerType).toLowerCase()];
+
+    const params = cloudinaryService.generateSignedUploadParams({ folder: namespace, publicId, tags: tagList });
     res.json({ success: true, params });
   } catch (err) {
     res.status(400).json({ success: false, error: err.message });
   }
 });
 
-// 4. List Media Assets (Admin / Discovery)
-app.get('/api/media', (req, res) => {
-  const { ownerType, ownerId, folder } = req.query;
-  let list = db.mediaAssets || [];
-  if (ownerType) list = list.filter(m => m.ownerType === ownerType);
-  if (ownerId) list = list.filter(m => m.ownerId === ownerId);
-  if (folder) list = list.filter(m => m.folder === folder);
-  res.json({ success: true, media: list, count: list.length });
+// 4. List Media Assets
+app.get('/api/media', async (req, res) => {
+  try {
+    const caller = await resolveMediaPrincipal(req, res);
+    if (!caller) return;
+    if (await refusedClosedCustomerAccount(req, res, caller.session)) return;
+
+    // An ordinary principal sees only its own assets; the whole table is never returned to
+    // a merchant/customer/driver. An admin may filter, and only an admin may list broadly.
+    const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 500);
+    const offset = Math.max(Number(req.query.offset) || 0, 0);
+    let result;
+    if (caller.isAdmin) {
+      const { ownerType, ownerId, folder } = req.query;
+      const filtered = Boolean(ownerType || ownerId || folder);
+      result = await db.mediaAssetRepo.list({ ownerType, ownerId, folder, includeAll: !filtered, limit, offset });
+    } else {
+      result = await db.mediaAssetRepo.list({ ownerType: 'ALL', ownerId: caller.callerId, limit, offset });
+    }
+    const media = result.assets;
+    res.json({ success: true, media, count: media.length, dataSource: result.dataSource });
+  } catch (err) {
+    res.status(err.status || 400).json({ success: false, code: err.code || 'MEDIA_LIST_FAILED', error: err.message });
+  }
 });
 
 // 5. Customer Profile Photo Upload
@@ -10051,7 +11076,11 @@ app.post('/api/customer/profile/photo', async (req, res) => {
     }
 
     const { fileData, mimeType = 'image/jpeg' } = req.body;
-    const user = db.getUser(requestedCustomerId);
+    // MI-4 (P1): strict, so the 404 under this call is reachable. `getUser` ends in
+    // `|| this.users[0]`, so a `customerId` naming nobody was written as the FIRST SEEDED
+    // customer's avatar folder (`nabin/users/usr_1/profile`) and persisted as that account's media
+    // asset - one person's upload replacing another's profile photo.
+    const user = db.getUserStrict(requestedCustomerId);
     if (!user) return res.status(404).json({ success: false, error: 'Customer not found.' });
 
     const folder = `nabin/users/${user.id}`;
@@ -10063,7 +11092,7 @@ app.post('/api/customer/profile/photo', async (req, res) => {
       mimeType
     });
 
-    const savedAsset = db.saveMediaAsset({
+    const savedAsset = await db.mediaAssetRepo.save({
       ownerType: 'CUSTOMER',
       ownerId: user.id,
       mediaType: 'PROFILE_PHOTO',
@@ -10080,7 +11109,7 @@ app.post('/api/customer/profile/photo', async (req, res) => {
 
     res.json({ success: true, user, asset: savedAsset });
   } catch (err) {
-    res.status(400).json({ success: false, error: err.message });
+    res.status(err.status || 400).json({ success: false, code: err.code || 'MEDIA_UPLOAD_FAILED', error: err.message });
   }
 });
 
@@ -10115,7 +11144,10 @@ app.post('/api/driver/profile/photo', async (req, res) => {
     }
 
     const { fileData, mimeType = 'image/jpeg' } = req.body;
-    const driver = db.getDriver(requestedDriverId);
+    // MI-4 (P1): strict, so the 404 under this call is reachable. `getDriver` ends in
+    // `|| this.drivers[0]`, so a `driverId` naming nobody was uploaded into the FIRST SEEDED
+    // driver's folder and persisted as that account's profile photo.
+    const driver = db.getDriverStrict(requestedDriverId);
     if (!driver) return res.status(404).json({ success: false, error: 'Driver not found.' });
 
     const folder = `nabin/drivers/${driver.id}`;
@@ -10127,7 +11159,7 @@ app.post('/api/driver/profile/photo', async (req, res) => {
       mimeType
     });
 
-    const savedAsset = db.saveMediaAsset({
+    const savedAsset = await db.mediaAssetRepo.save({
       ownerType: 'DRIVER',
       ownerId: driver.id,
       mediaType: 'PROFILE_PHOTO',
@@ -10142,7 +11174,7 @@ app.post('/api/driver/profile/photo', async (req, res) => {
 
     res.json({ success: true, driver, asset: savedAsset });
   } catch (err) {
-    res.status(400).json({ success: false, error: err.message });
+    res.status(err.status || 400).json({ success: false, code: err.code || 'MEDIA_UPLOAD_FAILED', error: err.message });
   }
 });
 
@@ -10176,7 +11208,11 @@ app.post('/api/driver/vehicle/photo', async (req, res) => {
     }
 
     const { vehicleId = 'veh_1', fileData, photoType = 'exterior', mimeType = 'image/jpeg' } = req.body;
-    const driver = db.getDriver(requestedDriverId);
+    // MI-4 (P1): strict, so the 404 under this call is reachable. `getDriver` ends in
+    // `|| this.drivers[0]`, so an unresolvable `driverId` was answered 200 and persisted a durable
+    // `media_assets` row tagged to an unrelated seeded driver, on top of appending the URL to that
+    // driver's own mirror list.
+    const driver = db.getDriverStrict(requestedDriverId);
     if (!driver) return res.status(404).json({ success: false, error: 'Driver not found.' });
 
     const folder = `nabin/vehicles/${vehicleId}`;
@@ -10188,13 +11224,15 @@ app.post('/api/driver/vehicle/photo', async (req, res) => {
       mimeType
     });
 
-    const savedAsset = db.saveMediaAsset({
+    const savedAsset = await db.mediaAssetRepo.save({
       ownerType: 'VEHICLE',
       ownerId: vehicleId,
       mediaType: 'VEHICLE_PHOTO',
       public_id: uploadRes.public_id,
       secure_url: uploadRes.secure_url,
       optimized_urls: uploadRes.optimized_urls,
+      resource_type: uploadRes.resource_type,
+      format: uploadRes.format,
       folder
     });
 
@@ -10204,7 +11242,7 @@ app.post('/api/driver/vehicle/photo', async (req, res) => {
 
     res.json({ success: true, driver, asset: savedAsset });
   } catch (err) {
-    res.status(400).json({ success: false, error: err.message });
+    res.status(err.status || 400).json({ success: false, code: err.code || 'MEDIA_UPLOAD_FAILED', error: err.message });
   }
 });
 
@@ -10241,13 +11279,15 @@ app.post(['/api/merchant/:restaurantId/media', '/api/merchant/media'], async (re
       mimeType
     });
 
-    const savedAsset = db.saveMediaAsset({
+    const savedAsset = await db.mediaAssetRepo.save({
       ownerType: 'RESTAURANT',
       ownerId: rest.id,
       mediaType,
       public_id: uploadRes.public_id,
       secure_url: uploadRes.secure_url,
       optimized_urls: uploadRes.optimized_urls,
+      resource_type: uploadRes.resource_type,
+      format: uploadRes.format,
       folder
     });
 
@@ -10339,13 +11379,15 @@ app.post(['/api/merchant/:restaurantId/menu/:itemId/photo', '/api/merchant/menu/
       mimeType
     });
 
-    const savedAsset = db.saveMediaAsset({
+    const savedAsset = await db.mediaAssetRepo.save({
       ownerType: 'MENU_ITEM',
       ownerId: itemId,
       mediaType: 'FOOD_PHOTO',
       public_id: uploadRes.public_id,
       secure_url: uploadRes.secure_url,
       optimized_urls: uploadRes.optimized_urls,
+      resource_type: uploadRes.resource_type,
+      format: uploadRes.format,
       folder
     });
 
@@ -10454,13 +11496,15 @@ app.post(['/api/grocery/products/:id/photo', '/api/admin/grocery/products/:id/ph
       mimeType
     });
 
-    const savedAsset = db.saveMediaAsset({
+    const savedAsset = await db.mediaAssetRepo.save({
       ownerType: 'GROCERY_PRODUCT',
       ownerId: productId,
       mediaType: 'PRODUCT_PHOTO',
       public_id: uploadRes.public_id,
       secure_url: uploadRes.secure_url,
       optimized_urls: uploadRes.optimized_urls,
+      resource_type: uploadRes.resource_type,
+      format: uploadRes.format,
       folder
     });
 
@@ -10522,13 +11566,15 @@ app.post('/api/parcel/:id/delivery-proof', async (req, res) => {
       mimeType
     });
 
-    const savedAsset = db.saveMediaAsset({
+    const savedAsset = await db.mediaAssetRepo.save({
       ownerType: 'PARCEL_PROOF',
       ownerId: parcelId,
       mediaType: 'DELIVERY_PROOF',
       public_id: uploadRes.public_id,
       secure_url: uploadRes.secure_url,
       optimized_urls: uploadRes.optimized_urls,
+      resource_type: uploadRes.resource_type,
+      format: uploadRes.format,
       folder
     });
 
@@ -10537,7 +11583,7 @@ app.post('/api/parcel/:id/delivery-proof', async (req, res) => {
 
     res.json({ success: true, parcelId, job, asset: savedAsset });
   } catch (err) {
-    res.status(400).json({ success: false, error: err.message });
+    res.status(err.status || 400).json({ success: false, code: err.code || 'MEDIA_UPLOAD_FAILED', error: err.message });
   }
 });
 
@@ -10593,14 +11639,31 @@ function requireNotificationAuth(req, res, next) {
   if (session.role === 'CUSTOMER') {
     resolvedUserId = session.entityId;
   } else if (session.role === 'DRIVER') {
-    const drv = session.entity || db.getDriver(session.entityId);
-    resolvedUserId = drv?.userId || drv?.user_id || session.entityId;
+    // MI-4: this boundary writes, so resolving an unregistered bearer to `drivers[0]` was not a
+    // read leak that ends with the request - `db.getDriver()`'s `|| this.drivers[0]` handed this
+    // driver's user id to the device_tokens insert below. Measured on the unfixed tree: a forged
+    // `anon` DRIVER session registered a device token under the seeded driver's user id. An
+    // unresolvable identity is refused here, before any write.
+    const drv = session.entity || db.getDriverStrict(session.entityId);
+    if (!drv) {
+      return res.status(401).json({
+        success: false,
+        code: 'DRIVER_IDENTITY_UNRESOLVED',
+        error: 'Unauthorized: Driver profile not found.',
+        requestId: req.id
+      });
+    }
+    resolvedUserId = drv.userId || drv.user_id || session.entityId;
   } else {
     resolvedUserId = session.entityId;
   }
 
   req.session = session;
-  req.user = session.entity || db.getUser(resolvedUserId) || { id: resolvedUserId };
+  // MI-4 (P1): strict, so the `{ id: … }` stand-in this line already offers is reachable. A
+  // MERCHANT or ADMIN session lands in the `resolvedUserId = session.entityId` branch above, and
+  // `db.getUser('rest_1')` ends in `|| this.users[0]`, so the bearer was carried downstream as the
+  // first seeded customer rather than as the unresolved id it actually is.
+  req.user = session.entity || db.getUserStrict(resolvedUserId) || { id: resolvedUserId };
   req.authenticatedUserId = resolvedUserId;
   next();
 }

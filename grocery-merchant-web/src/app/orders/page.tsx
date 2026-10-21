@@ -112,7 +112,7 @@ export default function OrdersPage() {
       <div className="nabin-stack">
         <div className="nabin-page-head" style={{ marginBottom: 0 }}>
           <div>
-            <h1>Order queue</h1>
+            <h1 className="nabin-visually-hidden">Order queue</h1>
             <p>
               Refreshes every {POLL_MS / 1000} seconds. Bulk and loose goods must be weighed before
               handover so the customer is billed for what actually left the shelf.

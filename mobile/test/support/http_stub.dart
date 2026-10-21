@@ -36,6 +36,15 @@ final List<String> stubSeen = <String>[];
 /// that says it saved something has to be held to what it actually sent.
 final List<String> stubBodies = <String>[];
 
+/// The headers each served request carried, in the same order as [stubSeen].
+///
+/// The verb-and-URL log is not enough to prove how a request authenticates: a body that
+/// carries no identity and a URL with no id in it can still be a request that shipped a
+/// service-role key. `NabinApiService._attachAuthHeader` writes through [HttpHeaders.set],
+/// which this fake records here, so a test can read the authorisation actually sent rather
+/// than assume the method under test uses the bearer token.
+final List<Map<String, String>> stubHeaders = <Map<String, String>>[];
+
 bool stubSaw(String method, String pathFragment) => stubSeen.any(
     (s) => s.startsWith('$method ') && s.contains(pathFragment));
 
@@ -52,6 +61,7 @@ String? stubBodyFor(String method, String pathFragment) {
 void stubReset() {
   stubSeen.clear();
   stubBodies.clear();
+  stubHeaders.clear();
   stubHandler = (_, __, ___) => (200, '{"success":true}');
   stubDelay = Duration.zero;
 }
@@ -70,6 +80,14 @@ class _StubHeaders implements HttpHeaders {
   }
 
   @override
+  void forEach(void Function(String name, List<String> values) action) {
+    values.forEach((key, val) => action(key, <String>[val]));
+  }
+
+  @override
+  String? value(String name) => values[name];
+
+  @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
@@ -80,6 +98,28 @@ class _StubResponse extends Stream<List<int>> implements HttpClientResponse {
 
   @override
   int get statusCode => _status;
+
+  @override
+  String get reasonPhrase => 'OK';
+
+  @override
+  bool get isRedirect => false;
+
+  @override
+  List<RedirectInfo> get redirects => const <RedirectInfo>[];
+
+  @override
+  bool get persistentConnection => true;
+
+  @override
+  HttpHeaders get headers => _StubHeaders();
+
+  @override
+  int get contentLength => _bytes.length;
+
+  @override
+  HttpClientResponseCompressionState get compressionState =>
+      HttpClientResponseCompressionState.notCompressed;
 
   @override
   StreamSubscription<List<int>> listen(
@@ -108,16 +148,36 @@ class _StubRequest implements HttpClientRequest {
   final _StubHeaders _headers = _StubHeaders();
 
   @override
+  bool followRedirects = true;
+
+  @override
+  int maxRedirects = 5;
+
+  @override
+  int contentLength = 0;
+
+  @override
+  bool persistentConnection = true;
+
+  @override
   HttpHeaders get headers => _headers;
 
   @override
   void add(List<int> data) => _body.addAll(data);
 
   @override
+  Future<void> addStream(Stream<List<int>> stream) async {
+    await for (final chunk in stream) {
+      _body.addAll(chunk);
+    }
+  }
+
+  @override
   Future<HttpClientResponse> close() async {
     final String body = utf8.decode(_body);
     stubSeen.add('$_method ${_url.toString()}');
     stubBodies.add(body);
+    stubHeaders.add(Map<String, String>.of(_headers.values));
     if (stubDelay > Duration.zero) await Future<void>.delayed(stubDelay);
     final (status, responseBody) = stubHandler(_method, _url, body);
     return _StubResponse(status, utf8.encode(responseBody));

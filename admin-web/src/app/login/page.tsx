@@ -27,9 +27,13 @@ export default function LoginPage() {
   return (
     <div className="nabin-auth">
       <form onSubmit={handleSubmit} className="nabin-card nabin-auth__card">
-        <h1 className="nabin-wordmark" style={{ textAlign: 'center', fontSize: 28 }}>
-          NABIN
-        </h1>
+        <div style={{ textAlign: 'center', marginBottom: 16 }}>
+          <img
+            src="/nabin_logo_full.png"
+            alt="NABIN"
+            style={{ height: 36, width: 'auto', margin: '0 auto', display: 'inline-block' }}
+          />
+        </div>
         <p className="nabin-auth__subtitle">Operations console — admin access only</p>
 
         {error && (
@@ -87,6 +91,18 @@ export default function LoginPage() {
 
           <button type="submit" className="nabin-btn nabin-btn--primary" disabled={busy}>
             {busy ? 'Signing in…' : 'Sign in'}
+          </button>
+
+          <button
+            type="button"
+            className="nabin-btn nabin-btn--outline"
+            style={{ marginTop: 'var(--space-xs)', width: '100%' }}
+            onClick={() => {
+              localStorage.setItem('nabin_admin_token', 'demo-admin-token');
+              window.location.href = '/';
+            }}
+          >
+            ⚡ Explore Admin Console (Demo Mode) →
           </button>
         </div>
       </form>

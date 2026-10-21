@@ -134,8 +134,9 @@ class _GroceryMerchantDashboardState extends ConsumerState<GroceryMerchantDashbo
     return Scaffold(
       backgroundColor: GroceryMerchantTheme.bgOffWhite,
       appBar: AppBar(
-        backgroundColor: GroceryMerchantTheme.primaryGreen,
+        backgroundColor: GroceryMerchantTheme.masterBlue,
         elevation: 0,
+        scrolledUnderElevation: 0,
         title: const Text(
           'Merchant Dashboard',
           style: TextStyle(

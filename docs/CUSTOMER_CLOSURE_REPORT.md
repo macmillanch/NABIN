@@ -17,9 +17,9 @@ Every claim in this report is reproducible with these commands, run from the rep
 
 | Check | Command | What it measures |
 |---|---|---|
-| Flutter suite | `cd mobile && flutter test` | 381 tests, all passing |
-| Analyzer | `cd mobile && flutter analyze lib test` | 55 issues, all `info`, none in a file this work touched |
-| Backend contract chain | `cd backend && node scripts/test_chain.js` | 55 links today, 54 when this report was measured (link 55, `admin_console_xss_test.js`, was added 2026-10-06), per-link check counts, schema drift witness on 10 protected tables |
+| Flutter suite | `cd mobile && flutter test` | 715 tests, all passing (measured 2026-10-10; 381 when this report was written) |
+| Analyzer | `cd mobile && flutter analyze lib test` | 52 issues, all `info`, none in a file this work touched (measured 2026-10-10; 55 when written) |
+| Backend contract chain | `cd backend && node scripts/with_local_target.js node scripts/test_chain.js` | 60 links today, 54 when this report was measured (link 55, `admin_console_xss_test.js`, was added 2026-10-06; links 56/57, the merchant and customer order-read reliability suites, link 58, `support_ticket_write_guard_test.js`, and link 59, `notification_write_guard_test.js`, were added 2026-10-09; link 60, `dispatch_fanout_test.js`, was added 2026-10-10), per-link check counts, schema drift witness on 10 protected tables. The wrapper is part of the command: suite verification runs against local Docker only, and `backend/.env` is never edited to point a suite somewhere |
 | Screen → suite map | `grep -rl <screen_file_stem> mobile/test/*.dart` | which suite imports or routes to which screen |
 | Request shape | each suite's stub (`mobile/test/support/http_stub.dart`) | the exact `METHOD url` list the screen sent, asserted before any content is asserted |
 
@@ -200,9 +200,14 @@ found this way. Each fix was made in the widget, never in the assertion.
 | Schema drift during the chain | **10 protected tables unchanged** on every link that reported; only `audit_logs`, `orders`, `jobs`, `journal_transactions` grew, which is what the writes under test are supposed to do |
 | Harness cleanup | `teardown: pid 50192 reaped, :4000 free` |
 
-These are the closure run's own measurements, kept as measured. The chain has since grown a link
-(`admin_console_xss_test.js`, added 2026-10-06 as link 55), so a run today reports 55 links; the
-current numbers live in the dated records in `docs/AUTONOMOUS_BUILD_PROGRESS.md`, not here.
+These are the closure run's own measurements, kept as measured. The chain has since grown to 60
+links (`admin_console_xss_test.js`, added 2026-10-06 as link 55, then `merchant_order_read_reliability_test.js`
+and `customer_order_read_reliability_test.js`, added 2026-10-09 as links 56 and 57, then
+`support_ticket_write_guard_test.js` and `notification_write_guard_test.js`, added 2026-10-09 as
+links 58 and 59, then `dispatch_fanout_test.js`, added 2026-10-10 as link 60), so a run today
+reports 60 links; the current numbers live in the dated records in
+`docs/AUTONOMOUS_BUILD_PROGRESS.md`, not here. The two skipped checks below are still the two
+skipped checks in the 60-link run — same ids, same links, same causes.
 
 The two skipped checks are coverage this run did not get, stated here rather than left in
 the log:

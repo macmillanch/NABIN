@@ -126,7 +126,8 @@ A crucial finding: `admin_id`, `admin_name`, and `role` are `NOT NULL` in Postgr
 | `ADMIN_PROVISIONED_VIA_RESET` | `AUTH` | `database.js:4203`| `resetAdminPassword()` | `newAdmin.id` (`newAdmin.role`) | `ADMIN_USER` |
 | `ADMIN_PASSWORD_RESET` | `AUTH` | `database.js:4226`| `resetAdminPassword()` | `admin.id` (`admin.role`) | `ADMIN_USER` |
 | `ADVERTISEMENT_CAMPAIGN_*` (3) | `PROMOTIONS` | `database.js:4297-4356`| `advertisement CRUD` | `adminId` (`SUPER_ADMIN`) | `ADVERTISEMENT` |
-| `AUTH_OTP_DISPATCHED` / `AUTH_ACCOUNT_LOCKED` / `USER_LOGIN_SUCCESS` | `AUTH` / `SECURITY` | `database.js:4428-4585`| `Auth OTP Handlers` | `SYSTEM_AUTH` (`SYSTEM`) | `USER_PHONE` |
+| `AUTH_OTP_REQUESTED` / `AUTH_OTP_DISPATCH_FAILED` / `AUTH_OTP_DISPATCHED` | `AUTH` | `database.js:6516-6615`| `sendAuthOtp()` | `SYSTEM_AUTH` (`SYSTEM`) | `USER_PHONE` |
+| `AUTH_ACCOUNT_LOCKED` / `USER_LOGIN_SUCCESS` | `SECURITY` / `AUTH` | `database.js:6678-6941`| `verifyAuthOtp()` | `SYSTEM_AUTH` (`SYSTEM`) / `entity.id` (`role`) | `USER_PHONE` / `USER_SESSION` |
 | `OTP_VERIFICATION_FAILED` / `OTP_VERIFIED` | `DISPATCH` | `database.js:4644-4671`| `validateAuthoritativeJobOtp()` | `driverId` (`DRIVER`) | `JOB` |
 | `FEATURE_FLAG_UPDATED` | `SETTINGS` | `database.js:4766`| `updateFeatureFlag()` | `adminId` (`SUPER_ADMIN`) | `FEATURE_FLAG` |
 | `PAYMENT_WEBHOOK_PROCESSED` | `PAYMENTS` | `database.js:4986`| `recordPaymentWebhook()` | `PAYMENT_GATEWAY` (`SYSTEM`) | `PAYMENT_WEBHOOK` |
