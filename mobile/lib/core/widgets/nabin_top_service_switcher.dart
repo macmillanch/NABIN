@@ -62,7 +62,7 @@ class NabinTopServiceSwitcher extends StatelessWidget {
             context,
             category: NabinServiceCategory.grocery,
             emoji: '🛒',
-            label: 'Instamart',
+            label: 'Grocery',
           ),
           const SizedBox(width: 8),
           _buildItem(

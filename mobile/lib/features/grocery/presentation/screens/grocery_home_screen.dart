@@ -142,7 +142,7 @@ class _GroceryHomeScreenState extends ConsumerState<GroceryHomeScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
-                    // Universal Top Service Switcher (Grocery / Instamart)
+                    // Universal Top Service Switcher (Grocery)
                     const NabinTopServiceSwitcher(
                       currentCategory: NabinServiceCategory.grocery,
                       isDarkBackground: false,
