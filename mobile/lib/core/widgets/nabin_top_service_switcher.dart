@@ -56,7 +56,6 @@ class NabinTopServiceSwitcher extends StatelessWidget {
             category: NabinServiceCategory.food,
             emoji: '🍔',
             label: 'Food',
-            badge: null,
           ),
           const SizedBox(width: 8),
           _buildItem(
@@ -64,7 +63,6 @@ class NabinTopServiceSwitcher extends StatelessWidget {
             category: NabinServiceCategory.grocery,
             emoji: '🛒',
             label: 'Instamart',
-            badge: '13 Mins',
           ),
           const SizedBox(width: 8),
           _buildItem(
@@ -72,7 +70,6 @@ class NabinTopServiceSwitcher extends StatelessWidget {
             category: NabinServiceCategory.ride,
             emoji: '🚕',
             label: 'Ride',
-            badge: 'Fastest',
           ),
           const SizedBox(width: 8),
           _buildItem(
@@ -80,7 +77,6 @@ class NabinTopServiceSwitcher extends StatelessWidget {
             category: NabinServiceCategory.parcel,
             emoji: '📦',
             label: 'Parcel',
-            badge: 'Courier',
           ),
         ],
       ),
@@ -92,7 +88,6 @@ class NabinTopServiceSwitcher extends StatelessWidget {
     required NabinServiceCategory category,
     required String emoji,
     required String label,
-    required String? badge,
   }) {
     final bool isSelected = category == currentCategory;
 
@@ -142,7 +137,7 @@ class NabinTopServiceSwitcher extends StatelessWidget {
       onTap: () => _handleTap(context, category),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         decoration: BoxDecoration(
           color: itemBg,
           borderRadius: BorderRadius.circular(22),
@@ -155,40 +150,15 @@ class NabinTopServiceSwitcher extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            Text(emoji, style: const TextStyle(fontSize: 14)),
+            Text(emoji, style: const TextStyle(fontSize: 15)),
             const SizedBox(width: 6),
-            Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
-                  label,
-                  style: TextStyle(
-                    color: textColor,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 12,
-                  ),
-                ),
-                if (badge != null) ...<Widget>[
-                  const SizedBox(height: 2),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF2563EB),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Text(
-                      badge,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 8.5,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: 0.3,
-                      ),
-                    ),
-                  ),
-                ],
-              ],
+            Text(
+              label,
+              style: TextStyle(
+                color: textColor,
+                fontWeight: FontWeight.w800,
+                fontSize: 12.5,
+              ),
             ),
           ],
         ),
@@ -196,4 +166,3 @@ class NabinTopServiceSwitcher extends StatelessWidget {
     );
   }
 }
-
