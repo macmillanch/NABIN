@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/theme/nabin_tokens.dart';
+import '../../../../core/widgets/nabin_top_service_switcher.dart';
 import '../models/grocery_product.dart';
 import '../providers/grocery_cart_provider.dart';
 import '../providers/grocery_products_provider.dart';
@@ -141,6 +142,12 @@ class _GroceryHomeScreenState extends ConsumerState<GroceryHomeScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
+                    // Universal Top Service Switcher (Grocery / Instamart)
+                    const NabinTopServiceSwitcher(
+                      currentCategory: NabinServiceCategory.grocery,
+                      isDarkBackground: false,
+                    ),
+                    const SizedBox(height: NabinSpacing.sm),
                     _buildSearchField(),
                     const SizedBox(height: NabinSpacing.md),
 

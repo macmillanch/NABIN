@@ -10,6 +10,7 @@ import '../providers/food_advertisements_provider.dart';
 import '../providers/food_models.dart';
 import '../providers/food_restaurants_provider.dart';
 import '../widgets/food_shared_widgets.dart';
+import '../../../../core/widgets/nabin_top_service_switcher.dart';
 
 const Color _brand = Color(0xFF1A3BA2);
 
@@ -98,7 +99,7 @@ class _FoodHomeScreenState extends ConsumerState<FoodHomeScreen> {
             padding: EdgeInsets.zero,
             children: <Widget>[
               // Swiggy-Style Curved Hero Header with Location & Service Switcher
-              _SwiggyFoodHeader(
+              _SwiggyFoodHeroCanvas(
                 searchCtrl: _searchCtrl,
                 onSearchChanged: (value) {
                   setState(() {});
@@ -115,9 +116,6 @@ class _FoodHomeScreenState extends ConsumerState<FoodHomeScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
-                    // Festive Vibes Promotional Banner Strip
-                    const _FestiveVibesBanner(),
-                    const SizedBox(height: 16),
 
                     // Sponsored banner carousel
                     if (banners.isNotEmpty) ...<Widget>[
@@ -374,8 +372,9 @@ class _FoodHomeScreenState extends ConsumerState<FoodHomeScreen> {
 }
 
 /// Swiggy-Style Top Curved Header with Location, Service Switcher & Search
-class _SwiggyFoodHeader extends StatelessWidget {
-  const _SwiggyFoodHeader({
+/// Swiggy-Style Full-Bleed Continuous Purple Hero Canvas
+class _SwiggyFoodHeroCanvas extends StatelessWidget {
+  const _SwiggyFoodHeroCanvas({
     required this.searchCtrl,
     required this.onSearchChanged,
     required this.onSearchClear,
@@ -390,13 +389,17 @@ class _SwiggyFoodHeader extends StatelessWidget {
     return Container(
       decoration: const BoxDecoration(
         gradient: LinearGradient(
-          colors: <Color>[Color(0xFF231238), Color(0xFF381A54)],
+          colors: <Color>[
+            Color(0xFF20003B),
+            Color(0xFF330457),
+            Color(0xFF490B75),
+          ],
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
         ),
-        borderRadius: BorderRadius.vertical(bottom: Radius.circular(26)),
+        borderRadius: BorderRadius.vertical(bottom: Radius.circular(28)),
       ),
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 18),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
@@ -449,47 +452,14 @@ class _SwiggyFoodHeader extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 12),
 
-          // Top Service Switcher (Swiggy Style)
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: <Widget>[
-                _ServicePillTab(
-                  label: 'Food',
-                  icon: '🍔',
-                  isSelected: true,
-                  onTap: () {},
-                ),
-                const SizedBox(width: 8),
-                _ServicePillTab(
-                  label: 'Instamart',
-                  icon: '🛒',
-                  badge: '13 Mins',
-                  isSelected: false,
-                  onTap: () => context.push('/grocery-home'),
-                ),
-                const SizedBox(width: 8),
-                _ServicePillTab(
-                  label: 'Ride',
-                  icon: '🚕',
-                  badge: 'Fastest',
-                  isSelected: false,
-                  onTap: () => context.push('/ride-booking'),
-                ),
-                const SizedBox(width: 8),
-                _ServicePillTab(
-                  label: 'Parcel',
-                  icon: '📦',
-                  badge: 'Courier',
-                  isSelected: false,
-                  onTap: () => context.push('/parcel-booking'),
-                ),
-              ],
-            ),
+          // Universal Top Service Switcher (Swiggy Style)
+          const NabinTopServiceSwitcher(
+            currentCategory: NabinServiceCategory.food,
+            isDarkBackground: true,
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 14),
 
           // Search Field Pill
           Container(
@@ -500,7 +470,7 @@ class _SwiggyFoodHeader extends StatelessWidget {
               borderRadius: BorderRadius.circular(24),
               boxShadow: <BoxShadow>[
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.12),
+                  color: Colors.black.withValues(alpha: 0.16),
                   blurRadius: 10,
                   offset: const Offset(0, 3),
                 ),
@@ -548,118 +518,10 @@ class _SwiggyFoodHeader extends StatelessWidget {
               ],
             ),
           ),
-        ],
-      ),
-    );
-  }
-}
+          const SizedBox(height: 16),
 
-class _ServicePillTab extends StatelessWidget {
-  const _ServicePillTab({
-    required this.label,
-    required this.icon,
-    this.badge,
-    required this.isSelected,
-    required this.onTap,
-  });
-
-  final String label;
-  final String icon;
-  final String? badge;
-  final bool isSelected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        decoration: BoxDecoration(
-          color: isSelected ? Colors.white : Colors.white.withValues(alpha: 0.12),
-          borderRadius: BorderRadius.circular(16),
-          border: isSelected ? Border.all(color: Colors.white, width: 1.5) : null,
-          boxShadow: isSelected
-              ? <BoxShadow>[
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.15),
-                    blurRadius: 8,
-                    offset: const Offset(0, 3),
-                  ),
-                ]
-              : null,
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Text(icon, style: const TextStyle(fontSize: 18)),
-            const SizedBox(width: 6),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w900,
-                    color: isSelected ? const Color(0xFF1F2937) : Colors.white,
-                  ),
-                ),
-                if (badge != null)
-                  Container(
-                    margin: const EdgeInsets.only(top: 2),
-                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                    decoration: BoxDecoration(
-                      color: isSelected ? const Color(0xFF2563EB) : const Color(0xFF3B82F6),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Text(
-                      badge!,
-                      style: const TextStyle(
-                        fontSize: 8.5,
-                        fontWeight: FontWeight.w900,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Festive Vibes Promo Banner Strip (Overflow-Free)
-class _FestiveVibesBanner extends StatelessWidget {
-  const _FestiveVibesBanner();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: <Color>[Color(0xFF3B155B), Color(0xFF5B1A8C)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: <BoxShadow>[
-          BoxShadow(
-            color: const Color(0xFF3B155B).withValues(alpha: 0.25),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      padding: const EdgeInsets.fromLTRB(14, 14, 14, 16),
-      child: const Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          SingleChildScrollView(
+          // Festive Vibes Headline
+          const SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(
               children: <Widget>[
@@ -668,7 +530,7 @@ class _FestiveVibesBanner extends StatelessWidget {
                   style: TextStyle(
                     color: Color(0xFFFDE047),
                     fontWeight: FontWeight.w900,
-                    fontSize: 14,
+                    fontSize: 14.5,
                     letterSpacing: 0.5,
                   ),
                 ),
@@ -678,15 +540,18 @@ class _FestiveVibesBanner extends StatelessWidget {
                   style: TextStyle(
                     color: Colors.white,
                     fontWeight: FontWeight.w900,
-                    fontSize: 13,
+                    fontSize: 13.5,
                   ),
                 ),
               ],
             ),
           ),
-          SizedBox(height: 12),
-          SingleChildScrollView(
+          const SizedBox(height: 12),
+
+          // 4 Festive Voucher Cards Rail
+          const SingleChildScrollView(
             scrollDirection: Axis.horizontal,
+            physics: BouncingScrollPhysics(),
             child: Row(
               children: <Widget>[
                 _FestiveVoucherCard(

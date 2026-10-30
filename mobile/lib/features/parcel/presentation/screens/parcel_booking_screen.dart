@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/widgets/nabin_top_service_switcher.dart';
 import '../../../../core/network/nabin_api_service.dart';
 import '../../../../core/network/session_manager.dart';
 import '../../../../core/widgets/map_pin_picker.dart';
@@ -214,6 +215,12 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
                 ),
                 child: Column(
                   children: [
+              // Universal Top Service Switcher (Parcel)
+              const NabinTopServiceSwitcher(
+                currentCategory: NabinServiceCategory.parcel,
+                isDarkBackground: false,
+              ),
+              const SizedBox(height: 14),
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [

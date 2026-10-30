@@ -9,6 +9,7 @@ import '../../../../core/config/nabin_config_controller.dart';
 import '../../../../core/widgets/nabin_remote_banner.dart';
 import '../../../../core/widgets/nabin_campaign.dart';
 import '../../../../core/widgets/nabin_brand_logo.dart';
+import '../../../../core/widgets/nabin_top_service_switcher.dart';
 import '../../../../core/models/school_child_repository.dart';
 import '../../../../core/network/nabin_api_service.dart';
 import '../../../../core/network/session_manager.dart';
@@ -343,6 +344,12 @@ class _CustomerHomeScreenState extends ConsumerState<CustomerHomeScreen> {
 
               const SizedBox(height: 14),
 
+              // Universal Top Service Switcher (Ride / Super-App Home)
+              const NabinTopServiceSwitcher(
+                currentCategory: NabinServiceCategory.ride,
+                isDarkBackground: false,
+              ),
+              const SizedBox(height: 14),
               // What the platform itself has published: a pause, a lockdown, or
               // nothing at all when every service is running.
               const NabinPlatformNotice(),
