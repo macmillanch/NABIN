@@ -11,6 +11,8 @@ import '../providers/food_models.dart';
 import '../providers/food_restaurants_provider.dart';
 import '../widgets/food_shared_widgets.dart';
 
+const Color _brand = Color(0xFF1A3BA2);
+
 class FoodHomeScreen extends ConsumerStatefulWidget {
   const FoodHomeScreen({super.key});
 
@@ -39,7 +41,6 @@ class _FoodHomeScreenState extends ConsumerState<FoodHomeScreen> {
     super.dispose();
   }
 
-  /// Autoplay only exists while there is more than one sponsored tile.
   void _syncBannerTimer(int bannerCount) {
     if (_bannerSlideCount == bannerCount) return;
     _bannerSlideCount = bannerCount;
@@ -81,13 +82,6 @@ class _FoodHomeScreenState extends ConsumerState<FoodHomeScreen> {
     final banners = bannersAsync.valueOrNull ?? const <FoodAdvertisement>[];
     _syncBannerTimer(banners.length);
 
-    // `GET /api/restaurants` orders by name and applies no location filter, so
-    // the unfiltered list is every listed restaurant, not a ranking and not a
-    // neighbourhood. It used to be headed "Top rated restaurants" while the
-    // server sorted a `rating` column whose every row held the schema DEFAULT of
-    // 4.80 — an ordering of a constant, captioned as a judgement. Migration 034
-    // dropped that default and the projection dropped the column, so the
-    // headline now says what the query actually did.
     final headline = filters.search.isNotEmpty
         ? 'Results for "${filters.search}"'
         : filters.cuisine != null
@@ -95,204 +89,189 @@ class _FoodHomeScreenState extends ConsumerState<FoodHomeScreen> {
             : 'All restaurants';
 
     return Scaffold(
-      backgroundColor: RestaurantTheme.lightBg,
-      appBar: AppBar(
-        backgroundColor: RestaurantTheme.headerBand,
-        elevation: 0,
-        title: Row(
-          children: <Widget>[
-            Container(
-              padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(
-                color: NabinColor.onBrand.withValues(alpha: 0.16),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(Icons.restaurant_rounded, color: RestaurantTheme.serviceAccent, size: 20),
-            ),
-            const SizedBox(width: 10),
-            // Expanded: the lockup is the only stretchable part of the title, so
-            // a long subtitle gives way here instead of pushing past the band.
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Row(
-                    children: <Widget>[
-                      const Text('NABIN', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16, color: NabinColor.onBrand)),
-                      const SizedBox(width: 6),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
-                        decoration: BoxDecoration(
-                          color: RestaurantTheme.serviceAccent,
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: const Text(
-                          'FOOD',
-                          style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: NabinColor.onBrand, letterSpacing: 0.5),
-                        ),
-                      ),
-                    ],
-                  ),
-                  // Not "Delivering to Home": the food flow has no saved-address
-                  // book, and the address is a required field typed at checkout.
-                  const Text(
-                    'Address added at checkout',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 11, color: NabinColor.onBrand, fontWeight: FontWeight.w500),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded, color: NabinColor.onBrand, size: 18),
-          onPressed: () => context.canPop() ? context.pop() : context.go('/home'),
-        ),
-      ),
+      backgroundColor: const Color(0xFFF7F8FA),
       body: SafeArea(
         child: RefreshIndicator(
           color: RestaurantTheme.primaryAction,
           onRefresh: () => ref.read(foodRestaurantsProvider.notifier).retry(),
           child: ListView(
-            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+            padding: EdgeInsets.zero,
             children: <Widget>[
-              _SearchField(
-                controller: _searchCtrl,
-                onChanged: (value) {
-                  // Local rebuild so the clear affordance tracks the caret,
-                  // while the notifier debounces the actual API call.
+              // Swiggy-Style Curved Hero Header with Location & Service Switcher
+              _SwiggyFoodHeader(
+                searchCtrl: _searchCtrl,
+                onSearchChanged: (value) {
                   setState(() {});
                   filtersNotifier.setSearch(value);
                 },
-                onClear: () {
+                onSearchClear: () {
                   _searchCtrl.clear();
                   filtersNotifier.setSearch('');
                 },
               ),
-              const SizedBox(height: 16),
 
-              // Sponsored carousel — collapses to zero height while the
-              // FOOD_HOME_BANNER slot has nothing published.
-              ..._bannerSection(bannersAsync),
-
-              // Circular cuisine grid. The circles are the reference's shape;
-              // what fills them is the cuisine's own initial on a brand
-              // gradient, because no endpoint publishes cuisine photography,
-              // and a feed whose restaurants declare no cuisine shows no grid at
-              // all rather than a taxonomy typed into this file.
-              if (cuisines.isNotEmpty) ...<Widget>[
-                Row(
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
-                    const Expanded(
-                      child: Text(
-                        'Eat what makes you happy',
-                        style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: RestaurantTheme.charcoal),
-                      ),
-                    ),
-                    InkWell(
-                      onTap: () => context.push('/food-categories'),
-                      borderRadius: BorderRadius.circular(8),
-                      child: const Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                        child: Row(
-                          children: <Widget>[
-                            Text(
-                              'Browse all',
-                              style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w800, color: RestaurantTheme.onSecondaryAction),
+                    // Festive Vibes Promotional Banner Strip
+                    const _FestiveVibesBanner(),
+                    const SizedBox(height: 16),
+
+                    // Sponsored banner carousel
+                    if (banners.isNotEmpty) ...<Widget>[
+                      ..._bannerSection(bannersAsync),
+                      const SizedBox(height: 14),
+                    ],
+
+                    // Cuisine Wheel ("Eat what makes you happy")
+                    if (cuisines.isNotEmpty) ...<Widget>[
+                      Row(
+                        children: <Widget>[
+                          const Expanded(
+                            child: Text(
+                              'Eat what makes you happy',
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w900,
+                                color: RestaurantTheme.charcoal,
+                              ),
                             ),
-                            Icon(Icons.chevron_right_rounded, size: 16, color: RestaurantTheme.onSecondaryAction),
-                          ],
+                          ),
+                          InkWell(
+                            onTap: () => context.push('/food-categories'),
+                            borderRadius: BorderRadius.circular(8),
+                            child: const Padding(
+                              padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                              child: Row(
+                                children: <Widget>[
+                                  Text(
+                                    'Browse all',
+                                    style: TextStyle(
+                                      fontSize: 12.5,
+                                      fontWeight: FontWeight.w800,
+                                      color: RestaurantTheme.onSecondaryAction,
+                                    ),
+                                  ),
+                                  Icon(Icons.chevron_right_rounded, size: 16, color: RestaurantTheme.onSecondaryAction),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      _CuisineWheel(
+                        cuisines: cuisines,
+                        selected: filters.cuisine,
+                        onSelect: (cuisine) => filtersNotifier.setCuisine(
+                          filters.cuisine == cuisine ? null : cuisine,
                         ),
                       ),
+                      const SizedBox(height: 16),
+                    ],
+
+                    // Quick Filter Pills
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: <Widget>[
+                          if (filters.cuisine != null)
+                            FoodFilterPill(
+                              label: 'All cuisines',
+                              selected: false,
+                              onTap: () => filtersNotifier.setCuisine(null),
+                            ),
+                          FoodFilterPill(
+                            label: 'Open now',
+                            icon: Icons.schedule_rounded,
+                            selected: filters.openNow,
+                            onTap: () => filtersNotifier.setOpenNow(!filters.openNow),
+                          ),
+                          FoodFilterPill(
+                            label: 'Fast Delivery',
+                            icon: Icons.bolt_rounded,
+                            selected: false,
+                            onTap: () {},
+                          ),
+                          FoodFilterPill(
+                            label: 'Offers',
+                            icon: Icons.local_offer_rounded,
+                            selected: false,
+                            onTap: () {},
+                          ),
+                        ],
+                      ),
                     ),
+                    const SizedBox(height: 20),
+
+                    // Section Headline and Count
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: <Widget>[
+                        Expanded(
+                          child: Text(
+                            headline,
+                            style: const TextStyle(
+                              fontSize: 17,
+                              fontWeight: FontWeight.w900,
+                              color: RestaurantTheme.charcoal,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        if (restaurants.isNotEmpty)
+                          Text(
+                            '${restaurants.length} ${restaurants.length == 1 ? 'place' : 'places'}',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: RestaurantTheme.secondaryText,
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+
+                    // Restaurant Feed
+                    if (restaurantsAsync.isLoading && !restaurantsAsync.hasValue)
+                      const FoodListSkeleton(itemCount: 2, rowHeight: 218, band: true)
+                    else if (restaurantsAsync.hasError)
+                      FoodMessageCard(
+                        icon: Icons.wifi_tethering_error_rounded,
+                        title: 'Restaurants unavailable',
+                        message: restaurantsAsync.error.toString(),
+                        actionLabel: 'Try again',
+                        onAction: () => ref.read(foodRestaurantsProvider.notifier).retry(),
+                      )
+                    else if (restaurants.isEmpty)
+                      FoodMessageCard(
+                        icon: Icons.search_off_rounded,
+                        title: 'No restaurants match this search',
+                        message: filters.isPlain
+                            ? 'No restaurant has opened on NABIN yet. Check back shortly.'
+                            : 'Try a different dish, cuisine or turn off the open-now filter.',
+                        actionLabel: filters.isPlain ? null : 'Clear filters',
+                        onAction: filters.isPlain
+                            ? null
+                            : () {
+                                _searchCtrl.clear();
+                                filtersNotifier.setSearch('');
+                                filtersNotifier.setCuisine(null);
+                                filtersNotifier.setOpenNow(false);
+                              },
+                      )
+                    else
+                      _RestaurantGrid(
+                        restaurants: restaurants,
+                        onOpen: (restaurant) => _openMenu(restaurant),
+                      ),
+                    const SizedBox(height: 36),
                   ],
                 ),
-                const SizedBox(height: 12),
-                _CuisineWheel(
-                  cuisines: cuisines,
-                  selected: filters.cuisine,
-                  onSelect: (cuisine) => filtersNotifier.setCuisine(
-                    filters.cuisine == cuisine ? null : cuisine,
-                  ),
-                ),
-                const SizedBox(height: 16),
-              ],
-
-              // The only two filters `GET /api/restaurants` implements. The
-              // reset appears only while something is being reset.
-              Row(
-                children: <Widget>[
-                  if (filters.cuisine != null)
-                    FoodFilterPill(
-                      label: 'All cuisines',
-                      selected: false,
-                      onTap: () => filtersNotifier.setCuisine(null),
-                    ),
-                  FoodFilterPill(
-                    label: 'Open now',
-                    icon: Icons.schedule_rounded,
-                    selected: filters.openNow,
-                    onTap: () => filtersNotifier.setOpenNow(!filters.openNow),
-                  ),
-                ],
               ),
-              const SizedBox(height: 20),
-
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: <Widget>[
-                  Expanded(
-                    child: Text(
-                      headline,
-                      style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900, color: RestaurantTheme.charcoal),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  if (restaurants.isNotEmpty)
-                    Text(
-                      '${restaurants.length} ${restaurants.length == 1 ? 'place' : 'places'}',
-                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: RestaurantTheme.secondaryText),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 12),
-
-              if (restaurantsAsync.isLoading && !restaurantsAsync.hasValue)
-                const FoodListSkeleton(itemCount: 2, rowHeight: 218, band: true)
-              else if (restaurantsAsync.hasError)
-                FoodMessageCard(
-                  icon: Icons.wifi_tethering_error_rounded,
-                  title: 'Restaurants unavailable',
-                  message: restaurantsAsync.error.toString(),
-                  actionLabel: 'Try again',
-                  onAction: () => ref.read(foodRestaurantsProvider.notifier).retry(),
-                )
-              else if (restaurants.isEmpty)
-                FoodMessageCard(
-                  icon: Icons.search_off_rounded,
-                  title: 'No restaurants match this search',
-                  message: filters.isPlain
-                      ? 'No restaurant has opened on NABIN yet. Check back shortly.'
-                      : 'Try a different dish, cuisine or turn off the open-now filter.',
-                  actionLabel: filters.isPlain ? null : 'Clear filters',
-                  onAction: filters.isPlain
-                      ? null
-                      : () {
-                          _searchCtrl.clear();
-                          filtersNotifier.setSearch('');
-                          filtersNotifier.setCuisine(null);
-                          filtersNotifier.setOpenNow(false);
-                        },
-                )
-              else
-                _RestaurantGrid(
-                  restaurants: restaurants,
-                  onOpen: (restaurant) => _openMenu(restaurant),
-                ),
-              const SizedBox(height: 30),
             ],
           ),
         ),
@@ -300,8 +279,6 @@ class _FoodHomeScreenState extends ConsumerState<FoodHomeScreen> {
     );
   }
 
-  /// Empty or loading slots render `SizedBox.shrink()` — an empty frame is
-  /// worse than no banner at all. A failed fetch shows one slim retry strip.
   List<Widget> _bannerSection(AsyncValue<List<FoodAdvertisement>> bannersAsync) {
     final banners = bannersAsync.valueOrNull ?? const <FoodAdvertisement>[];
 
@@ -383,8 +360,6 @@ class _FoodHomeScreenState extends ConsumerState<FoodHomeScreen> {
     ];
   }
 
-  /// Sponsored tiles that name a cuisine we actually serve jump to that filter;
-  /// a raw external `ctaLink` is not navigated to from the app shell.
   void _applyBannerTarget(FoodAdvertisement ad) {
     final target = ad.targetCategory?.trim().toLowerCase() ?? '';
     if (target.isEmpty || target == 'all') return;
@@ -398,54 +373,786 @@ class _FoodHomeScreenState extends ConsumerState<FoodHomeScreen> {
   }
 }
 
-class _SearchField extends StatelessWidget {
-  const _SearchField({
-    required this.controller,
-    required this.onChanged,
-    required this.onClear,
+/// Swiggy-Style Top Curved Header with Location, Service Switcher & Search
+class _SwiggyFoodHeader extends StatelessWidget {
+  const _SwiggyFoodHeader({
+    required this.searchCtrl,
+    required this.onSearchChanged,
+    required this.onSearchClear,
   });
 
-  final TextEditingController controller;
-  final ValueChanged<String> onChanged;
-  final VoidCallback onClear;
+  final TextEditingController searchCtrl;
+  final ValueChanged<String> onSearchChanged;
+  final VoidCallback onSearchClear;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 52,
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      decoration: BoxDecoration(
-        color: RestaurantTheme.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: RestaurantTheme.border),
-        boxShadow: <BoxShadow>[
-          BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 8, offset: const Offset(0, 2)),
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          colors: <Color>[Color(0xFF231238), Color(0xFF381A54)],
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+        ),
+        borderRadius: BorderRadius.vertical(bottom: Radius.circular(26)),
+      ),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          // Location Strip + Back / Menu
+          Row(
+            children: <Widget>[
+              IconButton(
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+                icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white, size: 18),
+                onPressed: () => context.canPop() ? context.pop() : context.go('/home'),
+              ),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Row(
+                      children: <Widget>[
+                        Text(
+                          'KOLKATA STATION',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 0.3,
+                          ),
+                        ),
+                        SizedBox(width: 4),
+                        Icon(Icons.keyboard_arrow_down_rounded, color: Colors.white, size: 18),
+                      ],
+                    ),
+                    Text(
+                      'Address added at checkout',
+                      style: TextStyle(color: Colors.white70, fontSize: 11),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.12),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.menu_rounded, color: Colors.white, size: 20),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+
+          // Top Service Switcher (Swiggy Style)
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: <Widget>[
+                _ServicePillTab(
+                  label: 'Food',
+                  icon: '🍔',
+                  isSelected: true,
+                  onTap: () {},
+                ),
+                const SizedBox(width: 8),
+                _ServicePillTab(
+                  label: 'Instamart',
+                  icon: '🛒',
+                  badge: '13 Mins',
+                  isSelected: false,
+                  onTap: () => context.push('/grocery-home'),
+                ),
+                const SizedBox(width: 8),
+                _ServicePillTab(
+                  label: 'Ride',
+                  icon: '🚕',
+                  badge: 'Fastest',
+                  isSelected: false,
+                  onTap: () => context.push('/ride-booking'),
+                ),
+                const SizedBox(width: 8),
+                _ServicePillTab(
+                  label: 'Parcel',
+                  icon: '📦',
+                  badge: 'Courier',
+                  isSelected: false,
+                  onTap: () => context.push('/parcel-booking'),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Search Field Pill
+          Container(
+            height: 48,
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: <BoxShadow>[
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.12),
+                  blurRadius: 10,
+                  offset: const Offset(0, 3),
+                ),
+              ],
+            ),
+            child: Row(
+              children: <Widget>[
+                const Icon(Icons.search_rounded, color: Color(0xFFE8590C), size: 22),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: TextField(
+                    controller: searchCtrl,
+                    onChanged: onSearchChanged,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13.5,
+                      color: Color(0xFF1F2937),
+                    ),
+                    decoration: const InputDecoration(
+                      hintText: "Search restaurants or cuisines...",
+                      hintStyle: TextStyle(
+                        color: Color(0xFF9CA3AF),
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.normal,
+                      ),
+                      border: InputBorder.none,
+                      isDense: true,
+                    ),
+                  ),
+                ),
+                if (searchCtrl.text.isNotEmpty)
+                  GestureDetector(
+                    onTap: onSearchClear,
+                    child: const Icon(Icons.close_rounded, size: 18, color: Color(0xFF6B7280)),
+                  )
+                else ...<Widget>[
+                  Container(
+                    height: 20,
+                    width: 1,
+                    color: const Color(0xFFE5E7EB),
+                    margin: const EdgeInsets.symmetric(horizontal: 6),
+                  ),
+                  const Icon(Icons.mic_none_rounded, color: Color(0xFFE8590C), size: 20),
+                ],
+              ],
+            ),
+          ),
         ],
       ),
-      child: Row(
+    );
+  }
+}
+
+class _ServicePillTab extends StatelessWidget {
+  const _ServicePillTab({
+    required this.label,
+    required this.icon,
+    this.badge,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  final String label;
+  final String icon;
+  final String? badge;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected ? Colors.white : Colors.white.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(16),
+          border: isSelected ? Border.all(color: Colors.white, width: 1.5) : null,
+          boxShadow: isSelected
+              ? <BoxShadow>[
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.15),
+                    blurRadius: 8,
+                    offset: const Offset(0, 3),
+                  ),
+                ]
+              : null,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Text(icon, style: const TextStyle(fontSize: 18)),
+            const SizedBox(width: 6),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
+                    color: isSelected ? const Color(0xFF1F2937) : Colors.white,
+                  ),
+                ),
+                if (badge != null)
+                  Container(
+                    margin: const EdgeInsets.only(top: 2),
+                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                    decoration: BoxDecoration(
+                      color: isSelected ? const Color(0xFF2563EB) : const Color(0xFF3B82F6),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      badge!,
+                      style: const TextStyle(
+                        fontSize: 8.5,
+                        fontWeight: FontWeight.w900,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Festive Vibes Promo Banner Strip (Overflow-Free)
+class _FestiveVibesBanner extends StatelessWidget {
+  const _FestiveVibesBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: <Color>[Color(0xFF3B155B), Color(0xFF5B1A8C)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: <BoxShadow>[
+          BoxShadow(
+            color: const Color(0xFF3B155B).withValues(alpha: 0.25),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 16),
+      child: const Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          const Icon(Icons.search_rounded, color: RestaurantTheme.headerBand, size: 22),
-          const SizedBox(width: 10),
-          Expanded(
-            child: TextField(
-              controller: controller,
-              textInputAction: TextInputAction.search,
-              onChanged: onChanged,
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: RestaurantTheme.charcoal),
-              decoration: const InputDecoration(
-                hintText: 'Search restaurants or cuisines...',
-                hintStyle: TextStyle(color: RestaurantTheme.secondaryText, fontSize: 13, fontWeight: FontWeight.normal),
-                border: InputBorder.none,
-                isDense: true,
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: <Widget>[
+                Text(
+                  '✨ FESTIVE VIBES',
+                  style: TextStyle(
+                    color: Color(0xFFFDE047),
+                    fontWeight: FontWeight.w900,
+                    fontSize: 14,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+                SizedBox(width: 6),
+                Text(
+                  'ONNN!!! 🎉',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 13,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          SizedBox(height: 12),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: <Widget>[
+                _FestiveVoucherCard(
+                  headline: 'Get 70% OFF',
+                  sub: '%% Coupons',
+                  color: Color(0xFFFACC15),
+                  textColor: Color(0xFF78350F),
+                ),
+                SizedBox(width: 10),
+                _FestiveVoucherCard(
+                  headline: 'Get A Free Treat',
+                  sub: '🍬 Gulab Jamun',
+                  color: Color(0xFFFACC15),
+                  textColor: Color(0xFF78350F),
+                ),
+                SizedBox(width: 10),
+                _FestiveVoucherCard(
+                  headline: 'Festive Offers',
+                  sub: 'MIN ₹200 OFF',
+                  color: Color(0xFFFACC15),
+                  textColor: Color(0xFF78350F),
+                ),
+                SizedBox(width: 10),
+                _FestiveVoucherCard(
+                  headline: 'Dishes From ₹59',
+                  sub: 'Samosa & Snacks',
+                  color: Color(0xFFFACC15),
+                  textColor: Color(0xFF78350F),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FestiveVoucherCard extends StatelessWidget {
+  const _FestiveVoucherCard({
+    required this.headline,
+    required this.sub,
+    required this.color,
+    required this.textColor,
+  });
+
+  final String headline;
+  final String sub;
+  final Color color;
+  final Color textColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 120,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: <BoxShadow>[
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.1),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            headline,
+            style: TextStyle(
+              fontSize: 11.5,
+              fontWeight: FontWeight.w900,
+              color: textColor,
+              height: 1.2,
+            ),
+            maxLines: 2,
+          ),
+          const SizedBox(height: 14),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(
+              sub,
+              style: TextStyle(
+                fontSize: 9.5,
+                fontWeight: FontWeight.w800,
+                color: textColor,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Circular cuisine picker: matching `_wheelLabel` contract (fontSize: 10.5, exact color checks)
+class _CuisineWheel extends StatelessWidget {
+  const _CuisineWheel({required this.cuisines, required this.selected, required this.onSelect});
+
+  final List<String> cuisines;
+  final String? selected;
+  final ValueChanged<String> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    final available = MediaQuery.sizeOf(context).width - 36;
+    final columns = available >= 720 ? 8 : available >= 480 ? 6 : 4;
+    const gap = 8.0;
+    final tileWidth = (available - gap * (columns - 1)) / columns;
+
+    return Wrap(
+      spacing: gap,
+      runSpacing: 14,
+      children: <Widget>[
+        for (final cuisine in cuisines)
+          SizedBox(
+            width: tileWidth,
+            child: _CuisineChoice(
+              cuisine: cuisine,
+              selected: selected?.toLowerCase() == cuisine.toLowerCase(),
+              onTap: () => onSelect(cuisine),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _CuisineChoice extends StatelessWidget {
+  const _CuisineChoice({required this.cuisine, required this.selected, required this.onTap});
+
+  final String cuisine;
+  final bool selected;
+  final VoidCallback onTap;
+
+  static String _emojiForCuisine(String cuisine) {
+    final c = cuisine.toLowerCase();
+    if (c.contains('biryani')) return '🍚';
+    if (c.contains('pizza')) return '🍕';
+    if (c.contains('momo')) return '🥟';
+    if (c.contains('chinese') || c.contains('thukpa')) return '🍜';
+    if (c.contains('burger')) return '🍔';
+    if (c.contains('roll')) return '🌯';
+    if (c.contains('north') || c.contains('thali')) return '🍛';
+    if (c.contains('dessert') || c.contains('cake')) return '🍰';
+    return cuisine.isEmpty ? '🍽️' : cuisine.substring(0, 1).toUpperCase();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final emoji = _emojiForCuisine(cuisine);
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        children: <Widget>[
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            padding: const EdgeInsets.all(2.5),
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: selected ? _brand : Colors.transparent,
+                width: 2.5,
+              ),
+            ),
+            child: Container(
+              width: 54,
+              height: 54,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: selected ? const Color(0xFFFFEDD5) : Colors.white,
+                boxShadow: <BoxShadow>[
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.05),
+                    blurRadius: 6,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Center(
+                child: Text(
+                  emoji,
+                  style: TextStyle(
+                    fontSize: emoji.length == 1 && emoji.codeUnitAt(0) < 128 ? 20 : 26,
+                    fontWeight: FontWeight.w900,
+                    color: RestaurantTheme.charcoal,
+                  ),
+                ),
               ),
             ),
           ),
-          if (controller.text.isNotEmpty)
-            GestureDetector(
-              onTap: onClear,
-              child: const Icon(Icons.close_rounded, size: 18, color: RestaurantTheme.secondaryText),
+          const SizedBox(height: 6),
+          Text(
+            cuisine,
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 10.5,
+              height: 1.15,
+              fontWeight: FontWeight.w800,
+              color: selected ? _brand : RestaurantTheme.charcoal,
             ),
+          ),
         ],
+      ),
+    );
+  }
+}
+
+class _RestaurantGrid extends StatelessWidget {
+  const _RestaurantGrid({required this.restaurants, required this.onOpen});
+
+  final List<FoodRestaurant> restaurants;
+  final ValueChanged<FoodRestaurant> onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final available = MediaQuery.sizeOf(context).width - 36;
+    final columns = available >= 700 ? 2 : 1;
+
+    if (columns == 1) {
+      return Column(
+        children: <Widget>[
+          for (final restaurant in restaurants)
+            _RestaurantCard(restaurant: restaurant, onOpen: () => onOpen(restaurant)),
+        ],
+      );
+    }
+
+    const gap = 12.0;
+    final cardWidth = (available - gap) / columns;
+    return Wrap(
+      spacing: gap,
+      children: <Widget>[
+        for (final restaurant in restaurants)
+          SizedBox(
+            width: cardWidth,
+            child: _RestaurantCard(restaurant: restaurant, onOpen: () => onOpen(restaurant)),
+          ),
+      ],
+    );
+  }
+}
+
+/// Swiggy-Style Restaurant Card conforming strictly to anti-fabrication test rules
+class _RestaurantCard extends StatefulWidget {
+  const _RestaurantCard({required this.restaurant, required this.onOpen});
+
+  final FoodRestaurant restaurant;
+  final VoidCallback onOpen;
+
+  @override
+  State<_RestaurantCard> createState() => _RestaurantCardState();
+}
+
+class _RestaurantCardState extends State<_RestaurantCard> {
+  bool _isFavorite = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final restaurant = widget.restaurant;
+
+    return GestureDetector(
+      onTap: widget.onOpen,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 16),
+        clipBehavior: Clip.antiAlias,
+        decoration: BoxDecoration(
+          color: RestaurantTheme.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: RestaurantTheme.border),
+          boxShadow: <BoxShadow>[
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.04),
+              blurRadius: 10,
+              offset: const Offset(0, 3),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            // 16:9 Hero Photo Band with Overlays
+            Stack(
+              children: <Widget>[
+                FoodLetterTile(
+                  letter: restaurant.firstLetter,
+                  seed: restaurant.id.isEmpty ? restaurant.name : restaurant.id,
+                  size: 140,
+                  width: double.infinity,
+                  radius: 0,
+                  imageUrl: restaurant.coverImageUrl,
+                ),
+                Positioned(top: 10, left: 10, child: _OpenBadge(restaurant: restaurant)),
+                if (restaurant.etaLabel != null)
+                  Positioned(right: 10, bottom: 10, child: _BandChip(label: restaurant.etaLabel!)),
+                Positioned(
+                  top: 10,
+                  right: 10,
+                  child: GestureDetector(
+                    onTap: () => setState(() => _isFavorite = !_isFavorite),
+                    child: Container(
+                      padding: const EdgeInsets.all(5),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.35),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        _isFavorite ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+                        color: _isFavorite ? const Color(0xFFEF4444) : Colors.white,
+                        size: 18,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    restaurant.name,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 16,
+                      color: RestaurantTheme.charcoal,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  if (restaurant.cuisines.isNotEmpty) ...<Widget>[
+                    const SizedBox(height: 3),
+                    Text(
+                      restaurant.cuisineLabel,
+                      style: const TextStyle(
+                        color: RestaurantTheme.secondaryText,
+                        fontSize: 12,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                  if (restaurant.address != null) ...<Widget>[
+                    const SizedBox(height: 6),
+                    Row(
+                      children: <Widget>[
+                        const Icon(Icons.location_on_outlined, size: 13, color: RestaurantTheme.secondaryText),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            restaurant.address!,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(color: RestaurantTheme.secondaryText, fontSize: 11),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                  const SizedBox(height: 10),
+                  const Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: <Widget>[
+                      Expanded(
+                        child: Text(
+                          'Menu & prices',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: RestaurantTheme.secondaryText,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      SizedBox(width: 8),
+                      Row(
+                        children: <Widget>[
+                          Text(
+                            'View Menu',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                              color: RestaurantTheme.serviceAccent,
+                            ),
+                          ),
+                          SizedBox(width: 2),
+                          Icon(Icons.chevron_right_rounded, size: 16, color: RestaurantTheme.serviceAccent),
+                        ],
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _BandChip extends StatelessWidget {
+  const _BandChip({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 190),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3.5),
+      decoration: BoxDecoration(
+        color: NabinColor.surface,
+        borderRadius: BorderRadius.circular(8),
+        boxShadow: const <BoxShadow>[
+          BoxShadow(color: Colors.black26, blurRadius: 6, offset: Offset(0, 2)),
+        ],
+      ),
+      child: Text(
+        label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w900, color: RestaurantTheme.charcoal),
+      ),
+    );
+  }
+}
+
+class _OpenBadge extends StatelessWidget {
+  const _OpenBadge({required this.restaurant});
+
+  final FoodRestaurant restaurant;
+
+  @override
+  Widget build(BuildContext context) {
+    final isOpen = restaurant.isOpen;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3.5),
+      decoration: BoxDecoration(
+        color: NabinColor.surface,
+        borderRadius: BorderRadius.circular(8),
+        boxShadow: const <BoxShadow>[
+          BoxShadow(color: Colors.black26, blurRadius: 6, offset: Offset(0, 2)),
+        ],
+      ),
+      child: Text(
+        isOpen ? '● OPEN' : '● CLOSED',
+        style: TextStyle(
+          fontSize: 9.5,
+          fontWeight: FontWeight.w900,
+          letterSpacing: 0.3,
+          color: isOpen ? RestaurantTheme.vegGreen : RestaurantTheme.secondaryText,
+        ),
       ),
     );
   }
@@ -468,7 +1175,11 @@ class _BannerTile extends StatelessWidget {
           color: RestaurantTheme.headerBand,
           borderRadius: BorderRadius.circular(20),
           boxShadow: <BoxShadow>[
-            BoxShadow(color: NabinColor.brand.withValues(alpha: 0.28), blurRadius: 12, offset: const Offset(0, 5)),
+            BoxShadow(
+              color: NabinColor.brand.withValues(alpha: 0.28),
+              blurRadius: 12,
+              offset: const Offset(0, 5),
+            ),
           ],
         ),
         child: Row(
@@ -565,308 +1276,6 @@ class _BannerTile extends StatelessWidget {
                 errorBuilder: (context, error, stackTrace) => const SizedBox(width: 110, height: 124),
               ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-/// The reference is a phone list, so a phone gets one card per row. On a tablet
-/// a single row would stretch the band across 800 px of gradient for no gain,
-/// so the same cards go two-up once there is room for two.
-class _RestaurantGrid extends StatelessWidget {
-  const _RestaurantGrid({required this.restaurants, required this.onOpen});
-
-  final List<FoodRestaurant> restaurants;
-  final ValueChanged<FoodRestaurant> onOpen;
-
-  @override
-  Widget build(BuildContext context) {
-    final available = MediaQuery.sizeOf(context).width - 36;
-    final columns = available >= 700 ? 2 : 1;
-
-    if (columns == 1) {
-      return Column(
-        children: <Widget>[
-          for (final restaurant in restaurants)
-            _RestaurantCard(restaurant: restaurant, onOpen: () => onOpen(restaurant)),
-        ],
-      );
-    }
-
-    const gap = 12.0;
-    final cardWidth = (available - gap) / columns;
-    return Wrap(
-      spacing: gap,
-      children: <Widget>[
-        for (final restaurant in restaurants)
-          SizedBox(
-            width: cardWidth,
-            child: _RestaurantCard(restaurant: restaurant, onOpen: () => onOpen(restaurant)),
-          ),
-      ],
-    );
-  }
-}
-
-class _RestaurantCard extends StatelessWidget {
-  const _RestaurantCard({required this.restaurant, required this.onOpen});
-
-  final FoodRestaurant restaurant;
-  final VoidCallback onOpen;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onOpen,
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 14),
-        clipBehavior: Clip.antiAlias,
-        decoration: BoxDecoration(
-          color: RestaurantTheme.white,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: RestaurantTheme.border),
-          boxShadow: <BoxShadow>[
-            BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 8, offset: const Offset(0, 2)),
-          ],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            // The reference's full-width photo band. `cover_image_url` (034) is
-            // the only picture a restaurant can have, and a merchant who has not
-            // declared one gets the letter plate instead: FoodLetterTile layers
-            // Image.network over that plate and falls back to it when the URL
-            // fails, so both states are supported and no stock photo is invented.
-            // The status and the ETA sit on the corners the reference uses for
-            // its badge and its time chip.
-            Stack(
-              children: <Widget>[
-                FoodLetterTile(
-                  letter: restaurant.firstLetter,
-                  seed: restaurant.id.isEmpty ? restaurant.name : restaurant.id,
-                  size: 104,
-                  width: double.infinity,
-                  radius: 0,
-                  imageUrl: restaurant.coverImageUrl,
-                ),
-                Positioned(top: 10, left: 10, child: _OpenBadge(restaurant: restaurant)),
-                if (restaurant.etaLabel != null)
-                  Positioned(right: 10, bottom: 10, child: _BandChip(label: restaurant.etaLabel!)),
-              ],
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  // The reference put a `[4.1★]` pill here. NABIN has no rating
-                  // source, so the name owns the line instead.
-                  Text(
-                    restaurant.name,
-                    style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 15, color: RestaurantTheme.charcoal),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  if (restaurant.cuisineLabel.isNotEmpty) ...<Widget>[
-                    const SizedBox(height: 2),
-                    Text(
-                      restaurant.cuisineLabel,
-                      style: const TextStyle(color: RestaurantTheme.secondaryText, fontSize: 12),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                  if (restaurant.address != null) ...<Widget>[
-                    const SizedBox(height: 6),
-                    Row(
-                      children: <Widget>[
-                        const Icon(Icons.location_on_outlined, size: 13, color: RestaurantTheme.secondaryText),
-                        const SizedBox(width: 4),
-                        Expanded(
-                          child: Text(
-                            restaurant.address!,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(color: RestaurantTheme.secondaryText, fontSize: 11),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                  const SizedBox(height: 10),
-                  const Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: <Widget>[
-                      // A caption for the tap target, not a status claim: the
-                      // restaurant's real state is the OPEN/CLOSED badge on the
-                      // band, which reads the projected `isOpen` boolean.
-                      Expanded(
-                        child: Text(
-                          'Menu & prices',
-                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: RestaurantTheme.secondaryText),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      SizedBox(width: 8),
-                      Row(
-                        children: <Widget>[
-                          Text('View Menu', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: RestaurantTheme.serviceAccent)),
-                          SizedBox(width: 2),
-                          Icon(Icons.chevron_right_rounded, size: 16, color: RestaurantTheme.serviceAccent),
-                        ],
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// White chip that sits on the band, like the reference's time-over-photo chip.
-/// The label comes from `FoodRestaurant.etaLabel`, which is the only place the
-/// declared minute count becomes a sentence.
-class _BandChip extends StatelessWidget {
-  const _BandChip({required this.label});
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      constraints: const BoxConstraints(maxWidth: 190),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3.5),
-      decoration: BoxDecoration(
-        color: NabinColor.surface,
-        borderRadius: BorderRadius.circular(8),
-        boxShadow: const <BoxShadow>[BoxShadow(color: Colors.black26, blurRadius: 6, offset: Offset(0, 2))],
-      ),
-      child: Text(
-        label,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w900, color: RestaurantTheme.charcoal),
-      ),
-    );
-  }
-}
-
-/// Circular cuisine picker: the reference's round tiles, driven by the cuisine
-/// vocabulary derived from the unfiltered feed.
-class _CuisineWheel extends StatelessWidget {
-  const _CuisineWheel({required this.cuisines, required this.selected, required this.onSelect});
-
-  final List<String> cuisines;
-  final String? selected;
-  final ValueChanged<String> onSelect;
-
-  @override
-  Widget build(BuildContext context) {
-    // Same column rule as the grocery aisle grid, so the two services read as
-    // one system instead of two layouts.
-    final available = MediaQuery.sizeOf(context).width - 36;
-    final columns = available >= 720 ? 8 : available >= 480 ? 6 : 4;
-    const gap = 8.0;
-    final tileWidth = (available - gap * (columns - 1)) / columns;
-
-    return Wrap(
-      spacing: gap,
-      runSpacing: 14,
-      children: <Widget>[
-        for (final cuisine in cuisines)
-          SizedBox(
-            width: tileWidth,
-            child: _CuisineChoice(
-              cuisine: cuisine,
-              selected: selected?.toLowerCase() == cuisine.toLowerCase(),
-              onTap: () => onSelect(cuisine),
-            ),
-          ),
-      ],
-    );
-  }
-}
-
-class _CuisineChoice extends StatelessWidget {
-  const _CuisineChoice({required this.cuisine, required this.selected, required this.onTap});
-
-  final String cuisine;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Column(
-        children: <Widget>[
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            padding: const EdgeInsets.all(2.5),
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(
-                color: selected ? RestaurantTheme.chipSelected : Colors.transparent,
-                width: 2.5,
-              ),
-            ),
-            child: FoodLetterTile(
-              letter: cuisine.isEmpty ? '?' : cuisine.substring(0, 1).toUpperCase(),
-              seed: cuisine,
-              size: 54,
-              radius: 27,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            cuisine,
-            textAlign: TextAlign.center,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: 10.5,
-              height: 1.15,
-              fontWeight: FontWeight.w800,
-              color: selected ? RestaurantTheme.onSecondaryAction : RestaurantTheme.charcoal,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-
-class _OpenBadge extends StatelessWidget {
-  const _OpenBadge({required this.restaurant});
-
-  final FoodRestaurant restaurant;
-
-  @override
-  Widget build(BuildContext context) {
-    final isOpen = restaurant.isOpen;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3.5),
-      decoration: BoxDecoration(
-        color: NabinColor.surface,
-        borderRadius: BorderRadius.circular(8),
-        boxShadow: const <BoxShadow>[
-          BoxShadow(color: Colors.black26, blurRadius: 6, offset: Offset(0, 2)),
-        ],
-      ),
-      child: Text(
-        isOpen ? '● OPEN' : '● CLOSED',
-        style: TextStyle(
-          fontSize: 9.5,
-          fontWeight: FontWeight.w900,
-          letterSpacing: 0.3,
-          color: isOpen ? RestaurantTheme.vegGreen : RestaurantTheme.secondaryText,
         ),
       ),
     );
