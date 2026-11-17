@@ -1,0 +1,25 @@
+flowchart TD
+    AppLaunch["fe175b02116a41378bce7610fe0302ca<br/>NABIN-001 Welcome & App Launch"] --> Onboarding["ca7bb89261e5490b8d4d837db30d5e66<br/>NABIN-004 Service Showcase"]
+    Onboarding --> PhoneLogin["914b2d8d1b2e4c8f978f842f3dc6677e<br/>NABIN-009 Customer Login (+91)"]
+    PhoneLogin --> OTP["f0ec18963c354e4d96787ae49fe2199b<br/>NABIN-011 6-Digit OTP Verification"]
+    OTP --> AddressSetup["0d1bd11f0b8e4681a9eeeb5d0a01670c<br/>NABIN-016 Location & Landmark Setup"]
+    AddressSetup --> MapPin["346245e0177f45cf934bdf560678e2c4<br/>NABIN-018 Pin-on-Map Landmark Confirmation"]
+    MapPin --> Home["6404eca20f12433bad74944b71b6c8f4<br/>NABIN-021 Main Marketplace Home"]
+
+    subgraph OuterShell [Outer Super-App Shared Core]
+        Home --> UniversalSearch["2920c8771b934807b6fff455e671fc07<br/>NABIN-022 Universal Search"]
+        Home --> Activity["ac83522cf3b2423893b2d8feb2952e4e<br/>NABIN-033 Unified Activity & History"]
+        Home --> Notifications["774e06e5abec4305abd74ce8fd3cd459<br/>NABIN-039 Notifications Hub"]
+        Home --> Profile["4787dd61b6184401a0e992869d8476ce<br/>NABIN-043 Customer Profile"]
+        Profile --> SavedAddresses["4f915e269ef1476e983eabbc9fbbd5e1<br/>NABIN-044 Saved Addresses"]
+        Profile --> Wallet["f12158b4317f40ec8ae284eeff0f06f7<br/>NABIN-045 Payment & Wallet"]
+        Profile --> Favourites["0d45d4e686014b3dbd55e5cb5c9a493d<br/>NABIN-046 Favourites"]
+        Profile --> Support["acce6e05294645429a0d825ff861f28a<br/>NABIN-053 Help & Support"]
+    end
+
+    subgraph ServiceLaunchPad [Inner Service Launchers]
+        Home -->|Tap Ride Tile| RideModule["RIDE MODULE (15895521349027986707)<br/>RIDE-001 Ride Home"]
+        Home -->|Tap Food Tile| FoodModule["FOOD MODULE (7613683360643688164)<br/>FOOD-001 Food Home"]
+        Home -->|Tap Grocery Tile| GroceryModule["GROCERY MODULE (7916514387823717414)<br/>GROCERY-001 Grocery Home"]
+        Home -->|Tap Parcel Tile| ParcelModule["PARCEL MODULE (14684086286758455985)<br/>PARCEL-001 Parcel Home"]
+    end

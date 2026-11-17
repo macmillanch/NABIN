@@ -1,0 +1,17 @@
+flowchart TD
+    GroceryHome["GROCERY-001: da50adee7ce0408d8b6ddfb33f936ba0<br/>Grocery Kirana Home"] --> StoreDiscovery["GROCERY-006: a081b4be1df34c2599b8f1c461228e6a<br/>Store Discovery"]
+    StoreDiscovery --> StoreDetails["GROCERY-007: fd2581658a4541588816f041142fa61f<br/>Store Details & Catalog"]
+    StoreDetails --> ProductDetails["GROCERY-010: f103e8d2be3b4c0f975c673ed773ff71<br/>Retail Product SKU Details"]
+    ProductDetails --> DedicatedCart["GROCERY-012: 469e5e2bdb5b4462b494299d826cb09c<br/>Dedicated Grocery Cart"]
+    DedicatedCart --> SubstitutionPref["GROCERY-013: 9dbcd63114604a1794101c7b44daa624<br/>Out-of-Stock Substitution Rules"]
+    SubstitutionPref --> DeliverySlot["GROCERY-016: a341fadde5ec455899f1057c62b43892<br/>Express vs. Scheduled Slot Selection"]
+    DeliverySlot --> GroceryCheckout["GROCERY-018: e35d18e4efde4c9f9b6a754bcfb9e2ff<br/>Item-Level GST (0%, 5%, 12%, 18%, 28%) Checkout"]
+    GroceryCheckout --> StoreAcceptance["GROCERY-020: baded7e82b2c421ba83d5d4c35736848<br/>Store Acceptance"]
+    StoreAcceptance --> PickingProgress["GROCERY-021: c92bbc55c04a440eb1feb6b210bbc11c<br/>Live Kirana Picking Progress"]
+    PickingProgress --> PackedOrder["GROCERY-023: 5a59b34596b24088a9aadb33d40d6b11<br/>Packed Order & Delivery Partner Dispatched"]
+    PackedOrder --> LiveTracking["GROCERY-024: 55b8d9b34a2d4a0fbe12eb1ad9a144b3<br/>Live Order Tracking"]
+    LiveTracking --> Handover["GROCERY-025: 7c8e5ad79a8d489497959f6ff8178a91<br/>Delivery Handover (OTP)"]
+    Handover --> Delivered["GROCERY-026: 338f92e3434c426e8ec348d017e37ad5<br/>Order Delivered & GSTR-1 Tax Invoice"]
+
+    PickingProgress -->|Item Missing| Replacement["GROCERY-022: bcf9e89861fd44e394d4438c4dfe147c<br/>Customer Replacement Approval Modal"]
+    Replacement --> PickingProgress

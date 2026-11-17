@@ -1,0 +1,20 @@
+flowchart TD
+    RideEntry["RIDE-001: 512117cb16164a56beb457a7d7a99024<br/>Ride Home & Discovery"] --> LocationSearch["RIDE-002: 688fd04399b64356a631baa12842799d<br/>Location Search & Suggestions"]
+    LocationSearch --> MapPin["RIDE-003: 36fc851cdb4943f897f2299cc0455cf0<br/>Map Pin Adjustment & Pickup Confirmation"]
+    MapPin --> CategoryFare["RIDE-004: b73eb74d974f46eda03b93df688f5fc9<br/>Category Selection & Route Fare Comparison"]
+    
+    CategoryFare -->|Regular Ride| Checkout["RIDE-007: e0bd329f376e48c9b06fbac8e1eedaab<br/>Checkout & Itemized Fare"]
+    CategoryFare -->|Rentals Mode| Rentals["RIDE-005: dc7dff8f57c14871959d821dba64fd71<br/>Hourly/Daily Packages"]
+    CategoryFare -->|Shared Mode| Shared["RIDE-006: 83b947e406114449b85b3acc0c400954<br/>Shared Ride Specialized Booking"]
+    Rentals --> Checkout
+    Shared --> Checkout
+
+    Checkout --> DriverSearch["RIDE-008: 1203a0534ba74a6896048004b68d5246<br/>Live Radar Driver Search & Matching"]
+    DriverSearch --> DriverAssigned["RIDE-009: 20042be00ea840cf93d58d2c67d6bf3c<br/>Driver Assigned & Approaching Pickup (4-Digit OTP)"]
+    DriverAssigned --> ActiveTrip["RIDE-010: c712907be8ef42d4b655745a834c20de<br/>Active Trip in Progress & Destination ETA"]
+    ActiveTrip --> TripComplete["RIDE-011: 5b7bc73c7b074913b08d7e9ce24fb6b4<br/>Digital Receipt & Driver Rating"]
+    TripComplete --> RideHistory["RIDE-012: ca81dbd628a5475f97647545d1f5c4e6<br/>Ride History & Activity Log"]
+
+    DriverAssigned --> DriverChat["RIDE-016: e0e9ff3583204e59ae9663a88d5d5740<br/>In-App Driver Chat"]
+    ActiveTrip --> SafetyShield["RIDE-013: 542196bc27f543559ead3866c04be9a8<br/>SOS Emergency & Safety Shield Center"]
+    DriverAssigned --> Cancellation["RIDE-014: 894e824b60e745758113c0c88ce781ea<br/>Cancellation & Refund Policy"]

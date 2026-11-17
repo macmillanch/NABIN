@@ -1,0 +1,16 @@
+flowchart TD
+    FoodHome["FOOD-001: b8bdeeb9ccd64edb8284b89e6e72be4d<br/>Food Home & Discovery"] --> CuisineDiscovery["FOOD-005: 5472b450bded4001afcd1523dda8a6dc<br/>Cuisine & Category Discovery"]
+    CuisineDiscovery --> RestaurantList["FOOD-006: ad6a1bc2c1b7457899595e3d0261adb7<br/>Restaurant Listing"]
+    RestaurantList --> RestaurantMenu["FOOD-007: 6f8d99bb47244ffd8ced05a5a2801474<br/>Restaurant Details & Menu"]
+    RestaurantMenu --> DishCustomization["FOOD-008: 753a3cb778c94f739a27b8f79fff5e29<br/>Dish Details, Veg/Non-Veg & Spice Customization"]
+    DishCustomization --> FoodCart["FOOD-009: efd1c1bd2dc14078a98d5310ff316bee<br/>Food Cart (Section 9(5) 5% GST Breakdown)"]
+    FoodCart --> OrderReview["FOOD-013: b1d4071a3a9a4eacb0c79a9d7eb4e48c<br/>Order Review & Checkout"]
+    OrderReview --> OrderPlaced["FOOD-014: e329aac2b03c415b86c845a6eee6b197<br/>Order Placed & Kitchen Handshake"]
+    OrderPlaced --> KitchenPrep["FOOD-016: b774189f5f6b411998f323c96c8d5355<br/>Kitchen KOT Preparation Tracking"]
+    KitchenPrep --> RiderAssigned["FOOD-017: b7d578b0855c494fb5797844ae9a3148<br/>Delivery Partner Assigned & En Route"]
+    RiderAssigned --> LiveTracking["FOOD-018: c4297b7e95f14db0bf7d2b2cc55700b3<br/>Live GPS Order Tracking"]
+    LiveTracking --> Delivered["FOOD-020: 875faa4319864682a99ddfc6fa62770f<br/>Food Order Delivered & Thermal Invoice"]
+    Delivered --> Rating["FOOD-021: fe7c7496f6ce4ea7848bf0fae3c490c5<br/>Ratings & Restaurant Reviews"]
+
+    RiderAssigned --> RiderChat["FOOD-019: 17871950dbb648ef818162d5d18cb2ae<br/>Customer & Rider In-App Chat"]
+    OrderPlaced --> Cancellation["FOOD-024: 7b97f9e0f848421a89c7fba74d09ee76<br/>Food Order Cancellation"]
