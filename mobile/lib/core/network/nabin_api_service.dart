@@ -105,6 +105,42 @@ class NabinApiService {
     }
   }
 
+  /// Register new Merchant Partner
+  static Future<Map<String, dynamic>?> registerMerchant({
+    required String name,
+    required String phone,
+    required String address,
+    required double lat,
+    required double lng,
+    String businessType = 'RESTAURANT',
+    String? fssaiLicense,
+  }) async {
+    try {
+      final client = HttpClient();
+      final request = await client.postUrl(Uri.parse('$effectiveUrl/merchant/register'));
+      request.headers.set('content-type', 'application/json');
+      request.add(utf8.encode(jsonEncode({
+        'name': name,
+        'phone': phone,
+        'address': address,
+        'lat': lat,
+        'lng': lng,
+        'businessType': businessType,
+        if (fssaiLicense != null && fssaiLicense.isNotEmpty) 'fssaiLicense': fssaiLicense,
+      })));
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (body.isEmpty) return {'success': false, 'statusCode': response.statusCode};
+      final decoded = jsonDecode(body);
+      if (decoded is Map<String, dynamic>) {
+        return {...decoded, 'statusCode': response.statusCode};
+      }
+      return {'success': false, 'statusCode': response.statusCode};
+    } catch (e) {
+      return {'success': false, 'error': e.toString()};
+    }
+  }
+
   static Future<Map<String, dynamic>?> getPlatformFeatures() async {
     try {
       final client = HttpClient();
