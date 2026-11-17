@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+
+<html class="h-full" lang="en"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" name="viewport"/><meta content="mobile_stack" name="shell-type"/><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet"/><style>@layer base{html,body{width:100%;margin:0;padding:0;}body{overscroll-behavior-y:none;}.pb-safe{padding-bottom:env(safe-area-inset-bottom,0px);}.pt-safe{padding-top:env(safe-area-inset-top,0px);}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config = { darkMode: "class", theme: { extend: { "colors": { "on-surface-variant": "#444653", "outline-variant": "#c5c5d5", "error-container": "#ffdad6", "inverse-surface": "#2d3134", "on-background": "#181c1f", "on-tertiary-container": "#4cca6c", "on-error-container": "#93000a", "secondary-fixed-dim": "#ffb59b", "surface-tint": "#3a56bd", "on-tertiary-fixed": "#002109", "surface-container-low": "#f2f4f8", "on-secondary-fixed": "#380d00", "tertiary": "#003813", "on-primary-fixed": "#001452", "primary-fixed-dim": "#b7c4ff", "surface": "#f7f9fd", "surface-variant": "#e0e3e6", "secondary-container": "#fc6b32", "inverse-on-surface": "#eff1f5", "secondary-fixed": "#ffdbcf", "inverse-primary": "#b7c4ff", "on-tertiary": "#ffffff", "surface-container-high": "#e6e8ec", "surface-container-highest": "#e0e3e6", "tertiary-fixed-dim": "#62df7d", "surface-dim": "#d8dade", "surface-container-lowest": "#ffffff", "on-secondary-container": "#5c1a00", "tertiary-container": "#005120", "on-surface": "#181c1f", "on-primary-fixed-variant": "#1c3da4", "surface-container": "#eceef2", "primary-fixed": "#dde1ff", "tertiary-fixed": "#7ffc97", "on-secondary": "#ffffff", "on-error": "#ffffff", "on-secondary-fixed-variant": "#812800", "primary": "#00247f", "on-primary": "#ffffff", "error": "#ba1a1a", "background": "#f7f9fd", "on-tertiary-fixed-variant": "#005320", "outline": "#757684", "primary-container": "#1a3ba2", "secondary": "#a93700", "surface-bright": "#f7f9fd", "on-primary-container": "#9cafff" }, "borderRadius": { "DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px" }, "spacing": { "margin-mobile": "1rem", "gutter": "1rem", "space-md": "1rem", "space-xs": "0.25rem", "gutter-kds": "1.25rem", "margin": "1.5rem", "space-xl": "2rem", "space-sm": "0.5rem", "space-lg": "1.5rem" }, "fontFamily": { "label-md": ["Inter"], "label-lg": ["Inter"], "body-md": ["Inter"], "label-sm": ["Inter"], "headline-md": ["Inter"], "headline-lg": ["Inter"], "headline-xl": ["Inter"], "body-sm": ["Inter"], "headline-xl-mobile": ["Inter"], "body-lg": ["Inter"], "headline-lg-mobile": ["Inter"], "headline-sm": ["Inter"], "ticket-mono": ["Inter"] }, "fontSize": { "label-md": ["13px", { "lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "600" }], "label-lg": ["15px", { "lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600" }], "body-md": ["15px", { "lineHeight": "22px", "fontWeight": "400" }], "label-sm": ["11px", { "lineHeight": "14px", "letterSpacing": "0.04em", "fontWeight": "700" }], "headline-md": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }], "headline-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.015em", "fontWeight": "700" }], "headline-xl": ["40px", { "lineHeight": "48px", "letterSpacing": "-0.02em", "fontWeight": "700" }], "body-sm": ["13px", { "lineHeight": "18px", "fontWeight": "400" }], "headline-xl-mobile": ["30px", { "lineHeight": "38px", "letterSpacing": "-0.02em", "fontWeight": "700" }], "body-lg": ["18px", { "lineHeight": "26px", "fontWeight": "500" }], "headline-lg-mobile": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "700" }], "headline-sm": ["20px", { "lineHeight": "28px", "fontWeight": "600" }], "ticket-mono": ["16px", { "lineHeight": "20px", "letterSpacing": "0.05em", "fontWeight": "700" }] } } } };</script><style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head><body class="bg-background text-on-surface min-h-full flex flex-col font-body-md"><header class="fixed top-0 w-full z-50 pt-safe bg-surface/90 backdrop-blur-xl shadow-[0_1px_8px_rgba(0,0,0,0.04)]"><div class="h-16 px-margin-mobile flex items-center justify-between gap-space-sm"><div class="flex items-center gap-space-xs min-w-0"><button aria-label="Go Back" class="min-h-[44px] min-w-[44px] w-11 h-11 flex items-center justify-center rounded-full text-on-surface hover:bg-surface-container transition-colors" onclick="history.back()" type="button"><span class="material-symbols-outlined text-[24px]">arrow_back</span></button><img alt="nabin-icon-primary-192.png" class="h-7 w-auto object-contain flex-shrink-0" src="https://lh3.googleusercontent.com/aida/ALJJyrCTdp3uQlj1WEfbLaNul4jOVx9bLaPCickvf6jmMYIcgT0Dcg7scdiyYcenxu6gWsr9pQoUH2ealX0ppYFChKRsrSROV4GAWIufXLB4Kqk0tya-g8WVkLGo8G2JXdmV2FtyqNKN4nVrii5a0BrRU8tprEgBBKpA-1TjJ2dpdkwTdVThxJC8MtB1oJnLbkoTQdgVrALpqrvijqcpjjvt0XuvSBGWqqksC2TXzI9_ZrXfqDX6mvsypJ2Uq74"/><div class="flex flex-col min-w-0 pl-1"><span class="text-body-sm font-body-sm text-on-surface-variant truncate">NABIN Demo Restaurant</span><h1 class="text-label-lg font-label-lg text-on-surface truncate">Edit Menu Item</h1></div></div><div class="flex items-center gap-space-xs flex-shrink-0"><button aria-label="Contextual Action" class="min-h-[44px] min-w-[44px] w-11 h-11 flex items-center justify-center rounded-full text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors" type="button"><span class="material-symbols-outlined text-[22px]">more_vert</span></button><button aria-label="Merchant Profile" class="min-h-[44px] min-w-[44px] flex items-center justify-center p-1 rounded-full hover:bg-surface-container transition-colors" type="button"><img alt="Profile" class="w-8 h-8 rounded-full object-cover" src="https://lh3.googleusercontent.com/aida/ALJJyrD7CdH9drOcwljFpMkdcCYO4FWfU1sYSv3rBCMCvnlz46b3_yZLypJ2zZNf896C1lLJZqnPqVZRulZpFAVb56OVtaPnhiJxUc9YUDOg8AlWiHQjv82HG7gDsVvLpDT9LLmGP79FbRkY6NhGhNA1_NimXYEMCIdimx75j--dMt2bmRUNNYv9UUR6AE3FctStnpUIArD2IJyYZ2i4lepHWcMtkMaGGUjctd5DQ4rJEGenQAm7sQeIX1Rowfw"/></button></div></div></header><main class="flex flex-col flex-1 w-full bg-background pt-16 pb-safe px-margin-mobile"><div class="flex flex-col w-full pb-24">
+<!-- Sub-header / Screen Header Context -->
+<div class="flex items-center justify-between gap-space-sm py-space-sm mb-space-sm">
+<div class="flex items-center gap-space-xs min-w-0">
+<span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-primary-fixed text-on-primary-fixed">
+<span class="material-symbols-outlined text-[18px]">restaurant_menu</span>
+</span>
+<div class="min-w-0">
+<h2 class="text-headline-sm font-headline-sm text-on-surface truncate">Menu Categories</h2>
+<p class="text-body-sm font-body-sm text-on-surface-variant">Live sync to NABIN Customer Super-App</p>
+</div>
+</div>
+<button class="flex-shrink-0 min-h-[44px] px-space-md py-space-xs rounded-xl bg-primary-container text-on-primary flex items-center gap-1 shadow-sm active:scale-95 transition-transform" onclick="openNewCategoryModal()" type="button">
+<span class="material-symbols-outlined text-[20px]">add</span>
+<span class="text-label-md font-label-md">New Category</span>
+</button>
+</div>
+<!-- Metric Summary Bento Strip -->
+<div class="grid grid-cols-2 gap-space-sm mb-space-md">
+<div class="bg-surface-container-lowest p-space-md rounded-xl shadow-sm flex items-center justify-between">
+<div class="flex flex-col min-w-0">
+<span class="text-body-sm font-body-sm text-on-surface-variant">Active Visibility</span>
+<div class="flex items-baseline gap-1 mt-0.5">
+<span class="text-headline-md font-headline-md text-on-surface">7</span>
+<span class="text-label-sm font-label-sm text-tertiary-container">Online Now</span>
+</div>
+</div>
+<div class="w-10 h-10 rounded-full bg-tertiary-fixed flex items-center justify-center text-on-tertiary-fixed flex-shrink-0">
+<span class="material-symbols-outlined text-[22px]">visibility</span>
+</div>
+</div>
+<div class="bg-surface-container-lowest p-space-md rounded-xl shadow-sm flex items-center justify-between">
+<div class="flex flex-col min-w-0">
+<span class="text-body-sm font-body-sm text-on-surface-variant">Hidden / Scheduled</span>
+<div class="flex items-baseline gap-1 mt-0.5">
+<span class="text-headline-md font-headline-md text-secondary">1</span>
+<span class="text-label-sm font-label-sm text-on-surface-variant">Timed</span>
+</div>
+</div>
+<div class="w-10 h-10 rounded-full bg-secondary-fixed flex items-center justify-center text-on-secondary-fixed flex-shrink-0">
+<span class="material-symbols-outlined text-[22px]">schedule</span>
+</div>
+</div>
+</div>
+<!-- Informational / Delight Helper Banner -->
+<div class="bg-primary-fixed/60 p-space-md rounded-xl mb-space-md flex items-start gap-space-sm">
+<span class="material-symbols-outlined text-primary text-[22px] mt-0.5 flex-shrink-0">drag_indicator</span>
+<div class="flex-1 min-w-0">
+<p class="text-label-md font-label-md text-on-primary-fixed">Dynamic Customer Order</p>
+<p class="text-body-sm font-body-sm text-on-surface-variant mt-0.5">Drag handles to rearrange guest tabs and category ordering on the NABIN Customer Super-App.</p>
+</div>
+<span class="px-2 py-0.5 text-label-sm font-label-sm rounded-full bg-surface-container-lowest text-primary shadow-xs">Live</span>
+</div>
+<!-- Category List (Interactive Drag Reorder Mock) -->
+<div class="flex flex-col gap-space-sm" id="category-list">
+<!-- Card 1 -->
+<div class="category-card bg-surface-container-lowest rounded-xl p-space-md shadow-sm transition-all flex flex-col gap-space-sm" data-id="cat-1">
+<div class="flex items-start justify-between gap-space-sm">
+<div class="flex items-start gap-space-sm min-w-0 flex-1">
+<button aria-label="Reorder Handle" class="drag-handle touch-none mt-1 min-w-[36px] min-h-[36px] flex items-center justify-center rounded-lg text-outline hover:text-on-surface hover:bg-surface-container transition-colors cursor-grab active:cursor-grabbing" type="button">
+<span class="material-symbols-outlined text-[22px]">drag_indicator</span>
+</button>
+<div class="flex flex-col min-w-0 flex-1">
+<div class="flex items-center gap-space-xs flex-wrap">
+<h3 class="text-label-lg font-label-lg text-on-surface truncate">Momos & Tibetan Delicacies</h3>
+<span class="px-2 py-0.5 rounded-full bg-surface-container text-on-surface-variant text-label-sm font-label-sm">14 Items</span>
+</div>
+<div class="flex items-center gap-space-xs flex-wrap mt-1">
+<span class="inline-flex items-center gap-1 text-label-sm font-label-sm px-2 py-0.5 rounded-full bg-tertiary-fixed text-on-tertiary-fixed">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary-container"></span>
+                Always Active
+              </span>
+<span class="inline-flex items-center gap-1 text-body-sm font-body-sm text-on-surface-variant">
+<span class="material-symbols-outlined text-[16px] text-outline">soup_kitchen</span>
+                Wok & Steam Station
+              </span>
+</div>
+</div>
+</div>
+<!-- Controls: Toggle & Menu -->
+<div class="flex items-center gap-space-xs flex-shrink-0">
+<label class="relative inline-flex items-center cursor-pointer min-h-[44px]">
+<input checked="" class="sr-only peer" onchange="toggleCategory(this, 'cat-1')" type="checkbox"/>
+<div class="w-11 h-6 bg-surface-variant peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[14px] after:left-[2px] after:bg-surface-container-lowest after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-container"></div>
+</label>
+<div class="relative">
+<button aria-label="Category Options" class="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-full text-on-surface-variant hover:bg-surface-container transition-colors" onclick="toggleDropdown('menu-1')" type="button">
+<span class="material-symbols-outlined text-[20px]">more_vert</span>
+</button>
+<div class="hidden absolute right-0 mt-1 w-44 bg-surface-container-lowest shadow-xl rounded-xl z-30 p-1" id="menu-1">
+<button class="w-full text-left px-3 py-2 text-label-md font-label-md text-on-surface rounded-lg hover:bg-surface-container flex items-center gap-2" type="button">
+<span class="material-symbols-outlined text-[18px]">edit</span> Edit Details
+              </button>
+<button class="w-full text-left px-3 py-2 text-label-md font-label-md text-on-surface rounded-lg hover:bg-surface-container flex items-center gap-2" type="button">
+<span class="material-symbols-outlined text-[18px]">receipt_long</span> Manage Tax
+              </button>
+<button class="w-full text-left px-3 py-2 text-label-md font-label-md text-error rounded-lg hover:bg-error-container flex items-center gap-2" type="button">
+<span class="material-symbols-outlined text-[18px]">delete</span> Delete
+              </button>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Card 2 -->
+<div class="category-card bg-surface-container-lowest rounded-xl p-space-md shadow-sm transition-all flex flex-col gap-space-sm" data-id="cat-2">
+<div class="flex items-start justify-between gap-space-sm">
+<div class="flex items-start gap-space-sm min-w-0 flex-1">
+<button aria-label="Reorder Handle" class="drag-handle touch-none mt-1 min-w-[36px] min-h-[36px] flex items-center justify-center rounded-lg text-outline hover:text-on-surface hover:bg-surface-container transition-colors cursor-grab active:cursor-grabbing" type="button">
+<span class="material-symbols-outlined text-[22px]">drag_indicator</span>
+</button>
+<div class="flex flex-col min-w-0 flex-1">
+<div class="flex items-center gap-space-xs flex-wrap">
+<h3 class="text-label-lg font-label-lg text-on-surface truncate">Biryani & Pulao Bowls</h3>
+<span class="px-2 py-0.5 rounded-full bg-surface-container text-on-surface-variant text-label-sm font-label-sm">12 Items</span>
+</div>
+<div class="flex items-center gap-space-xs flex-wrap mt-1">
+<span class="inline-flex items-center gap-1 text-label-sm font-label-sm px-2 py-0.5 rounded-full bg-tertiary-fixed text-on-tertiary-fixed">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary-container"></span>
+                Always Active
+              </span>
+<span class="inline-flex items-center gap-1 text-body-sm font-body-sm text-on-surface-variant">
+<span class="material-symbols-outlined text-[16px] text-outline">outdoor_grill</span>
+                Handi Section
+              </span>
+</div>
+</div>
+</div>
+<div class="flex items-center gap-space-xs flex-shrink-0">
+<label class="relative inline-flex items-center cursor-pointer min-h-[44px]">
+<input checked="" class="sr-only peer" onchange="toggleCategory(this, 'cat-2')" type="checkbox"/>
+<div class="w-11 h-6 bg-surface-variant peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[14px] after:left-[2px] after:bg-surface-container-lowest after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-container"></div>
+</label>
+<div class="relative">
+<button aria-label="Category Options" class="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-full text-on-surface-variant hover:bg-surface-container transition-colors" onclick="toggleDropdown('menu-2')" type="button">
+<span class="material-symbols-outlined text-[20px]">more_vert</span>
+</button>
+<div class="hidden absolute right-0 mt-1 w-44 bg-surface-container-lowest shadow-xl rounded-xl z-30 p-1" id="menu-2">
+<button class="w-full text-left px-3 py-2 text-label-md font-label-md text-on-surface rounded-lg hover:bg-surface-container flex items-center gap-2" type="button">
+<span class="material-symbols-outlined text-[18px]">edit</span> Edit Details
+              </button>
+<button class="w-full text-left px-3 py-2 text-label-md font-label-md text-on-surface rounded-lg hover:bg-surface-container flex items-center gap-2" type="button">
+<span class="material-symbols-outlined text-[18px]">receipt_long</span> Manage Tax
+              </button>
+<button class="w-full text-left px-3 py-2 text-label-md font-label-md text-error rounded-lg hover:bg-error-container flex items-center gap-2" type="button">
+<span class="material-symbols-outlined text-[18px]">delete</span> Delete
+              </button>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Card 3 -->
+<div class="category-card bg-surface-container-lowest rounded-xl p-space-md shadow-sm transition-all flex flex-col gap-space-sm" data-id="cat-3">
+<div class="flex items-start justify-between gap-space-sm">
+<div class="flex items-start gap-space-sm min-w-0 flex-1">
+<button aria-label="Reorder Handle" class="drag-handle touch-none mt-1 min-w-[36px] min-h-[36px] flex items-center justify-center rounded-lg text-outline hover:text-on-surface hover:bg-surface-container transition-colors cursor-grab active:cursor-grabbing" type="button">
+<span class="material-symbols-outlined text-[22px]">drag_indicator</span>
+</button>
+<div class="flex flex-col min-w-0 flex-1">
+<div class="flex items-center gap-space-xs flex-wrap">
+<h3 class="text-label-lg font-label-lg text-on-surface truncate">Tandoori Breads & Naan</h3>
+<span class="px-2 py-0.5 rounded-full bg-surface-container text-on-surface-variant text-label-sm font-label-sm">8 Items</span>
+</div>
+<div class="flex items-center gap-space-xs flex-wrap mt-1">
+<span class="inline-flex items-center gap-1 text-label-sm font-label-sm px-2 py-0.5 rounded-full bg-primary-fixed text-on-primary-fixed">
+<span class="material-symbols-outlined text-[14px]">lunch_dining</span>
+                Active (Dinner & Lunch)
+              </span>
+<span class="inline-flex items-center gap-1 text-body-sm font-body-sm text-on-surface-variant">
+<span class="material-symbols-outlined text-[16px] text-outline">bakery_dining</span>
+                Clay Oven #1
+              </span>
+</div>
+</div>
+</div>
+<div class="flex items-center gap-space-xs flex-shrink-0">
+<label class="relative inline-flex items-center cursor-pointer min-h-[44px]">
+<input checked="" class="sr-only peer" onchange="toggleCategory(this, 'cat-3')" type="checkbox"/>
+<div class="w-11 h-6 bg-surface-variant peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[14px] after:left-[2px] after:bg-surface-container-lowest after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-container"></div>
+</label>
+<div class="relative">
+<button aria-label="Category Options" class="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-full text-on-surface-variant hover:bg-surface-container transition-colors" onclick="toggleDropdown('menu-3')" type="button">
+<span class="material-symbols-outlined text-[20px]">more_vert</span>
+</button>
+<div class="hidden absolute right-0 mt-1 w-44 bg-surface-container-lowest shadow-xl rounded-xl z-30 p-1" id="menu-3">
+<button class="w-full text-left px-3 py-2 text-label-md font-label-md text-on-surface rounded-lg hover:bg-surface-container flex items-center gap-2" type="button">
+<span class="material-symbols-outlined text-[18px]">edit</span> Edit Details
+              </button>
+<button class="w-full text-left px-3 py-2 text-label-md font-label-md text-on-surface rounded-lg hover:bg-surface-container flex items-center gap-2" type="button">
+<span class="material-symbols-outlined text-[18px]">receipt_long</span> Manage Tax
+              </button>
+<button class="w-full text-left px-3 py-2 text-label-md font-label-md text-error rounded-lg hover:bg-error-container flex items-center gap-2" type="button">
+<span class="material-symbols-outlined text-[18px]">delete</span> Delete
+              </button>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Card 4 -->
+<div class="category-card bg-surface-container-lowest rounded-xl p-space-md shadow-sm transition-all flex flex-col gap-space-sm" data-id="cat-4">
+<div class="flex items-start justify-between gap-space-sm">
+<div class="flex items-start gap-space-sm min-w-0 flex-1">
+<button aria-label="Reorder Handle" class="drag-handle touch-none mt-1 min-w-[36px] min-h-[36px] flex items-center justify-center rounded-lg text-outline hover:text-on-surface hover:bg-surface-container transition-colors cursor-grab active:cursor-grabbing" type="button">
+<span class="material-symbols-outlined text-[22px]">drag_indicator</span>
+</button>
+<div class="flex flex-col min-w-0 flex-1">
+<div class="flex items-center gap-space-xs flex-wrap">
+<h3 class="text-label-lg font-label-lg text-on-surface truncate">Curries & Dal Specials</h3>
+<span class="px-2 py-0.5 rounded-full bg-surface-container text-on-surface-variant text-label-sm font-label-sm">18 Items</span>
+</div>
+<div class="flex items-center gap-space-xs flex-wrap mt-1">
+<span class="inline-flex items-center gap-1 text-label-sm font-label-sm px-2 py-0.5 rounded-full bg-tertiary-fixed text-on-tertiary-fixed">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary-container"></span>
+                Always Active
+              </span>
+<span class="inline-flex items-center gap-1 text-body-sm font-body-sm text-on-surface-variant">
+<span class="material-symbols-outlined text-[16px] text-outline">skillet</span>
+                Curry Line
+              </span>
+</div>
+</div>
+</div>
+<div class="flex items-center gap-space-xs flex-shrink-0">
+<label class="relative inline-flex items-center cursor-pointer min-h-[44px]">
+<input checked="" class="sr-only peer" onchange="toggleCategory(this, 'cat-4')" type="checkbox"/>
+<div class="w-11 h-6 bg-surface-variant peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[14px] after:left-[2px] after:bg-surface-container-lowest after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-container"></div>
+</label>
+<div class="relative">
+<button aria-label="Category Options" class="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-full text-on-surface-variant hover:bg-surface-container transition-colors" onclick="toggleDropdown('menu-4')" type="button">
+<span class="material-symbols-outlined text-[20px]">more_vert</span>
+</button>
+<div class="hidden absolute right-0 mt-1 w-44 bg-surface-container-lowest shadow-xl rounded-xl z-30 p-1" id="menu-4">
+<button class="w-full text-left px-3 py-2 text-label-md font-label-md text-on-surface rounded-lg hover:bg-surface-container flex items-center gap-2" type="button">
+<span class="material-symbols-outlined text-[18px]">edit</span> Edit Details
+              </button>
+<button class="w-full text-left px-3 py-2 text-label-md font-label-md text-on-surface rounded-lg hover:bg-surface-container flex items-center gap-2" type="button">
+<span class="material-symbols-outlined text-[18px]">receipt_long</span> Manage Tax
+              </button>
+<button class="w-full text-left px-3 py-2 text-label-md font-label-md text-error rounded-lg hover:bg-error-container flex items-center gap-2" type="button">
+<span class="material-symbols-outlined text-[18px]">delete</span> Delete
+              </button>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Card 5 -->
+<div class="category-card bg-surface-container-lowest rounded-xl p-space-md shadow-sm transition-all flex flex-col gap-space-sm" data-id="cat-5">
+<div class="flex items-start justify-between gap-space-sm">
+<div class="flex items-start gap-space-sm min-w-0 flex-1">
+<button aria-label="Reorder Handle" class="drag-handle touch-none mt-1 min-w-[36px] min-h-[36px] flex items-center justify-center rounded-lg text-outline hover:text-on-surface hover:bg-surface-container transition-colors cursor-grab active:cursor-grabbing" type="button">
+<span class="material-symbols-outlined text-[22px]">drag_indicator</span>
+</button>
+<div class="flex flex-col min-w-0 flex-1">
+<div class="flex items-center gap-space-xs flex-wrap">
+<h3 class="text-label-lg font-label-lg text-on-surface truncate">Cold Beverages & Lassi</h3>
+<span class="px-2 py-0.5 rounded-full bg-surface-container text-on-surface-variant text-label-sm font-label-sm">16 Items</span>
+</div>
+<div class="flex items-center gap-space-xs flex-wrap mt-1">
+<span class="inline-flex items-center gap-1 text-label-sm font-label-sm px-2 py-0.5 rounded-full bg-tertiary-fixed text-on-tertiary-fixed">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary-container"></span>
+                Always Active
+              </span>
+<span class="inline-flex items-center gap-1 text-body-sm font-body-sm text-on-surface-variant">
+<span class="material-symbols-outlined text-[16px] text-outline">local_bar</span>
+                Cold Bar Station
+              </span>
+</div>
+</div>
+</div>
+<div class="flex items-center gap-space-xs flex-shrink-0">
+<label class="relative inline-flex items-center cursor-pointer min-h-[44px]">
+<input checked="" class="sr-only peer" onchange="toggleCategory(this, 'cat-5')" type="checkbox"/>
+<div class="w-11 h-6 bg-surface-variant peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[14px] after:left-[2px] after:bg-surface-container-lowest after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-container"></div>
+</label>
+<div class="relative">
+<button aria-label="Category Options" class="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-full text-on-surface-variant hover:bg-surface-container transition-colors" onclick="toggleDropdown('menu-5')" type="button">
+<span class="material-symbols-outlined text-[20px]">more_vert</span>
+</button>
+<div class="hidden absolute right-0 mt-1 w-44 bg-surface-container-lowest shadow-xl rounded-xl z-30 p-1" id="menu-5">
+<button class="w-full text-left px-3 py-2 text-label-md font-label-md text-on-surface rounded-lg hover:bg-surface-container flex items-center gap-2" type="button">
+<span class="material-symbols-outlined text-[18px]">edit</span> Edit Details
+              </button>
+<button class="w-full text-left px-3 py-2 text-label-md font-label-md text-on-surface rounded-lg hover:bg-surface-container flex items-center gap-2" type="button">
+<span class="material-symbols-outlined text-[18px]">receipt_long</span> Manage Tax
+              </button>
+<button class="w-full text-left px-3 py-2 text-label-md font-label-md text-error rounded-lg hover:bg-error-container flex items-center gap-2" type="button">
+<span class="material-symbols-outlined text-[18px]">delete</span> Delete
+              </button>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Card 6 -->
+<div class="category-card bg-surface-container-lowest rounded-xl p-space-md shadow-sm transition-all flex flex-col gap-space-sm" data-id="cat-6">
+<div class="flex items-start justify-between gap-space-sm">
+<div class="flex items-start gap-space-sm min-w-0 flex-1">
+<button aria-label="Reorder Handle" class="drag-handle touch-none mt-1 min-w-[36px] min-h-[36px] flex items-center justify-center rounded-lg text-outline hover:text-on-surface hover:bg-surface-container transition-colors cursor-grab active:cursor-grabbing" type="button">
+<span class="material-symbols-outlined text-[22px]">drag_indicator</span>
+</button>
+<div class="flex flex-col min-w-0 flex-1">
+<div class="flex items-center gap-space-xs flex-wrap">
+<h3 class="text-label-lg font-label-lg text-on-surface truncate">Chef Special Thali Combos</h3>
+<span class="px-2 py-0.5 rounded-full bg-surface-container text-on-surface-variant text-label-sm font-label-sm">9 Items</span>
+</div>
+<div class="flex items-center gap-space-xs flex-wrap mt-1">
+<span class="inline-flex items-center gap-1 text-label-sm font-label-sm px-2 py-0.5 rounded-full bg-secondary-fixed text-on-secondary-fixed">
+<span class="material-symbols-outlined text-[14px]">timer</span>
+                Active 11:30 - 15:30 only
+              </span>
+<span class="inline-flex items-center gap-1 text-body-sm font-body-sm text-on-surface-variant">
+<span class="material-symbols-outlined text-[16px] text-outline">countertops</span>
+                Assembly Bay
+              </span>
+</div>
+</div>
+</div>
+<div class="flex items-center gap-space-xs flex-shrink-0">
+<label class="relative inline-flex items-center cursor-pointer min-h-[44px]">
+<input checked="" class="sr-only peer" onchange="toggleCategory(this, 'cat-6')" type="checkbox"/>
+<div class="w-11 h-6 bg-surface-variant peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[14px] after:left-[2px] after:bg-surface-container-lowest after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-container"></div>
+</label>
+<div class="relative">
+<button aria-label="Category Options" class="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-full text-on-surface-variant hover:bg-surface-container transition-colors" onclick="toggleDropdown('menu-6')" type="button">
+<span class="material-symbols-outlined text-[20px]">more_vert</span>
+</button>
+<div class="hidden absolute right-0 mt-1 w-44 bg-surface-container-lowest shadow-xl rounded-xl z-30 p-1" id="menu-6">
+<button class="w-full text-left px-3 py-2 text-label-md font-label-md text-on-surface rounded-lg hover:bg-surface-container flex items-center gap-2" type="button">
+<span class="material-symbols-outlined text-[18px]">edit</span> Edit Details
+              </button>
+<button class="w-full text-left px-3 py-2 text-label-md font-label-md text-on-surface rounded-lg hover:bg-surface-container flex items-center gap-2" type="button">
+<span class="material-symbols-outlined text-[18px]">receipt_long</span> Manage Tax
+              </button>
+<button class="w-full text-left px-3 py-2 text-label-md font-label-md text-error rounded-lg hover:bg-error-container flex items-center gap-2" type="button">
+<span class="material-symbols-outlined text-[18px]">delete</span> Delete
+              </button>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Card 7 (Inactive / Scheduled) -->
+<div class="category-card bg-surface-container-low rounded-xl p-space-md shadow-sm transition-all flex flex-col gap-space-sm opacity-90" data-id="cat-7">
+<div class="flex items-start justify-between gap-space-sm">
+<div class="flex items-start gap-space-sm min-w-0 flex-1">
+<button aria-label="Reorder Handle" class="drag-handle touch-none mt-1 min-w-[36px] min-h-[36px] flex items-center justify-center rounded-lg text-outline hover:text-on-surface hover:bg-surface-container transition-colors cursor-grab active:cursor-grabbing" type="button">
+<span class="material-symbols-outlined text-[22px]">drag_indicator</span>
+</button>
+<div class="flex flex-col min-w-0 flex-1">
+<div class="flex items-center gap-space-xs flex-wrap">
+<h3 class="text-label-lg font-label-lg text-on-surface truncate">Late Night Snacks</h3>
+<span class="px-2 py-0.5 rounded-full bg-surface-container-high text-on-surface-variant text-label-sm font-label-sm">8 Items</span>
+</div>
+<div class="flex items-center gap-space-xs flex-wrap mt-1">
+<span class="inline-flex items-center gap-1 text-label-sm font-label-sm px-2 py-0.5 rounded-full bg-surface-container-highest text-on-surface-variant">
+<span class="material-symbols-outlined text-[14px]">bedtime</span>
+                Inactive (Auto-activates 22:00)
+              </span>
+<span class="inline-flex items-center gap-1 text-body-sm font-body-sm text-on-surface-variant">
+<span class="material-symbols-outlined text-[16px] text-outline">tune</span>
+                App & KDS Scheduled
+              </span>
+</div>
+</div>
+</div>
+<div class="flex items-center gap-space-xs flex-shrink-0">
+<label class="relative inline-flex items-center cursor-pointer min-h-[44px]">
+<input class="sr-only peer" onchange="toggleCategory(this, 'cat-7')" type="checkbox"/>
+<div class="w-11 h-6 bg-surface-variant peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[14px] after:left-[2px] after:bg-surface-container-lowest after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-container"></div>
+</label>
+<div class="relative">
+<button aria-label="Category Options" class="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-full text-on-surface-variant hover:bg-surface-container transition-colors" onclick="toggleDropdown('menu-7')" type="button">
+<span class="material-symbols-outlined text-[20px]">more_vert</span>
+</button>
+<div class="hidden absolute right-0 mt-1 w-44 bg-surface-container-lowest shadow-xl rounded-xl z-30 p-1" id="menu-7">
+<button class="w-full text-left px-3 py-2 text-label-md font-label-md text-on-surface rounded-lg hover:bg-surface-container flex items-center gap-2" type="button">
+<span class="material-symbols-outlined text-[18px]">edit</span> Edit Details
+              </button>
+<button class="w-full text-left px-3 py-2 text-label-md font-label-md text-on-surface rounded-lg hover:bg-surface-container flex items-center gap-2" type="button">
+<span class="material-symbols-outlined text-[18px]">receipt_long</span> Manage Tax
+              </button>
+<button class="w-full text-left px-3 py-2 text-label-md font-label-md text-error rounded-lg hover:bg-error-container flex items-center gap-2" type="button">
+<span class="material-symbols-outlined text-[18px]">delete</span> Delete
+              </button>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Operational Toast / Feedback Notification -->
+<div class="fixed bottom-24 left-1/2 -translate-x-1/2 bg-inverse-surface text-inverse-on-surface px-space-md py-space-sm rounded-xl shadow-xl z-50 flex items-center gap-2 opacity-0 pointer-events-none transition-opacity duration-300" id="save-toast">
+<span class="material-symbols-outlined text-tertiary-fixed text-[20px]">check_circle</span>
+<span class="text-label-md font-label-md">Category Order Saved & Synced!</span>
+</div>
+<!-- Bottom Floating Action Bar -->
+<div class="fixed bottom-0 left-0 right-0 p-space-md bg-surface/95 backdrop-blur-md shadow-xl flex items-center justify-center z-40 max-w-lg mx-auto">
+<button class="w-full min-h-[52px] bg-primary-container text-on-primary rounded-xl flex items-center justify-center gap-2 text-label-lg font-label-lg shadow-md hover:bg-primary active:scale-[0.98] transition-all" onclick="saveCategoryOrder()" type="button">
+<span class="material-symbols-outlined text-[22px]">swap_vert</span>
+      Reorder Categories & Save Layout
+    </button>
+</div>
+</div>
+<script>
+  function toggleDropdown(menuId) {
+    const target = document.getElementById(menuId);
+    document.querySelectorAll('[id^="menu-"]').forEach(el => {
+      if (el.id !== menuId) el.classList.add('hidden');
+    });
+    if (target) {
+      target.classList.toggle('hidden');
+    }
+  }
+
+  document.addEventListener('click', function(e) {
+    if (!e.target.closest('[id^="menu-"]') && !e.target.closest('button[onclick^="toggleDropdown"]')) {
+      document.querySelectorAll('[id^="menu-"]').forEach(el => el.classList.add('hidden'));
+    }
+  });
+
+  function toggleCategory(checkbox, id) {
+    const card = document.querySelector(`[data-id="${id}"]`);
+    if (!card) return;
+    if (checkbox.checked) {
+      card.classList.remove('opacity-60');
+      showQuickFeedback('Category visible in app');
+    } else {
+      card.classList.add('opacity-60');
+      showQuickFeedback('Category paused from app');
+    }
+  }
+
+  function saveCategoryOrder() {
+    const toast = document.getElementById('save-toast');
+    if (!toast) return;
+    toast.classList.remove('opacity-0', 'pointer-events-none');
+    toast.classList.add('opacity-100');
+    setTimeout(() => {
+      toast.classList.add('opacity-0', 'pointer-events-none');
+      toast.classList.remove('opacity-100');
+    }, 2400);
+  }
+
+  function showQuickFeedback(msg) {
+    const toast = document.getElementById('save-toast');
+    if (!toast) return;
+    toast.querySelector('span:last-child').textContent = msg;
+    toast.classList.remove('opacity-0', 'pointer-events-none');
+    toast.classList.add('opacity-100');
+    setTimeout(() => {
+      toast.classList.add('opacity-0', 'pointer-events-none');
+      toast.classList.remove('opacity-100');
+      toast.querySelector('span:last-child').textContent = 'Category Order Saved & Synced!';
+    }, 2000);
+  }
+
+  function openNewCategoryModal() {
+    showQuickFeedback('Opening Category Creator');
+  }
+
+  // Touch and Mouse Reorder micro-interactions
+  (function initCategoryReorder() {
+    const list = document.getElementById('category-list');
+    let draggedItem = null;
+
+    list.addEventListener('mousedown', (e) => {
+      const handle = e.target.closest('.drag-handle');
+      if (!handle) return;
+      draggedItem = handle.closest('.category-card');
+      if (draggedItem) {
+        draggedItem.classList.add('bg-surface-container', 'scale-[1.02]');
+      }
+    });
+
+    document.addEventListener('mouseup', () => {
+      if (draggedItem) {
+        draggedItem.classList.remove('bg-surface-container', 'scale-[1.02]');
+        draggedItem = null;
+      }
+    });
+  })();
+</script></main></body></html>

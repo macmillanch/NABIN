@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+
+<html lang="en"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" name="viewport"/><meta content="mobile_stack" name="shell-type"/><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet"/><style>@layer base{html,body{width:100vw;margin:0;padding:0;background-color:#f7f9fd;}body{overscroll-behavior:none;-webkit-tap-highlight-color:transparent;}.pb-safe{padding-bottom:env(safe-area-inset-bottom,0px);}.pt-safe{padding-top:env(safe-area-inset-top,0px);}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config = { darkMode: "class", theme: { extend: { "colors": { "on-error": "#ffffff", "on-tertiary-fixed-variant": "#005320", "secondary": "#a93700", "inverse-on-surface": "#eff1f5", "on-surface": "#181c1f", "outline-variant": "#c5c5d5", "on-surface-variant": "#444653", "surface-variant": "#e0e3e6", "on-primary-fixed": "#001452", "on-secondary": "#ffffff", "primary-fixed": "#dde1ff", "on-secondary-container": "#5c1a00", "secondary-container": "#fc6b32", "primary": "#00247f", "tertiary-fixed-dim": "#62df7d", "tertiary-fixed": "#7ffc97", "surface-dim": "#d8dade", "error-container": "#ffdad6", "surface-container-highest": "#e0e3e6", "secondary-fixed": "#ffdbcf", "inverse-primary": "#b7c4ff", "surface": "#f7f9fd", "on-tertiary-container": "#4cca6c", "primary-fixed-dim": "#b7c4ff", "surface-bright": "#f7f9fd", "inverse-surface": "#2d3134", "surface-container-high": "#e6e8ec", "surface-container": "#eceef2", "on-primary": "#ffffff", "primary-container": "#1a3ba2", "tertiary": "#003813", "tertiary-container": "#005120", "on-tertiary-fixed": "#002109", "on-background": "#181c1f", "on-tertiary": "#ffffff", "error": "#ba1a1a", "on-secondary-fixed-variant": "#812800", "outline": "#757684", "on-secondary-fixed": "#380d00", "on-primary-container": "#9cafff", "surface-tint": "#3a56bd", "surface-container-low": "#f2f4f8", "secondary-fixed-dim": "#ffb59b", "surface-container-lowest": "#ffffff", "on-primary-fixed-variant": "#1c3da4", "on-error-container": "#93000a", "background": "#f7f9fd" }, "borderRadius": { "DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px" }, "spacing": { "space-sm": "0.5rem", "space-lg": "1.5rem", "space-xl": "2rem", "margin-mobile": "1rem", "space-xs": "0.25rem", "gutter-kds": "1.25rem", "space-md": "1rem", "gutter": "1rem", "margin": "1.5rem" }, "fontFamily": { "label-lg": ["Inter"], "body-lg": ["Inter"], "body-md": ["Inter"], "ticket-mono": ["Inter"], "headline-lg": ["Inter"], "headline-sm": ["Inter"], "body-sm": ["Inter"], "headline-lg-mobile": ["Inter"], "headline-xl": ["Inter"], "headline-xl-mobile": ["Inter"], "headline-md": ["Inter"], "label-sm": ["Inter"], "label-md": ["Inter"] }, "fontSize": { "label-lg": ["15px", { "lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600" }], "body-lg": ["18px", { "lineHeight": "26px", "fontWeight": "500" }], "body-md": ["15px", { "lineHeight": "22px", "fontWeight": "400" }], "ticket-mono": ["16px", { "lineHeight": "20px", "letterSpacing": "0.05em", "fontWeight": "700" }], "headline-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.015em", "fontWeight": "700" }], "headline-sm": ["20px", { "lineHeight": "28px", "fontWeight": "600" }], "body-sm": ["13px", { "lineHeight": "18px", "fontWeight": "400" }], "headline-lg-mobile": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "700" }], "headline-xl": ["40px", { "lineHeight": "48px", "letterSpacing": "-0.02em", "fontWeight": "700" }], "headline-xl-mobile": ["30px", { "lineHeight": "38px", "letterSpacing": "-0.02em", "fontWeight": "700" }], "headline-md": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }], "label-sm": ["11px", { "lineHeight": "14px", "letterSpacing": "0.04em", "fontWeight": "700" }], "label-md": ["13px", { "lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "600" }] } } } };</script><style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head><body class="bg-surface font-body-md text-body-md text-on-surface flex flex-col min-h-screen"><header class="fixed top-0 w-full z-50 bg-surface/85 backdrop-blur-xl pt-safe shadow-[0_1px_8px_rgba(0,0,0,0.04)]"><div class="h-16 px-margin-mobile flex items-center justify-between gap-space-sm"><div class="flex items-center gap-space-xs"><button aria-label="Go Back" class="w-11 h-11 flex items-center justify-center rounded-lg text-on-surface hover:bg-surface-container-high transition-colors" onclick="history.back()" type="button"><span class="material-symbols-outlined text-[24px]">arrow_back</span></button><img alt="nabin-icon-primary-192.png" class="h-8 w-auto object-contain" src="https://lh3.googleusercontent.com/aida/ALJJyrCTdp3uQlj1WEfbLaNul4jOVx9bLaPCickvf6jmMYIcgT0Dcg7scdiyYcenxu6gWsr9pQoUH2ealX0ppYFChKRsrSROV4GAWIufXLB4Kqk0tya-g8WVkLGo8G2JXdmV2FtyqNKN4nVrii5a0BrRU8tprEgBBKpA-1TjJ2dpdkwTdVThxJC8MtB1oJnLbkoTQdgVrALpqrvijqcpjjvt0XuvSBGWqqksC2TXzI9_ZrXfqDX6mvsypJ2Uq74"/><span class="font-headline-sm text-headline-sm text-primary tracking-tight ml-space-xs hidden xs:inline-block">NABIN</span></div><div class="flex-1 text-center px-space-xs truncate"><h1 class="font-label-lg text-label-lg text-on-surface truncate">Thermal Slip Preview</h1></div><div class="flex items-center gap-space-xs"><button aria-label="Help & Diagnostics" class="w-11 h-11 flex items-center justify-center rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-colors relative" type="button"><span class="material-symbols-outlined text-[22px]">help_outline</span><span class="absolute top-2.5 right-2.5 w-2 h-2 rounded-full bg-secondary ring-2 ring-surface"></span></button><div class="flex items-center justify-center pl-space-xs"><img alt="Profile" class="w-8 h-8 rounded-full object-cover ring-1 ring-outline-variant/30" src="https://lh3.googleusercontent.com/aida/ALJJyrD7CdH9drOcwljFpMkdcCYO4FWfU1sYSv3rBCMCvnlz46b3_yZLypJ2zZNf896C1lLJZqnPqVZRulZpFAVb56OVtaPnhiJxUc9YUDOg8AlWiHQjv82HG7gDsVvLpDT9LLmGP79FbRkY6NhGhNA1_NimXYEMCIdimx75j--dMt2bmRUNNYv9UUR6AE3FctStnpUIArD2IJyYZ2i4lepHWcMtkMaGGUjctd5DQ4rJEGenQAm7sQeIX1Rowfw"/></div></div></div></header><main class="flex flex-col relative w-full pt-16 pb-safe bg-surface min-h-screen"><div class="flex flex-col w-full">
+<!-- Content Canvas -->
+<div class="px-margin-mobile py-space-md flex flex-col gap-space-lg max-w-xl mx-auto w-full">
+<!-- Top Configuration Bar: Document Types & Paper Specs -->
+<section class="flex flex-col gap-space-sm">
+<div class="flex items-center justify-between">
+<span class="font-label-sm text-label-sm uppercase tracking-wider text-on-surface-variant flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[15px] text-primary">receipt_long</span>
+          Template Selector
+        </span>
+<!-- Paper Width & Target Hardware Indicator -->
+<div class="inline-flex items-center gap-1.5 bg-surface-container-high px-2.5 py-1 rounded-full">
+<span class="w-2 h-2 rounded-full bg-on-tertiary-container animate-pulse"></span>
+<span class="font-label-sm text-label-sm text-on-surface truncate max-w-[210px]">58mm TVS RP-3150 (Front Counter)</span>
+</div>
+</div>
+<!-- Segmented Control for Document Preset -->
+<div class="grid grid-cols-3 p-1 bg-surface-container rounded-xl gap-1">
+<button class="py-2.5 px-2 rounded-lg font-label-md text-label-md transition-all text-center flex flex-col items-center justify-center bg-surface-container-lowest text-primary shadow-sm font-semibold" id="tab-tax-inv" type="button">
+<span>Tax Invoice</span>
+<span class="font-label-sm text-label-sm opacity-75 font-normal text-[10px]">Govt Compliant</span>
+</button>
+<button class="py-2.5 px-2 rounded-lg font-label-md text-label-md transition-all text-center flex flex-col items-center justify-center text-on-surface-variant hover:text-on-surface font-normal" id="tab-guest-check" type="button">
+<span>Guest Check</span>
+<span class="font-label-sm text-label-sm opacity-60 font-normal text-[10px]">Pre-bill audit</span>
+</button>
+<button class="py-2.5 px-2 rounded-lg font-label-md text-label-md transition-all text-center flex flex-col items-center justify-center text-on-surface-variant hover:text-on-surface font-normal" id="tab-bay-slip" type="button">
+<span>Delivery Slip</span>
+<span class="font-label-sm text-label-sm opacity-60 font-normal text-[10px]">Dispatch bag</span>
+</button>
+</div>
+</section>
+<!-- Visual Interactive Thermal Receipt Preview -->
+<section class="flex flex-col">
+<div class="flex items-center justify-between pb-space-xs">
+<div class="flex items-center gap-1.5">
+<span class="font-label-sm text-label-sm uppercase tracking-wider text-on-surface-variant">Live Printhead Preview</span>
+<span class="bg-primary-fixed text-on-primary-fixed px-1.5 py-0.5 rounded text-[10px] font-semibold">58mm Thermal</span>
+</div>
+<button class="font-label-sm text-label-sm text-primary flex items-center gap-1 hover:underline" id="toggle-zoom-btn" type="button">
+<span class="material-symbols-outlined text-[16px]">visibility</span>
+<span>100% Scale</span>
+</button>
+</div>
+<!-- Thermal Paper Outer Skeuomorphic Chamber -->
+<div class="relative bg-surface-container-high p-3 rounded-2xl shadow-inner flex justify-center">
+<!-- Paper Top Cutter Shadow Deck -->
+<div class="absolute top-1 left-6 right-6 h-1.5 bg-surface-variant/70 rounded-full blur-[1px]"></div>
+<!-- Realistic Thermal Slip Card -->
+<article class="w-full max-w-[340px] bg-white rounded-sm shadow-md text-slate-900 font-mono text-[11px] leading-[15px] select-none transition-all duration-300 relative" id="thermal-receipt">
+<!-- Top Perforation Notch Graphic -->
+<div class="w-full h-3 bg-surface-container-high rounded-t-sm flex items-center justify-between px-2 overflow-hidden opacity-30">
+<span class="w-1.5 h-1.5 rounded-full bg-slate-900"></span>
+<span class="w-full border-t border-dashed border-slate-900 mx-1"></span>
+<span class="w-1.5 h-1.5 rounded-full bg-slate-900"></span>
+</div>
+<div class="p-4 flex flex-col gap-2">
+<!-- Header Section -->
+<div class="text-center flex flex-col items-center" id="receipt-header-branding">
+<!-- Monochrome Logo Preview -->
+<div class="w-full flex justify-center pt-1 pb-1" id="preview-logo-wrapper">
+<div class="w-16 h-8 bg-slate-900 rounded-t-full rounded-b-none flex items-center justify-center text-white font-bold text-[13px] tracking-wider">
+<span class="tracking-tighter">∩ nabin</span>
+</div>
+</div>
+<h2 class="font-ticket-mono text-[14px] leading-tight font-bold text-slate-900 tracking-wide mt-1">HIMALAYAN FLAVORS</h2>
+<p class="text-[10px] text-slate-700">Durbar Marg Flagship - Kathmandu</p>
+<p class="text-[10px] text-slate-800 italic mt-0.5" id="preview-header-greeting">Authentic Mountain Dining</p>
+<div class="text-[9px] text-slate-600 mt-1">
+<p>PAN: 609123849 | FSSAI: 10021022000492</p>
+</div>
+</div>
+<!-- Invoice Document Classification Banner -->
+<div class="text-center py-1 bg-slate-100 rounded-sm">
+<span class="font-ticket-mono text-[11px] font-bold tracking-wider text-slate-900" id="preview-doc-title">TAX INVOICE / CASH RECEIPT</span>
+</div>
+<!-- Metadata Key-Values -->
+<div class="text-[10px] leading-[14px] text-slate-700 flex flex-col gap-0.5">
+<div class="flex justify-between">
+<span>Bill: <strong class="text-slate-900">INV-2024-88421</strong></span>
+<span>24 Oct, 19:45</span>
+</div>
+<div class="flex justify-between">
+<span>Order: <strong class="text-slate-900">#NB-4825</strong></span>
+<span class="bg-slate-200 px-1 text-[9px] font-semibold text-slate-800 rounded">NABIN Delivery</span>
+</div>
+<div class="truncate text-slate-800 font-medium">Cust: Ananya S. (+977 98012-XXXXX)</div>
+</div>
+<!-- Line Items Separator -->
+<div class="text-slate-400 font-mono tracking-widest text-center -my-1">----------------------------------------</div>
+<!-- Table Column Headers -->
+<div class="flex justify-between font-bold text-[10px] text-slate-900 tracking-tight">
+<span class="flex-1">ITEM</span>
+<span class="w-8 text-center">QTY</span>
+<span class="w-12 text-right">RATE</span>
+<span class="w-14 text-right">AMT</span>
+</div>
+<div class="text-slate-400 font-mono tracking-widest text-center -my-1">----------------------------------------</div>
+<!-- Itemized Rows -->
+<div class="flex flex-col gap-1.5 text-[10px] text-slate-800">
+<div class="flex justify-between items-start">
+<div class="flex-1 pr-1 font-medium leading-tight">Chicken Dum Biryani</div>
+<div class="w-8 text-center">2</div>
+<div class="w-12 text-right">220.00</div>
+<div class="w-14 text-right font-bold text-slate-900">440.00</div>
+</div>
+<div class="flex justify-between items-start">
+<div class="flex-1 pr-1 font-medium leading-tight">Paneer Butter Masala</div>
+<div class="w-8 text-center">1</div>
+<div class="w-12 text-right">220.00</div>
+<div class="w-14 text-right font-bold text-slate-900">220.00</div>
+</div>
+<div class="flex justify-between items-start">
+<div class="flex-1 pr-1 font-medium leading-tight">Egg Hakka Noodles</div>
+<div class="w-8 text-center">2</div>
+<div class="w-12 text-right">90.00</div>
+<div class="w-14 text-right font-bold text-slate-900">180.00</div>
+</div>
+</div>
+<div class="text-slate-400 font-mono tracking-widest text-center -my-1">----------------------------------------</div>
+<!-- Calculation Subtotals -->
+<div class="flex flex-col gap-0.5 text-[10px] text-slate-700">
+<div class="flex justify-between">
+<span>Subtotal (5 items)</span>
+<span>₹840.00</span>
+</div>
+<div class="flex justify-between">
+<span>Packaging Eco-charge</span>
+<span>₹25.00</span>
+</div>
+<div class="flex justify-between">
+<span>CGST (2.5%)</span>
+<span>₹21.00</span>
+</div>
+<div class="flex justify-between">
+<span>SGST (2.5%)</span>
+<span>₹21.00</span>
+</div>
+</div>
+<div class="text-slate-400 font-mono tracking-widest text-center -my-1">----------------------------------------</div>
+<!-- Total Amount Due Highlight -->
+<div class="flex justify-between items-baseline py-0.5">
+<span class="font-ticket-mono text-[13px] font-bold text-slate-900">TOTAL DUE</span>
+<span class="font-ticket-mono text-[16px] font-bold text-slate-900">₹907.00</span>
+</div>
+<div class="text-center font-bold text-[9px] bg-slate-100 py-0.5 rounded text-slate-800">
+              STATUS: PAID ONLINE (UPI / NABIN PAY)
+            </div>
+<div class="text-slate-400 font-mono tracking-widest text-center -my-1">----------------------------------------</div>
+<!-- Footer Message & Review QR -->
+<div class="flex flex-col items-center text-center gap-1.5 pt-0.5">
+<p class="text-[9px] text-slate-800 font-medium">Thank you for dining with Himalayan Flavors!</p>
+<p class="text-[9px] text-slate-600" id="preview-social-footer">Follow us @himalayanflavors | WiFi: flavors2024</p>
+<!-- Dynamic QR Code Container -->
+<div class="flex flex-col items-center mt-1" id="preview-qr-section">
+<div class="p-1.5 bg-slate-900 rounded-sm inline-block">
+<!-- Micro QR representation -->
+<div class="w-16 h-16 bg-white grid grid-cols-4 gap-0.5 p-1">
+<span class="bg-slate-900"></span><span class="bg-slate-900"></span><span class="bg-white"></span><span class="bg-slate-900"></span>
+<span class="bg-slate-900"></span><span class="bg-white"></span><span class="bg-slate-900"></span><span class="bg-slate-900"></span>
+<span class="bg-white"></span><span class="bg-slate-900"></span><span class="bg-slate-900"></span><span class="bg-white"></span>
+<span class="bg-slate-900"></span><span class="bg-slate-900"></span><span class="bg-white"></span><span class="bg-slate-900"></span>
+</div>
+</div>
+<span class="text-[8px] text-slate-500 mt-1 uppercase tracking-tight">Scan for GST e-Invoice & Review</span>
+</div>
+<div class="text-[8px] text-slate-500 pt-0.5">
+                NABIN Cloud KDS Terminal #4 - v2.4.9
+              </div>
+</div>
+</div>
+<!-- Sawtooth Paper Tear Effect at Bottom -->
+<div class="w-full h-2.5 overflow-hidden flex items-start" style="background: radial-gradient(circle, transparent, transparent 50%, #ffffff 50%, #ffffff 100%); background-size: 8px 8px;"></div>
+</article>
+</div>
+</section>
+<!-- Configuration Settings Panels -->
+<section class="flex flex-col gap-space-md">
+<div class="flex items-center justify-between">
+<h2 class="font-headline-sm text-headline-sm text-on-surface">Template Configuration</h2>
+<span class="font-label-sm text-label-sm text-on-surface-variant">Merchant RM-043</span>
+</div>
+<!-- Module 1: Branding -->
+<div class="bg-surface-container-lowest p-space-md rounded-xl shadow-sm flex flex-col gap-space-sm">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-primary text-[20px]">storefront</span>
+<div>
+<p class="font-label-md text-label-md text-on-surface">Header & Logo Presentation</p>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Monochrome bitmap top banner</p>
+</div>
+</div>
+<!-- Toggle -->
+<label class="relative inline-flex items-center cursor-pointer">
+<input checked="" class="sr-only peer" id="toggle-logo" type="checkbox"/>
+<div class="w-11 h-6 bg-surface-container-high peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
+</label>
+</div>
+<div class="flex flex-col gap-1.5 pt-space-xs">
+<label class="font-label-sm text-label-sm text-on-surface-variant" for="input-greeting">Custom Header Greeting Line</label>
+<div class="relative flex items-center">
+<input class="w-full h-11 px-3 bg-surface-container-low rounded-lg text-on-surface font-body-md text-body-md focus:bg-white focus:outline-none focus:ring-0" id="input-greeting" type="text" value="Authentic Mountain Dining"/>
+</div>
+</div>
+</div>
+<!-- Module 2: Legal & Tax Compliance -->
+<div class="bg-surface-container-lowest p-space-md rounded-xl shadow-sm flex flex-col gap-space-sm">
+<div class="flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-secondary text-[20px]">gavel</span>
+<div>
+<p class="font-label-md text-label-md text-on-surface">Tax Compliance & Legal Line</p>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Verified by NABIN Merchant Compliance</p>
+</div>
+</div>
+<div class="grid grid-cols-2 gap-space-sm pt-space-xs">
+<div class="flex flex-col gap-1">
+<span class="font-label-sm text-label-sm text-on-surface-variant">PAN / VAT Registry</span>
+<div class="h-10 px-3 bg-surface-container rounded-lg flex items-center justify-between text-on-surface font-body-sm text-body-sm opacity-90">
+<span class="font-mono font-medium">609123849</span>
+<span class="material-symbols-outlined text-[16px] text-tertiary">lock</span>
+</div>
+</div>
+<div class="flex flex-col gap-1">
+<span class="font-label-sm text-label-sm text-on-surface-variant">FSSAI License</span>
+<div class="h-10 px-3 bg-surface-container rounded-lg flex items-center justify-between text-on-surface font-body-sm text-body-sm opacity-90">
+<span class="font-mono font-medium">10021022000492</span>
+<span class="material-symbols-outlined text-[16px] text-tertiary">lock</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Module 3: Footer & Social Engagements -->
+<div class="bg-surface-container-lowest p-space-md rounded-xl shadow-sm flex flex-col gap-space-sm">
+<div class="flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-primary text-[20px]">chat_bubble_outline</span>
+<div>
+<p class="font-label-md text-label-md text-on-surface">Footer Greeting & Amenities</p>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Guest Wi-Fi, instagram handle, loyalty</p>
+</div>
+</div>
+<div class="flex flex-col gap-1.5 pt-space-xs">
+<label class="font-label-sm text-label-sm text-on-surface-variant" for="input-social">Footer Message Text</label>
+<input class="w-full h-11 px-3 bg-surface-container-low rounded-lg text-on-surface font-body-md text-body-md focus:bg-white focus:outline-none" id="input-social" type="text" value="Follow us @himalayanflavors | WiFi: flavors2024"/>
+</div>
+<div class="pt-space-xs flex items-center justify-between">
+<div class="flex flex-col">
+<span class="font-label-md text-label-md text-on-surface">Auto-embed Feedback QR</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant">Google Reviews + NABIN Diner Score</span>
+</div>
+<label class="relative inline-flex items-center cursor-pointer">
+<input checked="" class="sr-only peer" id="toggle-qr" type="checkbox"/>
+<div class="w-11 h-6 bg-surface-container-high peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
+</label>
+</div>
+</div>
+</section>
+<!-- Operational Sticky Bottom Actions -->
+<section class="flex flex-col gap-space-sm pt-space-xs pb-space-lg">
+<div class="flex flex-col sm:flex-row gap-space-sm">
+<!-- Print Test Receipt Trigger -->
+<button class="w-full h-12 bg-primary hover:bg-primary-container text-on-primary rounded-xl font-label-lg text-label-lg flex items-center justify-center gap-2 shadow-md active:scale-[0.98] transition-all" id="btn-print-sample" type="button">
+<span class="material-symbols-outlined text-[20px]">print</span>
+<span>Print Sample Receipt</span>
+</button>
+<!-- Save Config Trigger -->
+<button class="w-full h-12 bg-surface-container-lowest text-on-surface hover:bg-surface-container rounded-xl font-label-lg text-label-lg flex items-center justify-center gap-2 active:scale-[0.98] transition-all" id="btn-save-template" type="button">
+<span class="material-symbols-outlined text-[20px] text-primary">bookmark_added</span>
+<span>Save Receipt Setup</span>
+</button>
+</div>
+<!-- Feedback Toast Area -->
+<div class="hidden transition-all duration-300 transform translate-y-1 bg-tertiary text-on-tertiary px-4 py-2.5 rounded-xl shadow-lg flex items-center justify-between" id="status-toast">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[18px]">check_circle</span>
+<span class="font-label-md text-label-md" id="toast-message">Template settings synced to 58mm printer.</span>
+</div>
+<button class="opacity-70 hover:opacity-100" onclick="document.getElementById('status-toast').classList.add('hidden')" type="button">
+<span class="material-symbols-outlined text-[16px]">close</span>
+</button>
+</div>
+</section>
+</div>
+</div>
+<script>
+  // Dynamic Live Preview Reactivity
+  const greetingInput = document.getElementById('input-greeting');
+  const greetingPreview = document.getElementById('preview-header-greeting');
+  const socialInput = document.getElementById('input-social');
+  const socialPreview = document.getElementById('preview-social-footer');
+  const toggleLogo = document.getElementById('toggle-logo');
+  const logoWrapper = document.getElementById('preview-logo-wrapper');
+  const toggleQr = document.getElementById('toggle-qr');
+  const qrSection = document.getElementById('preview-qr-section');
+  const toast = document.getElementById('status-toast');
+  const toastMsg = document.getElementById('toast-message');
+
+  greetingInput.addEventListener('input', (e) => {
+    greetingPreview.textContent = e.target.value.trim() || 'Authentic Dining Experience';
+  });
+
+  socialInput.addEventListener('input', (e) => {
+    socialPreview.textContent = e.target.value.trim() || '';
+  });
+
+  toggleLogo.addEventListener('change', (e) => {
+    logoWrapper.style.display = e.target.checked ? 'flex' : 'none';
+  });
+
+  toggleQr.addEventListener('change', (e) => {
+    qrSection.style.display = e.target.checked ? 'flex' : 'none';
+  });
+
+  // Document Type Tabs Interaction
+  const tabs = [
+    { id: 'tab-tax-inv', title: 'TAX INVOICE / CASH RECEIPT' },
+    { id: 'tab-guest-check', title: 'GUEST CHECK (PRE-BILL)' },
+    { id: 'tab-bay-slip', title: 'DELIVERY BAY DISPATCH SLIP' }
+  ];
+
+  tabs.forEach(tab => {
+    const el = document.getElementById(tab.id);
+    if (!el) return;
+    el.addEventListener('click', () => {
+      // Clear active states
+      tabs.forEach(t => {
+        const item = document.getElementById(t.id);
+        item.className = 'py-2.5 px-2 rounded-lg font-label-md text-label-md transition-all text-center flex flex-col items-center justify-center text-on-surface-variant hover:text-on-surface font-normal';
+      });
+      // Set active
+      el.className = 'py-2.5 px-2 rounded-lg font-label-md text-label-md transition-all text-center flex flex-col items-center justify-center bg-surface-container-lowest text-primary shadow-sm font-semibold';
+      document.getElementById('preview-doc-title').textContent = tab.title;
+    });
+  });
+
+  // Action Buttons
+  document.getElementById('btn-print-sample').addEventListener('click', () => {
+    toastMsg.textContent = 'Spooling sample slip to 58mm TVS RP-3150...';
+    toast.classList.remove('hidden');
+    setTimeout(() => {
+      toastMsg.textContent = 'Sample printed successfully!';
+      setTimeout(() => toast.classList.add('hidden'), 2500);
+    }, 1500);
+  });
+
+  document.getElementById('btn-save-template').addEventListener('click', () => {
+    toastMsg.textContent = 'Receipt layout & rules saved to POS profile.';
+    toast.classList.remove('hidden');
+    setTimeout(() => toast.classList.add('hidden'), 3000);
+  });
+</script></main></body></html>

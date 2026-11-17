@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+
+<html lang="en"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" name="viewport"/><meta content="mobile_stack" name="shell-type"/><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet"/><style>@layer base{html,body{width:100vw;margin:0;padding:0;background-color:#f7f9fd;}body{overscroll-behavior:none;-webkit-tap-highlight-color:transparent;}.pb-safe{padding-bottom:env(safe-area-inset-bottom,0px);}.pt-safe{padding-top:env(safe-area-inset-top,0px);}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config = { darkMode: "class", theme: { extend: { "colors": { "on-error": "#ffffff", "on-tertiary-fixed-variant": "#005320", "secondary": "#a93700", "inverse-on-surface": "#eff1f5", "on-surface": "#181c1f", "outline-variant": "#c5c5d5", "on-surface-variant": "#444653", "surface-variant": "#e0e3e6", "on-primary-fixed": "#001452", "on-secondary": "#ffffff", "primary-fixed": "#dde1ff", "on-secondary-container": "#5c1a00", "secondary-container": "#fc6b32", "primary": "#00247f", "tertiary-fixed-dim": "#62df7d", "tertiary-fixed": "#7ffc97", "surface-dim": "#d8dade", "error-container": "#ffdad6", "surface-container-highest": "#e0e3e6", "secondary-fixed": "#ffdbcf", "inverse-primary": "#b7c4ff", "surface": "#f7f9fd", "on-tertiary-container": "#4cca6c", "primary-fixed-dim": "#b7c4ff", "surface-bright": "#f7f9fd", "inverse-surface": "#2d3134", "surface-container-high": "#e6e8ec", "surface-container": "#eceef2", "on-primary": "#ffffff", "primary-container": "#1a3ba2", "tertiary": "#003813", "tertiary-container": "#005120", "on-tertiary-fixed": "#002109", "on-background": "#181c1f", "on-tertiary": "#ffffff", "error": "#ba1a1a", "on-secondary-fixed-variant": "#812800", "outline": "#757684", "on-secondary-fixed": "#380d00", "on-primary-container": "#9cafff", "surface-tint": "#3a56bd", "surface-container-low": "#f2f4f8", "secondary-fixed-dim": "#ffb59b", "surface-container-lowest": "#ffffff", "on-primary-fixed-variant": "#1c3da4", "on-error-container": "#93000a", "background": "#f7f9fd" }, "borderRadius": { "DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px" }, "spacing": { "space-sm": "0.5rem", "space-lg": "1.5rem", "space-xl": "2rem", "margin-mobile": "1rem", "space-xs": "0.25rem", "gutter-kds": "1.25rem", "space-md": "1rem", "gutter": "1rem", "margin": "1.5rem" }, "fontFamily": { "label-lg": ["Inter"], "body-lg": ["Inter"], "body-md": ["Inter"], "ticket-mono": ["Inter"], "headline-lg": ["Inter"], "headline-sm": ["Inter"], "body-sm": ["Inter"], "headline-lg-mobile": ["Inter"], "headline-xl": ["Inter"], "headline-xl-mobile": ["Inter"], "headline-md": ["Inter"], "label-sm": ["Inter"], "label-md": ["Inter"] }, "fontSize": { "label-lg": ["15px", { "lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600" }], "body-lg": ["18px", { "lineHeight": "26px", "fontWeight": "500" }], "body-md": ["15px", { "lineHeight": "22px", "fontWeight": "400" }], "ticket-mono": ["16px", { "lineHeight": "20px", "letterSpacing": "0.05em", "fontWeight": "700" }], "headline-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.015em", "fontWeight": "700" }], "headline-sm": ["20px", { "lineHeight": "28px", "fontWeight": "600" }], "body-sm": ["13px", { "lineHeight": "18px", "fontWeight": "400" }], "headline-lg-mobile": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "700" }], "headline-xl": ["40px", { "lineHeight": "48px", "letterSpacing": "-0.02em", "fontWeight": "700" }], "headline-xl-mobile": ["30px", { "lineHeight": "38px", "letterSpacing": "-0.02em", "fontWeight": "700" }], "headline-md": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }], "label-sm": ["11px", { "lineHeight": "14px", "letterSpacing": "0.04em", "fontWeight": "700" }], "label-md": ["13px", { "lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "600" }] } } } };</script><style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head><body class="bg-surface font-body-md text-body-md text-on-surface flex flex-col min-h-screen"><header class="fixed top-0 w-full z-50 bg-surface/85 backdrop-blur-xl pt-safe shadow-[0_1px_8px_rgba(0,0,0,0.04)]"><div class="h-16 px-margin-mobile flex items-center justify-between gap-space-sm"><div class="flex items-center gap-space-xs"><button aria-label="Go Back" class="w-11 h-11 flex items-center justify-center rounded-lg text-on-surface hover:bg-surface-container-high transition-colors" onclick="history.back()" type="button"><span class="material-symbols-outlined text-[24px]">arrow_back</span></button><img alt="nabin-icon-primary-192.png" class="h-8 w-auto object-contain" src="https://lh3.googleusercontent.com/aida/ALJJyrCTdp3uQlj1WEfbLaNul4jOVx9bLaPCickvf6jmMYIcgT0Dcg7scdiyYcenxu6gWsr9pQoUH2ealX0ppYFChKRsrSROV4GAWIufXLB4Kqk0tya-g8WVkLGo8G2JXdmV2FtyqNKN4nVrii5a0BrRU8tprEgBBKpA-1TjJ2dpdkwTdVThxJC8MtB1oJnLbkoTQdgVrALpqrvijqcpjjvt0XuvSBGWqqksC2TXzI9_ZrXfqDX6mvsypJ2Uq74"/><span class="font-headline-sm text-headline-sm text-primary tracking-tight ml-space-xs hidden xs:inline-block">NABIN</span></div><div class="flex-1 text-center px-space-xs truncate"><h1 class="font-label-lg text-label-lg text-on-surface truncate">Thermal Slip Preview</h1></div><div class="flex items-center gap-space-xs"><button aria-label="Help & Diagnostics" class="w-11 h-11 flex items-center justify-center rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-colors relative" type="button"><span class="material-symbols-outlined text-[22px]">help_outline</span><span class="absolute top-2.5 right-2.5 w-2 h-2 rounded-full bg-secondary ring-2 ring-surface"></span></button><div class="flex items-center justify-center pl-space-xs"><img alt="Profile" class="w-8 h-8 rounded-full object-cover ring-1 ring-outline-variant/30" src="https://lh3.googleusercontent.com/aida/ALJJyrD7CdH9drOcwljFpMkdcCYO4FWfU1sYSv3rBCMCvnlz46b3_yZLypJ2zZNf896C1lLJZqnPqVZRulZpFAVb56OVtaPnhiJxUc9YUDOg8AlWiHQjv82HG7gDsVvLpDT9LLmGP79FbRkY6NhGhNA1_NimXYEMCIdimx75j--dMt2bmRUNNYv9UUR6AE3FctStnpUIArD2IJyYZ2i4lepHWcMtkMaGGUjctd5DQ4rJEGenQAm7sQeIX1Rowfw"/></div></div></div></header><main class="flex flex-col relative w-full pt-16 pb-safe bg-surface min-h-screen"><div class="flex flex-col w-full px-margin-mobile pb-space-xl gap-space-md">
+<!-- Top Navigation & Thermal Format Selection Tabs -->
+<div class="flex flex-col gap-space-sm pt-space-xs">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-xs">
+<span class="w-2.5 h-2.5 rounded-full bg-tertiary-container animate-pulse"></span>
+<span class="font-label-sm text-label-sm text-on-surface-variant uppercase tracking-wider">Thermal Engine Online</span>
+</div>
+<div class="flex items-center gap-1 bg-surface-container-high px-2 py-0.5 rounded-full">
+<span class="material-symbols-outlined text-[14px] text-primary">print</span>
+<span class="font-label-sm text-label-sm text-primary font-semibold">EPSON TM-T88VI Ready</span>
+</div>
+</div>
+<!-- Scrollable Tab Strip -->
+<div class="flex items-center gap-space-xs overflow-x-auto pb-1 -mx-margin-mobile px-margin-mobile">
+<button class="whitespace-nowrap flex items-center gap-1.5 px-3 py-2 rounded-xl bg-primary text-on-primary font-label-md text-label-md shadow-sm transition-all" type="button">
+<span class="material-symbols-outlined text-[18px]">receipt_long</span>
+<span>80mm Main KOT (Kitchen)</span>
+</button>
+<button class="whitespace-nowrap flex items-center gap-1.5 px-3 py-2 rounded-xl bg-surface-container text-on-surface-variant font-label-md text-label-md hover:bg-surface-container-high transition-all" type="button">
+<span class="material-symbols-outlined text-[18px]">point_of_sale</span>
+<span>58mm Counter Bill</span>
+</button>
+<button class="whitespace-nowrap flex items-center gap-1.5 px-3 py-2 rounded-xl bg-surface-container text-on-surface-variant font-label-md text-label-md hover:bg-surface-container-high transition-all" type="button">
+<span class="material-symbols-outlined text-[18px]">local_shipping</span>
+<span>Delivery Handover Tag</span>
+</button>
+</div>
+<!-- Density & Layout Sub-Toggle -->
+<div class="bg-surface-container-high p-1 rounded-xl flex items-center justify-between">
+<button class="flex-1 py-1.5 px-2 rounded-lg bg-surface-container-lowest text-on-surface font-label-md text-label-md shadow-sm flex items-center justify-center gap-1 text-center transition-all" id="toggle-standard" onclick="switchDensity('standard')" type="button">
+<span class="material-symbols-outlined text-[16px] text-primary">view_stream</span>
+<span>Standard Grid</span>
+</button>
+<button class="flex-1 py-1.5 px-2 rounded-lg text-on-surface-variant font-label-md text-label-md flex items-center justify-center gap-1 text-center hover:text-on-surface transition-all" id="toggle-express" onclick="switchDensity('express')" type="button">
+<span class="material-symbols-outlined text-[16px]">bolt</span>
+<span>High Density Express</span>
+</button>
+</div>
+</div>
+<!-- Interactive 80mm Realistic Thermal Slip Preview Box -->
+<div class="flex flex-col items-center w-full">
+<div class="w-full flex items-center justify-between mb-1.5 px-1">
+<div class="flex items-center gap-1.5 text-on-surface-variant font-label-sm text-label-sm">
+<span class="material-symbols-outlined text-[16px] text-secondary">visibility</span>
+<span>LIVE ESC/POS PREVIEW (80mm Thermal Paper)</span>
+</div>
+<span class="font-label-sm text-label-sm text-primary font-bold">Zoom 100%</span>
+</div>
+<!-- Receipt Container with Serrated Zigzag Edge Effect -->
+<div class="relative w-full max-w-[340px] flex flex-col drop-shadow-md select-none transition-all">
+<!-- Top Serrated Edge SVG -->
+<div class="w-full h-3 overflow-hidden text-surface-container-lowest leading-none">
+<svg class="w-full h-full fill-current" preserveaspectratio="none" viewbox="0 0 340 10">
+<path d="M0,10 L5,0 L10,10 L15,0 L20,10 L25,0 L30,10 L35,0 L40,10 L45,0 L50,10 L55,0 L60,10 L65,0 L70,10 L75,0 L80,10 L85,0 L90,10 L95,0 L100,10 L105,0 L110,10 L115,0 L120,10 L125,0 L130,10 L135,0 L140,10 L145,0 L150,10 L155,0 L160,10 L165,0 L170,10 L175,0 L180,10 L185,0 L190,10 L195,0 L200,10 L205,0 L210,10 L215,0 L220,10 L225,0 L230,10 L235,0 L240,10 L245,0 L250,10 L255,0 L260,10 L265,0 L270,10 L275,0 L280,10 L285,0 L290,10 L295,0 L300,10 L305,0 L310,10 L315,0 L320,10 L325,0 L330,10 L335,0 L340,10 Z"></path>
+</svg>
+</div>
+<!-- Receipt Canvas -->
+<div class="w-full bg-surface-container-lowest px-4 py-3 flex flex-col text-[#111111] font-ticket-mono" id="receipt-paper">
+<!-- Receipt Header -->
+<div class="text-center font-bold tracking-tight py-1 border-b-2 border-dashed border-[#222222]">
+<p class="text-[12px] uppercase tracking-widest text-[#444444]">*** KITCHEN ORDER TICKET (KOT) ***</p>
+<div class="text-[24px] leading-tight font-extrabold uppercase mt-1 tracking-tight text-black" id="header-title">
+            TABLE T-08 (DINE-IN)
+          </div>
+<div class="text-[15px] font-bold mt-0.5 tracking-wider bg-black text-white px-2 py-0.5 inline-block rounded-xs">
+            ORDER #NB-4830
+          </div>
+</div>
+<!-- Meta Line Data -->
+<div class="py-2 text-[11px] leading-snug font-semibold border-b border-black flex flex-col gap-0.5">
+<div class="flex justify-between">
+<span>SRV: AMAR K.</span>
+<span>TIME: 19:42:15</span>
+<span>DINNER</span>
+</div>
+<div class="flex justify-between items-center bg-[#f0f0f0] px-1 py-0.5 mt-0.5 rounded-xs">
+<span class="font-bold">STATION: 1 (MAIN WOK & CURRY)</span>
+<span class="text-[10px] uppercase font-bold text-secondary">HOT TICKET</span>
+</div>
+</div>
+<!-- Column Header -->
+<div class="py-1 border-b border-black flex justify-between text-[11px] font-bold uppercase tracking-wider">
+<span>QTY ITEM & MODIFIERS</span>
+<span>SECT</span>
+</div>
+<!-- Itemized List -->
+<div class="flex flex-col py-1.5 gap-2 text-[13px] leading-tight">
+<!-- Item 1 -->
+<div class="flex flex-col">
+<div class="flex justify-between items-baseline font-extrabold text-[15px]">
+<span class="flex items-center gap-1">
+<span class="bg-black text-white px-1 py-0.2 rounded-xs font-ticket-mono text-[13px]">[ 2x ]</span>
+<span>CHICKEN MOMO (STEAMED)</span>
+</span>
+<span class="font-mono text-[12px] bg-[#eeeeee] px-1">[STM]</span>
+</div>
+<!-- Modifiers (Dynamic invert class container) -->
+<div class="modifier-container mt-1 pl-4 flex flex-col gap-0.5">
+<span class="modifier-tag inline-block bg-black text-white text-[11px] font-bold px-1.5 py-0.5 rounded-xs w-fit">
+                >> SPICE: FIERY TIMUR CHUTNEY
+              </span>
+<span class="text-[11px] font-semibold text-[#333333] pl-1">
+                >> CHEF NOTE: Extra steam 2 mins
+              </span>
+</div>
+</div>
+<div class="w-full border-t border-dotted border-[#666666] my-0.5"></div>
+<!-- Item 2 -->
+<div class="flex flex-col">
+<div class="flex justify-between items-baseline font-extrabold text-[15px]">
+<span class="flex items-center gap-1">
+<span class="bg-black text-white px-1 py-0.2 rounded-xs font-ticket-mono text-[13px]">[ 1x ]</span>
+<span>CHICKEN DUM BIRYANI (SP)</span>
+</span>
+<span class="font-mono text-[12px] bg-[#eeeeee] px-1">[WOK]</span>
+</div>
+<div class="modifier-container mt-1 pl-4 flex flex-col gap-0.5">
+<span class="text-[11px] font-semibold text-[#333333] pl-1">
+                >> MOD: Mild Raita on side
+              </span>
+<span class="modifier-tag inline-block bg-black text-white text-[11px] font-bold px-1.5 py-0.5 rounded-xs w-fit">
+                >> NO CILANTRO
+              </span>
+</div>
+</div>
+<div class="w-full border-t border-dotted border-[#666666] my-0.5"></div>
+<!-- Item 3 -->
+<div class="flex flex-col">
+<div class="flex justify-between items-baseline font-extrabold text-[15px]">
+<span class="flex items-center gap-1">
+<span class="bg-black text-white px-1 py-0.2 rounded-xs font-ticket-mono text-[13px]">[ 2x ]</span>
+<span>BUTTER NAAN (CRISP)</span>
+</span>
+<span class="font-mono text-[12px] bg-[#eeeeee] px-1">[TND]</span>
+</div>
+</div>
+</div>
+<!-- Receipt Summary & Allergy Framing -->
+<div class="py-1.5 border-t-2 border-black flex flex-col gap-1.5">
+<div class="flex justify-between text-[12px] font-bold">
+<span>TOTAL LINE ITEMS: 3</span>
+<span class="bg-black text-white px-1.5 rounded-xs">5 UNITS TOTAL</span>
+</div>
+<!-- Allergy Box (Customizable style target) -->
+<div class="p-1.5 bg-[#fef2f2] border-2 border-dashed border-[#b91c1c] text-[#991b1b] rounded-xs flex items-center gap-1.5 my-1" id="allergy-box">
+<span class="material-symbols-outlined text-[18px] text-[#dc2626]">warning</span>
+<span class="font-extrabold text-[12px] tracking-tight uppercase">GUEST ALLERGY: NO PEANUTS</span>
+</div>
+<!-- Barcode / QR Simulation Target -->
+<div class="flex flex-col items-center justify-center pt-1 pb-0.5" id="qr-container">
+<div class="flex items-center justify-center gap-2">
+<div class="w-12 h-12 bg-black p-1 flex items-center justify-center rounded-xs">
+<!-- QR Stylized Matrix representation -->
+<div class="grid grid-cols-4 gap-0.5 w-full h-full bg-white p-0.5">
+<div class="bg-black"></div><div class="bg-black"></div><div class="bg-white"></div><div class="bg-black"></div>
+<div class="bg-black"></div><div class="bg-white"></div><div class="bg-black"></div><div class="bg-black"></div>
+<div class="bg-white"></div><div class="bg-black"></div><div class="bg-black"></div><div class="bg-white"></div>
+<div class="bg-black"></div><div class="bg-white"></div><div class="bg-white"></div><div class="bg-black"></div>
+</div>
+</div>
+<div class="flex flex-col text-[9px] font-bold text-left leading-tight text-[#444444]">
+<span>SCAN TO BUMP / RECALL</span>
+<span class="font-mono text-[10px] text-black">NB-4830-T08</span>
+<span class="text-[8px] text-[#777777]">STATION KDS LINKED</span>
+</div>
+</div>
+</div>
+<!-- Footer Metadata -->
+<div class="text-center text-[9px] font-semibold text-[#666666] pt-1 border-t border-dotted border-[#888888]">
+            NABIN RMS KOT ENGINE v4.2 - NODE #01
+          </div>
+</div>
+</div>
+<!-- Bottom Serrated Edge SVG -->
+<div class="w-full h-3 overflow-hidden text-surface-container-lowest leading-none rotate-180">
+<svg class="w-full h-full fill-current" preserveaspectratio="none" viewbox="0 0 340 10">
+<path d="M0,10 L5,0 L10,10 L15,0 L20,10 L25,0 L30,10 L35,0 L40,10 L45,0 L50,10 L55,0 L60,10 L65,0 L70,10 L75,0 L80,10 L85,0 L90,10 L95,0 L100,10 L105,0 L110,10 L115,0 L120,10 L125,0 L130,10 L135,0 L140,10 L145,0 L150,10 L155,0 L160,10 L165,0 L170,10 L175,0 L180,10 L185,0 L190,10 L195,0 L200,10 L205,0 L210,10 L215,0 L220,10 L225,0 L230,10 L235,0 L240,10 L245,0 L250,10 L255,0 L260,10 L265,0 L270,10 L275,0 L280,10 L285,0 L290,10 L295,0 L300,10 L305,0 L310,10 L315,0 L320,10 L325,0 L330,10 L335,0 L340,10 Z"></path>
+</svg>
+</div>
+</div>
+</div>
+<!-- Customization Panel Section -->
+<div class="flex flex-col gap-space-sm bg-surface-container-low p-space-md rounded-2xl shadow-sm">
+<div class="flex items-center justify-between pb-1">
+<div class="flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-primary text-[20px]">tune</span>
+<h2 class="font-headline-sm text-headline-sm text-on-surface">Slip Customization</h2>
+</div>
+<span class="font-label-sm text-label-sm bg-primary-fixed text-on-primary-fixed px-2 py-0.5 rounded-full font-bold">Auto-Sync</span>
+</div>
+<!-- Parameter 1: Header Font Size -->
+<div class="flex flex-col gap-1.5 pt-1">
+<label class="font-label-md text-label-md text-on-surface font-semibold">Header Title Font Size</label>
+<div class="grid grid-cols-3 gap-space-xs">
+<button class="size-pill py-2 rounded-xl bg-surface-container text-on-surface-variant font-label-md text-label-md text-center transition-all hover:bg-surface-container-high" onclick="setHeaderSize('16px', this)" type="button">
+          Normal (14pt)
+        </button>
+<button class="size-pill py-2 rounded-xl bg-surface-container text-on-surface-variant font-label-md text-label-md text-center transition-all hover:bg-surface-container-high" onclick="setHeaderSize('20px', this)" type="button">
+          Large (18pt)
+        </button>
+<button class="size-pill py-2 rounded-xl bg-primary text-on-primary font-label-md text-label-md text-center shadow-sm font-bold transition-all" onclick="setHeaderSize('24px', this)" type="button">
+          X-Bold (24pt)
+        </button>
+</div>
+</div>
+<!-- Toggle 1: Inverted Modifiers -->
+<div class="flex items-center justify-between p-space-sm bg-surface-container rounded-xl">
+<div class="flex flex-col pr-2">
+<span class="font-label-md text-label-md text-on-surface font-semibold">High-Contrast Modifiers</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant">Inverted black-on-white badge for quick cook line scan</span>
+</div>
+<button class="w-12 h-7 bg-primary rounded-full relative transition-colors focus:outline-none flex items-center px-1" id="toggle-modifier-btn" onclick="toggleModifiers()" type="button">
+<span class="w-5 h-5 bg-on-primary rounded-full shadow-sm transform translate-x-5 transition-transform" id="toggle-modifier-knob"></span>
+</button>
+</div>
+<!-- Toggle 2: Double Box Framing for Allergy Notes -->
+<div class="flex items-center justify-between p-space-sm bg-surface-container rounded-xl">
+<div class="flex flex-col pr-2">
+<span class="font-label-md text-label-md text-on-surface font-semibold">Double-Box Allergy Framing</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant">Thick warning perimeter for allergy notes</span>
+</div>
+<button class="w-12 h-7 bg-primary rounded-full relative transition-colors focus:outline-none flex items-center px-1" id="toggle-allergy-btn" onclick="toggleAllergyFraming()" type="button">
+<span class="w-5 h-5 bg-on-primary rounded-full shadow-sm transform translate-x-5 transition-transform" id="toggle-allergy-knob"></span>
+</button>
+</div>
+<!-- Toggle 3: Thermal QR Code -->
+<div class="flex items-center justify-between p-space-sm bg-surface-container rounded-xl">
+<div class="flex flex-col pr-2">
+<span class="font-label-md text-label-md text-on-surface font-semibold">Thermal QR Recall Code</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant">Print 2D barcode at footer for optical KDS scanner bump</span>
+</div>
+<button class="w-12 h-7 bg-primary rounded-full relative transition-colors focus:outline-none flex items-center px-1" id="toggle-qr-btn" onclick="toggleQR()" type="button">
+<span class="w-5 h-5 bg-on-primary rounded-full shadow-sm transform translate-x-5 transition-transform" id="toggle-qr-knob"></span>
+</button>
+</div>
+</div>
+<!-- Thermal Hardware Status Toast Feedback -->
+<div class="hidden transition-all duration-300 p-space-sm bg-tertiary-fixed text-on-tertiary-fixed rounded-xl flex items-center justify-between shadow-sm" id="print-feedback-banner">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[20px] text-tertiary animate-spin">sync</span>
+<span class="font-label-md text-label-md font-semibold">Test ticket dispatched to Station 1 (EPSON)...</span>
+</div>
+<span class="font-label-sm text-label-sm uppercase bg-on-tertiary-fixed text-tertiary-fixed px-1.5 py-0.5 rounded-full font-bold">ACK</span>
+</div>
+<!-- Bottom Ergonomic Action Buttons -->
+<div class="flex flex-col gap-space-sm pt-space-xs">
+<button class="w-full h-14 bg-primary active:scale-[0.98] text-on-primary rounded-xl font-label-lg text-label-lg flex items-center justify-center gap-space-xs shadow-md transition-all" onclick="triggerTestPrint()" type="button">
+<span class="material-symbols-outlined text-[22px]">print</span>
+<span>Send Test Print to EPSON (80mm)</span>
+</button>
+<div class="flex gap-space-xs">
+<button class="flex-1 h-12 bg-surface-container-high hover:bg-surface-dim active:scale-[0.98] text-on-surface rounded-xl font-label-md text-label-md flex items-center justify-center gap-1 transition-all" onclick="saveTemplateNotice()" type="button">
+<span class="material-symbols-outlined text-[18px]">save</span>
+<span>Save Template Layout</span>
+</button>
+<button class="w-12 h-12 bg-surface-container-high hover:bg-surface-dim active:scale-[0.98] text-on-surface-variant rounded-xl flex items-center justify-center transition-all" title="Reset Default ESC/POS Parameters" type="button">
+<span class="material-symbols-outlined text-[20px]">restart_alt</span>
+</button>
+</div>
+</div>
+</div>
+<script>
+  let invertedModifiers = true;
+  let doubleBoxAllergy = true;
+  let qrCodeEnabled = true;
+
+  function switchDensity(type) {
+    const stdBtn = document.getElementById('toggle-standard');
+    const expBtn = document.getElementById('toggle-express');
+    const paper = document.getElementById('receipt-paper');
+
+    if (type === 'express') {
+      expBtn.className = 'flex-1 py-1.5 px-2 rounded-lg bg-surface-container-lowest text-on-surface font-label-md text-label-md shadow-sm flex items-center justify-center gap-1 text-center transition-all';
+      stdBtn.className = 'flex-1 py-1.5 px-2 rounded-lg text-on-surface-variant font-label-md text-label-md flex items-center justify-center gap-1 text-center hover:text-on-surface transition-all';
+      paper.style.padding = '0.5rem 0.75rem';
+      paper.style.transform = 'scale(0.97)';
+    } else {
+      stdBtn.className = 'flex-1 py-1.5 px-2 rounded-lg bg-surface-container-lowest text-on-surface font-label-md text-label-md shadow-sm flex items-center justify-center gap-1 text-center transition-all';
+      expBtn.className = 'flex-1 py-1.5 px-2 rounded-lg text-on-surface-variant font-label-md text-label-md flex items-center justify-center gap-1 text-center hover:text-on-surface transition-all';
+      paper.style.padding = '0.75rem 1rem';
+      paper.style.transform = 'scale(1)';
+    }
+  }
+
+  function setHeaderSize(size, clickedBtn) {
+    const headerTitle = document.getElementById('header-title');
+    headerTitle.style.fontSize = size;
+    
+    document.querySelectorAll('.size-pill').forEach(btn => {
+      btn.className = 'size-pill py-2 rounded-xl bg-surface-container text-on-surface-variant font-label-md text-label-md text-center transition-all hover:bg-surface-container-high';
+    });
+    clickedBtn.className = 'size-pill py-2 rounded-xl bg-primary text-on-primary font-label-md text-label-md text-center shadow-sm font-bold transition-all';
+  }
+
+  function toggleModifiers() {
+    invertedModifiers = !invertedModifiers;
+    const btn = document.getElementById('toggle-modifier-btn');
+    const knob = document.getElementById('toggle-modifier-knob');
+    const tags = document.querySelectorAll('.modifier-tag');
+
+    if (invertedModifiers) {
+      btn.className = 'w-12 h-7 bg-primary rounded-full relative transition-colors focus:outline-none flex items-center px-1';
+      knob.className = 'w-5 h-5 bg-on-primary rounded-full shadow-sm transform translate-x-5 transition-transform';
+      tags.forEach(t => {
+        t.className = 'modifier-tag inline-block bg-black text-white text-[11px] font-bold px-1.5 py-0.5 rounded-xs w-fit';
+      });
+    } else {
+      btn.className = 'w-12 h-7 bg-surface-container-highest rounded-full relative transition-colors focus:outline-none flex items-center px-1';
+      knob.className = 'w-5 h-5 bg-outline rounded-full shadow-sm transform translate-x-0 transition-transform';
+      tags.forEach(t => {
+        t.className = 'modifier-tag inline-block text-secondary font-bold text-[11px] py-0.5 pl-1 w-fit';
+      });
+    }
+  }
+
+  function toggleAllergyFraming() {
+    doubleBoxAllergy = !doubleBoxAllergy;
+    const btn = document.getElementById('toggle-allergy-btn');
+    const knob = document.getElementById('toggle-allergy-knob');
+    const box = document.getElementById('allergy-box');
+
+    if (doubleBoxAllergy) {
+      btn.className = 'w-12 h-7 bg-primary rounded-full relative transition-colors focus:outline-none flex items-center px-1';
+      knob.className = 'w-5 h-5 bg-on-primary rounded-full shadow-sm transform translate-x-5 transition-transform';
+      box.className = 'p-1.5 bg-[#fef2f2] border-2 border-dashed border-[#b91c1c] text-[#991b1b] rounded-xs flex items-center gap-1.5 my-1';
+    } else {
+      btn.className = 'w-12 h-7 bg-surface-container-highest rounded-full relative transition-colors focus:outline-none flex items-center px-1';
+      knob.className = 'w-5 h-5 bg-outline rounded-full shadow-sm transform translate-x-0 transition-transform';
+      box.className = 'p-1 bg-transparent text-[#991b1b] flex items-center gap-1 my-0.5';
+    }
+  }
+
+  function toggleQR() {
+    qrCodeEnabled = !qrCodeEnabled;
+    const btn = document.getElementById('toggle-qr-btn');
+    const knob = document.getElementById('toggle-qr-knob');
+    const qrSection = document.getElementById('qr-container');
+
+    if (qrCodeEnabled) {
+      btn.className = 'w-12 h-7 bg-primary rounded-full relative transition-colors focus:outline-none flex items-center px-1';
+      knob.className = 'w-5 h-5 bg-on-primary rounded-full shadow-sm transform translate-x-5 transition-transform';
+      qrSection.classList.remove('hidden');
+    } else {
+      btn.className = 'w-12 h-7 bg-surface-container-highest rounded-full relative transition-colors focus:outline-none flex items-center px-1';
+      knob.className = 'w-5 h-5 bg-outline rounded-full shadow-sm transform translate-x-0 transition-transform';
+      qrSection.classList.add('hidden');
+    }
+  }
+
+  function triggerTestPrint() {
+    const feedback = document.getElementById('print-feedback-banner');
+    feedback.classList.remove('hidden');
+    setTimeout(() => {
+      feedback.classList.add('hidden');
+    }, 2800);
+  }
+
+  function saveTemplateNotice() {
+    const feedback = document.getElementById('print-feedback-banner');
+    feedback.querySelector('span:nth-child(2)').innerText = 'KOT Profile Layout saved & replicated to 4 stations!';
+    feedback.classList.remove('hidden');
+    setTimeout(() => {
+      feedback.classList.add('hidden');
+      feedback.querySelector('span:nth-child(2)').innerText = 'Test ticket dispatched to Station 1 (EPSON)...';
+    }, 2400);
+  }
+</script></main></body></html>

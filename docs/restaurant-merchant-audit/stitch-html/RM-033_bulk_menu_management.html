@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+
+<html class="h-full" lang="en"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" name="viewport"/><meta content="mobile_stack" name="shell-type"/><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet"/><style>@layer base{html,body{width:100%;margin:0;padding:0;}body{overscroll-behavior-y:none;}.pb-safe{padding-bottom:env(safe-area-inset-bottom,0px);}.pt-safe{padding-top:env(safe-area-inset-top,0px);}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config = { darkMode: "class", theme: { extend: { "colors": { "on-surface-variant": "#444653", "outline-variant": "#c5c5d5", "error-container": "#ffdad6", "inverse-surface": "#2d3134", "on-background": "#181c1f", "on-tertiary-container": "#4cca6c", "on-error-container": "#93000a", "secondary-fixed-dim": "#ffb59b", "surface-tint": "#3a56bd", "on-tertiary-fixed": "#002109", "surface-container-low": "#f2f4f8", "on-secondary-fixed": "#380d00", "tertiary": "#003813", "on-primary-fixed": "#001452", "primary-fixed-dim": "#b7c4ff", "surface": "#f7f9fd", "surface-variant": "#e0e3e6", "secondary-container": "#fc6b32", "inverse-on-surface": "#eff1f5", "secondary-fixed": "#ffdbcf", "inverse-primary": "#b7c4ff", "on-tertiary": "#ffffff", "surface-container-high": "#e6e8ec", "surface-container-highest": "#e0e3e6", "tertiary-fixed-dim": "#62df7d", "surface-dim": "#d8dade", "surface-container-lowest": "#ffffff", "on-secondary-container": "#5c1a00", "tertiary-container": "#005120", "on-surface": "#181c1f", "on-primary-fixed-variant": "#1c3da4", "surface-container": "#eceef2", "primary-fixed": "#dde1ff", "tertiary-fixed": "#7ffc97", "on-secondary": "#ffffff", "on-error": "#ffffff", "on-secondary-fixed-variant": "#812800", "primary": "#00247f", "on-primary": "#ffffff", "error": "#ba1a1a", "background": "#f7f9fd", "on-tertiary-fixed-variant": "#005320", "outline": "#757684", "primary-container": "#1a3ba2", "secondary": "#a93700", "surface-bright": "#f7f9fd", "on-primary-container": "#9cafff" }, "borderRadius": { "DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px" }, "spacing": { "margin-mobile": "1rem", "gutter": "1rem", "space-md": "1rem", "space-xs": "0.25rem", "gutter-kds": "1.25rem", "margin": "1.5rem", "space-xl": "2rem", "space-sm": "0.5rem", "space-lg": "1.5rem" }, "fontFamily": { "label-md": ["Inter"], "label-lg": ["Inter"], "body-md": ["Inter"], "label-sm": ["Inter"], "headline-md": ["Inter"], "headline-lg": ["Inter"], "headline-xl": ["Inter"], "body-sm": ["Inter"], "headline-xl-mobile": ["Inter"], "body-lg": ["Inter"], "headline-lg-mobile": ["Inter"], "headline-sm": ["Inter"], "ticket-mono": ["Inter"] }, "fontSize": { "label-md": ["13px", { "lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "600" }], "label-lg": ["15px", { "lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600" }], "body-md": ["15px", { "lineHeight": "22px", "fontWeight": "400" }], "label-sm": ["11px", { "lineHeight": "14px", "letterSpacing": "0.04em", "fontWeight": "700" }], "headline-md": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }], "headline-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.015em", "fontWeight": "700" }], "headline-xl": ["40px", { "lineHeight": "48px", "letterSpacing": "-0.02em", "fontWeight": "700" }], "body-sm": ["13px", { "lineHeight": "18px", "fontWeight": "400" }], "headline-xl-mobile": ["30px", { "lineHeight": "38px", "letterSpacing": "-0.02em", "fontWeight": "700" }], "body-lg": ["18px", { "lineHeight": "26px", "fontWeight": "500" }], "headline-lg-mobile": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "700" }], "headline-sm": ["20px", { "lineHeight": "28px", "fontWeight": "600" }], "ticket-mono": ["16px", { "lineHeight": "20px", "letterSpacing": "0.05em", "fontWeight": "700" }] } } } };</script><style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head><body class="bg-background text-on-surface min-h-full flex flex-col font-body-md"><header class="fixed top-0 w-full z-50 pt-safe bg-surface/90 backdrop-blur-xl shadow-[0_1px_8px_rgba(0,0,0,0.04)]"><div class="h-16 px-margin-mobile flex items-center justify-between gap-space-sm"><div class="flex items-center gap-space-xs min-w-0"><button aria-label="Go Back" class="min-h-[44px] min-w-[44px] w-11 h-11 flex items-center justify-center rounded-full text-on-surface hover:bg-surface-container transition-colors" onclick="history.back()" type="button"><span class="material-symbols-outlined text-[24px]">arrow_back</span></button><img alt="nabin-icon-primary-192.png" class="h-7 w-auto object-contain flex-shrink-0" src="https://lh3.googleusercontent.com/aida/ALJJyrCTdp3uQlj1WEfbLaNul4jOVx9bLaPCickvf6jmMYIcgT0Dcg7scdiyYcenxu6gWsr9pQoUH2ealX0ppYFChKRsrSROV4GAWIufXLB4Kqk0tya-g8WVkLGo8G2JXdmV2FtyqNKN4nVrii5a0BrRU8tprEgBBKpA-1TjJ2dpdkwTdVThxJC8MtB1oJnLbkoTQdgVrALpqrvijqcpjjvt0XuvSBGWqqksC2TXzI9_ZrXfqDX6mvsypJ2Uq74"/><div class="flex flex-col min-w-0 pl-1"><span class="text-body-sm font-body-sm text-on-surface-variant truncate">NABIN Demo Restaurant</span><h1 class="text-label-lg font-label-lg text-on-surface truncate">Quick 86 Stockout</h1></div></div><div class="flex items-center gap-space-xs flex-shrink-0"><button aria-label="Contextual Action" class="min-h-[44px] min-w-[44px] w-11 h-11 flex items-center justify-center rounded-full text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors" type="button"><span class="material-symbols-outlined text-[22px]">more_vert</span></button><button aria-label="Merchant Profile" class="min-h-[44px] min-w-[44px] flex items-center justify-center p-1 rounded-full hover:bg-surface-container transition-colors" type="button"><img alt="Profile" class="w-8 h-8 rounded-full object-cover" src="https://lh3.googleusercontent.com/aida/ALJJyrD7CdH9drOcwljFpMkdcCYO4FWfU1sYSv3rBCMCvnlz46b3_yZLypJ2zZNf896C1lLJZqnPqVZRulZpFAVb56OVtaPnhiJxUc9YUDOg8AlWiHQjv82HG7gDsVvLpDT9LLmGP79FbRkY6NhGhNA1_NimXYEMCIdimx75j--dMt2bmRUNNYv9UUR6AE3FctStnpUIArD2IJyYZ2i4lepHWcMtkMaGGUjctd5DQ4rJEGenQAm7sQeIX1Rowfw"/></button></div></div></header><main class="flex flex-col flex-1 w-full bg-background pt-16 pb-safe px-margin-mobile"><div class="flex flex-col w-full pb-32">
+<!-- Top Meta / Search & Select All Bar -->
+<div class="flex flex-col gap-space-sm pt-space-sm">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-xs">
+<span class="inline-flex items-center justify-center w-7 h-7 rounded-full bg-primary/10 text-primary">
+<span class="material-symbols-outlined text-[18px]">inventory_2</span>
+</span>
+<span class="font-label-lg text-label-lg text-on-surface">Bulk Operations</span>
+</div>
+<div class="flex items-center gap-space-xs text-on-surface-variant font-label-md text-label-md">
+<span class="inline-block w-2 h-2 rounded-full bg-tertiary-container animate-pulse"></span>
+<span>Kitchen Live Sync</span>
+</div>
+</div>
+<!-- Quick Selection Control & Search -->
+<div class="flex items-center justify-between gap-space-sm bg-surface-container-low rounded-xl p-space-sm shadow-sm">
+<label class="flex items-center gap-space-xs cursor-pointer select-none py-1 px-2 rounded-lg hover:bg-surface-container active:scale-95 transition-all">
+<input checked="" class="w-5 h-5 rounded accent-primary-container cursor-pointer" id="master-select-checkbox" onchange="toggleSelectAll(this)" type="checkbox"/>
+<span class="font-label-md text-label-md text-on-surface">Select All (85)</span>
+</label>
+<div class="flex items-center gap-space-xs">
+<span class="px-2 py-1 rounded-full bg-primary text-on-primary font-label-sm text-label-sm" id="selection-counter-badge">
+          3 Selected
+        </span>
+<button class="w-8 h-8 rounded-full bg-surface-container-highest flex items-center justify-center text-on-surface-variant hover:text-on-surface transition-colors" title="Filter items" type="button">
+<span class="material-symbols-outlined text-[18px]">filter_list</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Floating Sticky Bulk Actions Bar -->
+<div class="sticky top-16 z-30 -mx-margin-mobile px-margin-mobile py-space-xs bg-surface/95 backdrop-blur-md shadow-sm">
+<div class="flex items-center gap-space-xs overflow-x-auto no-scrollbar py-1">
+<button class="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-error text-on-error font-label-md text-label-md shadow-sm hover:opacity-95 active:scale-95 transition-all flex-shrink-0" onclick="bulkMarkStatus(false)" type="button">
+<span class="material-symbols-outlined text-[16px]">do_not_disturb_on</span>
+<span>Mark 86'd / Sold Out</span>
+</button>
+<button class="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-tertiary-container text-on-tertiary font-label-md text-label-md shadow-sm hover:opacity-95 active:scale-95 transition-all flex-shrink-0" onclick="bulkMarkStatus(true)" type="button">
+<span class="material-symbols-outlined text-[16px]">check_circle</span>
+<span>Mark Available</span>
+</button>
+<button class="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-primary-container text-on-primary font-label-md text-label-md shadow-sm hover:opacity-95 active:scale-95 transition-all flex-shrink-0" onclick="openPriceModal()" type="button">
+<span class="material-symbols-outlined text-[16px]">currency_rupee</span>
+<span>Adjust Prices (±%)</span>
+</button>
+<button class="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-surface-container-highest text-on-surface font-label-md text-label-md hover:bg-surface-variant active:scale-95 transition-all flex-shrink-0" onclick="openCategorySheet()" type="button">
+<span class="material-symbols-outlined text-[16px]">drive_file_move</span>
+<span>Change Category</span>
+</button>
+</div>
+</div>
+<!-- Instant 86'd Emergency Stockout Strip -->
+<div class="mt-space-md bg-secondary/10 rounded-xl p-space-sm flex flex-col gap-space-xs">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[18px] text-secondary">bolt</span>
+<span class="font-label-md text-label-md text-secondary">Instant 86'd Emergency Staples</span>
+</div>
+<span class="font-label-sm text-label-sm text-on-surface-variant">Tap to freeze ingredients</span>
+</div>
+<div class="flex gap-space-xs overflow-x-auto no-scrollbar pt-1 pb-0.5">
+<!-- Staple 1 -->
+<button class="emergency-chip flex items-center gap-2 px-3 py-2 rounded-lg bg-surface-container-lowest text-on-surface shadow-sm hover:bg-surface-container active:scale-95 transition-all flex-shrink-0 text-left" data-active="false" onclick="toggleEmergency(this)" type="button">
+<span class="w-2.5 h-2.5 rounded-full bg-secondary"></span>
+<div class="flex flex-col">
+<span class="font-label-sm text-label-sm text-on-surface">Out of Paneer</span>
+<span class="text-[10px] text-on-surface-variant leading-none">Auto-freezes 7 items</span>
+</div>
+</button>
+<!-- Staple 2 -->
+<button class="emergency-chip flex items-center gap-2 px-3 py-2 rounded-lg bg-surface-container-lowest text-on-surface shadow-sm hover:bg-surface-container active:scale-95 transition-all flex-shrink-0 text-left" data-active="false" onclick="toggleEmergency(this)" type="button">
+<span class="w-2.5 h-2.5 rounded-full bg-secondary"></span>
+<div class="flex flex-col">
+<span class="font-label-sm text-label-sm text-on-surface">Out of Biryani Rice</span>
+<span class="text-[10px] text-on-surface-variant leading-none">Auto-freezes 4 items</span>
+</div>
+</button>
+<!-- Staple 3 -->
+<button class="emergency-chip flex items-center gap-2 px-3 py-2 rounded-lg bg-surface-container-lowest text-on-surface shadow-sm hover:bg-surface-container active:scale-95 transition-all flex-shrink-0 text-left" data-active="false" onclick="toggleEmergency(this)" type="button">
+<span class="w-2.5 h-2.5 rounded-full bg-secondary"></span>
+<div class="flex flex-col">
+<span class="font-label-sm text-label-sm text-on-surface">Tandoor Dough / LPG</span>
+<span class="text-[10px] text-on-surface-variant leading-none">Auto-freezes all Naans</span>
+</div>
+</button>
+</div>
+</div>
+<!-- High-Density Bulk Table / Item Cards List -->
+<div class="mt-space-md flex flex-col gap-space-sm" id="item-list-container">
+<!-- Item 1: Checked -->
+<div class="menu-item-row bg-surface-container-lowest rounded-xl p-space-sm shadow-sm flex items-center gap-space-sm transition-all" data-id="1" data-price="340">
+<input checked="" class="item-checkbox w-5 h-5 rounded accent-primary-container cursor-pointer flex-shrink-0" onchange="updateItemSelection(this)" type="checkbox"/>
+<div class="flex-1 min-w-0">
+<div class="flex items-center gap-1.5 flex-wrap">
+<span class="w-3.5 h-3.5 rounded-sm bg-error/15 flex items-center justify-center flex-shrink-0" title="Non-Veg">
+<span class="w-1.5 h-1.5 rounded-full bg-error"></span>
+</span>
+<h3 class="font-label-lg text-label-lg text-on-surface truncate">Chicken Biryani Special</h3>
+</div>
+<div class="flex items-center gap-2 mt-0.5">
+<span class="text-body-sm font-body-sm text-on-surface-variant">Curries & Biryani</span>
+<span class="text-body-sm text-outline-variant">•</span>
+<span class="item-price-display font-ticket-mono text-ticket-mono text-primary font-bold">₹340</span>
+</div>
+</div>
+<div class="flex items-center gap-space-xs flex-shrink-0">
+<button class="status-toggle-btn h-10 px-3 rounded-lg bg-tertiary-container/15 text-tertiary-container font-label-sm text-label-sm flex items-center gap-1 active:scale-95 transition-all" data-state="available" onclick="toggleItemStatus(this)" type="button">
+<span class="material-symbols-outlined text-[16px]">check_circle</span>
+<span class="status-text font-semibold">Available</span>
+</button>
+</div>
+</div>
+<!-- Item 2: Checked -->
+<div class="menu-item-row bg-surface-container-lowest rounded-xl p-space-sm shadow-sm flex items-center gap-space-sm transition-all" data-id="2" data-price="280">
+<input checked="" class="item-checkbox w-5 h-5 rounded accent-primary-container cursor-pointer flex-shrink-0" onchange="updateItemSelection(this)" type="checkbox"/>
+<div class="flex-1 min-w-0">
+<div class="flex items-center gap-1.5 flex-wrap">
+<span class="w-3.5 h-3.5 rounded-sm bg-tertiary-container/15 flex items-center justify-center flex-shrink-0" title="Veg">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary-container"></span>
+</span>
+<h3 class="font-label-lg text-label-lg text-on-surface truncate">Paneer Butter Masala</h3>
+</div>
+<div class="flex items-center gap-2 mt-0.5">
+<span class="text-body-sm font-body-sm text-on-surface-variant">Curries & Biryani</span>
+<span class="text-body-sm text-outline-variant">•</span>
+<span class="item-price-display font-ticket-mono text-ticket-mono text-primary font-bold">₹280</span>
+</div>
+</div>
+<div class="flex items-center gap-space-xs flex-shrink-0">
+<button class="status-toggle-btn h-10 px-3 rounded-lg bg-tertiary-container/15 text-tertiary-container font-label-sm text-label-sm flex items-center gap-1 active:scale-95 transition-all" data-state="available" onclick="toggleItemStatus(this)" type="button">
+<span class="material-symbols-outlined text-[16px]">check_circle</span>
+<span class="status-text font-semibold">Available</span>
+</button>
+</div>
+</div>
+<!-- Item 3: Unchecked -->
+<div class="menu-item-row bg-surface-container-lowest rounded-xl p-space-sm shadow-sm flex items-center gap-space-sm transition-all" data-id="3" data-price="160">
+<input class="item-checkbox w-5 h-5 rounded accent-primary-container cursor-pointer flex-shrink-0" onchange="updateItemSelection(this)" type="checkbox"/>
+<div class="flex-1 min-w-0">
+<div class="flex items-center gap-1.5 flex-wrap">
+<span class="w-3.5 h-3.5 rounded-sm bg-tertiary-container/15 flex items-center justify-center flex-shrink-0" title="Veg">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary-container"></span>
+</span>
+<h3 class="font-label-lg text-label-lg text-on-surface truncate">Veg Steamed Momo</h3>
+</div>
+<div class="flex items-center gap-2 mt-0.5">
+<span class="text-body-sm font-body-sm text-on-surface-variant">Momos & Tibetan</span>
+<span class="text-body-sm text-outline-variant">•</span>
+<span class="item-price-display font-ticket-mono text-ticket-mono text-primary font-bold">₹160</span>
+</div>
+</div>
+<div class="flex items-center gap-space-xs flex-shrink-0">
+<button class="status-toggle-btn h-10 px-3 rounded-lg bg-tertiary-container/15 text-tertiary-container font-label-sm text-label-sm flex items-center gap-1 active:scale-95 transition-all" data-state="available" onclick="toggleItemStatus(this)" type="button">
+<span class="material-symbols-outlined text-[16px]">check_circle</span>
+<span class="status-text font-semibold">Available</span>
+</button>
+</div>
+</div>
+<!-- Item 4: Checked & Currently 86'd -->
+<div class="menu-item-row bg-surface-container-lowest rounded-xl p-space-sm shadow-sm flex items-center gap-space-sm transition-all" data-id="4" data-price="420">
+<input checked="" class="item-checkbox w-5 h-5 rounded accent-primary-container cursor-pointer flex-shrink-0" onchange="updateItemSelection(this)" type="checkbox"/>
+<div class="flex-1 min-w-0">
+<div class="flex items-center gap-1.5 flex-wrap">
+<span class="w-3.5 h-3.5 rounded-sm bg-error/15 flex items-center justify-center flex-shrink-0" title="Non-Veg">
+<span class="w-1.5 h-1.5 rounded-full bg-error"></span>
+</span>
+<h3 class="font-label-lg text-label-lg text-on-surface line-through opacity-75 truncate">Mutton Rogan Josh</h3>
+<span class="px-1.5 py-0.5 rounded bg-error-container text-on-error-container font-label-sm text-[10px]">86'D</span>
+</div>
+<div class="flex items-center gap-2 mt-0.5">
+<span class="text-body-sm font-body-sm text-on-surface-variant">Curries & Biryani</span>
+<span class="text-body-sm text-outline-variant">•</span>
+<span class="item-price-display font-ticket-mono text-ticket-mono text-on-surface-variant font-bold">₹420</span>
+</div>
+</div>
+<div class="flex items-center gap-space-xs flex-shrink-0">
+<button class="status-toggle-btn h-10 px-3 rounded-lg bg-error-container text-on-error-container font-label-sm text-label-sm flex items-center gap-1 active:scale-95 transition-all" data-state="unavailable" onclick="toggleItemStatus(this)" type="button">
+<span class="material-symbols-outlined text-[16px]">cancel</span>
+<span class="status-text font-semibold">86'd Off</span>
+</button>
+</div>
+</div>
+<!-- Item 5: Unchecked -->
+<div class="menu-item-row bg-surface-container-lowest rounded-xl p-space-sm shadow-sm flex items-center gap-space-sm transition-all" data-id="5" data-price="70">
+<input class="item-checkbox w-5 h-5 rounded accent-primary-container cursor-pointer flex-shrink-0" onchange="updateItemSelection(this)" type="checkbox"/>
+<div class="flex-1 min-w-0">
+<div class="flex items-center gap-1.5 flex-wrap">
+<span class="w-3.5 h-3.5 rounded-sm bg-tertiary-container/15 flex items-center justify-center flex-shrink-0" title="Veg">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary-container"></span>
+</span>
+<h3 class="font-label-lg text-label-lg text-on-surface truncate">Garlic Butter Naan</h3>
+</div>
+<div class="flex items-center gap-2 mt-0.5">
+<span class="text-body-sm font-body-sm text-on-surface-variant">Breads</span>
+<span class="text-body-sm text-outline-variant">•</span>
+<span class="item-price-display font-ticket-mono text-ticket-mono text-primary font-bold">₹70</span>
+</div>
+</div>
+<div class="flex items-center gap-space-xs flex-shrink-0">
+<button class="status-toggle-btn h-10 px-3 rounded-lg bg-tertiary-container/15 text-tertiary-container font-label-sm text-label-sm flex items-center gap-1 active:scale-95 transition-all" data-state="available" onclick="toggleItemStatus(this)" type="button">
+<span class="material-symbols-outlined text-[16px]">check_circle</span>
+<span class="status-text font-semibold">Available</span>
+</button>
+</div>
+</div>
+<!-- Item 6: Unchecked -->
+<div class="menu-item-row bg-surface-container-lowest rounded-xl p-space-sm shadow-sm flex items-center gap-space-sm transition-all" data-id="6" data-price="90">
+<input class="item-checkbox w-5 h-5 rounded accent-primary-container cursor-pointer flex-shrink-0" onchange="updateItemSelection(this)" type="checkbox"/>
+<div class="flex-1 min-w-0">
+<div class="flex items-center gap-1.5 flex-wrap">
+<span class="w-3.5 h-3.5 rounded-sm bg-tertiary-container/15 flex items-center justify-center flex-shrink-0" title="Veg">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary-container"></span>
+</span>
+<h3 class="font-label-lg text-label-lg text-on-surface truncate">Sweet Lassi (Chilled)</h3>
+</div>
+<div class="flex items-center gap-2 mt-0.5">
+<span class="text-body-sm font-body-sm text-on-surface-variant">Beverages</span>
+<span class="text-body-sm text-outline-variant">•</span>
+<span class="item-price-display font-ticket-mono text-ticket-mono text-primary font-bold">₹90</span>
+</div>
+</div>
+<div class="flex items-center gap-space-xs flex-shrink-0">
+<button class="status-toggle-btn h-10 px-3 rounded-lg bg-tertiary-container/15 text-tertiary-container font-label-sm text-label-sm flex items-center gap-1 active:scale-95 transition-all" data-state="available" onclick="toggleItemStatus(this)" type="button">
+<span class="material-symbols-outlined text-[16px]">check_circle</span>
+<span class="status-text font-semibold">Available</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Bulk Price Adjuster Bottom Drawer / Inline Card Preview -->
+<div class="mt-space-lg bg-surface-container-low rounded-xl p-space-md shadow-md flex flex-col gap-space-sm">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[20px] text-primary">price_change</span>
+<h4 class="font-headline-sm text-headline-sm text-on-surface">Bulk Price Modifier</h4>
+</div>
+<span class="font-label-sm text-label-sm text-on-surface-variant">Active Batch Tool</span>
+</div>
+<!-- Quick Presets -->
+<div class="grid grid-cols-2 gap-space-xs">
+<button class="p-2.5 rounded-lg bg-surface-container-lowest hover:bg-surface-container active:scale-95 text-left transition-all" onclick="applyFestivalSurcharge(10)" type="button">
+<div class="font-label-md text-label-md text-on-surface flex items-center gap-1">
+<span class="material-symbols-outlined text-[16px] text-secondary">trending_up</span>
+<span>+10% Festival Rush</span>
+</div>
+<span class="text-body-sm font-body-sm text-on-surface-variant mt-0.5 block leading-tight">Preview surcharge across selected items</span>
+</button>
+<button class="p-2.5 rounded-lg bg-surface-container-lowest hover:bg-surface-container active:scale-95 text-left transition-all" onclick="applyNearestRound()" type="button">
+<div class="font-label-md text-label-md text-on-surface flex items-center gap-1">
+<span class="material-symbols-outlined text-[16px] text-primary">pin</span>
+<span>Round to Nearest ₹10</span>
+</div>
+<span class="text-body-sm font-body-sm text-on-surface-variant mt-0.5 block leading-tight">Eliminates odd change issues</span>
+</button>
+</div>
+<!-- Live Calculation Badge -->
+<div class="p-2.5 rounded-lg bg-surface-container flex items-center justify-between text-body-sm font-body-sm">
+<span class="text-on-surface-variant">Simulated Batch Impact:</span>
+<span class="font-ticket-mono text-ticket-mono text-primary font-bold" id="price-impact-label">+₹104 total shift (3 items)</span>
+</div>
+</div>
+<!-- Notification Banner (Toast) -->
+<div class="fixed bottom-24 left-4 right-4 z-40 transform translate-y-32 opacity-0 pointer-events-none transition-all duration-300 flex items-center gap-space-xs px-space-md py-3 rounded-xl bg-inverse-surface text-inverse-on-surface shadow-xl" id="live-toast">
+<span class="material-symbols-outlined text-[20px] text-tertiary-fixed">check_circle</span>
+<span class="font-body-sm text-body-sm font-semibold" id="toast-message">Bulk updates staged</span>
+</div>
+<!-- Primary Sticky Bottom Action Bar -->
+<div class="fixed bottom-0 left-0 right-0 z-40 bg-surface/90 backdrop-blur-lg px-margin-mobile py-space-sm shadow-[0_-4px_16px_rgba(0,0,0,0.06)] pb-safe">
+<div class="max-w-md mx-auto flex items-center gap-space-xs">
+<button class="min-h-[52px] min-w-[52px] rounded-xl bg-surface-container-highest text-on-surface flex items-center justify-center hover:bg-surface-variant active:scale-95 transition-all flex-shrink-0" onclick="resetSelections()" title="Reset all changes" type="button">
+<span class="material-symbols-outlined text-[22px]">restart_alt</span>
+</button>
+<button class="min-h-[52px] flex-1 px-space-md rounded-xl bg-primary text-on-primary font-label-lg text-label-lg flex items-center justify-center gap-2 shadow-md hover:opacity-95 active:scale-98 transition-all" id="apply-bulk-btn" onclick="submitBulkUpdates()" type="button">
+<span class="material-symbols-outlined text-[20px]">publish</span>
+<span id="apply-btn-label">Apply Bulk Updates to 3 Selected Items</span>
+</button>
+</div>
+</div>
+</div>
+<script>
+  function showToast(message) {
+    const toast = document.getElementById('live-toast');
+    const msg = document.getElementById('toast-message');
+    if (!toast || !msg) return;
+    msg.textContent = message;
+    toast.classList.remove('translate-y-32', 'opacity-0', 'pointer-events-none');
+    setTimeout(() => {
+      toast.classList.add('translate-y-32', 'opacity-0', 'pointer-events-none');
+    }, 2400);
+  }
+
+  function getSelectedCount() {
+    const checkboxes = document.querySelectorAll('.item-checkbox:checked');
+    return checkboxes.length;
+  }
+
+  function updateCountDisplays() {
+    const count = getSelectedCount();
+    const badge = document.getElementById('selection-counter-badge');
+    const btnLabel = document.getElementById('apply-btn-label');
+    const impactLabel = document.getElementById('price-impact-label');
+    
+    if (badge) badge.textContent = `${count} Selected`;
+    if (btnLabel) btnLabel.textContent = `Apply Bulk Updates to ${count} Selected Items`;
+    if (impactLabel) impactLabel.textContent = `+₹${count * 34} total shift (${count} items)`;
+
+    const masterCheckbox = document.getElementById('master-select-checkbox');
+    const allCheckboxes = document.querySelectorAll('.item-checkbox');
+    if (masterCheckbox) {
+      masterCheckbox.checked = count === allCheckboxes.length;
+      masterCheckbox.indeterminate = count > 0 && count < allCheckboxes.length;
+    }
+  }
+
+  function updateItemSelection(checkbox) {
+    updateCountDisplays();
+  }
+
+  function toggleSelectAll(master) {
+    const checkboxes = document.querySelectorAll('.item-checkbox');
+    checkboxes.forEach(cb => {
+      cb.checked = master.checked;
+    });
+    updateCountDisplays();
+    showToast(master.checked ? 'All 85 items selected for bulk edit' : 'Selections cleared');
+  }
+
+  function toggleItemStatus(btn) {
+    const isAvailable = btn.getAttribute('data-state') === 'available';
+    const row = btn.closest('.menu-item-row');
+    const title = row.querySelector('h3');
+    const price = row.querySelector('.item-price-display');
+    const textSpan = btn.querySelector('.status-text');
+    const iconSpan = btn.querySelector('.material-symbols-outlined');
+
+    if (isAvailable) {
+      btn.setAttribute('data-state', 'unavailable');
+      btn.className = 'status-toggle-btn h-10 px-3 rounded-lg bg-error-container text-on-error-container font-label-sm text-label-sm flex items-center gap-1 active:scale-95 transition-all';
+      textSpan.textContent = "86'd Off";
+      iconSpan.textContent = 'cancel';
+      title.classList.add('line-through', 'opacity-75');
+      price.classList.remove('text-primary');
+      price.classList.add('text-on-surface-variant');
+      showToast('Item marked 86’d / Out of stock');
+    } else {
+      btn.setAttribute('data-state', 'available');
+      btn.className = 'status-toggle-btn h-10 px-3 rounded-lg bg-tertiary-container/15 text-tertiary-container font-label-sm text-label-sm flex items-center gap-1 active:scale-95 transition-all';
+      textSpan.textContent = 'Available';
+      iconSpan.textContent = 'check_circle';
+      title.classList.remove('line-through', 'opacity-75');
+      price.classList.add('text-primary');
+      price.classList.remove('text-on-surface-variant');
+      showToast('Item restored to Live Ordering');
+    }
+  }
+
+  function bulkMarkStatus(makeAvailable) {
+    const selectedRows = document.querySelectorAll('.menu-item-row:has(.item-checkbox:checked)');
+    if (selectedRows.length === 0) {
+      showToast('Select at least one item first');
+      return;
+    }
+
+    selectedRows.forEach(row => {
+      const btn = row.querySelector('.status-toggle-btn');
+      const currentState = btn.getAttribute('data-state');
+      if (makeAvailable && currentState !== 'available') {
+        toggleItemStatus(btn);
+      } else if (!makeAvailable && currentState !== 'unavailable') {
+        toggleItemStatus(btn);
+      }
+    });
+
+    showToast(makeAvailable ? `Marked ${selectedRows.length} items Available` : `Marked ${selectedRows.length} items 86'd / Sold Out`);
+  }
+
+  function toggleEmergency(chip) {
+    const isActive = chip.getAttribute('data-active') === 'true';
+    const dot = chip.querySelector('span:first-child');
+    if (!isActive) {
+      chip.setAttribute('data-active', 'true');
+      chip.classList.add('bg-error', 'text-on-error');
+      chip.classList.remove('bg-surface-container-lowest', 'text-on-surface');
+      dot.classList.add('bg-on-error');
+      dot.classList.remove('bg-secondary');
+      showToast('Emergency 86’d fired to Kitchen Terminals!');
+    } else {
+      chip.setAttribute('data-active', 'false');
+      chip.classList.remove('bg-error', 'text-on-error');
+      chip.classList.add('bg-surface-container-lowest', 'text-on-surface');
+      dot.classList.remove('bg-on-error');
+      dot.classList.add('bg-secondary');
+      showToast('Emergency stockout released');
+    }
+  }
+
+  function applyFestivalSurcharge(percent) {
+    const selectedRows = document.querySelectorAll('.menu-item-row:has(.item-checkbox:checked)');
+    if (selectedRows.length === 0) {
+      showToast('Please select items first');
+      return;
+    }
+
+    selectedRows.forEach(row => {
+      const basePrice = parseFloat(row.getAttribute('data-price')) || 100;
+      const newPrice = Math.round(basePrice * (1 + percent / 100));
+      row.setAttribute('data-price', newPrice);
+      const display = row.querySelector('.item-price-display');
+      display.textContent = `₹${newPrice}`;
+    });
+    showToast(`Applied +${percent}% surge to ${selectedRows.length} items`);
+  }
+
+  function applyNearestRound() {
+    const selectedRows = document.querySelectorAll('.menu-item-row:has(.item-checkbox:checked)');
+    if (selectedRows.length === 0) {
+      showToast('Please select items first');
+      return;
+    }
+
+    selectedRows.forEach(row => {
+      const basePrice = parseFloat(row.getAttribute('data-price')) || 100;
+      const newPrice = Math.round(basePrice / 10) * 10;
+      row.setAttribute('data-price', newPrice);
+      const display = row.querySelector('.item-price-display');
+      display.textContent = `₹${newPrice}`;
+    });
+    showToast(`Rounded ${selectedRows.length} items to nearest ₹10`);
+  }
+
+  function openPriceModal() {
+    applyFestivalSurcharge(5);
+  }
+
+  function openCategorySheet() {
+    showToast('Category reassignment modal dispatched');
+  }
+
+  function resetSelections() {
+    const rows = document.querySelectorAll('.menu-item-row');
+    rows.forEach(r => {
+      const cb = r.querySelector('.item-checkbox');
+      cb.checked = false;
+    });
+    updateCountDisplays();
+    showToast('Reset all selections');
+  }
+
+  function submitBulkUpdates() {
+    const count = getSelectedCount();
+    showToast(`Successfully published updates to ${count} menu items!`);
+  }
+
+  // Initialize state
+  document.addEventListener('DOMContentLoaded', () => {
+    updateCountDisplays();
+  });
+</script></main></body></html>

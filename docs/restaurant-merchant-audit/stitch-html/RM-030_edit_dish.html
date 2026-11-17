@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+
+<html class="h-full" lang="en"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" name="viewport"/><meta content="mobile_stack" name="shell-type"/><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet"/><style>@layer base{html,body{width:100%;margin:0;padding:0;}body{overscroll-behavior-y:none;}.pb-safe{padding-bottom:env(safe-area-inset-bottom,0px);}.pt-safe{padding-top:env(safe-area-inset-top,0px);}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config = { darkMode: "class", theme: { extend: { "colors": { "on-surface-variant": "#444653", "outline-variant": "#c5c5d5", "error-container": "#ffdad6", "inverse-surface": "#2d3134", "on-background": "#181c1f", "on-tertiary-container": "#4cca6c", "on-error-container": "#93000a", "secondary-fixed-dim": "#ffb59b", "surface-tint": "#3a56bd", "on-tertiary-fixed": "#002109", "surface-container-low": "#f2f4f8", "on-secondary-fixed": "#380d00", "tertiary": "#003813", "on-primary-fixed": "#001452", "primary-fixed-dim": "#b7c4ff", "surface": "#f7f9fd", "surface-variant": "#e0e3e6", "secondary-container": "#fc6b32", "inverse-on-surface": "#eff1f5", "secondary-fixed": "#ffdbcf", "inverse-primary": "#b7c4ff", "on-tertiary": "#ffffff", "surface-container-high": "#e6e8ec", "surface-container-highest": "#e0e3e6", "tertiary-fixed-dim": "#62df7d", "surface-dim": "#d8dade", "surface-container-lowest": "#ffffff", "on-secondary-container": "#5c1a00", "tertiary-container": "#005120", "on-surface": "#181c1f", "on-primary-fixed-variant": "#1c3da4", "surface-container": "#eceef2", "primary-fixed": "#dde1ff", "tertiary-fixed": "#7ffc97", "on-secondary": "#ffffff", "on-error": "#ffffff", "on-secondary-fixed-variant": "#812800", "primary": "#00247f", "on-primary": "#ffffff", "error": "#ba1a1a", "background": "#f7f9fd", "on-tertiary-fixed-variant": "#005320", "outline": "#757684", "primary-container": "#1a3ba2", "secondary": "#a93700", "surface-bright": "#f7f9fd", "on-primary-container": "#9cafff" }, "borderRadius": { "DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px" }, "spacing": { "margin-mobile": "1rem", "gutter": "1rem", "space-md": "1rem", "space-xs": "0.25rem", "gutter-kds": "1.25rem", "margin": "1.5rem", "space-xl": "2rem", "space-sm": "0.5rem", "space-lg": "1.5rem" }, "fontFamily": { "label-md": ["Inter"], "label-lg": ["Inter"], "body-md": ["Inter"], "label-sm": ["Inter"], "headline-md": ["Inter"], "headline-lg": ["Inter"], "headline-xl": ["Inter"], "body-sm": ["Inter"], "headline-xl-mobile": ["Inter"], "body-lg": ["Inter"], "headline-lg-mobile": ["Inter"], "headline-sm": ["Inter"], "ticket-mono": ["Inter"] }, "fontSize": { "label-md": ["13px", { "lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "600" }], "label-lg": ["15px", { "lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600" }], "body-md": ["15px", { "lineHeight": "22px", "fontWeight": "400" }], "label-sm": ["11px", { "lineHeight": "14px", "letterSpacing": "0.04em", "fontWeight": "700" }], "headline-md": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }], "headline-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.015em", "fontWeight": "700" }], "headline-xl": ["40px", { "lineHeight": "48px", "letterSpacing": "-0.02em", "fontWeight": "700" }], "body-sm": ["13px", { "lineHeight": "18px", "fontWeight": "400" }], "headline-xl-mobile": ["30px", { "lineHeight": "38px", "letterSpacing": "-0.02em", "fontWeight": "700" }], "body-lg": ["18px", { "lineHeight": "26px", "fontWeight": "500" }], "headline-lg-mobile": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "700" }], "headline-sm": ["20px", { "lineHeight": "28px", "fontWeight": "600" }], "ticket-mono": ["16px", { "lineHeight": "20px", "letterSpacing": "0.05em", "fontWeight": "700" }] } } } };</script><style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head><body class="bg-background text-on-surface min-h-full flex flex-col font-body-md"><header class="fixed top-0 w-full z-50 pt-safe bg-surface/90 backdrop-blur-xl shadow-[0_1px_8px_rgba(0,0,0,0.04)]"><div class="h-16 px-margin-mobile flex items-center justify-between gap-space-sm"><div class="flex items-center gap-space-xs min-w-0"><button aria-label="Go Back" class="min-h-[44px] min-w-[44px] w-11 h-11 flex items-center justify-center rounded-full text-on-surface hover:bg-surface-container transition-colors" onclick="history.back()" type="button"><span class="material-symbols-outlined text-[24px]">arrow_back</span></button><img alt="nabin-icon-primary-192.png" class="h-7 w-auto object-contain flex-shrink-0" src="https://lh3.googleusercontent.com/aida/ALJJyrCTdp3uQlj1WEfbLaNul4jOVx9bLaPCickvf6jmMYIcgT0Dcg7scdiyYcenxu6gWsr9pQoUH2ealX0ppYFChKRsrSROV4GAWIufXLB4Kqk0tya-g8WVkLGo8G2JXdmV2FtyqNKN4nVrii5a0BrRU8tprEgBBKpA-1TjJ2dpdkwTdVThxJC8MtB1oJnLbkoTQdgVrALpqrvijqcpjjvt0XuvSBGWqqksC2TXzI9_ZrXfqDX6mvsypJ2Uq74"/><div class="flex flex-col min-w-0 pl-1"><span class="text-body-sm font-body-sm text-on-surface-variant truncate">NABIN Demo Restaurant</span><h1 class="text-label-lg font-label-lg text-on-surface truncate">Edit Menu Item</h1></div></div><div class="flex items-center gap-space-xs flex-shrink-0"><button aria-label="Contextual Action" class="min-h-[44px] min-w-[44px] w-11 h-11 flex items-center justify-center rounded-full text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors" type="button"><span class="material-symbols-outlined text-[22px]">more_vert</span></button><button aria-label="Merchant Profile" class="min-h-[44px] min-w-[44px] flex items-center justify-center p-1 rounded-full hover:bg-surface-container transition-colors" type="button"><img alt="Profile" class="w-8 h-8 rounded-full object-cover" src="https://lh3.googleusercontent.com/aida/ALJJyrD7CdH9drOcwljFpMkdcCYO4FWfU1sYSv3rBCMCvnlz46b3_yZLypJ2zZNf896C1lLJZqnPqVZRulZpFAVb56OVtaPnhiJxUc9YUDOg8AlWiHQjv82HG7gDsVvLpDT9LLmGP79FbRkY6NhGhNA1_NimXYEMCIdimx75j--dMt2bmRUNNYv9UUR6AE3FctStnpUIArD2IJyYZ2i4lepHWcMtkMaGGUjctd5DQ4rJEGenQAm7sQeIX1Rowfw"/></button></div></div></header><main class="flex flex-col flex-1 w-full bg-background pt-16 pb-safe px-margin-mobile"><div class="flex flex-col w-full pb-28 space-y-space-md">
+<!-- Sub-Header & Global Screen Action Context -->
+<div class="flex items-center justify-between pt-space-xs">
+<div class="flex flex-col min-w-0">
+<span class="font-label-sm text-label-sm text-secondary tracking-wider uppercase font-bold">Catalog Management</span>
+<h2 class="font-headline-sm text-headline-sm text-on-surface truncate">Edit Dish: Chicken Dum Biryani</h2>
+</div>
+<div class="flex items-center gap-space-xs flex-shrink-0">
+<button aria-label="View on Customer App" class="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-full bg-surface-container hover:bg-surface-container-high text-primary transition-transform active:scale-95" title="View on Customer App" type="button">
+<span class="material-symbols-outlined text-[20px]">storefront</span>
+</button>
+<button aria-label="Delete Dish" class="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-full bg-error-container hover:bg-red-200 text-on-error-container transition-transform active:scale-95" id="deleteDishBtn" title="Delete Dish" type="button">
+<span class="material-symbols-outlined text-[20px]">delete</span>
+</button>
+</div>
+</div>
+<!-- Live Dish Status Bar with Sales Insights -->
+<div class="bg-surface-container-lowest rounded-xl p-space-md shadow-sm flex items-center justify-between gap-space-sm">
+<div class="flex items-center gap-space-sm min-w-0">
+<div class="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-tertiary-fixed text-on-tertiary-fixed flex-shrink-0">
+<span class="w-2 h-2 rounded-full bg-tertiary-container animate-pulse"></span>
+<span class="font-label-sm text-label-sm uppercase tracking-wide">LIVE ON APP</span>
+</div>
+<div class="flex flex-col min-w-0">
+<span class="font-label-sm text-label-sm text-on-surface-variant">Daily Velocity</span>
+<span class="font-label-md text-label-md text-on-surface truncate">₹6,480 <span class="text-on-surface-variant font-normal">(24 orders today)</span></span>
+</div>
+</div>
+<button class="text-primary hover:text-primary-container p-2 flex items-center justify-center flex-shrink-0" title="Analytics History" type="button">
+<span class="material-symbols-outlined text-[22px]">trending_up</span>
+</button>
+</div>
+<!-- Dish Imagery Preview Card -->
+<div class="bg-surface-container-lowest rounded-xl overflow-hidden shadow-sm flex flex-col">
+<div class="relative w-full h-48 bg-surface-container">
+<img class="w-full h-full object-cover" data-alt="A mouthwatering copper handi layered with fragrant saffron-infused basmati rice, tender pieces of marinated chicken dum biryani, caramelized onions, fresh mint sprigs, and toasted cashews, bathed in warm cinematic restaurant kitchen overhead lighting." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCfuxlCkuazxgZTQL8nJavYXGYcoJQijaMQ-tAGr_8mkMJ035eW9hmv3L9m0eNDDdzRbAED6zJXt93Gi_ndiOY-TgBJu5xyeKEuCofXMSCKJcMBwqUYfPmGTC98zPx101QQLy5MfJToq0MIL4GVd6viDpsdaQufmmj9q59qjXv3TV1sw36gBsZgt_FEETEsNcj88VRarVpZszg-gJaAG0o-MRgAUjNneVquzYQU96s"/>
+<div class="absolute top-3 left-3 bg-inverse-surface/80 backdrop-blur-md text-inverse-on-surface px-2.5 py-1 rounded-full flex items-center gap-1.5 font-label-sm text-label-sm">
+<span class="material-symbols-outlined text-[14px] text-tertiary-fixed-dim">verified</span>
+<span>High-Res Menu Ready</span>
+</div>
+<div class="absolute bottom-3 right-3 flex items-center gap-space-xs">
+<button class="min-h-[44px] px-3.5 py-2 bg-surface-container-lowest/95 backdrop-blur-md text-on-surface rounded-lg shadow-md flex items-center gap-1.5 font-label-md text-label-md active:scale-95 transition-all" type="button">
+<span class="material-symbols-outlined text-[18px]">crop</span>
+<span>Crop</span>
+</button>
+<button class="min-h-[44px] px-3.5 py-2 bg-primary text-on-primary rounded-lg shadow-md flex items-center gap-1.5 font-label-md text-label-md active:scale-95 transition-all" type="button">
+<span class="material-symbols-outlined text-[18px]">photo_camera</span>
+<span>Replace</span>
+</button>
+</div>
+</div>
+<div class="p-3 bg-surface-container-low flex items-center justify-between">
+<span class="font-body-sm text-body-sm text-on-surface-variant flex items-center gap-1">
+<span class="material-symbols-outlined text-[16px]">info</span> 4:3 ratio recommended, max 5MB
+      </span>
+<span class="font-label-sm text-label-sm text-secondary font-bold">POS & Kiosk Synced</span>
+</div>
+</div>
+<!-- Main Configuration Form -->
+<div class="bg-surface-container-lowest rounded-xl p-space-md shadow-sm space-y-space-md">
+<!-- Dish Title -->
+<div class="flex flex-col space-y-1.5">
+<label class="font-label-md text-label-md text-on-surface flex items-center justify-between" for="dishTitle">
+<span>Dish Title (Customer View)</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant">36/60</span>
+</label>
+<input class="w-full h-12 px-3.5 rounded-lg bg-surface-container-low text-on-surface font-body-md text-body-md focus:bg-surface-container-lowest focus:outline-none focus:ring-0" id="dishTitle" type="text" value="Chicken Dum Biryani (Special Handi)"/>
+</div>
+<!-- Category & Dietary Tagging -->
+<div class="grid grid-cols-1 gap-space-md">
+<div class="flex flex-col space-y-1.5">
+<label class="font-label-md text-label-md text-on-surface" for="categorySelect">Menu Category</label>
+<div class="relative">
+<select class="w-full h-12 px-3.5 pr-10 rounded-lg bg-surface-container-low text-on-surface font-body-md text-body-md appearance-none focus:outline-none" id="categorySelect">
+<option selected="">Biryani & Pulao Bowls</option>
+<option>Tandoori Starters</option>
+<option>Royal Curries</option>
+<option>Bread Basket</option>
+</select>
+<span class="material-symbols-outlined absolute right-3 top-3 text-on-surface-variant pointer-events-none">expand_more</span>
+</div>
+</div>
+<!-- Food Type (Dietary Indicator) -->
+<div class="flex flex-col space-y-2">
+<span class="font-label-md text-label-md text-on-surface">Dietary Classification</span>
+<div class="grid grid-cols-3 gap-2">
+<!-- Veg -->
+<label class="flex items-center justify-center gap-2 p-3 rounded-lg bg-surface-container-low cursor-pointer transition-all has-[:checked]:bg-surface-container-high">
+<input class="sr-only" name="foodType" type="radio" value="veg"/>
+<div class="w-4 h-4 rounded-sm flex items-center justify-center p-0.5 bg-tertiary-fixed text-tertiary">
+<span class="w-2 h-2 rounded-full bg-tertiary"></span>
+</div>
+<span class="font-label-sm text-label-sm text-on-surface">Veg</span>
+</label>
+<!-- Non-Veg (Active) -->
+<label class="flex items-center justify-center gap-2 p-3 rounded-lg bg-secondary/10 cursor-pointer shadow-sm has-[:checked]:bg-secondary/15">
+<input checked="" class="sr-only" name="foodType" type="radio" value="non-veg"/>
+<div class="w-4 h-4 rounded-sm flex items-center justify-center p-0.5 bg-error-container text-error">
+<span class="w-2 h-2 rounded-full bg-error"></span>
+</div>
+<span class="font-label-sm text-label-sm text-secondary font-bold">Non-Veg</span>
+</label>
+<!-- Egg -->
+<label class="flex items-center justify-center gap-2 p-3 rounded-lg bg-surface-container-low cursor-pointer transition-all has-[:checked]:bg-surface-container-high">
+<input class="sr-only" name="foodType" type="radio" value="egg"/>
+<div class="w-4 h-4 rounded-sm flex items-center justify-center p-0.5 bg-secondary-fixed text-on-secondary-fixed">
+<span class="w-2 h-2 rounded-full bg-secondary-container"></span>
+</div>
+<span class="font-label-sm text-label-sm text-on-surface">Egg</span>
+</label>
+</div>
+</div>
+</div>
+<!-- Pricing Row with History Tag -->
+<div class="space-y-space-xs">
+<div class="flex items-center justify-between">
+<label class="font-label-md text-label-md text-on-surface" for="basePrice">Base Selling Price</label>
+<span class="px-2 py-0.5 rounded-full bg-surface-container text-on-surface-variant font-label-sm text-label-sm flex items-center gap-1">
+<span class="material-symbols-outlined text-[13px]">history</span> Last changed 12 days ago
+        </span>
+</div>
+<div class="relative flex items-center">
+<span class="absolute left-3.5 font-headline-sm text-headline-sm text-on-surface">₹</span>
+<input class="w-full h-12 pl-10 pr-4 rounded-lg bg-surface-container-low text-on-surface font-headline-sm text-headline-sm focus:outline-none" id="basePrice" type="number" value="340"/>
+</div>
+</div>
+<!-- Discount / Promotional Price Section -->
+<div class="bg-surface-container-low rounded-xl p-3.5 space-y-space-sm">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2 min-w-0">
+<span class="material-symbols-outlined text-secondary text-[22px]">local_offer</span>
+<div class="flex flex-col min-w-0">
+<span class="font-label-md text-label-md text-on-surface">Promotional Offer Price</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant">Strike-through discount on menu</span>
+</div>
+</div>
+<label class="relative inline-flex items-center cursor-pointer min-h-[44px] min-w-[48px] justify-end">
+<input checked="" class="sr-only peer" id="promoToggle" type="checkbox"/>
+<div class="w-11 h-6 bg-surface-variant peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[11px] after:right-[22px] peer-checked:after:right-[2px] after:bg-surface after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-secondary"></div>
+</label>
+</div>
+<div class="flex items-center gap-space-sm pt-1" id="promoInputContainer">
+<div class="relative flex-1">
+<span class="absolute left-3.5 top-3 text-on-surface-variant font-label-md text-label-md">Offer: ₹</span>
+<input class="w-full h-11 pl-16 pr-3 rounded-lg bg-surface-container-lowest text-on-surface font-label-lg text-label-lg focus:outline-none" id="offerPrice" type="number" value="299"/>
+</div>
+<div class="px-3 py-2 bg-secondary-fixed rounded-lg text-on-secondary-fixed font-label-sm text-label-sm flex items-center gap-1">
+<span class="material-symbols-outlined text-[16px]">percent</span>
+<span>12% Off</span>
+</div>
+</div>
+</div>
+<!-- Kitchen Dispatch Configurations -->
+<div class="pt-2 space-y-space-md">
+<div class="flex items-center gap-2 text-primary">
+<span class="material-symbols-outlined text-[20px]">soup_kitchen</span>
+<h3 class="font-label-lg text-label-lg text-on-surface">Kitchen & Operations Setup</h3>
+</div>
+<!-- Kitchen Station -->
+<div class="flex flex-col space-y-1.5">
+<label class="font-label-md text-label-md text-on-surface" for="stationSelect">Routing KDS Station</label>
+<div class="relative">
+<select class="w-full h-12 px-3.5 pr-10 rounded-lg bg-surface-container-low text-on-surface font-body-md text-body-md appearance-none focus:outline-none" id="stationSelect">
+<option selected="">Station 1: Main Wok & Curry</option>
+<option>Station 2: Charcoal & Tandoor</option>
+<option>Station 3: Cold Salads & Desserts</option>
+<option>Station 4: Expediter Master Screen</option>
+</select>
+<span class="material-symbols-outlined absolute right-3 top-3 text-on-surface-variant pointer-events-none">expand_more</span>
+</div>
+</div>
+<!-- Prep Time and KOT Short Print Row -->
+<div class="grid grid-cols-1 sm:grid-cols-2 gap-space-md">
+<!-- Prep Time -->
+<div class="flex flex-col space-y-1.5">
+<label class="font-label-md text-label-md text-on-surface" for="prepTime">Default Prep Time</label>
+<div class="flex items-center h-12 rounded-lg bg-surface-container-low px-3">
+<span class="material-symbols-outlined text-on-surface-variant text-[20px] mr-2">timer</span>
+<input class="w-full bg-transparent text-on-surface font-label-lg text-label-lg focus:outline-none" id="prepTime" type="number" value="18"/>
+<span class="text-on-surface-variant font-label-sm text-label-sm ml-2">mins</span>
+</div>
+</div>
+<!-- Thermal Print Slip Name -->
+<div class="flex flex-col space-y-1.5">
+<div class="flex items-center justify-between">
+<label class="font-label-md text-label-md text-on-surface" for="kotName">Thermal KOT Name</label>
+<span class="font-label-sm text-label-sm text-on-surface-variant">21/22 max</span>
+</div>
+<div class="relative flex items-center">
+<input class="w-full h-12 px-3.5 rounded-lg bg-surface-container-low text-on-surface font-ticket-mono text-ticket-mono tracking-wider focus:outline-none" id="kotName" maxlength="22" type="text" value="CHK DUM BIRYANI (SP)"/>
+<span class="material-symbols-outlined absolute right-3 text-[18px] text-tertiary-container" title="Validated for 80mm thermal receipt roll">receipt_long</span>
+</div>
+</div>
+</div>
+</div>
+<!-- In-Stock Status Control -->
+<div class="flex items-center justify-between p-3.5 bg-surface-container-low rounded-xl">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-full bg-tertiary-fixed flex items-center justify-center text-tertiary">
+<span class="material-symbols-outlined text-[22px]">inventory_2</span>
+</div>
+<div class="flex flex-col">
+<span class="font-label-lg text-label-lg text-on-surface">Kitchen Stock Availability</span>
+<span class="font-body-sm text-body-sm text-tertiary font-bold flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span> In Stock (Accepting Orders)
+          </span>
+</div>
+</div>
+<label class="relative inline-flex items-center cursor-pointer min-h-[44px] min-w-[48px] justify-end">
+<input checked="" class="sr-only peer" id="stockToggle" type="checkbox"/>
+<div class="w-11 h-6 bg-surface-variant peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[11px] after:right-[22px] peer-checked:after:right-[2px] after:bg-surface after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
+</label>
+</div>
+</div>
+<!-- Linked Modifier Groups Overview Section -->
+<div class="bg-surface-container-lowest rounded-xl p-space-md shadow-sm space-y-space-md">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary text-[20px]">tune</span>
+<h3 class="font-label-lg text-label-lg text-on-surface">Linked Modifiers (3 Groups)</h3>
+</div>
+<button class="min-h-[44px] px-3 text-primary font-label-md text-label-md flex items-center gap-1 hover:bg-surface-container rounded-lg" type="button">
+<span class="material-symbols-outlined text-[18px]">add_circle</span>
+<span>Attach</span>
+</button>
+</div>
+<!-- Modifier Cards List -->
+<div class="space-y-2.5">
+<!-- Modifier 1 -->
+<div class="flex items-center justify-between p-3 rounded-lg bg-surface-container-low hover:bg-surface-container transition-colors">
+<div class="flex items-center gap-3 min-w-0">
+<div class="w-8 h-8 rounded-lg bg-primary-fixed flex items-center justify-center text-primary font-bold font-label-sm text-label-sm flex-shrink-0">
+            1
+          </div>
+<div class="flex flex-col min-w-0">
+<div class="flex items-center gap-2">
+<span class="font-label-md text-label-md text-on-surface truncate">Portion Size</span>
+<span class="px-1.5 py-0.2 rounded bg-error-container text-on-error-container font-label-sm text-label-sm">Mandatory</span>
+</div>
+<span class="font-body-sm text-body-sm text-on-surface-variant truncate">Half (₹0), Full (+₹150)</span>
+</div>
+</div>
+<button aria-label="Edit Portion Size Modifier" class="min-h-[44px] min-w-[44px] flex items-center justify-center text-on-surface-variant hover:text-on-surface" type="button">
+<span class="material-symbols-outlined text-[20px]">edit</span>
+</button>
+</div>
+<!-- Modifier 2 -->
+<div class="flex items-center justify-between p-3 rounded-lg bg-surface-container-low hover:bg-surface-container transition-colors">
+<div class="flex items-center gap-3 min-w-0">
+<div class="w-8 h-8 rounded-lg bg-primary-fixed flex items-center justify-center text-primary font-bold font-label-sm text-label-sm flex-shrink-0">
+            2
+          </div>
+<div class="flex flex-col min-w-0">
+<div class="flex items-center gap-2">
+<span class="font-label-md text-label-md text-on-surface truncate">Spice Intensity</span>
+<span class="px-1.5 py-0.2 rounded bg-error-container text-on-error-container font-label-sm text-label-sm">Mandatory</span>
+</div>
+<span class="font-body-sm text-body-sm text-on-surface-variant truncate">Mild, Medium (Chef's Special), Fiery</span>
+</div>
+</div>
+<button aria-label="Edit Spice Intensity Modifier" class="min-h-[44px] min-w-[44px] flex items-center justify-center text-on-surface-variant hover:text-on-surface" type="button">
+<span class="material-symbols-outlined text-[20px]">edit</span>
+</button>
+</div>
+<!-- Modifier 3 -->
+<div class="flex items-center justify-between p-3 rounded-lg bg-surface-container-low hover:bg-surface-container transition-colors">
+<div class="flex items-center gap-3 min-w-0">
+<div class="w-8 h-8 rounded-lg bg-primary-fixed flex items-center justify-center text-primary font-bold font-label-sm text-label-sm flex-shrink-0">
+            3
+          </div>
+<div class="flex flex-col min-w-0">
+<div class="flex items-center gap-2">
+<span class="font-label-md text-label-md text-on-surface truncate">Choice of Raita</span>
+<span class="px-1.5 py-0.2 rounded bg-surface-container-high text-on-surface-variant font-label-sm text-label-sm">Optional</span>
+</div>
+<span class="font-body-sm text-body-sm text-on-surface-variant truncate">Boondi Raita (+₹30), Burani Garlic (+₹45)</span>
+</div>
+</div>
+<button aria-label="Edit Choice of Raita Modifier" class="min-h-[44px] min-w-[44px] flex items-center justify-center text-on-surface-variant hover:text-on-surface" type="button">
+<span class="material-symbols-outlined text-[20px]">edit</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Bottom Notification Bar for Feedback Prompt (Hidden by default, triggered on save) -->
+<div class="fixed bottom-24 left-4 right-4 bg-inverse-surface text-inverse-on-surface p-3.5 rounded-xl shadow-xl flex items-center justify-between transition-all transform translate-y-32 opacity-0 z-50 pointer-events-none" id="saveToast">
+<div class="flex items-center gap-2.5">
+<span class="material-symbols-outlined text-tertiary-fixed-dim text-[20px]">check_circle</span>
+<span class="font-label-md text-label-md">Dish updated across POS & Menus!</span>
+</div>
+<span class="font-label-sm text-label-sm text-tertiary-fixed-dim uppercase tracking-wider">Synced</span>
+</div>
+<!-- Sticky Bottom Action Bar -->
+<div class="fixed bottom-0 left-0 right-0 p-margin-mobile bg-surface/95 backdrop-blur-xl shadow-[0_-4px_16px_rgba(0,0,0,0.06)] z-40 pb-safe">
+<div class="max-w-md mx-auto flex items-center gap-space-sm">
+<button class="min-h-[48px] px-5 py-3 rounded-lg bg-surface-container text-on-surface font-label-lg text-label-lg active:scale-95 transition-all" id="discardBtn" type="button">
+        Discard
+      </button>
+<button class="flex-1 min-h-[48px] px-6 py-3 rounded-lg bg-primary-container hover:bg-primary text-on-primary font-label-lg text-label-lg flex items-center justify-center gap-2 shadow-md active:scale-98 transition-all" id="saveChangesBtn" type="button">
+<span class="material-symbols-outlined text-[20px]">save</span>
+<span>Save Changes</span>
+</button>
+</div>
+</div>
+</div>
+<script>
+  (function() {
+    const promoToggle = document.getElementById('promoToggle');
+    const promoInputContainer = document.getElementById('promoInputContainer');
+    const saveChangesBtn = document.getElementById('saveChangesBtn');
+    const discardBtn = document.getElementById('discardBtn');
+    const deleteDishBtn = document.getElementById('deleteDishBtn');
+    const saveToast = document.getElementById('saveToast');
+
+    if (promoToggle && promoInputContainer) {
+      promoToggle.addEventListener('change', (e) => {
+        if (e.target.checked) {
+          promoInputContainer.classList.remove('opacity-40', 'pointer-events-none');
+        } else {
+          promoInputContainer.classList.add('opacity-40', 'pointer-events-none');
+        }
+      });
+    }
+
+    if (saveChangesBtn && saveToast) {
+      saveChangesBtn.addEventListener('click', () => {
+        saveToast.classList.remove('translate-y-32', 'opacity-0', 'pointer-events-none');
+        saveToast.classList.add('translate-y-0', 'opacity-100');
+        setTimeout(() => {
+          saveToast.classList.add('translate-y-32', 'opacity-0', 'pointer-events-none');
+          saveToast.classList.remove('translate-y-0', 'opacity-100');
+        }, 3200);
+      });
+    }
+
+    if (discardBtn) {
+      discardBtn.addEventListener('click', () => {
+        if (confirm('Discard unsaved modifications?')) {
+          history.back();
+        }
+      });
+    }
+
+    if (deleteDishBtn) {
+      deleteDishBtn.addEventListener('click', () => {
+        if (confirm('Are you sure you want to 86 / archive this dish from the active catalog?')) {
+          alert('Dish has been unpublished from live ordering.');
+        }
+      });
+    }
+  })();
+</script></main></body></html>

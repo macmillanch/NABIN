@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+
+<html lang="en"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" name="viewport"/><meta content="mobile_tab" name="shell-type"/><style>@layer base{html,body{width:100vw;margin:0;padding:0;}body{overscroll-behavior:none;}.pb-safe{padding-bottom:env(safe-area-inset-bottom,0px);}.pt-safe{padding-top:env(safe-area-inset-top,0px);}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config = { darkMode: "class", theme: { extend: { colors: { "primary-container": "#1a3ba2", "surface-container-lowest": "#ffffff", "background": "#f7f9fd", "on-primary-fixed": "#001452", "on-secondary-container": "#5c1a00", "on-primary-container": "#9cafff", "surface": "#f7f9fd", "primary": "#00247f", "surface-container-low": "#f2f4f8", "outline": "#757684", "surface-container-high": "#e6e8ec", "error": "#ba1a1a", "error-container": "#ffdad6", "on-secondary-fixed-variant": "#812800", "on-background": "#181c1f", "outline-variant": "#c5c5d5", "tertiary": "#003813", "primary-fixed": "#dde1ff", "on-primary": "#ffffff", "on-error-container": "#93000a", "on-tertiary-container": "#4cca6c", "on-secondary": "#ffffff", "secondary-fixed": "#ffdbcf", "secondary-container": "#fc6b32", "inverse-primary": "#b7c4ff", "primary-fixed-dim": "#b7c4ff", "surface-dim": "#d8dade", "secondary-fixed-dim": "#ffb59b", "on-tertiary": "#ffffff", "inverse-surface": "#2d3134", "on-surface-variant": "#444653", "inverse-on-surface": "#eff1f5", "on-error": "#ffffff", "on-secondary-fixed": "#380d00", "on-surface": "#181c1f", "tertiary-fixed": "#7ffc97", "surface-variant": "#e0e3e6", "surface-tint": "#3a56bd", "surface-container": "#eceef2", "surface-container-highest": "#e0e3e6", "on-primary-fixed-variant": "#1c3da4", "on-tertiary-fixed-variant": "#005320", "surface-bright": "#f7f9fd", "tertiary-fixed-dim": "#62df7d", "on-tertiary-fixed": "#002109", "tertiary-container": "#005120", "secondary": "#a93700" }, borderRadius: { "DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px" }, spacing: { "space-sm": "0.5rem", "margin-mobile": "1rem", "gutter": "1rem", "gutter-kds": "1.25rem", "space-xl": "2rem", "margin": "1.5rem", "space-xs": "0.25rem", "space-md": "1rem", "space-lg": "1.5rem" }, fontFamily: { "body-lg": ["Inter"], "label-lg": ["Inter"], "ticket-mono": ["Inter"], "headline-xl-mobile": ["Inter"], "headline-xl": ["Inter"], "body-sm": ["Inter"], "label-md": ["Inter"], "headline-lg-mobile": ["Inter"], "headline-md": ["Inter"], "headline-lg": ["Inter"], "body-md": ["Inter"], "headline-sm": ["Inter"], "label-sm": ["Inter"] }, fontSize: { "body-lg": ["18px", { "lineHeight": "26px", "fontWeight": "500" }], "label-lg": ["15px", { "lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600" }], "ticket-mono": ["16px", { "lineHeight": "20px", "letterSpacing": "0.05em", "fontWeight": "700" }], "headline-xl-mobile": ["30px", { "lineHeight": "38px", "letterSpacing": "-0.02em", "fontWeight": "700" }], "headline-xl": ["40px", { "lineHeight": "48px", "letterSpacing": "-0.02em", "fontWeight": "700" }], "body-sm": ["13px", { "lineHeight": "18px", "fontWeight": "400" }], "label-md": ["13px", { "lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "600" }], "headline-lg-mobile": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "700" }], "headline-md": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }], "headline-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.015em", "fontWeight": "700" }], "body-md": ["15px", { "lineHeight": "22px", "fontWeight": "400" }], "headline-sm": ["20px", { "lineHeight": "28px", "fontWeight": "600" }], "label-sm": ["11px", { "lineHeight": "14px", "letterSpacing": "0.04em", "fontWeight": "700" }] } } } };</script><style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head><body class="bg-surface font-body-md text-on-surface min-h-screen flex flex-col antialiased selection:bg-primary selection:text-on-primary"><header class="fixed top-0 inset-x-0 z-50 bg-surface/90 backdrop-blur-xl shadow-[0_1px_8px_rgba(0,0,0,0.04)] pt-safe"><div class="h-20 px-margin-mobile flex items-center justify-between gap-space-xs"><div class="flex items-center gap-space-sm min-w-0 flex-1"><img alt="NABIN" class="h-6 w-auto object-contain shrink-0" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBcRdQGGnEiaoo-tyVCSMLmfTYGAoJQ-5F9glcTttF3Qpeu2BwN_MYLTY40cj5msZx2KPM7zaXCKA7pGBVeil5xSMi-wdtMp60-Donm8u9A0pxAgljKdqP4cpG7G_0j2ElKqdnZ-RYFhNA-c8zOE2fwSkc5P87rA4EO8dD0qwx_iXG2ciT2_Mvx4sbjT_vUxorqJKzqX8pMyumBb3k7AYnAFpqPBQDJlYZRQbmJjCUDU1Qy9wl5nXPf"/><div class="flex flex-col min-w-0"><div class="flex items-center gap-1 cursor-pointer"><span class="font-label-lg text-label-lg text-primary truncate max-w-[130px]">NABIN Demo</span><span class="material-symbols-outlined text-[18px] text-primary shrink-0">arrow_drop_down</span></div><span class="font-label-sm text-label-sm text-on-surface-variant truncate">Downtown Branch</span></div></div><div class="flex items-center gap-space-xs shrink-0"><button class="inline-flex items-center gap-1.5 h-9 px-2.5 rounded-full bg-tertiary-fixed text-on-tertiary-fixed font-label-sm text-label-sm shadow-[0_1px_4px_rgba(0,0,0,0.06)]"><span class="w-2 h-2 rounded-full bg-tertiary animate-pulse"></span><span class="font-ticket-mono text-label-sm uppercase">OPEN</span><span class="material-symbols-outlined text-[16px]">toggle_on</span></button><button aria-label="Sound Alerts" class="relative w-11 h-11 flex items-center justify-center text-on-surface hover:text-primary transition-colors"><span class="material-symbols-outlined text-[20px]">volume_up</span><span class="absolute top-2 right-2 w-1.5 h-1.5 rounded-full bg-tertiary-container"></span></button><button aria-label="Notifications" class="relative w-11 h-11 flex items-center justify-center text-on-surface hover:text-primary transition-colors"><span class="material-symbols-outlined text-[22px]">notifications</span><span class="absolute top-2 right-2 min-w-[16px] h-4 px-1 rounded-full bg-secondary-container text-on-secondary font-label-sm text-[10px] flex items-center justify-center font-bold leading-none">3</span></button><div class="flex items-center gap-1.5 pl-1"><div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center shrink-0"><span class="material-symbols-outlined text-on-primary text-[18px]">person</span></div></div></div></div></header><main class="flex flex-col relative w-full pt-20 pb-24 bg-surface min-h-screen"><div class="flex flex-col w-full">
+<!-- Subheader Navigation & Filter Bar -->
+<div class="sticky top-20 z-40 bg-surface/95 backdrop-blur-md px-margin-mobile pt-3 pb-3 shadow-[0_4px_12px_rgba(0,0,0,0.03)]">
+<!-- Horizontal Tab Pills -->
+<div class="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1">
+<a class="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-container-high text-on-surface-variant font-label-md text-label-md hover:bg-surface-container-highest transition-colors" href="#">
+<span>All KDS</span>
+<span class="px-1.5 py-0.5 rounded-full bg-surface-variant font-label-sm text-[11px] text-on-surface-variant">8</span>
+</a>
+<a class="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-container-high text-on-surface-variant font-label-md text-label-md hover:bg-surface-container-highest transition-colors" href="#">
+<span>New</span>
+<span class="px-1.5 py-0.5 rounded-full bg-surface-variant font-label-sm text-[11px] text-on-surface-variant">3</span>
+</a>
+<a class="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-container-high text-on-surface-variant font-label-md text-label-md hover:bg-surface-container-highest transition-colors" href="#">
+<span>Preparing</span>
+<span class="px-1.5 py-0.5 rounded-full bg-secondary-container text-on-secondary font-label-sm text-[11px] font-bold">4</span>
+</a>
+<a class="shrink-0 flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-tertiary text-on-tertiary font-label-md text-label-md shadow-sm" href="#">
+<span class="material-symbols-outlined text-[16px] text-tertiary-fixed">check_circle</span>
+<span>Ready</span>
+<span class="px-1.5 py-0.5 rounded-full bg-tertiary-fixed text-on-tertiary-fixed font-label-sm text-[11px] font-bold">3</span>
+</a>
+</div>
+<!-- Fulfillment Filter Bar -->
+<div class="flex items-center justify-between mt-2.5 pt-2">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[18px] text-on-surface-variant">tune</span>
+<span class="font-label-sm text-label-sm text-on-surface-variant uppercase tracking-wider">Fulfilment:</span>
+<span class="font-label-md text-label-md text-primary font-bold">All Channels</span>
+</div>
+<button class="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-surface-container-low text-primary font-label-sm text-label-sm active:scale-95 transition-transform">
+<span>Dine-in, Delivery, Takeaway</span>
+<span class="material-symbols-outlined text-[16px]">expand_more</span>
+</button>
+</div>
+</div>
+<div class="px-margin-mobile flex flex-col gap-4 mt-3">
+<!-- Staging / Expedite Counter Summary Banner -->
+<div class="rounded-xl bg-surface-container-lowest p-3.5 shadow-sm flex flex-col gap-2.5">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<div class="w-8 h-8 rounded-lg bg-tertiary-fixed flex items-center justify-center text-tertiary">
+<span class="material-symbols-outlined text-[20px]" style="font-variation-settings: 'FILL' 1;">shelves</span>
+</div>
+<div>
+<h2 class="font-label-lg text-label-lg text-on-surface font-bold leading-tight">Expedite Staging Hub</h2>
+<p class="font-body-sm text-body-sm text-on-surface-variant">3 orders waiting on pass &amp; heat bays</p>
+</div>
+</div>
+<div class="flex items-center gap-1 bg-tertiary-fixed text-on-tertiary-fixed px-2.5 py-1 rounded-full font-label-sm text-label-sm">
+<span class="w-2 h-2 rounded-full bg-tertiary animate-ping"></span>
+<span>Live Pass</span>
+</div>
+</div>
+<div class="grid grid-cols-3 gap-2 pt-1">
+<div class="bg-surface-container-low rounded-lg p-2 flex flex-col items-center text-center">
+<span class="font-ticket-mono text-[18px] text-secondary font-bold">1</span>
+<span class="font-label-sm text-[10px] text-on-surface-variant leading-tight mt-0.5">Awaiting Rider</span>
+</div>
+<div class="bg-surface-container-low rounded-lg p-2 flex flex-col items-center text-center">
+<span class="font-ticket-mono text-[18px] text-primary font-bold">1</span>
+<span class="font-label-sm text-[10px] text-on-surface-variant leading-tight mt-0.5">Table Runner</span>
+</div>
+<div class="bg-surface-container-low rounded-lg p-2 flex flex-col items-center text-center">
+<span class="font-ticket-mono text-[18px] text-tertiary font-bold">1</span>
+<span class="font-label-sm text-[10px] text-on-surface-variant leading-tight mt-0.5">Takeaway Bay</span>
+</div>
+</div>
+</div>
+<!-- TICKET 1: Delivery Handover Ready (Heat Shelf A-02) -->
+<div class="ticket-card rounded-xl bg-surface-container-lowest shadow-md overflow-hidden transition-all duration-200" id="ticket-4828">
+<!-- Card Top Ribbon / Location & Time -->
+<div class="bg-surface-container-high px-4 py-2.5 flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="px-2 py-0.5 rounded bg-primary text-on-primary font-ticket-mono text-label-sm font-bold tracking-wide">
+            #NB-4828
+          </span>
+<span class="px-2 py-0.5 rounded bg-surface-container-lowest text-primary font-label-sm text-label-sm font-bold flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">moped</span>
+            NABIN Delivery
+          </span>
+</div>
+<div class="flex items-center gap-1.5 px-2 py-0.5 rounded bg-tertiary-fixed text-on-tertiary-fixed font-ticket-mono text-label-sm font-bold">
+<span class="material-symbols-outlined text-[14px]">timer</span>
+<span>Ready 04:12</span>
+</div>
+</div>
+<div class="p-4 flex flex-col gap-3.5">
+<!-- Bay Assignment & Rider Alert Callout -->
+<div class="flex items-stretch gap-2.5">
+<!-- Shelf Location Badge -->
+<div class="flex flex-col items-center justify-center bg-surface-container-low px-3 py-1.5 rounded-lg shrink-0">
+<span class="font-label-sm text-[10px] text-on-surface-variant uppercase tracking-wider">Location</span>
+<span class="font-ticket-mono text-body-lg text-primary font-bold">SHELF A-02</span>
+</div>
+<!-- Rider Status Info -->
+<div class="flex-1 bg-surface-container-low rounded-lg px-3 py-1.5 flex flex-col justify-center min-w-0">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[16px] text-secondary">sports_motorsports</span>
+<span class="font-label-md text-label-md text-on-surface font-bold truncate">Bikash M.</span>
+<span class="px-1.5 py-0.2 rounded bg-tertiary-fixed text-on-tertiary-fixed font-label-sm text-[10px] font-bold shrink-0">ARRIVED</span>
+</div>
+<p class="font-body-sm text-[12px] text-secondary font-medium truncate">Waiting at Dispatch Door 1</p>
+</div>
+</div>
+<!-- High-Contrast Handover OTP Code Pill -->
+<div class="bg-surface-container rounded-xl p-3 flex items-center justify-between">
+<div class="flex flex-col">
+<span class="font-label-sm text-[11px] text-on-surface-variant uppercase tracking-wider font-semibold">Handover OTP Verification</span>
+<span class="font-body-sm text-[12px] text-on-surface">Ask rider for matching passcode</span>
+</div>
+<div class="bg-primary text-on-primary px-3.5 py-1.5 rounded-lg flex items-center gap-1.5 shadow-sm">
+<span class="font-label-sm text-[11px] text-on-primary-container">OTP</span>
+<span class="font-ticket-mono text-[20px] tracking-widest font-black leading-none text-on-primary">4821</span>
+</div>
+</div>
+<!-- Packing Checklist (3/3 items confirmed) -->
+<div class="flex flex-col gap-2">
+<div class="flex items-center justify-between">
+<span class="font-label-sm text-label-sm text-on-surface-variant font-bold uppercase tracking-wider">Packed Checklist (3/3 Complete)</span>
+<span class="flex items-center gap-1 font-label-sm text-[11px] text-tertiary font-semibold">
+<span class="material-symbols-outlined text-[14px]">verified</span>
+              QC Inspected
+            </span>
+</div>
+<div class="space-y-1.5">
+<div class="flex items-center justify-between p-2 rounded-lg bg-surface-container-low">
+<div class="flex items-center gap-2.5">
+<span class="w-6 h-6 rounded-full bg-tertiary text-on-tertiary flex items-center justify-center font-ticket-mono text-[11px] font-bold">2×</span>
+<span class="font-body-md text-body-md text-on-surface font-medium">Chicken Biryani Special</span>
+</div>
+<span class="font-label-sm text-[11px] text-on-surface-variant bg-surface-container px-2 py-0.5 rounded">Raita Packed</span>
+</div>
+<div class="flex items-center justify-between p-2 rounded-lg bg-surface-container-low">
+<div class="flex items-center gap-2.5">
+<span class="w-6 h-6 rounded-full bg-tertiary text-on-tertiary flex items-center justify-center font-ticket-mono text-[11px] font-bold">1×</span>
+<span class="font-body-md text-body-md text-on-surface font-medium">Paneer Butter Masala</span>
+</div>
+<span class="font-label-sm text-[11px] text-secondary font-semibold bg-secondary-fixed text-on-secondary-fixed px-2 py-0.5 rounded">Foil Sealed</span>
+</div>
+<div class="flex items-center justify-between p-2 rounded-lg bg-surface-container-low">
+<div class="flex items-center gap-2.5">
+<span class="w-6 h-6 rounded-full bg-tertiary text-on-tertiary flex items-center justify-center font-ticket-mono text-[11px] font-bold">2×</span>
+<span class="font-body-md text-body-md text-on-surface font-medium">Chilled Coke 300ml</span>
+</div>
+<span class="font-label-sm text-[11px] text-on-surface-variant bg-surface-container px-2 py-0.5 rounded">Cold Bagged</span>
+</div>
+</div>
+</div>
+<!-- Primary Action Trigger & Thermal Slip Reprint -->
+<div class="flex flex-col gap-2 pt-1">
+<button class="w-full h-13 py-3 px-4 rounded-xl bg-tertiary text-on-tertiary font-label-lg text-label-lg flex items-center justify-center gap-2 shadow-sm active:scale-[0.98] transition-transform" onclick="confirmOrderHandover('ticket-4828', 'Bikash M.', 'NB-4828')">
+<span class="material-symbols-outlined text-[20px]">two_wheeler</span>
+<span>Confirm Rider Handover (OTP 4821)</span>
+</button>
+<button class="w-full h-10 px-3 rounded-lg bg-surface-container-low text-on-surface hover:bg-surface-container-high font-label-md text-label-md flex items-center justify-center gap-1.5 transition-colors" onclick="simulateReprint('NB-4828')">
+<span class="material-symbols-outlined text-[16px] text-primary">receipt_long</span>
+<span>Reprint Bag Label &amp; Thermal Slip</span>
+</button>
+</div>
+</div>
+</div>
+<!-- TICKET 2: Dine-in Awaiting Table Runner -->
+<div class="ticket-card rounded-xl bg-surface-container-lowest shadow-md overflow-hidden transition-all duration-200" id="ticket-4829">
+<!-- Card Top Ribbon -->
+<div class="bg-surface-container-high px-4 py-2.5 flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="px-2 py-0.5 rounded bg-primary text-on-primary font-ticket-mono text-label-sm font-bold tracking-wide">
+            #NB-4829
+          </span>
+<span class="px-2 py-0.5 rounded bg-surface-container-lowest text-primary font-label-lg text-label-md font-bold flex items-center gap-1">
+<span class="material-symbols-outlined text-[16px]">restaurant</span>
+            Table T-12
+          </span>
+<span class="font-label-sm text-label-sm text-on-surface-variant font-medium">(4 Guests)</span>
+</div>
+<div class="flex items-center gap-1.5 px-2 py-0.5 rounded bg-tertiary-fixed text-on-tertiary-fixed font-ticket-mono text-label-sm font-bold">
+<span class="material-symbols-outlined text-[14px]">timer</span>
+<span>Ready 01:40</span>
+</div>
+</div>
+<div class="p-4 flex flex-col gap-3.5">
+<!-- Location Pass & Server Callout -->
+<div class="grid grid-cols-2 gap-2.5">
+<div class="bg-surface-container-low rounded-lg p-2.5 flex items-center gap-2">
+<span class="material-symbols-outlined text-primary text-[20px]">room_service</span>
+<div>
+<span class="font-label-sm text-[10px] text-on-surface-variant uppercase tracking-wider block">Kitchen Station</span>
+<span class="font-ticket-mono text-label-md text-primary font-bold">PASS 01 (HOT)</span>
+</div>
+</div>
+<div class="bg-surface-container-low rounded-lg p-2.5 flex items-center gap-2">
+<span class="material-symbols-outlined text-secondary text-[20px]">notifications_active</span>
+<div class="min-w-0">
+<span class="font-label-sm text-[10px] text-on-surface-variant uppercase tracking-wider block">Assigned Server</span>
+<span class="font-label-md text-label-md text-on-surface font-bold truncate block">Amar K. (Pager #4)</span>
+</div>
+</div>
+</div>
+<!-- Items Checklist -->
+<div class="space-y-1.5">
+<div class="flex items-center justify-between p-2 rounded-lg bg-surface-container-low">
+<div class="flex items-center gap-2.5">
+<span class="w-6 h-6 rounded-full bg-tertiary text-on-tertiary flex items-center justify-center font-ticket-mono text-[11px] font-bold">1×</span>
+<span class="font-body-md text-body-md text-on-surface font-medium">Chicken Thali Special</span>
+</div>
+<span class="font-label-sm text-[11px] text-tertiary font-bold bg-tertiary-fixed px-2 py-0.5 rounded">Fresh &amp; Piping Hot</span>
+</div>
+<div class="flex items-center justify-between p-2 rounded-lg bg-surface-container-low">
+<div class="flex items-center gap-2.5">
+<span class="w-6 h-6 rounded-full bg-tertiary text-on-tertiary flex items-center justify-center font-ticket-mono text-[11px] font-bold">2×</span>
+<span class="font-body-md text-body-md text-on-surface font-medium">Veg Steamed Momo</span>
+</div>
+<span class="font-label-sm text-[11px] text-on-surface-variant bg-surface-container px-2 py-0.5 rounded">Sesame Dip incl.</span>
+</div>
+</div>
+<!-- Action Trigger -->
+<button class="w-full h-12 py-3 px-4 rounded-xl bg-primary text-on-primary font-label-lg text-label-lg flex items-center justify-center gap-2 shadow-sm active:scale-[0.98] transition-transform" onclick="confirmOrderHandover('ticket-4829', 'Table T-12', 'NB-4829')">
+<span class="material-symbols-outlined text-[20px]">room_service</span>
+<span>Served to Table (Complete Order)</span>
+</button>
+</div>
+</div>
+<!-- TICKET 3: Takeaway Counter Pickup -->
+<div class="ticket-card rounded-xl bg-surface-container-lowest shadow-md overflow-hidden transition-all duration-200" id="ticket-4826">
+<!-- Card Top Ribbon -->
+<div class="bg-surface-container-high px-4 py-2.5 flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="px-2 py-0.5 rounded bg-primary text-on-primary font-ticket-mono text-label-sm font-bold tracking-wide">
+            #NB-4826
+          </span>
+<span class="px-2 py-0.5 rounded bg-surface-container-lowest text-secondary font-label-lg text-label-md font-bold flex items-center gap-1">
+<span class="material-symbols-outlined text-[16px]">takeout_dining</span>
+            Takeaway • Token #18
+          </span>
+</div>
+<div class="flex items-center gap-1.5 px-2 py-0.5 rounded bg-secondary-fixed text-on-secondary-fixed font-ticket-mono text-label-sm font-bold">
+<span class="material-symbols-outlined text-[14px]">schedule</span>
+<span>Ready 06:30</span>
+</div>
+</div>
+<div class="p-4 flex flex-col gap-3.5">
+<!-- Location & Customer Status -->
+<div class="flex items-stretch gap-2.5">
+<div class="flex flex-col items-center justify-center bg-surface-container-low px-3.5 py-1.5 rounded-lg shrink-0">
+<span class="font-label-sm text-[10px] text-on-surface-variant uppercase tracking-wider">Pickup Spot</span>
+<span class="font-ticket-mono text-body-lg text-secondary font-bold">BAY 02</span>
+</div>
+<div class="flex-1 bg-surface-container-low rounded-lg px-3 py-1.5 flex flex-col justify-center min-w-0">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[16px] text-primary">person</span>
+<span class="font-label-md text-label-md text-on-surface font-bold truncate">Priyesh J.</span>
+</div>
+<div class="flex items-center gap-1 text-[11px] text-tertiary font-semibold mt-0.5">
+<span class="material-symbols-outlined text-[13px]">sms</span>
+<span>Pickup SMS Alert Sent (3m ago)</span>
+</div>
+</div>
+</div>
+<div class="p-2 rounded-lg bg-surface-container-low flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="w-6 h-6 rounded-full bg-tertiary text-on-tertiary flex items-center justify-center font-ticket-mono text-[11px] font-bold">1×</span>
+<span class="font-body-md text-body-md text-on-surface font-medium">Family Combo Box (3 Pax)</span>
+</div>
+<span class="font-label-sm text-[11px] text-tertiary font-bold bg-tertiary-fixed px-2 py-0.5 rounded">Sealed in Bag</span>
+</div>
+<!-- Action Trigger -->
+<button class="w-full h-12 py-3 px-4 rounded-xl bg-tertiary text-on-tertiary font-label-lg text-label-lg flex items-center justify-center gap-2 shadow-sm active:scale-[0.98] transition-transform" onclick="confirmOrderHandover('ticket-4826', 'Priyesh J. (Takeaway)', 'NB-4826')">
+<span class="material-symbols-outlined text-[20px]">check</span>
+<span>Customer Picked Up</span>
+</button>
+</div>
+</div>
+<!-- Recall & Archive Section -->
+<div class="mt-2 pt-2 pb-6 flex flex-col gap-3">
+<div class="flex items-center justify-between px-1">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[18px] text-on-surface-variant">history</span>
+<h3 class="font-label-lg text-label-lg text-on-surface font-bold">Recently Completed (Archive)</h3>
+</div>
+<span class="font-label-sm text-label-sm text-on-surface-variant">Last 30 mins</span>
+</div>
+<div class="space-y-2">
+<!-- Archive Item 1 -->
+<div class="p-3 rounded-xl bg-surface-container-low flex items-center justify-between shadow-xs">
+<div class="flex items-center gap-2.5 min-w-0">
+<div class="w-7 h-7 rounded-full bg-tertiary-fixed text-tertiary flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-[16px]">done_all</span>
+</div>
+<div class="flex flex-col min-w-0">
+<div class="flex items-center gap-1.5">
+<span class="font-ticket-mono text-label-sm text-primary font-bold">#NB-4825</span>
+<span class="font-label-sm text-[12px] text-on-surface truncate">Rider Rajesh (UberEats)</span>
+</div>
+<span class="font-body-sm text-[11px] text-on-surface-variant">Handed over 2 mins ago</span>
+</div>
+</div>
+<button class="shrink-0 px-3 py-1.5 rounded-lg bg-surface-container-lowest text-primary font-label-sm text-label-sm font-semibold active:scale-95 shadow-xs transition-transform flex items-center gap-1" onclick="recallOrder('NB-4825')">
+<span class="material-symbols-outlined text-[14px]">undo</span>
+<span>Recall</span>
+</button>
+</div>
+<!-- Archive Item 2 -->
+<div class="p-3 rounded-xl bg-surface-container-low flex items-center justify-between shadow-xs">
+<div class="flex items-center gap-2.5 min-w-0">
+<div class="w-7 h-7 rounded-full bg-tertiary-fixed text-tertiary flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-[16px]">done_all</span>
+</div>
+<div class="flex flex-col min-w-0">
+<div class="flex items-center gap-1.5">
+<span class="font-ticket-mono text-label-sm text-primary font-bold">#NB-4822</span>
+<span class="font-label-sm text-[12px] text-on-surface truncate">Table T-04 (Server Sunita)</span>
+</div>
+<span class="font-body-sm text-[11px] text-on-surface-variant">Served 8 mins ago</span>
+</div>
+</div>
+<button class="shrink-0 px-3 py-1.5 rounded-lg bg-surface-container-lowest text-primary font-label-sm text-label-sm font-semibold active:scale-95 shadow-xs transition-transform flex items-center gap-1" onclick="recallOrder('NB-4822')">
+<span class="material-symbols-outlined text-[14px]">undo</span>
+<span>Recall</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+<!-- Micro-Interaction Feedback Toast (Hidden initially) -->
+<div class="fixed bottom-20 inset-x-4 z-50 pointer-events-none transition-all duration-300 opacity-0 translate-y-4" id="toast-notification">
+<div class="bg-inverse-surface text-inverse-on-surface px-4 py-3 rounded-xl shadow-xl flex items-center justify-between mx-auto max-w-sm">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[20px] text-tertiary-fixed" id="toast-icon">check_circle</span>
+<span class="font-body-sm text-body-sm" id="toast-msg">Order marked as completed</span>
+</div>
+<span class="font-ticket-mono text-label-sm text-tertiary-fixed font-bold uppercase">DONE</span>
+</div>
+</div>
+</div>
+<script>
+  function showToast(message, icon = 'check_circle') {
+    const toast = document.getElementById('toast-notification');
+    const msgEl = document.getElementById('toast-msg');
+    const iconEl = document.getElementById('toast-icon');
+    if (!toast) return;
+
+    msgEl.textContent = message;
+    iconEl.textContent = icon;
+    toast.classList.remove('opacity-0', 'translate-y-4');
+    toast.classList.add('opacity-100', 'translate-y-0');
+
+    setTimeout(() => {
+      toast.classList.remove('opacity-100', 'translate-y-0');
+      toast.classList.add('opacity-0', 'translate-y-4');
+    }, 2800);
+  }
+
+  function confirmOrderHandover(elementId, identifier, ticketCode) {
+    const ticketEl = document.getElementById(elementId);
+    if (!ticketEl) return;
+
+    ticketEl.style.transition = 'transform 0.3s ease, opacity 0.3s ease';
+    ticketEl.style.transform = 'scale(0.96)';
+    ticketEl.style.opacity = '0.4';
+
+    setTimeout(() => {
+      ticketEl.style.display = 'none';
+      showToast(`${ticketCode} handed over to ${identifier}!`, 'task_alt');
+    }, 320);
+  }
+
+  function simulateReprint(ticketCode) {
+    showToast(`Thermal slip printed for ${ticketCode}`, 'print');
+  }
+
+  function recallOrder(ticketCode) {
+    showToast(`Order ${ticketCode} recalled back to active staging!`, 'replay');
+  }
+</script></main><nav class="fixed bottom-0 inset-x-0 z-50 pb-safe bg-surface/95 backdrop-blur-xl shadow-[0_-2px_12px_rgba(0,0,0,0.06)]" data-active-classes="text-primary font-bold"><div class="flex justify-around items-center h-16 px-space-xs"><a class="flex flex-col items-center justify-center min-w-[56px] h-12 text-on-surface-variant hover:text-on-surface transition-colors" data-path="rm-021-new-kitchen-orders" href="#"><span class="material-symbols-outlined text-[22px]">fiber_new</span><span class="font-label-sm text-label-sm mt-0.5">New</span></a><a class="flex flex-col items-center justify-center min-w-[56px] h-12 text-on-surface-variant hover:text-on-surface transition-colors" data-path="rm-022-preparing-orders" href="#"><div class="relative"><span class="material-symbols-outlined text-[22px]">skillet</span><span class="absolute -top-1.5 -right-2 min-w-[14px] h-3.5 px-0.5 rounded-full bg-secondary-container text-on-secondary font-label-sm text-[9px] flex items-center justify-center font-bold">5</span></div><span class="font-label-sm text-label-sm mt-0.5">Preparing</span></a><a class="flex flex-col items-center justify-center min-w-[56px] h-12 text-on-surface-variant hover:text-on-surface transition-colors" data-path="rm-023-ready-orders" href="#"><span class="material-symbols-outlined text-[22px]">check_circle</span><span class="font-label-sm text-label-sm mt-0.5">Ready</span></a><a class="flex flex-col items-center justify-center min-w-[56px] h-12 text-on-surface-variant hover:text-on-surface transition-colors" data-path="kds-kitchen-board" href="#"><span class="material-symbols-outlined text-[22px]">soup_kitchen</span><span class="font-label-sm text-label-sm mt-0.5">KDS Board</span></a><a class="flex flex-col items-center justify-center min-w-[56px] h-12 text-on-surface-variant hover:text-on-surface transition-colors" data-path="menu-management" href="#"><span class="material-symbols-outlined text-[22px]">restaurant_menu</span><span class="font-label-sm text-label-sm mt-0.5">Menu</span></a></div></nav>
+</body></html>

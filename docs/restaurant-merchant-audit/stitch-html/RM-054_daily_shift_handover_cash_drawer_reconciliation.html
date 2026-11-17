@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+
+<html lang="en"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" name="viewport"/><meta content="mobile_stack" name="shell-type"/><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/><style>@layer base{html,body{width:100vw;margin:0;padding:0;}body{overscroll-behavior:none;}.pb-safe{padding-bottom:env(safe-area-inset-bottom,0px);}.pt-safe{padding-top:env(safe-area-inset-top,0px);}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config = { darkMode: "class", theme: { extend: { "colors": { "on-primary": "#ffffff", "on-surface-variant": "#444653", "on-secondary": "#ffffff", "on-secondary-fixed-variant": "#812800", "surface": "#f7f9fd", "surface-variant": "#e0e3e6", "on-surface": "#181c1f", "outline-variant": "#c5c5d5", "inverse-primary": "#b7c4ff", "surface-container-lowest": "#ffffff", "on-tertiary": "#ffffff", "surface-container-high": "#e6e8ec", "error": "#ba1a1a", "tertiary-fixed": "#7ffc97", "tertiary": "#003813", "error-container": "#ffdad6", "on-error": "#ffffff", "surface-container": "#eceef2", "inverse-on-surface": "#eff1f5", "tertiary-container": "#005120", "background": "#f7f9fd", "surface-tint": "#3a56bd", "primary-fixed-dim": "#b7c4ff", "surface-container-low": "#f2f4f8", "secondary-fixed": "#ffdbcf", "on-tertiary-container": "#4cca6c", "on-error-container": "#93000a", "secondary-container": "#fc6b32", "on-secondary-container": "#5c1a00", "secondary": "#a93700", "on-tertiary-fixed-variant": "#005320", "surface-container-highest": "#e0e3e6", "tertiary-fixed-dim": "#62df7d", "primary": "#00247f", "surface-bright": "#f7f9fd", "secondary-fixed-dim": "#ffb59b", "on-background": "#181c1f", "inverse-surface": "#2d3134", "outline": "#757684", "primary-fixed": "#dde1ff", "primary-container": "#1a3ba2", "surface-dim": "#d8dade", "on-primary-container": "#9cafff", "on-tertiary-fixed": "#002109", "on-primary-fixed": "#001452", "on-secondary-fixed": "#380d00", "on-primary-fixed-variant": "#1c3da4" }, "borderRadius": { "DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px" }, "spacing": { "space-lg": "1.5rem", "margin": "1.5rem", "space-xl": "2rem", "space-xs": "0.25rem", "margin-mobile": "1rem", "gutter-kds": "1.25rem", "gutter": "1rem", "space-sm": "0.5rem", "space-md": "1rem" }, "fontFamily": { "headline-sm": ["Inter"], "ticket-mono": ["Inter"], "body-sm": ["Inter"], "body-lg": ["Inter"], "headline-xl-mobile": ["Inter"], "label-md": ["Inter"], "label-lg": ["Inter"], "headline-lg": ["Inter"], "label-sm": ["Inter"], "body-md": ["Inter"], "headline-lg-mobile": ["Inter"], "headline-xl": ["Inter"], "headline-md": ["Inter"] }, "fontSize": { "headline-sm": ["20px", {"lineHeight": "28px", "fontWeight": "600"}], "ticket-mono": ["16px", {"lineHeight": "20px", "letterSpacing": "0.05em", "fontWeight": "700"}], "body-sm": ["13px", {"lineHeight": "18px", "fontWeight": "400"}], "body-lg": ["18px", {"lineHeight": "26px", "fontWeight": "500"}], "headline-xl-mobile": ["30px", {"lineHeight": "38px", "letterSpacing": "-0.02em", "fontWeight": "700"}], "label-md": ["13px", {"lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "600"}], "label-lg": ["15px", {"lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600"}], "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.015em", "fontWeight": "700"}], "label-sm": ["11px", {"lineHeight": "14px", "letterSpacing": "0.04em", "fontWeight": "700"}], "body-md": ["15px", {"lineHeight": "22px", "fontWeight": "400"}], "headline-lg-mobile": ["24px", {"lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "700"}], "headline-xl": ["40px", {"lineHeight": "48px", "letterSpacing": "-0.02em", "fontWeight": "700"}], "headline-md": ["24px", {"lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600"}] } } } };</script><style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head><body class="bg-surface-container-lowest font-body-md text-body-md text-on-surface flex flex-col min-h-screen"><header class="fixed top-0 w-full z-50 bg-surface-container-lowest/90 backdrop-blur-xl pt-safe shadow-[0_1px_8px_rgba(0,0,0,0.04)]"><div class="h-16 px-gutter flex items-center justify-between gap-space-sm"><div class="flex items-center gap-space-sm min-w-0"><button aria-label="Back to Finance" class="w-11 h-11 flex items-center justify-center text-primary hover:bg-surface-container-low rounded-lg shrink-0" onclick="history.back()"><span class="material-symbols-outlined text-[24px]">arrow_back</span></button><img alt="nabin-icon-primary-192.png" class="h-8 w-auto object-contain shrink-0" src="https://lh3.googleusercontent.com/aida/ALJJyrCTdp3uQlj1WEfbLaNul4jOVx9bLaPCickvf6jmMYIcgT0Dcg7scdiyYcenxu6gWsr9pQoUH2ealX0ppYFChKRsrSROV4GAWIufXLB4Kqk0tya-g8WVkLGo8G2JXdmV2FtyqNKN4nVrii5a0BrRU8tprEgBBKpA-1TjJ2dpdkwTdVThxJC8MtB1oJnLbkoTQdgVrALpqrvijqcpjjvt0XuvSBGWqqksC2TXzI9_ZrXfqDX6mvsypJ2Uq74"/><div class="flex flex-col min-w-0"><h1 class="font-headline-sm text-headline-sm text-on-surface font-semibold truncate leading-tight">Shift Cash Reconciliation</h1><p class="font-label-sm text-label-sm text-on-surface-variant truncate">Downtown Flagship · Evening Shift (Pooja Das)</p></div></div><div class="flex items-center gap-space-xs shrink-0"><button aria-label="Print Thermal Slip" class="w-11 h-11 flex items-center justify-center text-on-surface-variant hover:text-primary hover:bg-surface-container-low rounded-lg"><span class="material-symbols-outlined text-[22px]">receipt</span></button><div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center shrink-0"><span class="material-symbols-outlined text-on-primary text-[18px]">person</span></div></div></div></header><main class="flex flex-col relative w-full pt-16 bg-surface-container-lowest min-h-screen"><div class="flex flex-col w-full pb-28">
+<!-- Top Context / Shift Banner -->
+<section class="px-margin-mobile pt-3 pb-2">
+<div class="bg-surface-container-low rounded-xl p-3 flex flex-col gap-2 shadow-sm">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="w-2.5 h-2.5 rounded-full bg-secondary-container animate-pulse"></span>
+<span class="font-label-sm text-label-sm text-on-surface uppercase tracking-wider font-bold">POS Terminal Active</span>
+</div>
+<div class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-secondary-fixed text-on-secondary-fixed-variant font-label-sm text-label-sm font-semibold">
+<span class="material-symbols-outlined text-[14px]">lock_open</span>
+<span>Drawer Open</span>
+</div>
+</div>
+<div class="flex flex-col">
+<p class="font-label-lg text-label-lg text-on-surface font-semibold">Evening Shift (15:00–23:30) · Terminal #POS-01</p>
+<p class="font-body-sm text-body-sm text-on-surface-variant flex items-center gap-1 mt-0.5">
+<span class="material-symbols-outlined text-[15px] text-primary">badge</span>
+          Cashier: Pooja Das (Counter Cashier) · Downtown Flagship
+        </p>
+</div>
+</div>
+</section>
+<!-- Section 1: Executive Cash Summary Card -->
+<section class="px-margin-mobile my-2">
+<div class="bg-surface-container-lowest rounded-xl p-4 shadow-sm flex flex-col gap-3">
+<div class="flex items-center justify-between">
+<div>
+<h2 class="font-headline-sm text-headline-sm text-on-surface font-bold">Shift Cash Balance &amp; Variance</h2>
+<p class="font-label-sm text-label-sm text-on-surface-variant">Reconciliation run at 23:28:14</p>
+</div>
+<span class="w-9 h-9 rounded-full bg-surface-container flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-[20px]">account_balance_wallet</span>
+</span>
+</div>
+<!-- 3-Metric Highlight Grid -->
+<div class="grid grid-cols-3 gap-2 pt-1">
+<div class="bg-surface-container-low rounded-lg p-2.5 flex flex-col justify-between">
+<span class="font-label-sm text-label-sm text-on-surface-variant">Expected</span>
+<span class="font-ticket-mono text-ticket-mono text-on-surface font-bold mt-1 tracking-tight">₹14,250</span>
+<span class="font-label-sm text-[10px] text-on-surface-variant leading-none mt-0.5">System Net</span>
+</div>
+<div class="bg-primary-fixed rounded-lg p-2.5 flex flex-col justify-between">
+<span class="font-label-sm text-label-sm text-on-primary-fixed font-semibold">Counted</span>
+<span class="font-ticket-mono text-ticket-mono text-primary font-bold mt-1 tracking-tight">₹14,200</span>
+<span class="font-label-sm text-[10px] text-on-primary-fixed-variant leading-none mt-0.5">Physical Cash</span>
+</div>
+<div class="bg-error-container rounded-lg p-2.5 flex flex-col justify-between">
+<span class="font-label-sm text-label-sm text-on-error-container font-semibold">Variance</span>
+<span class="font-ticket-mono text-ticket-mono text-error font-bold mt-1 tracking-tight">-₹50.00</span>
+<span class="font-label-sm text-[10px] text-error font-bold leading-none mt-0.5 flex items-center gap-0.5">
+<span class="material-symbols-outlined text-[11px]">warning</span> Shortage
+          </span>
+</div>
+</div>
+<!-- Mathematical Trace Breakdown Formula Container -->
+<div class="bg-surface-container-low rounded-lg p-3 flex flex-col gap-2">
+<div class="flex items-center justify-between">
+<span class="font-label-sm text-label-sm text-on-surface font-bold flex items-center gap-1">
+<span class="material-symbols-outlined text-[15px] text-primary">calculate</span>
+            Audit Formula Trace
+          </span>
+<span class="font-label-sm text-label-sm text-primary font-semibold">Net Balance</span>
+</div>
+<p class="font-ticket-mono text-body-sm text-on-surface-variant leading-relaxed">
+<span class="text-on-surface font-semibold">Float ₹2,000.00</span> + 
+          <span class="text-tertiary font-semibold">Cash Sale ₹12,450.00</span> (28 orders) - 
+          <span class="text-secondary font-semibold">Petty Cash ₹200.00</span> = 
+          <span class="text-primary font-bold">₹14,250.00 Expected</span>
+</p>
+<div class="bg-surface-container-lowest rounded p-2 flex items-start gap-2">
+<span class="material-symbols-outlined text-secondary text-[16px] shrink-0 mt-0.5">receipt_long</span>
+<p class="font-body-sm text-body-sm text-on-surface-variant leading-tight">
+<strong class="text-on-surface font-semibold">₹200.00 Petty Cash Voucher #PC-042:</strong> Emergency supply run for pasteurized whole milk (2×5L) by Barista Kiran S. Approved &amp; physical slip in tray.
+          </p>
+</div>
+</div>
+</div>
+</section>
+<!-- Section 2: Physical Currency Denomination Breakdown Matrix -->
+<section class="px-margin-mobile my-2">
+<div class="bg-surface-container-lowest rounded-xl p-4 shadow-sm flex flex-col gap-3">
+<div class="flex items-center justify-between">
+<div>
+<h2 class="font-headline-sm text-headline-sm text-on-surface font-bold">Physical Currency Count</h2>
+<p class="font-label-sm text-label-sm text-on-surface-variant">Indian Rupee (INR) denomination verification</p>
+</div>
+<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-primary-fixed text-primary font-label-sm text-label-sm font-bold">
+<span class="material-symbols-outlined text-[14px]">done_all</span>
+          ₹14,200.00
+        </span>
+</div>
+<!-- Denomination Rows -->
+<div class="flex flex-col gap-2.5 pt-1">
+<!-- Row ₹500 -->
+<div class="bg-surface-container-low rounded-lg p-2.5 flex items-center justify-between gap-2">
+<div class="flex items-center gap-2 min-w-0">
+<span class="w-12 h-8 rounded bg-surface-container-lowest text-primary font-ticket-mono text-label-md flex items-center justify-center font-bold shadow-sm">₹500</span>
+<div class="flex flex-col">
+<span class="font-label-sm text-label-sm text-on-surface-variant">24 Notes</span>
+<span class="font-label-sm text-[10px] text-tertiary font-semibold">Verified</span>
+</div>
+</div>
+<div class="flex items-center gap-2 shrink-0">
+<div class="flex items-center bg-surface-container-lowest rounded-lg p-0.5 shadow-sm">
+<button aria-label="Decrease 500 notes" class="w-10 h-10 rounded-md flex items-center justify-center text-on-surface-variant active:bg-surface-container active:scale-95 transition-transform">
+<span class="material-symbols-outlined text-[18px]">remove</span>
+</button>
+<span class="w-8 text-center font-ticket-mono text-ticket-mono font-bold text-on-surface">24</span>
+<button aria-label="Increase 500 notes" class="w-10 h-10 rounded-md flex items-center justify-center text-on-surface-variant active:bg-surface-container active:scale-95 transition-transform">
+<span class="material-symbols-outlined text-[18px]">add</span>
+</button>
+</div>
+<span class="w-20 text-right font-ticket-mono text-ticket-mono font-bold text-on-surface">₹12,000</span>
+</div>
+</div>
+<!-- Row ₹200 -->
+<div class="bg-surface-container-low rounded-lg p-2.5 flex items-center justify-between gap-2">
+<div class="flex items-center gap-2 min-w-0">
+<span class="w-12 h-8 rounded bg-surface-container-lowest text-secondary-container font-ticket-mono text-label-md flex items-center justify-center font-bold shadow-sm">₹200</span>
+<div class="flex flex-col">
+<span class="font-label-sm text-label-sm text-on-surface-variant">8 Notes</span>
+<span class="font-label-sm text-[10px] text-tertiary font-semibold">Verified</span>
+</div>
+</div>
+<div class="flex items-center gap-2 shrink-0">
+<div class="flex items-center bg-surface-container-lowest rounded-lg p-0.5 shadow-sm">
+<button aria-label="Decrease 200 notes" class="w-10 h-10 rounded-md flex items-center justify-center text-on-surface-variant active:bg-surface-container active:scale-95 transition-transform">
+<span class="material-symbols-outlined text-[18px]">remove</span>
+</button>
+<span class="w-8 text-center font-ticket-mono text-ticket-mono font-bold text-on-surface">8</span>
+<button aria-label="Increase 200 notes" class="w-10 h-10 rounded-md flex items-center justify-center text-on-surface-variant active:bg-surface-container active:scale-95 transition-transform">
+<span class="material-symbols-outlined text-[18px]">add</span>
+</button>
+</div>
+<span class="w-20 text-right font-ticket-mono text-ticket-mono font-bold text-on-surface">₹1,600</span>
+</div>
+</div>
+<!-- Row ₹100 -->
+<div class="bg-surface-container-low rounded-lg p-2.5 flex items-center justify-between gap-2">
+<div class="flex items-center gap-2 min-w-0">
+<span class="w-12 h-8 rounded bg-surface-container-lowest text-primary-container font-ticket-mono text-label-md flex items-center justify-center font-bold shadow-sm">₹100</span>
+<div class="flex flex-col">
+<span class="font-label-sm text-label-sm text-on-surface-variant">5 Notes</span>
+<span class="font-label-sm text-[10px] text-tertiary font-semibold">Verified</span>
+</div>
+</div>
+<div class="flex items-center gap-2 shrink-0">
+<div class="flex items-center bg-surface-container-lowest rounded-lg p-0.5 shadow-sm">
+<button aria-label="Decrease 100 notes" class="w-10 h-10 rounded-md flex items-center justify-center text-on-surface-variant active:bg-surface-container active:scale-95 transition-transform">
+<span class="material-symbols-outlined text-[18px]">remove</span>
+</button>
+<span class="w-8 text-center font-ticket-mono text-ticket-mono font-bold text-on-surface">5</span>
+<button aria-label="Increase 100 notes" class="w-10 h-10 rounded-md flex items-center justify-center text-on-surface-variant active:bg-surface-container active:scale-95 transition-transform">
+<span class="material-symbols-outlined text-[18px]">add</span>
+</button>
+</div>
+<span class="w-20 text-right font-ticket-mono text-ticket-mono font-bold text-on-surface">₹500</span>
+</div>
+</div>
+<!-- Row ₹50 -->
+<div class="bg-surface-container-low rounded-lg p-2.5 flex items-center justify-between gap-2">
+<div class="flex items-center gap-2 min-w-0">
+<span class="w-12 h-8 rounded bg-surface-container-lowest text-on-surface font-ticket-mono text-label-md flex items-center justify-center font-bold shadow-sm">₹50</span>
+<div class="flex flex-col">
+<span class="font-label-sm text-label-sm text-on-surface-variant">2 Notes</span>
+<span class="font-label-sm text-[10px] text-tertiary font-semibold">Verified</span>
+</div>
+</div>
+<div class="flex items-center gap-2 shrink-0">
+<div class="flex items-center bg-surface-container-lowest rounded-lg p-0.5 shadow-sm">
+<button aria-label="Decrease 50 notes" class="w-10 h-10 rounded-md flex items-center justify-center text-on-surface-variant active:bg-surface-container active:scale-95 transition-transform">
+<span class="material-symbols-outlined text-[18px]">remove</span>
+</button>
+<span class="w-8 text-center font-ticket-mono text-ticket-mono font-bold text-on-surface">2</span>
+<button aria-label="Increase 50 notes" class="w-10 h-10 rounded-md flex items-center justify-center text-on-surface-variant active:bg-surface-container active:scale-95 transition-transform">
+<span class="material-symbols-outlined text-[18px]">add</span>
+</button>
+</div>
+<span class="w-20 text-right font-ticket-mono text-ticket-mono font-bold text-on-surface">₹100</span>
+</div>
+</div>
+<!-- Row Coins -->
+<div class="bg-surface-container-low rounded-lg p-2.5 flex items-center justify-between gap-2">
+<div class="flex items-center gap-2 min-w-0">
+<span class="w-12 h-8 rounded bg-surface-container-lowest text-on-surface-variant font-ticket-mono text-label-sm flex items-center justify-center font-bold shadow-sm">Coins</span>
+<div class="flex flex-col">
+<span class="font-label-sm text-label-sm text-on-surface-variant">₹10 / ₹5 / ₹2 / ₹1</span>
+<span class="font-label-sm text-[10px] text-on-surface-variant">Depleted / Short</span>
+</div>
+</div>
+<div class="flex items-center gap-2 shrink-0">
+<div class="flex items-center bg-surface-container-lowest rounded-lg p-0.5 shadow-sm opacity-60">
+<button aria-label="Decrease coins" class="w-10 h-10 rounded-md flex items-center justify-center text-on-surface-variant">
+<span class="material-symbols-outlined text-[18px]">remove</span>
+</button>
+<span class="w-8 text-center font-ticket-mono text-ticket-mono font-bold text-on-surface">0</span>
+<button aria-label="Increase coins" class="w-10 h-10 rounded-md flex items-center justify-center text-on-surface-variant">
+<span class="material-symbols-outlined text-[18px]">add</span>
+</button>
+</div>
+<span class="w-20 text-right font-ticket-mono text-ticket-mono font-bold text-on-surface">₹0.00</span>
+</div>
+</div>
+</div>
+<!-- Denomination Footer -->
+<div class="bg-surface-container-high rounded-lg p-3 flex items-center justify-between mt-1">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary text-[20px]">layers</span>
+<span class="font-label-lg text-label-lg text-on-surface font-semibold">Total Counted: 39 Notes</span>
+</div>
+<span class="font-ticket-mono text-headline-sm text-primary font-bold">₹14,200.00</span>
+</div>
+</div>
+</section>
+<!-- Section 3: Discrepancy Justification & Cashier Notes -->
+<section class="px-margin-mobile my-2">
+<div class="bg-surface-container-lowest rounded-xl p-4 shadow-sm flex flex-col gap-3">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="w-7 h-7 rounded-full bg-error-container text-error flex items-center justify-center">
+<span class="material-symbols-outlined text-[16px]">priority_high</span>
+</span>
+<div>
+<h2 class="font-headline-sm text-headline-sm text-on-surface font-bold">Variance Audit &amp; Explanation</h2>
+<p class="font-label-sm text-label-sm text-error font-medium">Variance != ₹0.00 detected</p>
+</div>
+</div>
+<span class="px-2 py-0.5 rounded-full bg-error-container text-error font-label-sm text-label-sm font-bold">
+          Mandatory (&gt;₹20)
+        </span>
+</div>
+<div class="flex flex-col gap-2 pt-1">
+<label class="font-label-sm text-label-sm text-on-surface-variant font-semibold">Discrepancy Category Reason</label>
+<div class="h-12 bg-surface-container-low rounded-lg px-3 flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-secondary text-[20px]">toll</span>
+<span class="font-label-lg text-label-lg text-on-surface font-semibold truncate">Round-off change variance / Coin shortage</span>
+</div>
+<span class="material-symbols-outlined text-on-surface-variant text-[20px]">expand_more</span>
+</div>
+</div>
+<div class="flex flex-col gap-1.5">
+<label class="font-label-sm text-label-sm text-on-surface-variant font-semibold">Cashier Shift Explanation Note</label>
+<div class="bg-surface-container-low rounded-lg p-3 flex flex-col gap-1">
+<p class="font-body-sm text-body-sm text-on-surface leading-relaxed">
+            "₹50 coin change shortage occurred during 21:40 peak rush on cash takeaway order #NB-4819. Customer lacked UPI / exact cash; waived change per shift lead discretion to avoid station queue bottleneck."
+          </p>
+<div class="flex items-center gap-2 mt-2 pt-2 bg-surface-container-lowest/80 rounded p-2">
+<span class="material-symbols-outlined text-primary text-[16px]">link</span>
+<span class="font-label-sm text-label-sm text-on-surface font-medium truncate">
+              Linked Ref: Order #NB-4819 · Total ₹450.00 · Tendered ₹500.00 cash
+            </span>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- Section 4: Manager Dual-Authorization Signature & PIN -->
+<section class="px-margin-mobile my-2">
+<div class="bg-surface-container-lowest rounded-xl p-4 shadow-sm flex flex-col gap-3">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="w-8 h-8 rounded-full bg-primary-fixed text-primary flex items-center justify-center">
+<span class="material-symbols-outlined text-[18px]">verified_user</span>
+</span>
+<div>
+<h2 class="font-headline-sm text-headline-sm text-on-surface font-bold">Store Manager Dual-Authorization</h2>
+<p class="font-label-sm text-label-sm text-on-surface-variant">Dual-signoff threshold triggered for ₹50 variance</p>
+</div>
+</div>
+</div>
+<div class="bg-surface-container-low rounded-lg p-3 flex items-center justify-between">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-full bg-primary text-on-primary font-ticket-mono font-bold flex items-center justify-center text-label-lg">
+            VM
+          </div>
+<div class="flex flex-col">
+<span class="font-label-lg text-label-lg text-on-surface font-bold">Vikram Malhotra</span>
+<span class="font-label-sm text-label-sm text-on-surface-variant">Store Operations Manager · Badge #RMS-819</span>
+</div>
+</div>
+<span class="w-6 h-6 rounded-full bg-tertiary-fixed text-tertiary flex items-center justify-center">
+<span class="material-symbols-outlined text-[16px]">check</span>
+</span>
+</div>
+<!-- 4-Digit Manager Lock PIN entry -->
+<div class="flex flex-col items-center justify-center py-2 bg-surface-container-low rounded-lg gap-2">
+<span class="font-label-sm text-label-sm text-on-surface-variant">Dual-Security 4-Digit Override PIN</span>
+<div class="flex items-center gap-3 my-1">
+<div class="w-11 h-11 rounded-lg bg-surface-container-lowest flex items-center justify-center text-primary shadow-sm">
+<span class="w-3.5 h-3.5 rounded-full bg-primary"></span>
+</div>
+<div class="w-11 h-11 rounded-lg bg-surface-container-lowest flex items-center justify-center text-primary shadow-sm">
+<span class="w-3.5 h-3.5 rounded-full bg-primary"></span>
+</div>
+<div class="w-11 h-11 rounded-lg bg-surface-container-lowest flex items-center justify-center text-primary shadow-sm">
+<span class="w-3.5 h-3.5 rounded-full bg-primary"></span>
+</div>
+<div class="w-11 h-11 rounded-lg bg-surface-container-lowest flex items-center justify-center text-primary shadow-sm">
+<span class="w-3.5 h-3.5 rounded-full bg-primary"></span>
+</div>
+</div>
+<div class="flex items-center gap-1.5 text-tertiary font-label-sm text-label-sm font-semibold">
+<span class="material-symbols-outlined text-[16px]">fingerprint</span>
+<span>PIN Verified &amp; Digitally Signed at 23:31:05</span>
+</div>
+</div>
+</div>
+</section>
+<!-- Section 5: Shift Reconciliation History Accordion -->
+<section class="px-margin-mobile my-2">
+<details class="group bg-surface-container-lowest rounded-xl shadow-sm overflow-hidden" open="">
+<summary class="p-4 flex items-center justify-between cursor-pointer list-none select-none">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary text-[20px]">history</span>
+<span class="font-label-lg text-label-lg text-on-surface font-bold">Recent Shift Drawer Closes</span>
+</div>
+<span class="material-symbols-outlined text-on-surface-variant transition-transform group-open:rotate-180">expand_more</span>
+</summary>
+<div class="px-4 pb-4 flex flex-col gap-2.5">
+<!-- History Item 1 -->
+<div class="bg-surface-container-low rounded-lg p-3 flex flex-col gap-1.5">
+<div class="flex items-center justify-between">
+<span class="font-label-md text-label-md text-on-surface font-bold">Oct 28 · Lunch Shift (11:00–15:00)</span>
+<span class="px-2 py-0.5 rounded-full bg-tertiary-fixed text-tertiary font-label-sm text-label-sm font-bold flex items-center gap-0.5">
+<span class="material-symbols-outlined text-[12px]">check_circle</span> Balanced
+            </span>
+</div>
+<div class="flex items-center justify-between text-body-sm">
+<span class="font-ticket-mono text-body-sm text-on-surface-variant">Exp: ₹11,400.00 · Count: ₹11,400.00</span>
+<span class="font-label-sm text-label-sm text-tertiary font-semibold">₹0.00 Var</span>
+</div>
+<span class="font-label-sm text-[11px] text-on-surface-variant">Verified by Vikram Malhotra (Store Mgr)</span>
+</div>
+<!-- History Item 2 -->
+<div class="bg-surface-container-low rounded-lg p-3 flex flex-col gap-1.5">
+<div class="flex items-center justify-between">
+<span class="font-label-md text-label-md text-on-surface font-bold">Oct 27 · Dinner Shift (15:00–23:30)</span>
+<span class="px-2 py-0.5 rounded-full bg-tertiary-fixed text-tertiary font-label-sm text-label-sm font-bold flex items-center gap-0.5">
+<span class="material-symbols-outlined text-[12px]">check_circle</span> Balanced
+            </span>
+</div>
+<div class="flex items-center justify-between text-body-sm">
+<span class="font-ticket-mono text-body-sm text-on-surface-variant">Exp: ₹16,800.00 · Count: ₹16,800.00</span>
+<span class="font-label-sm text-label-sm text-tertiary font-semibold">₹0.00 Var</span>
+</div>
+<span class="font-label-sm text-[11px] text-on-surface-variant">Verified by Pooja Das (Counter Cashier)</span>
+</div>
+</div>
+</details>
+</section>
+<!-- Section 6: Sticky Bottom Action Panel -->
+<aside class="fixed bottom-0 left-0 right-0 z-40 bg-surface-container-lowest/95 backdrop-blur-md pb-safe shadow-[0_-4px_16px_rgba(0,0,0,0.06)] px-margin-mobile pt-3">
+<div class="flex flex-col gap-2 max-w-md mx-auto w-full pb-2">
+<div class="flex items-center gap-2">
+<button class="h-12 px-4 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface font-label-lg text-label-lg font-semibold flex items-center justify-center gap-2 shrink-0 active:scale-98 transition-all" id="printSlipBtn">
+<span class="material-symbols-outlined text-[20px] text-primary">receipt_long</span>
+<span>Print Thermal Slip</span>
+</button>
+<button class="h-13 min-h-[52px] flex-1 px-4 rounded-lg bg-primary hover:bg-primary-container text-on-primary font-label-lg text-label-lg font-bold flex items-center justify-center gap-2 shadow-md active:scale-98 transition-all" id="lockDrawerBtn">
+<span class="material-symbols-outlined text-[20px]">lock</span>
+<span>Submit &amp; Lock Drawer</span>
+</button>
+</div>
+<div class="flex items-center justify-center gap-1.5 text-on-surface-variant text-[11px] font-label-sm">
+<span class="material-symbols-outlined text-[13px] text-tertiary">security</span>
+<span>Secure Electronic Cash Drawer Kick Trigger Armed</span>
+</div>
+</div>
+</aside>
+</div>
+<script>
+  // Simple interactive feedback for Shift Handover demo
+  document.getElementById('lockDrawerBtn')?.addEventListener('click', function() {
+    const originalContent = this.innerHTML;
+    this.innerHTML = '<span class="material-symbols-outlined text-[20px] animate-spin">refresh</span> Locking Safe...';
+    setTimeout(() => {
+      this.classList.remove('bg-primary');
+      this.classList.add('bg-tertiary');
+      this.innerHTML = '<span class="material-symbols-outlined text-[20px]">task_alt</span> Handover Completed';
+    }, 1200);
+  });
+
+  document.getElementById('printSlipBtn')?.addEventListener('click', function() {
+    const icon = this.querySelector('.material-symbols-outlined');
+    if (icon) {
+      icon.textContent = 'print';
+      setTimeout(() => { icon.textContent = 'receipt_long'; }, 1500);
+    }
+  });
+</script></main></body></html>

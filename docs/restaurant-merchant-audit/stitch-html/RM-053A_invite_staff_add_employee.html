@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+
+<html class="h-full bg-background" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>RM-053A: Invite Staff &amp; Add Employee | NABIN RMS</title>
+<!-- Material Symbols Outlined -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Inter Font Family -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS CDN -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<!-- Tailwind Configuration matching Design System & Visual Tokens -->
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "background": "#f7f9fd",
+            "on-secondary-container": "#5c1a00",
+            "primary-container": "#1a3ba2",
+            "on-primary-container": "#9cafff",
+            "error": "#ba1a1a",
+            "surface-container-low": "#f2f4f8",
+            "secondary-fixed": "#ffdbcf",
+            "on-tertiary-fixed": "#002109",
+            "inverse-surface": "#2d3134",
+            "surface-tint": "#3a56bd",
+            "outline": "#757684",
+            "surface": "#f7f9fd",
+            "on-primary-fixed": "#001452",
+            "inverse-on-surface": "#eff1f5",
+            "on-surface": "#181c1f",
+            "on-background": "#181c1f",
+            "on-tertiary-container": "#4cca6c",
+            "surface-container-lowest": "#ffffff",
+            "on-secondary-fixed": "#380d00",
+            "surface-container": "#eceef2",
+            "secondary-container": "#fc6b32",
+            "on-secondary": "#ffffff",
+            "tertiary-fixed-dim": "#62df7d",
+            "on-primary-fixed-variant": "#1c3da4",
+            "secondary": "#a93700",
+            "on-tertiary-fixed-variant": "#005320",
+            "on-primary": "#ffffff",
+            "on-error-container": "#93000a",
+            "surface-variant": "#e0e3e6",
+            "primary-fixed-dim": "#b7c4ff",
+            "tertiary-fixed": "#7ffc97",
+            "on-surface-variant": "#444653",
+            "surface-dim": "#d8dade",
+            "surface-container-highest": "#e0e3e6",
+            "tertiary-container": "#005120",
+            "outline-variant": "#c5c5d5",
+            "inverse-primary": "#b7c4ff",
+            "tertiary": "#003813",
+            "secondary-fixed-dim": "#ffb59b",
+            "on-tertiary": "#ffffff",
+            "primary": "#00247f",
+            "on-secondary-fixed-variant": "#812800",
+            "on-error": "#ffffff",
+            "primary-fixed": "#dde1ff",
+            "surface-container-high": "#e6e8ec",
+            "error-container": "#ffdad6",
+            "surface-bright": "#f7f9fd"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.25rem",
+            "lg": "0.5rem",
+            "xl": "0.75rem",
+            "full": "9999px"
+          },
+          "spacing": {
+            "gutter-kds": "1.25rem",
+            "space-lg": "1.5rem",
+            "margin-mobile": "1rem",
+            "space-xl": "2rem",
+            "space-sm": "0.5rem",
+            "gutter": "1rem",
+            "margin": "1.5rem",
+            "space-xs": "0.25rem",
+            "space-md": "1rem"
+          },
+          "fontFamily": {
+            "headline-sm": ["Inter"],
+            "body-lg": ["Inter"],
+            "body-sm": ["Inter"],
+            "headline-lg": ["Inter"],
+            "ticket-mono": ["Inter"],
+            "label-sm": ["Inter"],
+            "headline-md": ["Inter"],
+            "headline-xl-mobile": ["Inter"],
+            "body-md": ["Inter"],
+            "label-md": ["Inter"],
+            "headline-lg-mobile": ["Inter"],
+            "label-lg": ["Inter"],
+            "headline-xl": ["Inter"]
+          },
+          "fontSize": {
+            "headline-sm": ["20px", { "lineHeight": "28px", "fontWeight": "600" }],
+            "body-lg": ["18px", { "lineHeight": "26px", "fontWeight": "500" }],
+            "body-sm": ["13px", { "lineHeight": "18px", "fontWeight": "400" }],
+            "headline-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.015em", "fontWeight": "700" }],
+            "ticket-mono": ["16px", { "lineHeight": "20px", "letterSpacing": "0.05em", "fontWeight": "700" }],
+            "label-sm": ["11px", { "lineHeight": "14px", "letterSpacing": "0.04em", "fontWeight": "700" }],
+            "headline-md": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+            "headline-xl-mobile": ["30px", { "lineHeight": "38px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+            "body-md": ["15px", { "lineHeight": "22px", "fontWeight": "400" }],
+            "label-md": ["13px", { "lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "600" }],
+            "headline-lg-mobile": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "700" }],
+            "label-lg": ["15px", { "lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600" }],
+            "headline-xl": ["40px", { "lineHeight": "48px", "letterSpacing": "-0.02em", "fontWeight": "700" }]
+          }
+        }
+      }
+    }
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 500, 'GRAD' 0, 'opsz' 24;
+      display: inline-block;
+      vertical-align: middle;
+      line-height: 1;
+    }
+    .material-symbols-outlined[data-weight="fill"] {
+      font-variation-settings: 'FILL' 1, 'wght' 600, 'GRAD' 0, 'opsz' 24;
+    }
+  </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background text-on-surface antialiased min-h-screen flex flex-col font-body-md text-body-md select-none pb-36">
+<!-- TOP APP BAR (Shared Component Anchor) -->
+<header class="fixed top-0 left-0 w-full z-50 flex items-center justify-between px-gutter h-14 bg-surface-container-lowest shadow-sm border-b border-outline-variant">
+<div class="flex items-center gap-2">
+<button aria-label="Go back" class="w-10 h-10 flex items-center justify-center rounded-lg text-primary hover:bg-surface-container-high active:scale-95 transition-transform duration-100 ease-out" type="button">
+<span class="material-symbols-outlined text-primary" data-icon="arrow_back">arrow_back</span>
+</button>
+<div>
+<h1 class="text-headline-sm font-headline-sm text-on-surface font-bold tracking-tight leading-none">Add New Staff</h1>
+<span class="text-label-sm font-label-sm text-on-surface-variant font-medium">RMS Access Management</span>
+</div>
+</div>
+<div class="flex items-center gap-1">
+<button aria-label="Help and documentation" class="w-10 h-10 flex items-center justify-center rounded-lg text-on-surface-variant hover:bg-surface-container-high active:scale-95 transition-transform duration-100 ease-out" type="button">
+<span class="material-symbols-outlined" data-icon="help_outline">help_outline</span>
+</button>
+</div>
+</header>
+<!-- MAIN CANVAS CONTAINER -->
+<main class="w-full max-w-md mx-auto pt-16 px-margin-mobile flex flex-col gap-4">
+<!-- SUB-HEADER CONTEXT BLOCK & GATEWAY TOAST -->
+<div class="pt-2">
+<div class="flex items-center justify-between">
+<span class="text-label-sm font-label-sm uppercase tracking-wider text-primary font-bold bg-primary-fixed px-2 py-0.5 rounded">RM-053A</span>
+<span class="text-label-sm font-label-sm text-on-surface-variant font-medium">Flagship #01</span>
+</div>
+<h2 class="text-headline-md font-headline-md text-on-surface mt-1 font-bold">Invite New Staff Member</h2>
+<p class="text-body-sm font-body-sm text-on-surface-variant">Grant role-based access to your restaurant team.</p>
+<!-- SMS Gateway Ready Notification Banner -->
+<div class="mt-3.5 flex items-center gap-2.5 px-3 py-2 bg-surface-container-lowest border border-outline-variant rounded-lg">
+<div class="w-6 h-6 rounded-full bg-secondary-fixed flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-secondary text-sm" data-icon="bolt">bolt</span>
+</div>
+<p class="text-body-sm font-body-sm text-on-surface font-medium leading-tight">
+<span class="font-bold text-secondary">SMS Gateway Ready:</span> Invitations delivered in &lt; 10 seconds.
+        </p>
+</div>
+</div>
+<!-- FORM SECTION 1: PERSONAL INFORMATION CARD -->
+<section class="bg-surface-container-lowest rounded-xl border border-outline-variant p-4 flex flex-col gap-3.5">
+<div class="flex items-center justify-between border-b border-outline-variant pb-2.5">
+<span class="text-label-sm font-label-sm tracking-wider text-primary-container uppercase font-bold">STEP 1 OF 3: BASIC INFO</span>
+<span class="text-label-sm font-label-sm text-on-surface-variant font-semibold">Required</span>
+</div>
+<!-- Full Name Field -->
+<div class="flex flex-col gap-1.5">
+<label class="text-label-md font-label-md text-on-surface font-semibold flex items-center gap-1.5" for="staff-name">
+<span>Full Name</span>
+<span class="text-secondary font-bold">*</span>
+</label>
+<div class="relative flex items-center">
+<div class="absolute left-3 text-on-surface-variant pointer-events-none flex items-center">
+<span class="material-symbols-outlined text-[20px]" data-icon="person">person</span>
+</div>
+<input class="w-full h-12 pl-10 pr-3.5 bg-surface-container-lowest border border-outline-variant rounded-lg text-body-md font-body-md text-on-surface focus:outline-none focus:border-primary-container focus:ring-1 focus:ring-primary-container transition-all" id="staff-name" name="staff-name" placeholder="Enter employee name" type="text" value="Vikramaditya Sharma"/>
+</div>
+</div>
+<!-- Mobile Number Field with India country code chip -->
+<div class="flex flex-col gap-1.5">
+<label class="text-label-md font-label-md text-on-surface font-semibold flex items-center justify-between" for="staff-mobile">
+<span class="flex items-center gap-1.5">
+            Mobile Number
+            <span class="text-secondary font-bold">*</span>
+</span>
+<span class="text-label-sm font-label-sm text-tertiary-container font-bold flex items-center gap-1">
+<span class="material-symbols-outlined text-[15px]" data-icon="verified" data-weight="fill">verified</span>
+            SMS Verified
+          </span>
+</label>
+<div class="flex items-center gap-2">
+<!-- Fixed Country Code Chip -->
+<div class="h-12 px-3 bg-surface-container-low border border-outline-variant rounded-lg flex items-center gap-1 text-on-surface font-bold text-body-md shrink-0">
+<span class="text-label-md font-label-md text-on-surface-variant">IN</span>
+<span>+91</span>
+</div>
+<!-- Phone Input Container -->
+<div class="relative flex-1 flex items-center">
+<input class="w-full h-12 pl-3.5 pr-10 bg-surface-container-lowest border border-outline-variant rounded-lg text-body-md font-body-md text-on-surface font-semibold tracking-wide focus:outline-none focus:border-primary-container focus:ring-1 focus:ring-primary-container transition-all" id="staff-mobile" name="staff-mobile" placeholder="10-digit number" type="tel" value="98765 43210"/>
+<div class="absolute right-3 text-tertiary-container pointer-events-none flex items-center">
+<span class="material-symbols-outlined text-[20px]" data-icon="check_circle" data-weight="fill">check_circle</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Email Field (Optional) -->
+<div class="flex flex-col gap-1.5">
+<label class="text-label-md font-label-md text-on-surface font-semibold flex items-center justify-between" for="staff-email">
+<span>Email Address</span>
+<span class="text-label-sm font-label-sm text-on-surface-variant font-normal">Optional</span>
+</label>
+<div class="relative flex items-center">
+<div class="absolute left-3 text-on-surface-variant pointer-events-none flex items-center">
+<span class="material-symbols-outlined text-[20px]" data-icon="mail">mail</span>
+</div>
+<input class="w-full h-12 pl-10 pr-3.5 bg-surface-container-lowest border border-outline-variant rounded-lg text-body-md font-body-md text-on-surface focus:outline-none focus:border-primary-container focus:ring-1 focus:ring-primary-container transition-all" id="staff-email" name="staff-email" placeholder="name@restaurant.com" type="email" value="vikram.sharma@restaurant.com"/>
+</div>
+</div>
+</section>
+<!-- FORM SECTION 2: ROLE & RESPONSIBILITIES (Interactive Radio Cards) -->
+<section class="bg-surface-container-lowest rounded-xl border border-outline-variant p-4 flex flex-col gap-3">
+<div class="flex items-center justify-between border-b border-outline-variant pb-2.5">
+<span class="text-label-sm font-label-sm tracking-wider text-primary-container uppercase font-bold">STEP 2: SELECT ACCESS ROLE</span>
+<span class="text-label-sm font-label-sm text-primary font-bold">1 Role Selected</span>
+</div>
+<div aria-label="Access Roles" class="flex flex-col gap-2.5" role="radiogroup">
+<!-- Role 1: Store Manager -->
+<label class="flex items-start gap-3 p-3 rounded-lg border border-outline-variant hover:bg-surface-container-low cursor-pointer transition-colors">
+<input class="mt-1 h-5 w-5 text-primary-container border-outline focus:ring-primary-container" name="role_assignment" type="radio" value="store_manager"/>
+<div class="flex-1">
+<div class="flex items-center justify-between">
+<span class="text-label-lg font-label-lg text-on-surface font-bold">Store Manager</span>
+<span class="text-label-sm font-label-sm bg-surface-container px-2 py-0.5 rounded text-on-surface-variant">Tier 4</span>
+</div>
+<p class="text-body-sm font-body-sm text-on-surface-variant mt-0.5 leading-snug">Full store operations, void orders, payouts view.</p>
+</div>
+</label>
+<!-- Role 2: Cashier -->
+<label class="flex items-start gap-3 p-3 rounded-lg border border-outline-variant hover:bg-surface-container-low cursor-pointer transition-colors">
+<input class="mt-1 h-5 w-5 text-primary-container border-outline focus:ring-primary-container" name="role_assignment" type="radio" value="cashier"/>
+<div class="flex-1">
+<div class="flex items-center justify-between">
+<span class="text-label-lg font-label-lg text-on-surface font-bold">Cashier</span>
+<span class="text-label-sm font-label-sm bg-surface-container px-2 py-0.5 rounded text-on-surface-variant">Tier 2</span>
+</div>
+<p class="text-body-sm font-body-sm text-on-surface-variant mt-0.5 leading-snug">Order acceptance, billing, cash drawer reconciliation.</p>
+</div>
+</label>
+<!-- Role 3: Head Chef / Sous Chef -->
+<label class="flex items-start gap-3 p-3 rounded-lg border border-outline-variant hover:bg-surface-container-low cursor-pointer transition-colors">
+<input class="mt-1 h-5 w-5 text-primary-container border-outline focus:ring-primary-container" name="role_assignment" type="radio" value="head_chef"/>
+<div class="flex-1">
+<div class="flex items-center justify-between">
+<span class="text-label-lg font-label-lg text-on-surface font-bold">Head Chef / Sous Chef</span>
+<span class="text-label-sm font-label-sm bg-surface-container px-2 py-0.5 rounded text-on-surface-variant">Tier 3</span>
+</div>
+<p class="text-body-sm font-body-sm text-on-surface-variant mt-0.5 leading-snug">KDS master board, kitchen station routing, 86ing dishes.</p>
+</div>
+</label>
+<!-- Role 4: Line Cook [SELECTED] -->
+<label class="flex items-start gap-3 p-3 rounded-lg border-2 border-primary-container bg-primary-fixed/20 cursor-pointer transition-all ring-1 ring-primary-container/20">
+<input checked="" class="mt-1 h-5 w-5 text-primary-container border-primary-container focus:ring-primary-container" name="role_assignment" type="radio" value="line_cook"/>
+<div class="flex-1">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-1.5">
+<span class="text-label-lg font-label-lg text-primary font-bold">Line Cook</span>
+<span class="inline-flex items-center px-1.5 py-0.2 bg-secondary text-on-secondary rounded text-[10px] font-bold">ACTIVE ROLE</span>
+</div>
+<span class="text-label-sm font-label-sm bg-primary-fixed text-on-primary-fixed px-2 py-0.5 rounded font-bold">Tier 1</span>
+</div>
+<p class="text-body-sm font-body-sm text-on-surface font-medium mt-0.5 leading-snug">Station KDS ticket completion, preparation timer.</p>
+</div>
+</label>
+<!-- Role 5: Expo / Dispatcher -->
+<label class="flex items-start gap-3 p-3 rounded-lg border border-outline-variant hover:bg-surface-container-low cursor-pointer transition-colors">
+<input class="mt-1 h-5 w-5 text-primary-container border-outline focus:ring-primary-container" name="role_assignment" type="radio" value="expo"/>
+<div class="flex-1">
+<div class="flex items-center justify-between">
+<span class="text-label-lg font-label-lg text-on-surface font-bold">Expo / Dispatcher</span>
+<span class="text-label-sm font-label-sm bg-surface-container px-2 py-0.5 rounded text-on-surface-variant">Tier 2</span>
+</div>
+<p class="text-body-sm font-body-sm text-on-surface-variant mt-0.5 leading-snug">Order staging, rider OTP verification, tamper seal handover.</p>
+</div>
+</label>
+</div>
+</section>
+<!-- FORM SECTION 3: OUTLET & PREP STATION ASSIGNMENT -->
+<section class="bg-surface-container-lowest rounded-xl border border-outline-variant p-4 flex flex-col gap-3.5">
+<div class="flex items-center justify-between border-b border-outline-variant pb-2.5">
+<span class="text-label-sm font-label-sm tracking-wider text-primary-container uppercase font-bold">STEP 3: WORKSPACE &amp; STATION</span>
+<span class="text-label-sm font-label-sm text-on-surface-variant font-medium">RMS Station Router</span>
+</div>
+<!-- Outlet Selector Dropdown -->
+<div class="flex flex-col gap-1.5">
+<label class="text-label-md font-label-md text-on-surface font-semibold flex items-center gap-1.5" for="outlet-select">
+<span class="material-symbols-outlined text-[18px] text-primary" data-icon="store">store</span>
+          Assigned Restaurant Outlet
+        </label>
+<div class="relative">
+<select class="w-full h-12 pl-3.5 pr-10 bg-surface-container-low border border-outline-variant rounded-lg text-body-md font-body-md text-on-surface font-medium appearance-none focus:outline-none focus:border-primary-container focus:ring-1 focus:ring-primary-container" id="outlet-select">
+<option selected="">Connaught Place Flagship (Outlet #01)</option>
+<option>Cyber Hub Gurgaon Express (Outlet #02)</option>
+<option>Indiranagar Craft Kitchen (Outlet #03)</option>
+</select>
+<div class="absolute right-3.5 top-1/2 -translate-y-1/2 text-on-surface-variant pointer-events-none flex items-center">
+<span class="material-symbols-outlined text-[20px]" data-icon="expand_more">expand_more</span>
+</div>
+</div>
+</div>
+<!-- Station Assignment Selector (Dynamic for Line Cook) -->
+<div class="flex flex-col gap-2 pt-1">
+<div class="flex items-center justify-between">
+<label class="text-label-md font-label-md text-on-surface font-semibold flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[18px] text-secondary" data-icon="skillet">skillet</span>
+            Station Routing (Line Cook Focus)
+          </label>
+<span class="text-label-sm font-label-sm text-primary font-bold">1 Active</span>
+</div>
+<!-- Multi-select Chip Group -->
+<div class="grid grid-cols-2 gap-2">
+<!-- Chip 1: Hot Kitchen (SELECTED) -->
+<div class="h-12 px-3 rounded-lg border-2 border-primary-container bg-primary-fixed/25 flex items-center justify-between cursor-pointer">
+<div class="flex items-center gap-2 truncate">
+<span class="material-symbols-outlined text-[18px] text-primary" data-icon="soup_kitchen">soup_kitchen</span>
+<span class="text-label-md font-label-md text-primary font-bold truncate">Hot Kitchen (Wok &amp; Grill)</span>
+</div>
+<span class="material-symbols-outlined text-[18px] text-primary shrink-0" data-icon="check_circle" data-weight="fill">check_circle</span>
+</div>
+<!-- Chip 2: Fryer & Sauté -->
+<div class="h-12 px-3 rounded-lg border border-outline-variant bg-surface-container-lowest flex items-center justify-between hover:bg-surface-container-low cursor-pointer">
+<div class="flex items-center gap-2 truncate">
+<span class="material-symbols-outlined text-[18px] text-on-surface-variant" data-icon="microwave">microwave</span>
+<span class="text-label-md font-label-md text-on-surface font-medium truncate">Fryer &amp; Sauté</span>
+</div>
+<span class="material-symbols-outlined text-[18px] text-outline-variant shrink-0" data-icon="radio_button_unchecked">radio_button_unchecked</span>
+</div>
+<!-- Chip 3: Assembly & Expo -->
+<div class="h-12 px-3 rounded-lg border border-outline-variant bg-surface-container-lowest flex items-center justify-between hover:bg-surface-container-low cursor-pointer">
+<div class="flex items-center gap-2 truncate">
+<span class="material-symbols-outlined text-[18px] text-on-surface-variant" data-icon="conveyor_belt">conveyor_belt</span>
+<span class="text-label-md font-label-md text-on-surface font-medium truncate">Assembly &amp; Expo</span>
+</div>
+<span class="material-symbols-outlined text-[18px] text-outline-variant shrink-0" data-icon="radio_button_unchecked">radio_button_unchecked</span>
+</div>
+<!-- Chip 4: Beverage Bar -->
+<div class="h-12 px-3 rounded-lg border border-outline-variant bg-surface-container-lowest flex items-center justify-between hover:bg-surface-container-low cursor-pointer">
+<div class="flex items-center gap-2 truncate">
+<span class="material-symbols-outlined text-[18px] text-on-surface-variant" data-icon="local_cafe">local_cafe</span>
+<span class="text-label-md font-label-md text-on-surface font-medium truncate">Beverage Bar</span>
+</div>
+<span class="material-symbols-outlined text-[18px] text-outline-variant shrink-0" data-icon="radio_button_unchecked">radio_button_unchecked</span>
+</div>
+</div>
+</div>
+</section>
+<!-- FORM SECTION 4: ACCESS CREDENTIALS & TEMPORARY PIN FLOW -->
+<section class="bg-surface-container-lowest rounded-xl border border-outline-variant p-4 flex flex-col gap-3.5">
+<div class="flex items-center justify-between border-b border-outline-variant pb-2.5">
+<span class="text-label-sm font-label-sm tracking-wider text-on-surface-variant uppercase font-bold">KDS LOGIN CREDENTIALS</span>
+<span class="text-label-sm font-label-sm bg-tertiary-fixed text-on-tertiary-fixed px-2 py-0.5 rounded font-bold">Fast-Track Mode</span>
+</div>
+<div class="flex flex-col gap-1">
+<div class="text-label-md font-label-md text-on-surface font-bold">Access Method</div>
+<p class="text-body-sm font-body-sm text-on-surface-variant">Quick KDS PIN + SMS Onboarding Invite</p>
+</div>
+<!-- Styled Temporary PIN Display Box Card -->
+<div class="p-3.5 bg-surface-container-low rounded-xl border border-outline-variant flex flex-col items-center gap-3">
+<div class="text-label-sm font-label-sm text-on-surface-variant font-bold tracking-wider uppercase">Auto-Generated Temporary PIN</div>
+<!-- PIN Number Digits -->
+<div class="flex items-center justify-center gap-3">
+<div class="w-12 h-14 bg-surface-container-lowest rounded-lg border-2 border-outline-variant flex items-center justify-center text-headline-md font-ticket-mono text-primary font-bold shadow-sm">
+            7
+          </div>
+<div class="w-12 h-14 bg-surface-container-lowest rounded-lg border-2 border-outline-variant flex items-center justify-center text-headline-md font-ticket-mono text-primary font-bold shadow-sm">
+            4
+          </div>
+<div class="w-12 h-14 bg-surface-container-lowest rounded-lg border-2 border-outline-variant flex items-center justify-center text-headline-md font-ticket-mono text-primary font-bold shadow-sm">
+            2
+          </div>
+<div class="w-12 h-14 bg-surface-container-lowest rounded-lg border-2 border-outline-variant flex items-center justify-center text-headline-md font-ticket-mono text-primary font-bold shadow-sm">
+            9
+          </div>
+</div>
+<!-- Quick Actions for PIN -->
+<div class="flex items-center gap-2 mt-1 w-full">
+<button class="flex-1 h-10 px-3 bg-surface-container-lowest border border-outline-variant rounded-lg text-label-md font-label-md text-on-surface font-semibold flex items-center justify-center gap-1.5 hover:bg-surface-container-high active:scale-95 transition-all" type="button">
+<span class="material-symbols-outlined text-[18px] text-primary" data-icon="sync">sync</span>
+            Regenerate PIN
+          </button>
+<button class="flex-1 h-10 px-3 bg-surface-container-lowest border border-outline-variant rounded-lg text-label-md font-label-md text-on-surface font-semibold flex items-center justify-center gap-1.5 hover:bg-surface-container-high active:scale-95 transition-all" type="button">
+<span class="material-symbols-outlined text-[18px] text-primary" data-icon="content_copy">content_copy</span>
+            Copy PIN
+          </button>
+</div>
+</div>
+<!-- Security Guidance Notice -->
+<div class="p-3 bg-surface-container rounded-lg border border-outline-variant flex items-start gap-2.5">
+<span class="material-symbols-outlined text-primary text-[20px] shrink-0 mt-0.5" data-icon="lock">lock</span>
+<p class="text-body-sm font-body-sm text-on-surface-variant leading-relaxed">
+          A secure invitation SMS will be sent to <span class="font-bold text-on-surface">+91 98765 43210</span> with this temporary PIN. The employee must change their PIN upon first login.
+        </p>
+</div>
+</section>
+<!-- FORM SECTION 5: PERMISSION SUMMARY PREVIEW CARD -->
+<section class="bg-surface-container-lowest rounded-xl border border-outline-variant p-4 flex flex-col gap-3.5 mb-6">
+<div class="flex items-center justify-between border-b border-outline-variant pb-2">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-primary text-[20px]" data-icon="admin_panel_settings">admin_panel_settings</span>
+<span class="text-label-lg font-label-lg text-on-surface font-bold">Permission Snapshot (Line Cook Tier)</span>
+</div>
+<span class="text-label-sm font-label-sm text-secondary font-bold">Auto-configured</span>
+</div>
+<!-- Granted Permissions -->
+<div class="flex flex-col gap-1.5">
+<span class="text-label-sm font-label-sm text-on-surface-variant font-bold uppercase tracking-wider">Permitted Actions</span>
+<div class="flex flex-wrap gap-2">
+<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-tertiary-fixed text-on-tertiary-fixed text-label-sm font-label-sm font-bold border border-tertiary/20">
+<span class="material-symbols-outlined text-[14px]" data-icon="check" data-weight="fill">check</span>
+            View Assigned KDS Tickets
+          </span>
+<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-tertiary-fixed text-on-tertiary-fixed text-label-sm font-label-sm font-bold border border-tertiary/20">
+<span class="material-symbols-outlined text-[14px]" data-icon="check" data-weight="fill">check</span>
+            Mark Items Cooked
+          </span>
+<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-tertiary-fixed text-on-tertiary-fixed text-label-sm font-label-sm font-bold border border-tertiary/20">
+<span class="material-symbols-outlined text-[14px]" data-icon="check" data-weight="fill">check</span>
+            Request Kitchen Pause
+          </span>
+</div>
+</div>
+<!-- Restricted Boundaries -->
+<div class="flex flex-col gap-1.5 pt-1">
+<span class="text-label-sm font-label-sm text-on-surface-variant font-bold uppercase tracking-wider">Restricted Security Boundaries</span>
+<div class="flex flex-wrap gap-2">
+<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-surface-container-high text-on-surface-variant text-label-sm font-label-sm font-semibold border border-outline-variant">
+<span class="material-symbols-outlined text-[14px] text-error" data-icon="lock">lock</span>
+            No Order Void / Refund Authority
+          </span>
+<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-surface-container-high text-on-surface-variant text-label-sm font-label-sm font-semibold border border-outline-variant">
+<span class="material-symbols-outlined text-[14px] text-error" data-icon="lock">lock</span>
+            No Financial or Settlement Visibility
+          </span>
+<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-surface-container-high text-on-surface-variant text-label-sm font-label-sm font-semibold border border-outline-variant">
+<span class="material-symbols-outlined text-[14px] text-error" data-icon="lock">lock</span>
+            Locked to Station #1 (Wok &amp; Grill)
+          </span>
+</div>
+</div>
+</section>
+</main>
+<!-- FOOTER ACTIONS: Sticky Operational Dock (Min 48dp ergonomics) -->
+<footer class="fixed bottom-0 left-0 w-full z-40 bg-surface-container-lowest border-t border-outline-variant shadow-lg px-4 py-3">
+<div class="max-w-md mx-auto flex flex-col gap-2">
+<!-- Main Action Buttons -->
+<div class="flex items-center gap-3">
+<!-- Cancel Outline Button -->
+<button class="h-12 px-5 bg-surface-container-lowest border border-outline-variant rounded-lg text-body-md font-body-md text-on-surface font-semibold hover:bg-surface-container-high active:scale-95 transition-all shrink-0" type="button">
+          Cancel
+        </button>
+<!-- Send Invitation Primary CTA in Culinary Orange -->
+<button class="flex-1 h-12 px-4 bg-secondary-container hover:bg-secondary active:scale-[0.98] text-on-secondary rounded-lg font-label-lg text-label-lg font-bold flex items-center justify-center gap-2 shadow-md transition-all" type="button">
+<span>Send Staff Invitation</span>
+<span class="material-symbols-outlined text-[20px]" data-icon="arrow_forward">arrow_forward</span>
+</button>
+</div>
+<!-- Compliance Subtext -->
+<div class="text-center text-[10px] text-on-surface-variant font-medium leading-none tracking-tight">
+        Complies with NABIN Multi-Outlet RBAC Security Guidelines v2.4
+      </div>
+</div>
+</footer>
+<!-- Light Vanilla Script for PIN regeneration interaction -->
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const regenBtn = document.querySelector('button:has([data-icon="sync"])');
+      const pinBoxes = document.querySelectorAll('.font-ticket-mono');
+      
+      if (regenBtn && pinBoxes.length === 4) {
+        regenBtn.addEventListener('click', () => {
+          pinBoxes.forEach(box => {
+            const randomDigit = Math.floor(Math.random() * 10);
+            box.textContent = randomDigit;
+            box.classList.add('scale-110', 'text-secondary');
+            setTimeout(() => {
+              box.classList.remove('scale-110', 'text-secondary');
+            }, 180);
+          });
+        });
+      }
+    });
+  </script>
+</body></html>

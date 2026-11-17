@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+
+<html lang="en"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" name="viewport"/><meta content="mobile_stack" name="shell-type"/><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/><link href="https://fonts.googleapis.com" rel="preconnect"/><link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/><style>@layer base{html,body{width:100vw;margin:0;padding:0;}body{overscroll-behavior:none;}.pb-safe{padding-bottom:env(safe-area-inset-bottom,0px);}.pt-safe{padding-top:env(safe-area-inset-top,0px);}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config = { darkMode: "class", theme: { extend: { "colors": { "outline-variant": "#c5c5d5", "surface-container": "#eceef2", "error": "#ba1a1a", "on-tertiary": "#ffffff", "secondary-fixed-dim": "#ffb59b", "on-primary-fixed": "#001452", "primary-fixed-dim": "#b7c4ff", "on-tertiary-fixed": "#002109", "on-tertiary-fixed-variant": "#005320", "primary-container": "#1a3ba2", "surface-variant": "#e0e3e6", "primary-fixed": "#dde1ff", "on-tertiary-container": "#4cca6c", "tertiary-container": "#005120", "on-surface": "#181c1f", "on-secondary-fixed": "#380d00", "primary": "#00247f", "on-secondary-container": "#5c1a00", "surface-tint": "#3a56bd", "surface-container-low": "#f2f4f8", "surface-container-highest": "#e0e3e6", "on-error-container": "#93000a", "error-container": "#ffdad6", "on-primary-container": "#9cafff", "on-error": "#ffffff", "surface-bright": "#f7f9fd", "inverse-on-surface": "#eff1f5", "on-secondary": "#ffffff", "on-surface-variant": "#444653", "inverse-surface": "#2d3134", "tertiary-fixed": "#7ffc97", "secondary-fixed": "#ffdbcf", "inverse-primary": "#b7c4ff", "surface": "#f7f9fd", "surface-container-lowest": "#ffffff", "background": "#f7f9fd", "on-secondary-fixed-variant": "#812800", "secondary-container": "#fc6b32", "on-primary-fixed-variant": "#1c3da4", "on-background": "#181c1f", "surface-dim": "#d8dade", "tertiary": "#003813", "secondary": "#a93700", "tertiary-fixed-dim": "#62df7d", "surface-container-high": "#e6e8ec", "on-primary": "#ffffff", "outline": "#757684" }, "borderRadius": { "DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px" }, "spacing": { "gutter": "1rem", "margin-mobile": "1rem", "margin": "1.5rem", "space-md": "1rem", "space-xs": "0.25rem", "space-lg": "1.5rem", "gutter-kds": "1.25rem", "space-xl": "2rem", "space-sm": "0.5rem" }, "fontFamily": { "headline-lg-mobile": ["Inter"], "headline-xl-mobile": ["Inter"], "label-md": ["Inter"], "label-sm": ["Inter"], "headline-xl": ["Inter"], "body-sm": ["Inter"], "headline-md": ["Inter"], "body-lg": ["Inter"], "headline-sm": ["Inter"], "label-lg": ["Inter"], "body-md": ["Inter"], "headline-lg": ["Inter"], "ticket-mono": ["Inter"] }, "fontSize": { "headline-lg-mobile": ["24px", {"lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "700"}], "headline-xl-mobile": ["30px", {"lineHeight": "38px", "letterSpacing": "-0.02em", "fontWeight": "700"}], "label-md": ["13px", {"lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "600"}], "label-sm": ["11px", {"lineHeight": "14px", "letterSpacing": "0.04em", "fontWeight": "700"}], "headline-xl": ["40px", {"lineHeight": "48px", "letterSpacing": "-0.02em", "fontWeight": "700"}], "body-sm": ["13px", {"lineHeight": "18px", "fontWeight": "400"}], "headline-md": ["24px", {"lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600"}], "body-lg": ["18px", {"lineHeight": "26px", "fontWeight": "500"}], "headline-sm": ["20px", {"lineHeight": "28px", "fontWeight": "600"}], "label-lg": ["15px", {"lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600"}], "body-md": ["15px", {"lineHeight": "22px", "fontWeight": "400"}], "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.015em", "fontWeight": "700"}], "ticket-mono": ["16px", {"lineHeight": "20px", "letterSpacing": "0.05em", "fontWeight": "700"}] } } } };</script><style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head><body class="bg-surface font-body-md text-body-md text-on-surface flex flex-col min-h-screen"><header class="fixed top-0 w-full z-50 bg-surface/85 backdrop-blur-xl shadow-[0_1px_8px_rgba(0,0,0,0.04)] pt-safe"><div class="h-16 px-margin-mobile flex items-center justify-between gap-space-sm"><div class="flex items-center gap-space-xs min-w-0"><button aria-label="Back" class="w-11 h-11 flex items-center justify-center rounded-lg text-on-surface hover:bg-surface-container-high active:scale-95 transition-all" onclick="history.back()"><span class="material-symbols-outlined text-[24px]">arrow_back</span></button><img alt="nabin-icon-primary-192.png" class="h-8 w-auto object-contain" src="https://lh3.googleusercontent.com/aida/ALJJyrCTdp3uQlj1WEfbLaNul4jOVx9bLaPCickvf6jmMYIcgT0Dcg7scdiyYcenxu6gWsr9pQoUH2ealX0ppYFChKRsrSROV4GAWIufXLB4Kqk0tya-g8WVkLGo8G2JXdmV2FtyqNKN4nVrii5a0BrRU8tprEgBBKpA-1TjJ2dpdkwTdVThxJC8MtB1oJnLbkoTQdgVrALpqrvijqcpjjvt0XuvSBGWqqksC2TXzI9_ZrXfqDX6mvsypJ2Uq74"/><h1 class="text-headline-sm font-headline-sm text-on-surface truncate ml-space-xs">Order Details</h1></div><div class="flex items-center gap-space-xs"><button aria-label="Operational Help and Support" class="w-11 h-11 flex items-center justify-center rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors" type="button"><span class="material-symbols-outlined text-[22px]">help_outline</span></button><img alt="Profile" class="w-8 h-8 rounded-full object-cover ml-space-xs" src="https://lh3.googleusercontent.com/aida/ALJJyrD7CdH9drOcwljFpMkdcCYO4FWfU1sYSv3rBCMCvnlz46b3_yZLypJ2zZNf896C1lLJZqnPqVZRulZpFAVb56OVtaPnhiJxUc9YUDOg8AlWiHQjv82HG7gDsVvLpDT9LLmGP79FbRkY6NhGhNA1_NimXYEMCIdimx75j--dMt2bmRUNNYv9UUR6AE3FctStnpUIArD2IJyYZ2i4lepHWcMtkMaGGUjctd5DQ4rJEGenQAm7sQeIX1Rowfw"/></div></div></header><main class="flex flex-col relative w-full pt-16 pb-safe bg-surface min-h-screen"><div class="flex flex-col w-full pb-10">
+<!-- Search Bar & Controls -->
+<section class="px-margin-mobile pt-space-md flex flex-col gap-space-sm">
+<div class="relative w-full">
+<div class="absolute inset-y-0 left-0 pl-space-md flex items-center pointer-events-none text-outline">
+<span class="material-symbols-outlined text-[20px]">search</span>
+</div>
+<input class="w-full h-12 pl-11 pr-11 bg-surface-container-lowest text-on-surface placeholder:text-outline font-body-md text-body-md rounded-xl shadow-sm focus:outline-none focus:ring-0 focus:bg-surface-container-low transition-all" id="order-search" placeholder="Search Order ID (#NB-...), customer, or dish..." type="search"/>
+<button aria-label="Filter options" class="absolute inset-y-0 right-0 pr-space-md flex items-center text-primary-container hover:text-primary transition-colors" type="button">
+<span class="material-symbols-outlined text-[22px]">tune</span>
+</button>
+</div>
+<!-- Quick Date & Status Filter Chips -->
+<div class="flex items-center gap-space-xs overflow-x-auto pb-1 no-scrollbar -mx-margin-mobile px-margin-mobile">
+<button class="filter-chip active flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary-container text-on-primary font-label-sm text-label-sm whitespace-nowrap shadow-sm transition-transform active:scale-95" type="button">
+<span class="material-symbols-outlined text-[15px]" style="font-variation-settings: 'FILL' 1;">calendar_today</span>
+        Today (48)
+      </button>
+<button class="filter-chip flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-container-high text-on-surface-variant font-label-sm text-label-sm whitespace-nowrap hover:bg-surface-variant transition-colors active:scale-95" type="button">
+        Yesterday (86)
+      </button>
+<button class="filter-chip flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-container-high text-on-surface-variant font-label-sm text-label-sm whitespace-nowrap hover:bg-surface-variant transition-colors active:scale-95" type="button">
+        This Week (542)
+      </button>
+<button class="filter-chip flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-container-high text-on-surface-variant font-label-sm text-label-sm whitespace-nowrap hover:bg-surface-variant transition-colors active:scale-95" type="button">
+<span class="material-symbols-outlined text-[15px]">date_range</span>
+        Custom Range
+      </button>
+<div class="w-[1px] h-5 bg-outline-variant shrink-0 mx-1"></div>
+<button class="filter-chip flex items-center gap-1 px-3 py-1.5 rounded-full bg-surface-container-high text-on-surface-variant font-label-sm text-label-sm whitespace-nowrap hover:bg-surface-variant transition-colors active:scale-95" type="button">
+<span>Status: All</span>
+<span class="material-symbols-outlined text-[14px]">expand_more</span>
+</button>
+</div>
+</section>
+<!-- Metrics Summary Dashboard Card -->
+<section class="px-margin-mobile mt-space-md">
+<div class="bg-primary text-on-primary p-space-md rounded-xl shadow-md relative overflow-hidden flex flex-col gap-space-sm">
+<div class="absolute -right-8 -bottom-8 w-32 h-32 bg-primary-container rounded-full opacity-40 blur-xl pointer-events-none"></div>
+<div class="flex items-center justify-between">
+<span class="text-on-primary-container font-label-sm text-label-sm tracking-wider uppercase">Shift Summary • Shift A</span>
+<span class="inline-flex items-center gap-1 bg-tertiary-container text-on-tertiary-container px-2 py-0.5 rounded-full font-label-sm text-label-sm">
+<span class="w-1.5 h-1.5 rounded-full bg-on-tertiary-container animate-pulse"></span>
+          Live Sync
+        </span>
+</div>
+<div class="grid grid-cols-3 gap-space-xs pt-1">
+<div class="flex flex-col">
+<span class="text-on-primary-container font-label-sm text-label-sm">Orders</span>
+<span class="font-headline-md text-headline-md font-bold text-on-primary tracking-tight">48</span>
+<span class="text-on-primary-container font-body-sm text-body-sm opacity-80">100% on time</span>
+</div>
+<div class="flex flex-col">
+<span class="text-on-primary-container font-label-sm text-label-sm">Gross Sales</span>
+<span class="font-headline-md text-headline-md font-bold text-on-primary tracking-tight">₹24,890</span>
+<span class="text-on-tertiary-container font-body-sm text-body-sm font-semibold flex items-center">
+<span class="material-symbols-outlined text-[14px]">trending_up</span> +14.2%
+          </span>
+</div>
+<div class="flex flex-col">
+<span class="text-on-primary-container font-label-sm text-label-sm">Cancelled</span>
+<span class="font-headline-md text-headline-md font-bold text-on-primary tracking-tight">1</span>
+<span class="text-secondary-fixed-dim font-body-sm text-body-sm">₹560 void</span>
+</div>
+</div>
+</div>
+</section>
+<!-- Order Tickets Feed -->
+<section class="px-margin-mobile mt-space-lg flex flex-col gap-space-md">
+<div class="flex items-center justify-between">
+<h2 class="text-headline-sm font-headline-sm text-on-surface">Order History</h2>
+<span class="text-on-surface-variant font-body-sm text-body-sm">4 Records</span>
+</div>
+<!-- Card 1: Delivered High Rating -->
+<article class="bg-surface-container-lowest rounded-xl shadow-sm p-space-md flex flex-col gap-space-sm transition-all hover:shadow-md">
+<!-- Header row -->
+<div class="flex items-start justify-between gap-space-xs">
+<div class="flex flex-col">
+<div class="flex items-center gap-space-xs">
+<span class="font-ticket-mono text-ticket-mono text-primary font-bold">#NB-4824</span>
+<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-tertiary-fixed text-on-tertiary-fixed font-label-sm text-label-sm">
+<span class="w-1.5 h-1.5 rounded-full bg-on-tertiary-fixed"></span>
+              Delivered
+            </span>
+</div>
+<span class="text-on-surface-variant font-body-sm text-body-sm mt-0.5">19:15 Today • Prep Time: 18m</span>
+</div>
+<div class="text-right">
+<span class="font-headline-sm font-headline-sm text-on-surface font-bold">₹620</span>
+<span class="block text-secondary font-label-sm text-label-sm">Paid (NABIN UPI)</span>
+</div>
+</div>
+<!-- Dish & Customer summary -->
+<div class="bg-surface-container-low rounded-lg p-space-sm flex flex-col gap-1.5">
+<div class="flex items-center justify-between text-on-surface font-label-md text-label-md">
+<span class="font-bold flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[16px] text-primary">person</span>
+            Rohan M.
+          </span>
+<span class="text-on-surface-variant font-body-sm text-body-sm">4 items</span>
+</div>
+<div class="text-on-surface-variant font-body-md text-body-md leading-relaxed pl-5">
+<p><span class="font-semibold text-on-surface">2×</span> Chicken Fried Rice (Mild Spicy)</p>
+<p><span class="font-semibold text-on-surface">2×</span> Veg Steamed Momo (Extra Dip)</p>
+</div>
+</div>
+<!-- Delivery & Rating meta -->
+<div class="flex items-center justify-between pt-1">
+<div class="flex items-center gap-1.5 text-on-surface-variant font-body-sm text-body-sm">
+<span class="material-symbols-outlined text-[18px] text-outline">two_wheeler</span>
+<span>Rider: <strong class="text-on-surface font-semibold">Bikash T.</strong> (24m total)</span>
+</div>
+<div class="inline-flex items-center gap-1 bg-secondary-fixed text-on-secondary-fixed px-2 py-0.5 rounded font-label-sm text-label-sm font-bold">
+<span class="material-symbols-outlined text-[14px]" style="font-variation-settings: 'FILL' 1;">star</span>
+          5.0
+        </div>
+</div>
+<!-- Customer Quote -->
+<div class="bg-secondary-fixed/30 rounded-lg p-2.5 flex items-start gap-2">
+<span class="material-symbols-outlined text-[16px] text-secondary shrink-0 mt-0.5">chat_bubble</span>
+<p class="font-body-sm text-body-sm text-on-surface italic">"Hot and fresh! Delivered in 24m, momos were tender."</p>
+</div>
+<!-- Action Buttons -->
+<div class="grid grid-cols-2 gap-space-xs pt-1">
+<button class="h-11 flex items-center justify-center gap-1.5 rounded-lg bg-surface-container-high text-on-surface font-label-md text-label-md hover:bg-surface-variant active:scale-95 transition-all" onclick="openModal('KOT / Invoice #NB-4824')" type="button">
+<span class="material-symbols-outlined text-[18px]">receipt_long</span>
+          View Invoice
+        </button>
+<button class="h-11 flex items-center justify-center gap-1.5 rounded-lg bg-primary-container text-on-primary font-label-md text-label-md hover:bg-primary active:scale-95 transition-all shadow-sm" type="button">
+<span class="material-symbols-outlined text-[18px]">repeat</span>
+          Re-order Details
+        </button>
+</div>
+</article>
+<!-- Card 2: Delivered 18:48 -->
+<article class="bg-surface-container-lowest rounded-xl shadow-sm p-space-md flex flex-col gap-space-sm transition-all hover:shadow-md">
+<div class="flex items-start justify-between gap-space-xs">
+<div class="flex flex-col">
+<div class="flex items-center gap-space-xs">
+<span class="font-ticket-mono text-ticket-mono text-primary font-bold">#NB-4823</span>
+<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-tertiary-fixed text-on-tertiary-fixed font-label-sm text-label-sm">
+<span class="w-1.5 h-1.5 rounded-full bg-on-tertiary-fixed"></span>
+              Delivered
+            </span>
+</div>
+<span class="text-on-surface-variant font-body-sm text-body-sm mt-0.5">18:48 Today • Prep Time: 14m</span>
+</div>
+<div class="text-right">
+<span class="font-headline-sm font-headline-sm text-on-surface font-bold">₹480</span>
+<span class="block text-secondary font-label-sm text-label-sm">Paid Online</span>
+</div>
+</div>
+<div class="bg-surface-container-low rounded-lg p-space-sm flex flex-col gap-1.5">
+<div class="flex items-center justify-between text-on-surface font-label-md text-label-md">
+<span class="font-bold flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[16px] text-primary">person</span>
+            Deepa K.
+          </span>
+<span class="text-on-surface-variant font-body-sm text-body-sm">4 items</span>
+</div>
+<div class="text-on-surface-variant font-body-md text-body-md leading-relaxed pl-5">
+<p><span class="font-semibold text-on-surface">1×</span> Paneer Butter Masala (Boneless)</p>
+<p><span class="font-semibold text-on-surface">3×</span> Garlic Naan (Butter Toasted)</p>
+</div>
+</div>
+<div class="flex items-center justify-between pt-1">
+<div class="flex items-center gap-1.5 text-on-surface-variant font-body-sm text-body-sm">
+<span class="material-symbols-outlined text-[18px] text-outline">two_wheeler</span>
+<span>Rider: <strong class="text-on-surface font-semibold">Sunita R.</strong> (19m)</span>
+</div>
+<div class="inline-flex items-center gap-1 bg-surface-container-high text-on-surface px-2 py-0.5 rounded font-label-sm text-label-sm font-semibold">
+<span class="material-symbols-outlined text-[14px] text-secondary-container" style="font-variation-settings: 'FILL' 1;">star</span>
+          4.0
+        </div>
+</div>
+<div class="grid grid-cols-2 gap-space-xs pt-1">
+<button class="h-11 flex items-center justify-center gap-1.5 rounded-lg bg-surface-container-high text-on-surface font-label-md text-label-md hover:bg-surface-variant active:scale-95 transition-all" onclick="openModal('KOT / Invoice #NB-4823')" type="button">
+<span class="material-symbols-outlined text-[18px]">receipt_long</span>
+          View Invoice
+        </button>
+<button class="h-11 flex items-center justify-center gap-1.5 rounded-lg bg-surface-container-high text-on-surface font-label-md text-label-md hover:bg-surface-variant active:scale-95 transition-all" type="button">
+<span class="material-symbols-outlined text-[18px]">description</span>
+          Order KOT
+        </button>
+</div>
+</article>
+<!-- Card 3: Cancelled (86'd) -->
+<article class="bg-surface-container-lowest rounded-xl shadow-sm p-space-md flex flex-col gap-space-sm border-l-4 border-l-error">
+<div class="flex items-start justify-between gap-space-xs">
+<div class="flex flex-col">
+<div class="flex items-center gap-space-xs">
+<span class="font-ticket-mono text-ticket-mono text-on-surface font-bold">#NB-4819</span>
+<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-error-container text-on-error-container font-label-sm text-label-sm">
+<span class="material-symbols-outlined text-[14px]">cancel</span>
+              Cancelled (Item 86'd)
+            </span>
+</div>
+<span class="text-on-surface-variant font-body-sm text-body-sm mt-0.5">17:30 Today • Direct Terminal</span>
+</div>
+<div class="text-right">
+<span class="font-headline-sm font-headline-sm text-outline font-bold line-through">₹560</span>
+<span class="block text-error font-label-sm text-label-sm font-semibold">Refunded</span>
+</div>
+</div>
+<div class="bg-surface-container-low rounded-lg p-space-sm flex flex-col gap-1.5">
+<div class="flex items-center justify-between text-on-surface font-label-md text-label-md">
+<span class="font-bold flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[16px] text-outline">person</span>
+            Suman P.
+          </span>
+<span class="text-on-surface-variant font-body-sm text-body-sm">2 items</span>
+</div>
+<div class="text-on-surface-variant font-body-md text-body-md pl-5">
+<p><span class="font-semibold text-on-surface">2×</span> Chicken Thali Feast</p>
+</div>
+</div>
+<!-- Cancellation Details Alert Box -->
+<div class="bg-error-container/40 rounded-lg p-2.5 flex flex-col gap-1">
+<div class="flex items-center gap-1.5 text-on-error-container font-label-sm text-label-sm font-bold">
+<span class="material-symbols-outlined text-[16px]">info</span>
+          Full Refund Processed to Source Bank
+        </div>
+<p class="font-body-sm text-body-sm text-on-surface-variant">
+          Merchant Rejection note: <strong class="text-on-surface">"Out of Thali basmati rice stock during prep"</strong>
+</p>
+</div>
+<div class="flex items-center justify-between pt-1">
+<button class="h-10 px-4 flex items-center gap-1.5 rounded-lg bg-surface-container-high text-on-surface font-label-md text-label-md hover:bg-surface-variant active:scale-95 transition-all" type="button">
+<span class="material-symbols-outlined text-[16px]">history</span>
+          Refund Audit Log
+        </button>
+<span class="text-on-surface-variant font-label-sm text-label-sm">Authorized by Floor Mgr</span>
+</div>
+</article>
+<!-- Card 4: Delivered 16:10 -->
+<article class="bg-surface-container-lowest rounded-xl shadow-sm p-space-md flex flex-col gap-space-sm transition-all hover:shadow-md">
+<div class="flex items-start justify-between gap-space-xs">
+<div class="flex flex-col">
+<div class="flex items-center gap-space-xs">
+<span class="font-ticket-mono text-ticket-mono text-primary font-bold">#NB-4815</span>
+<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-tertiary-fixed text-on-tertiary-fixed font-label-sm text-label-sm">
+<span class="w-1.5 h-1.5 rounded-full bg-on-tertiary-fixed"></span>
+              Delivered
+            </span>
+</div>
+<span class="text-on-surface-variant font-body-sm text-body-sm mt-0.5">16:10 Today • Takeaway Counter</span>
+</div>
+<div class="text-right">
+<span class="font-headline-sm font-headline-sm text-on-surface font-bold">₹380</span>
+<span class="block text-secondary font-label-sm text-label-sm">Paid Cash</span>
+</div>
+</div>
+<div class="bg-surface-container-low rounded-lg p-space-sm flex flex-col gap-1.5">
+<div class="flex items-center justify-between text-on-surface font-label-md text-label-md">
+<span class="font-bold flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[16px] text-primary">person</span>
+            Niraj S.
+          </span>
+<span class="text-on-surface-variant font-body-sm text-body-sm">4 items</span>
+</div>
+<div class="text-on-surface-variant font-body-md text-body-md leading-relaxed pl-5">
+<p><span class="font-semibold text-on-surface">2×</span> Wok Hakka Egg Noodles</p>
+<p><span class="font-semibold text-on-surface">2×</span> Coca Cola Chilled 300ml</p>
+</div>
+</div>
+<div class="grid grid-cols-2 gap-space-xs pt-1">
+<button class="h-11 flex items-center justify-center gap-1.5 rounded-lg bg-surface-container-high text-on-surface font-label-md text-label-md hover:bg-surface-variant active:scale-95 transition-all" onclick="openModal('KOT / Invoice #NB-4815')" type="button">
+<span class="material-symbols-outlined text-[18px]">receipt_long</span>
+          View Invoice
+        </button>
+<button class="h-11 flex items-center justify-center gap-1.5 rounded-lg bg-surface-container-high text-on-surface font-label-md text-label-md hover:bg-surface-variant active:scale-95 transition-all" type="button">
+<span class="material-symbols-outlined text-[18px]">print</span>
+          Reprint Bill
+        </button>
+</div>
+</article>
+</section>
+<!-- Sticky Export Action Bar -->
+<footer class="mt-space-xl px-margin-mobile flex flex-col gap-space-sm">
+<div class="bg-surface-container-low rounded-xl p-space-md flex flex-col items-center text-center gap-space-sm">
+<div class="w-12 h-12 rounded-full bg-primary-fixed flex items-center justify-center text-on-primary-fixed">
+<span class="material-symbols-outlined text-[24px]">analytics</span>
+</div>
+<div>
+<h3 class="font-headline-sm font-headline-sm text-on-surface font-semibold">Audited Financial Export</h3>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-1">
+          Generate complete GST-compliant transaction breakdown with itemized modifiers and merchant commission splits.
+        </p>
+</div>
+<button class="w-full h-12 flex items-center justify-center gap-2 rounded-xl bg-primary-container text-on-primary font-label-lg text-label-lg shadow-md hover:bg-primary active:scale-98 transition-all" id="export-btn" onclick="triggerExport()" type="button">
+<span class="material-symbols-outlined text-[20px]">download</span>
+        Download Daily Sales CSV / Tax Report
+      </button>
+<div class="flex items-center gap-4 text-outline font-label-sm text-label-sm">
+<span class="flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">check_circle</span>
+          GST Format ready
+        </span>
+<span class="flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">lock</span>
+          256-bit Encrypted
+        </span>
+</div>
+</div>
+</footer>
+<!-- Receipt/Invoice Simple Modal Drawer -->
+<div class="fixed inset-0 z-50 bg-inverse-surface/50 backdrop-blur-sm hidden items-end justify-center transition-opacity" id="invoice-modal" onclick="closeModal(event)">
+<div class="bg-surface-container-lowest w-full max-w-lg rounded-t-2xl p-space-lg flex flex-col gap-space-md transform transition-transform" onclick="event.stopPropagation()">
+<div class="w-12 h-1.5 bg-surface-variant rounded-full mx-auto"></div>
+<div class="flex items-center justify-between">
+<div>
+<h3 class="font-headline-sm font-headline-sm text-on-surface font-bold" id="modal-title">KOT / Invoice</h3>
+<p class="text-on-surface-variant font-body-sm text-body-sm">Official Merchant Copy • NABIN Restaurant</p>
+</div>
+<button class="w-9 h-9 rounded-full bg-surface-container-high flex items-center justify-center text-on-surface" onclick="closeModalDirect()" type="button">
+<span class="material-symbols-outlined text-[20px]">close</span>
+</button>
+</div>
+<div class="bg-surface-container-low rounded-xl p-space-md font-body-sm text-body-sm flex flex-col gap-2">
+<div class="flex justify-between border-b pb-2 text-on-surface font-semibold">
+<span>Item</span>
+<span>Amount</span>
+</div>
+<div class="flex justify-between text-on-surface-variant">
+<span>Chicken Fried Rice (×2)</span>
+<span>₹340.00</span>
+</div>
+<div class="flex justify-between text-on-surface-variant">
+<span>Veg Steamed Momo (×2)</span>
+<span>₹240.00</span>
+</div>
+<div class="flex justify-between text-on-surface-variant">
+<span>CGST (2.5%) + SGST (2.5%)</span>
+<span>₹29.00</span>
+</div>
+<div class="flex justify-between text-on-surface-variant">
+<span>Packaging &amp; Thermal Seal</span>
+<span>₹11.00</span>
+</div>
+<div class="flex justify-between text-on-surface font-bold pt-2 border-t text-base">
+<span>Grand Total</span>
+<span class="text-primary font-headline-sm text-headline-sm">₹620.00</span>
+</div>
+</div>
+<div class="flex gap-space-sm pt-2">
+<button class="flex-1 h-12 rounded-xl bg-surface-container-high text-on-surface font-label-lg text-label-lg" onclick="closeModalDirect()" type="button">
+          Close
+        </button>
+<button class="flex-1 h-12 flex items-center justify-center gap-1.5 rounded-xl bg-primary-container text-on-primary font-label-lg text-label-lg shadow" onclick="printThermal()" type="button">
+<span class="material-symbols-outlined text-[18px]">print</span>
+          Thermal Print
+        </button>
+</div>
+</div>
+</div>
+</div>
+<script>
+  function openModal(title) {
+    const modal = document.getElementById('invoice-modal');
+    document.getElementById('modal-title').innerText = title;
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+  }
+
+  function closeModal(e) {
+    if (e.target.id === 'invoice-modal') {
+      closeModalDirect();
+    }
+  }
+
+  function closeModalDirect() {
+    const modal = document.getElementById('invoice-modal');
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+  }
+
+  function triggerExport() {
+    const btn = document.getElementById('export-btn');
+    const originalText = btn.innerHTML;
+    btn.innerHTML = `<span class="material-symbols-outlined text-[20px] animate-spin">refresh</span> Generating GST Ledger...`;
+    btn.classList.add('opacity-80', 'pointer-events-none');
+    
+    setTimeout(() => {
+      btn.innerHTML = `<span class="material-symbols-outlined text-[20px]">check_circle</span> Daily CSV Exported!`;
+      btn.classList.remove('bg-primary-container');
+      btn.classList.add('bg-tertiary-container', 'text-on-tertiary-container');
+      setTimeout(() => {
+        btn.innerHTML = originalText;
+        btn.classList.remove('bg-tertiary-container', 'text-on-tertiary-container', 'opacity-80', 'pointer-events-none');
+        btn.classList.add('bg-primary-container');
+      }, 2500);
+    }, 1200);
+  }
+
+  function printThermal() {
+    alert("Sending job to NABIN LAN Thermal KOT Printer...");
+    closeModalDirect();
+  }
+
+  // Quick Filter Chip toggle logic
+  document.querySelectorAll('.filter-chip').forEach(chip => {
+    chip.addEventListener('click', function() {
+      document.querySelectorAll('.filter-chip').forEach(c => {
+        if (!c.innerText.includes('Status') && !c.innerText.includes('Custom')) {
+          c.classList.remove('bg-primary-container', 'text-on-primary');
+          c.classList.add('bg-surface-container-high', 'text-on-surface-variant');
+        }
+      });
+      if (!this.innerText.includes('Status') && !this.innerText.includes('Custom')) {
+        this.classList.remove('bg-surface-container-high', 'text-on-surface-variant');
+        this.classList.add('bg-primary-container', 'text-on-primary');
+      }
+    });
+  });
+</script></main></body></html>

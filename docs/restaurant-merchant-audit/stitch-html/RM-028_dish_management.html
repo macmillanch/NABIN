@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+
+<html class="h-full" lang="en"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" name="viewport"/><meta content="mobile_tab" name="shell-type"/><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet"/><style>@layer base{html,body{width:100%;margin:0;padding:0;}body{overscroll-behavior-y:none;}.pb-safe{padding-bottom:env(safe-area-inset-bottom,0px);}.pt-safe{padding-top:env(safe-area-inset-top,0px);}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config = { darkMode: "class", theme: { extend: { "colors": { "on-surface-variant": "#444653", "outline-variant": "#c5c5d5", "error-container": "#ffdad6", "inverse-surface": "#2d3134", "on-background": "#181c1f", "on-tertiary-container": "#4cca6c", "on-error-container": "#93000a", "secondary-fixed-dim": "#ffb59b", "surface-tint": "#3a56bd", "on-tertiary-fixed": "#002109", "surface-container-low": "#f2f4f8", "on-secondary-fixed": "#380d00", "tertiary": "#003813", "on-primary-fixed": "#001452", "primary-fixed-dim": "#b7c4ff", "surface": "#f7f9fd", "surface-variant": "#e0e3e6", "secondary-container": "#fc6b32", "inverse-on-surface": "#eff1f5", "secondary-fixed": "#ffdbcf", "inverse-primary": "#b7c4ff", "on-tertiary": "#ffffff", "surface-container-high": "#e6e8ec", "surface-container-highest": "#e0e3e6", "tertiary-fixed-dim": "#62df7d", "surface-dim": "#d8dade", "surface-container-lowest": "#ffffff", "on-secondary-container": "#5c1a00", "tertiary-container": "#005120", "on-surface": "#181c1f", "on-primary-fixed-variant": "#1c3da4", "surface-container": "#eceef2", "primary-fixed": "#dde1ff", "tertiary-fixed": "#7ffc97", "on-secondary": "#ffffff", "on-error": "#ffffff", "on-secondary-fixed-variant": "#812800", "primary": "#00247f", "on-primary": "#ffffff", "error": "#ba1a1a", "background": "#f7f9fd", "on-tertiary-fixed-variant": "#005320", "outline": "#757684", "primary-container": "#1a3ba2", "secondary": "#a93700", "surface-bright": "#f7f9fd", "on-primary-container": "#9cafff" }, "borderRadius": { "DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px" }, "spacing": { "margin-mobile": "1rem", "gutter": "1rem", "space-md": "1rem", "space-xs": "0.25rem", "gutter-kds": "1.25rem", "margin": "1.5rem", "space-xl": "2rem", "space-sm": "0.5rem", "space-lg": "1.5rem" }, "fontFamily": { "label-md": ["Inter"], "label-lg": ["Inter"], "body-md": ["Inter"], "label-sm": ["Inter"], "headline-md": ["Inter"], "headline-lg": ["Inter"], "headline-xl": ["Inter"], "body-sm": ["Inter"], "headline-xl-mobile": ["Inter"], "body-lg": ["Inter"], "headline-lg-mobile": ["Inter"], "headline-sm": ["Inter"], "ticket-mono": ["Inter"] }, "fontSize": { "label-md": ["13px", { "lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "600" }], "label-lg": ["15px", { "lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600" }], "body-md": ["15px", { "lineHeight": "22px", "fontWeight": "400" }], "label-sm": ["11px", { "lineHeight": "14px", "letterSpacing": "0.04em", "fontWeight": "700" }], "headline-md": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }], "headline-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.015em", "fontWeight": "700" }], "headline-xl": ["40px", { "lineHeight": "48px", "letterSpacing": "-0.02em", "fontWeight": "700" }], "body-sm": ["13px", { "lineHeight": "18px", "fontWeight": "400" }], "headline-xl-mobile": ["30px", { "lineHeight": "38px", "letterSpacing": "-0.02em", "fontWeight": "700" }], "body-lg": ["18px", { "lineHeight": "26px", "fontWeight": "500" }], "headline-lg-mobile": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "700" }], "headline-sm": ["20px", { "lineHeight": "28px", "fontWeight": "600" }], "ticket-mono": ["16px", { "lineHeight": "20px", "letterSpacing": "0.05em", "fontWeight": "700" }] } } } };</script><style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head><body class="bg-background text-on-surface min-h-full flex flex-col font-body-md"><header class="fixed top-0 w-full z-50 pt-safe bg-surface/90 backdrop-blur-xl shadow-[0_1px_8px_rgba(0,0,0,0.04)]"><div class="h-16 px-margin-mobile flex items-center justify-between gap-space-sm"><div class="flex items-center gap-space-sm min-w-0"><img alt="nabin-icon-primary-192.png" class="h-8 w-auto object-contain flex-shrink-0" src="https://lh3.googleusercontent.com/aida/ALJJyrCTdp3uQlj1WEfbLaNul4jOVx9bLaPCickvf6jmMYIcgT0Dcg7scdiyYcenxu6gWsr9pQoUH2ealX0ppYFChKRsrSROV4GAWIufXLB4Kqk0tya-g8WVkLGo8G2JXdmV2FtyqNKN4nVrii5a0BrRU8tprEgBBKpA-1TjJ2dpdkwTdVThxJC8MtB1oJnLbkoTQdgVrALpqrvijqcpjjvt0XuvSBGWqqksC2TXzI9_ZrXfqDX6mvsypJ2Uq74"/><div class="flex flex-col min-w-0"><div class="flex items-center gap-space-xs"><span class="text-label-md font-label-md text-on-surface truncate">NABIN Demo Restaurant</span><button class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-tertiary-container/15 text-tertiary-container min-h-[24px]" type="button"><span class="w-1.5 h-1.5 rounded-full bg-tertiary-container animate-pulse"></span><span class="text-label-sm font-label-sm tracking-wider uppercase">OPEN</span></button></div><span class="text-body-sm font-body-sm text-on-surface-variant truncate">Menu Catalog</span></div></div><div class="flex items-center gap-space-xs flex-shrink-0"><button aria-label="Kitchen Alerts" class="min-h-[44px] min-w-[44px] w-11 h-11 flex items-center justify-center rounded-full text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors relative" type="button"><span class="material-symbols-outlined text-[22px]">notifications_active</span><span class="absolute top-2.5 right-2.5 w-2 h-2 rounded-full bg-secondary-container"></span></button><button aria-label="Merchant Profile" class="min-h-[44px] min-w-[44px] flex items-center justify-center p-1 rounded-full hover:bg-surface-container transition-colors" type="button"><img alt="Profile" class="w-8 h-8 rounded-full object-cover" src="https://lh3.googleusercontent.com/aida/ALJJyrD7CdH9drOcwljFpMkdcCYO4FWfU1sYSv3rBCMCvnlz46b3_yZLypJ2zZNf896C1lLJZqnPqVZRulZpFAVb56OVtaPnhiJxUc9YUDOg8AlWiHQjv82HG7gDsVvLpDT9LLmGP79FbRkY6NhGhNA1_NimXYEMCIdimx75j--dMt2bmRUNNYv9UUR6AE3FctStnpUIArD2IJyYZ2i4lepHWcMtkMaGGUjctd5DQ4rJEGenQAm7sQeIX1Rowfw"/></button></div></div></header><main class="flex flex-col flex-1 w-full bg-background pt-16 pb-24 px-margin-mobile"><div class="flex flex-col w-full pb-8">
+<!-- Search & Action Bar -->
+<div class="flex flex-col gap-space-sm pt-space-xs">
+<div class="flex items-center gap-space-sm">
+<div class="relative flex-1 flex items-center">
+<span class="material-symbols-outlined absolute left-3 text-outline text-[20px] pointer-events-none">search</span>
+<input class="w-full h-11 pl-10 pr-9 rounded-xl bg-surface-container text-on-surface font-body-md text-body-md placeholder:text-outline focus:outline-none focus:bg-surface-container-lowest shadow-sm transition-all" placeholder="Search dishes, SKU, modifiers..." type="text"/>
+<button aria-label="Clear or voice" class="absolute right-3 text-outline hover:text-on-surface" type="button">
+<span class="material-symbols-outlined text-[18px]">mic</span>
+</button>
+</div>
+<button aria-label="Filter Dishes" class="h-11 w-11 flex-shrink-0 flex items-center justify-center rounded-xl bg-surface-container hover:bg-surface-container-high text-on-surface-variant transition-colors relative" id="filterToggleBtn" type="button">
+<span class="material-symbols-outlined text-[20px]">tune</span>
+<span class="absolute top-2.5 right-2.5 w-2 h-2 rounded-full bg-secondary-container"></span>
+</button>
+</div>
+<!-- Category Filter Chips (Horizontal Scrollable) -->
+<div class="flex items-center gap-2 overflow-x-auto no-scrollbar py-0.5">
+<button class="category-chip px-3.5 py-1.5 rounded-full bg-primary-container text-on-primary font-label-md text-label-md whitespace-nowrap shadow-sm transition-transform active:scale-95" type="button">
+        All (48)
+      </button>
+<button class="category-chip px-3.5 py-1.5 rounded-full bg-surface-container-low hover:bg-surface-container text-on-surface-variant font-label-md text-label-md whitespace-nowrap transition-transform active:scale-95" type="button">
+        Momos (12)
+      </button>
+<button class="category-chip px-3.5 py-1.5 rounded-full bg-surface-container-low hover:bg-surface-container text-on-surface-variant font-label-md text-label-md whitespace-nowrap transition-transform active:scale-95" type="button">
+        Biryani (8)
+      </button>
+<button class="category-chip px-3.5 py-1.5 rounded-full bg-surface-container-low hover:bg-surface-container text-on-surface-variant font-label-md text-label-md whitespace-nowrap transition-transform active:scale-95" type="button">
+        Curries (14)
+      </button>
+<button class="category-chip px-3.5 py-1.5 rounded-full bg-surface-container-low hover:bg-surface-container text-on-surface-variant font-label-md text-label-md whitespace-nowrap transition-transform active:scale-95" type="button">
+        Beverages (14)
+      </button>
+</div>
+<!-- Secondary Filter Row: Food Type & Availability -->
+<div class="flex flex-col gap-space-xs p-3 rounded-xl bg-surface-container-low shadow-sm">
+<div class="flex items-center justify-between text-on-surface-variant font-label-sm text-label-sm uppercase tracking-wider">
+<span>Dietary & Station</span>
+<span class="text-secondary font-label-sm font-bold">1 Out of Stock</span>
+</div>
+<div class="flex items-center gap-1.5 overflow-x-auto no-scrollbar pt-1">
+<!-- Pure Veg Filter -->
+<button class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-surface-container-lowest text-on-surface shadow-xs text-label-sm font-label-sm hover:bg-surface-container transition-colors whitespace-nowrap" type="button">
+<span class="w-3.5 h-3.5 rounded-xs flex items-center justify-center bg-tertiary-container/15">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary-container"></span>
+</span>
+<span>Veg</span>
+</button>
+<!-- Non-Veg Filter -->
+<button class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-surface-container-lowest text-on-surface shadow-xs text-label-sm font-label-sm hover:bg-surface-container transition-colors whitespace-nowrap" type="button">
+<span class="w-3.5 h-3.5 rounded-xs flex items-center justify-center bg-error-container">
+<span class="w-1.5 h-1.5 rounded-full bg-error"></span>
+</span>
+<span>Non-Veg</span>
+</button>
+<!-- Egg Filter -->
+<button class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-surface-container-lowest text-on-surface shadow-xs text-label-sm font-label-sm hover:bg-surface-container transition-colors whitespace-nowrap" type="button">
+<span class="w-3.5 h-3.5 rounded-xs flex items-center justify-center bg-secondary-fixed">
+<span class="w-1.5 h-1.5 rounded-full bg-secondary"></span>
+</span>
+<span>Egg</span>
+</button>
+<span class="w-[1px] h-4 bg-outline-variant mx-1"></span>
+<!-- Stock Status Filters -->
+<button class="px-2.5 py-1 rounded-lg bg-surface-container-lowest text-primary font-label-sm text-label-sm shadow-xs whitespace-nowrap" type="button">
+          In Stock (47)
+        </button>
+<button class="px-2.5 py-1 rounded-lg bg-error-container text-on-error-container font-label-sm text-label-sm shadow-xs whitespace-nowrap flex items-center gap-1" type="button">
+<span class="w-1.5 h-1.5 rounded-full bg-error animate-ping"></span>
+          86'd (1)
+        </button>
+</div>
+</div>
+</div>
+<!-- Live Operational Metrics Strip -->
+<div class="grid grid-cols-3 gap-2 mt-3">
+<div class="flex flex-col p-2.5 rounded-xl bg-surface-container-lowest shadow-sm">
+<span class="text-on-surface-variant font-label-sm text-label-sm">Total Fired</span>
+<div class="flex items-baseline gap-1 mt-0.5">
+<span class="font-headline-sm text-headline-sm text-on-surface">142</span>
+<span class="text-tertiary-container font-label-sm text-label-sm font-bold">↑ 14%</span>
+</div>
+</div>
+<div class="flex flex-col p-2.5 rounded-xl bg-surface-container-lowest shadow-sm">
+<span class="text-on-surface-variant font-label-sm text-label-sm">Active Prep</span>
+<div class="flex items-baseline gap-1 mt-0.5">
+<span class="font-headline-sm text-headline-sm text-primary-container">6</span>
+<span class="text-on-surface-variant font-label-sm text-label-sm">stations</span>
+</div>
+</div>
+<div class="flex flex-col p-2.5 rounded-xl bg-surface-container-lowest shadow-sm">
+<span class="text-on-surface-variant font-label-sm text-label-sm">Kitchen Load</span>
+<div class="flex items-baseline gap-1 mt-0.5">
+<span class="font-headline-sm text-headline-sm text-secondary">Optimal</span>
+</div>
+</div>
+</div>
+<!-- Dishes Catalog List (High-density industrial cards) -->
+<div class="flex flex-col gap-3 mt-3">
+<!-- Card 1: Chicken Momo (Steamed) -->
+<div class="dish-card relative p-3.5 rounded-xl bg-surface-container-lowest shadow-sm flex flex-col gap-3 transition-all hover:shadow-md">
+<div class="flex items-start gap-3">
+<!-- Thumbnail -->
+<div class="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 bg-surface-container relative">
+<img class="w-full h-full object-cover" data-alt="Delicate steamed chicken momos resting neatly in a traditional bamboo steamer basket, fine visible vapor, garnished with chopped scallions and paired with rich red spicy dipping chutney, soft commercial kitchen lighting." src="https://lh3.googleusercontent.com/aida-public/AB6AXuB06cwVm-fsmwI8Zw4x9gPvD2ypNJ7UgNOhErarcmSYo4pQoCwqr8e0s8FcmiiV4LcfCpHT2shoUW-YEpr9Bkid9sp4O32ZVM-vFvavLY0OiotjSh_jiGS362unuwWanjRWaTSBfSPspj37GqCIF9vYbaXlssSp9bWUrQSfXrl8Bx_eFym2RSMiW6efgubN-Wxeo35XmaaIYImB0YnQ10PFGEujPg_VeNh0wO-ssyY"/>
+<span class="absolute top-1 left-1 w-4 h-4 rounded-xs bg-surface-container-lowest/90 flex items-center justify-center">
+<span class="w-2 h-2 rounded-full bg-error"></span>
+</span>
+</div>
+<!-- Meta and Title -->
+<div class="flex-1 min-w-0">
+<div class="flex items-start justify-between gap-1">
+<h3 class="font-headline-sm text-headline-sm text-on-surface truncate">Chicken Momo (Steamed)</h3>
+<span class="font-ticket-mono text-ticket-mono text-on-surface flex-shrink-0">₹200</span>
+</div>
+<div class="flex items-center gap-2 mt-1 flex-wrap">
+<!-- Non-Veg badge -->
+<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-error-container text-on-error-container font-label-sm text-label-sm font-bold">
+<span class="w-1.5 h-1.5 rounded-full bg-error"></span>
+              Non-Veg
+            </span>
+<!-- Station Pill -->
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-surface-container text-on-surface-variant font-label-sm text-label-sm">
+<span class="material-symbols-outlined text-[13px]">valve</span>
+              Steam #02
+            </span>
+<!-- Variant pill -->
+<span class="px-1.5 py-0.5 rounded-md bg-surface-container-low text-on-surface-variant font-label-sm text-label-sm">
+              3 Variants
+            </span>
+</div>
+</div>
+</div>
+<!-- Action Footer: Stock toggle, stats, edit -->
+<div class="flex items-center justify-between pt-2 border-t-0 bg-surface-container-low/50 -mx-3.5 -mb-3.5 px-3.5 py-2.5 rounded-b-xl">
+<div class="flex items-center gap-3">
+<!-- Toggle Stock -->
+<label class="relative inline-flex items-center cursor-pointer">
+<input checked="" class="sr-only peer" type="checkbox"/>
+<div class="w-11 h-6 bg-surface-container-highest peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-surface-container-lowest after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface-container-lowest after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-tertiary-container"></div>
+<span class="ml-2 font-label-md text-label-md text-on-surface font-semibold">In Stock</span>
+</label>
+<span class="text-outline-variant">|</span>
+<span class="font-label-sm text-label-sm text-on-surface-variant">
+<strong class="text-on-surface font-semibold">42</strong> sold today
+          </span>
+</div>
+<button class="h-8 px-3 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface font-label-md text-label-md flex items-center gap-1 active:scale-95 transition-all" type="button">
+<span class="material-symbols-outlined text-[16px]">edit_note</span>
+<span>Edit</span>
+</button>
+</div>
+</div>
+<!-- Card 2: Paneer Butter Masala -->
+<div class="dish-card relative p-3.5 rounded-xl bg-surface-container-lowest shadow-sm flex flex-col gap-3 transition-all hover:shadow-md">
+<div class="flex items-start gap-3">
+<!-- Thumbnail -->
+<div class="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 bg-surface-container relative">
+<img class="w-full h-full object-cover" data-alt="A rich, velvety bowl of authentic Paneer Butter Masala with golden butter swirl and fresh cream drizzle, fresh coriander garnish, captured in warm ambient restaurant light with deep orange and terracotta hues." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCtYzXCX_DGO-QiUmtFs5hDzvJmxqq7yyRIJZM6ZSeocZyT3YhVLXFv2skQC2SMK_X62ppa8hD2IK4nqCh1HBKX1lRJ3197d7p981jETOQ7FmiNM6kkDO-RFNFVwJ4hOAU27IULr_C1HD_9eFakRA2zSrPxghRMkxDVKv_Leqp3DPxt3y6Dupbdy1ZEa6JON8itHrCy4F36mkST4-aZDt_QfILZS-FcgVpSWbUNsTQ"/>
+<span class="absolute top-1 left-1 w-4 h-4 rounded-xs bg-surface-container-lowest/90 flex items-center justify-center">
+<span class="w-2 h-2 rounded-full bg-tertiary-container"></span>
+</span>
+</div>
+<!-- Meta and Title -->
+<div class="flex-1 min-w-0">
+<div class="flex items-start justify-between gap-1">
+<h3 class="font-headline-sm text-headline-sm text-on-surface truncate">Paneer Butter Masala</h3>
+<span class="font-ticket-mono text-ticket-mono text-on-surface flex-shrink-0">₹280</span>
+</div>
+<div class="flex items-center gap-2 mt-1 flex-wrap">
+<!-- Pure Veg badge -->
+<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-tertiary-container/15 text-tertiary-container font-label-sm text-label-sm font-bold">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary-container"></span>
+              Pure Veg
+            </span>
+<!-- Station Pill -->
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-surface-container text-on-surface-variant font-label-sm text-label-sm">
+<span class="material-symbols-outlined text-[13px]">skillet</span>
+              Wok #01
+            </span>
+<!-- Customizations -->
+<span class="px-1.5 py-0.5 rounded-md bg-surface-container-low text-secondary font-label-sm text-label-sm font-medium">
+              Mild / Med / Spicy
+            </span>
+</div>
+</div>
+</div>
+<!-- Action Footer -->
+<div class="flex items-center justify-between pt-2 bg-surface-container-low/50 -mx-3.5 -mb-3.5 px-3.5 py-2.5 rounded-b-xl">
+<div class="flex items-center gap-3">
+<label class="relative inline-flex items-center cursor-pointer">
+<input checked="" class="sr-only peer" type="checkbox"/>
+<div class="w-11 h-6 bg-surface-container-highest peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-surface-container-lowest after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface-container-lowest after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-tertiary-container"></div>
+<span class="ml-2 font-label-md text-label-md text-on-surface font-semibold">In Stock</span>
+</label>
+<span class="text-outline-variant">|</span>
+<span class="font-label-sm text-label-sm text-on-surface-variant">
+<strong class="text-on-surface font-semibold">18</strong> sold today
+          </span>
+</div>
+<button class="h-8 px-3 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface font-label-md text-label-md flex items-center gap-1 active:scale-95 transition-all" type="button">
+<span class="material-symbols-outlined text-[16px]">edit_note</span>
+<span>Edit</span>
+</button>
+</div>
+</div>
+<!-- Card 3: Egg Hakka Noodles -->
+<div class="dish-card relative p-3.5 rounded-xl bg-surface-container-lowest shadow-sm flex flex-col gap-3 transition-all hover:shadow-md">
+<div class="flex items-start gap-3">
+<!-- Thumbnail -->
+<div class="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 bg-surface-container relative">
+<img class="w-full h-full object-cover" data-alt="Stir-fried street style Egg Hakka Noodles with crisp colorful bell peppers, tender cabbage ribbons, and savory scrambled eggs, high-energy wok toss aesthetic with subtle steam glow." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAWxTAXLxY2RGRaJBogNHTl-2BciNG4KxW5LCSp6ZvlN_qdlpMj7Ruegza6zvE2pmlj5FpNdbq9Pwbu_s4Zbc5jO4y-vX_VkzrFtjO7RSTOOFTnrHf1o-rb9YkG_AAe_IirtLjo5ANo1NZPFiIOsF7lg66ET6tdWQ2P-JUbkXePh2p5GiNVsaniTc7cqsXB_jCSw5fpgX8wlndrz1lP8hoVtlfGo8DkldVv1HVv42A"/>
+<span class="absolute top-1 left-1 w-4 h-4 rounded-xs bg-surface-container-lowest/90 flex items-center justify-center">
+<span class="w-2 h-2 rounded-full bg-secondary"></span>
+</span>
+</div>
+<!-- Meta and Title -->
+<div class="flex-1 min-w-0">
+<div class="flex items-start justify-between gap-1">
+<h3 class="font-headline-sm text-headline-sm text-on-surface truncate">Egg Hakka Noodles</h3>
+<span class="font-ticket-mono text-ticket-mono text-on-surface flex-shrink-0">₹190</span>
+</div>
+<div class="flex items-center gap-2 mt-1 flex-wrap">
+<!-- Egg badge -->
+<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-secondary-fixed text-on-secondary-fixed-variant font-label-sm text-label-sm font-bold">
+<span class="w-1.5 h-1.5 rounded-full bg-secondary"></span>
+              Egg
+            </span>
+<!-- Station Pill -->
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-surface-container text-on-surface-variant font-label-sm text-label-sm">
+<span class="material-symbols-outlined text-[13px]">skillet</span>
+              Wok #01
+            </span>
+<!-- Tags -->
+<span class="px-1.5 py-0.5 rounded-md bg-surface-container-low text-on-surface-variant font-label-sm text-label-sm">
+              Chef Special
+            </span>
+</div>
+</div>
+</div>
+<!-- Action Footer -->
+<div class="flex items-center justify-between pt-2 bg-surface-container-low/50 -mx-3.5 -mb-3.5 px-3.5 py-2.5 rounded-b-xl">
+<div class="flex items-center gap-3">
+<label class="relative inline-flex items-center cursor-pointer">
+<input checked="" class="sr-only peer" type="checkbox"/>
+<div class="w-11 h-6 bg-surface-container-highest peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-surface-container-lowest after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface-container-lowest after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-tertiary-container"></div>
+<span class="ml-2 font-label-md text-label-md text-on-surface font-semibold">In Stock</span>
+</label>
+<span class="text-outline-variant">|</span>
+<span class="font-label-sm text-label-sm text-on-surface-variant">
+<strong class="text-on-surface font-semibold">25</strong> sold today
+          </span>
+</div>
+<button class="h-8 px-3 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface font-label-md text-label-md flex items-center gap-1 active:scale-95 transition-all" type="button">
+<span class="material-symbols-outlined text-[16px]">edit_note</span>
+<span>Edit</span>
+</button>
+</div>
+</div>
+<!-- Card 4: Mutton Galouti Roll (86'd / Out of Stock) -->
+<div class="dish-card relative p-3.5 rounded-xl bg-surface-container-low shadow-sm flex flex-col gap-3 transition-all opacity-95">
+<div class="flex items-start gap-3">
+<!-- Thumbnail with Grayscale & Sold Out Overlay -->
+<div class="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 bg-surface-container relative">
+<img class="w-full h-full object-cover grayscale contrast-75" data-alt="Mutton Galouti Kebab roll wrapped tightly in charred paratha, with mint pickled onions and lime wedge, cinematic top view on dark slate background." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAXEm6O3nDnoq5hxl_b-tKkwwJvS6g4YkHT4XQ51qfNTeXhxFzFWcYdx5igJKJYRt0iR2OkgjMyDWcV7MQpQfKtbf6mkKfO6oVhCfCqhgAHk2SS5DHEEAlU5DRc1gjaKGfRGhuzCwsSgya5VZTFwxVl4SAiqnmku-x12fpMKgFEoGo4eYf3f99saqR60JdsKbjJDdJeCN4g6ToiI8laXZBl6rBDGlAlmQiNY383qqY"/>
+<div class="absolute inset-0 bg-inverse-surface/40 flex items-center justify-center">
+<span class="material-symbols-outlined text-surface-container-lowest text-[22px]">block</span>
+</div>
+</div>
+<!-- Meta and Title -->
+<div class="flex-1 min-w-0">
+<div class="flex items-start justify-between gap-1">
+<h3 class="font-headline-sm text-headline-sm text-on-surface line-through decoration-outline truncate">Mutton Galouti Roll</h3>
+<span class="font-ticket-mono text-ticket-mono text-on-surface-variant flex-shrink-0">₹350</span>
+</div>
+<div class="flex items-center gap-2 mt-1 flex-wrap">
+<!-- Non-Veg badge -->
+<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-error-container text-on-error-container font-label-sm text-label-sm font-bold">
+<span class="w-1.5 h-1.5 rounded-full bg-error"></span>
+              Non-Veg
+            </span>
+<!-- Out of Stock Badge -->
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-error text-on-error font-label-sm text-label-sm font-bold shadow-xs">
+              86'd / Sold Out
+            </span>
+</div>
+<!-- Depletion Reason Strip -->
+<div class="mt-2 flex items-center gap-1.5 text-error font-body-sm text-body-sm bg-error-container/40 px-2 py-1 rounded-md">
+<span class="material-symbols-outlined text-[15px] flex-shrink-0">inventory_2</span>
+<span class="truncate font-medium">Reason: Raw mutton batch depleted</span>
+</div>
+</div>
+</div>
+<!-- Action Footer: Toggle OFF + Quick Restock CTA -->
+<div class="flex items-center justify-between pt-2 bg-surface-container-highest/60 -mx-3.5 -mb-3.5 px-3.5 py-2.5 rounded-b-xl">
+<div class="flex items-center gap-3">
+<label class="relative inline-flex items-center cursor-pointer">
+<input class="sr-only peer" type="checkbox"/>
+<div class="w-11 h-6 bg-outline-variant peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-surface-container-lowest after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface-container-lowest after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-tertiary-container"></div>
+<span class="ml-2 font-label-md text-label-md text-error font-semibold">Disabled</span>
+</label>
+</div>
+<div class="flex items-center gap-2">
+<button class="h-8 px-3 rounded-lg bg-secondary-container text-on-secondary-container hover:bg-secondary font-label-md text-label-md font-semibold flex items-center gap-1 shadow-xs active:scale-95 transition-all" onclick="triggerRestockModal()" type="button">
+<span class="material-symbols-outlined text-[16px]">restart_alt</span>
+<span>Quick Restock</span>
+</button>
+<button aria-label="Edit dish" class="h-8 w-8 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface font-label-md text-label-md flex items-center justify-center active:scale-95 transition-all" type="button">
+<span class="material-symbols-outlined text-[16px]">edit</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+<!-- Industrial Bulk Action Banner -->
+<div class="mt-4 p-3 rounded-xl bg-surface-container flex items-center justify-between gap-2 shadow-xs">
+<div class="flex items-center gap-2 min-w-0">
+<span class="material-symbols-outlined text-primary-container text-[20px]">sync_alt</span>
+<div class="flex flex-col min-w-0">
+<span class="font-label-md text-label-md text-on-surface font-semibold truncate">POS Sync Active</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant truncate">Changes broadcast directly to KDS & Aggregators</span>
+</div>
+</div>
+<button class="px-2.5 py-1.5 rounded-lg bg-surface-container-lowest text-primary font-label-sm text-label-sm font-bold shadow-xs whitespace-nowrap active:scale-95 transition-transform" type="button">
+      Force Sync
+    </button>
+</div>
+<!-- Floating Action Button: + Add Dish -->
+<div class="fixed bottom-20 right-4 z-40">
+<button class="h-14 px-5 rounded-full bg-primary-container hover:bg-primary text-on-primary font-label-lg text-label-lg flex items-center gap-2.5 shadow-xl shadow-primary-container/25 active:scale-95 transition-all" type="button">
+<span class="material-symbols-outlined text-[24px]">add</span>
+<span>Add Dish</span>
+</button>
+</div>
+</div>
+<script>
+  // Simple micro-interaction for category chip selection
+  document.querySelectorAll('.category-chip').forEach(button => {
+    button.addEventListener('click', () => {
+      document.querySelectorAll('.category-chip').forEach(b => {
+        b.classList.remove('bg-primary-container', 'text-on-primary');
+        b.classList.add('bg-surface-container-low', 'text-on-surface-variant');
+      });
+      button.classList.remove('bg-surface-container-low', 'text-on-surface-variant');
+      button.classList.add('bg-primary-container', 'text-on-primary');
+    });
+  });
+
+  function triggerRestockModal() {
+    alert("Restock initiated: Triggering raw mutton inventory check and station batch allocation.");
+  }
+</script></main><nav class="fixed bottom-0 w-full z-50 pb-safe bg-surface/90 backdrop-blur-xl shadow-[0_-2px_12px_rgba(0,0,0,0.05)]" data-active-classes="text-primary-container font-semibold"><div class="h-16 px-2 flex items-center justify-around"><a class="flex flex-col items-center justify-center min-w-[48px] min-h-[48px] px-2 py-1 text-on-surface-variant transition-colors hover:text-on-surface" data-path="dashboard" href="#"><span class="material-symbols-outlined text-[22px]">dashboard</span><span class="text-label-sm font-label-sm mt-0.5">Dashboard</span></a><a class="flex flex-col items-center justify-center min-w-[48px] min-h-[48px] px-2 py-1 text-on-surface-variant transition-colors hover:text-on-surface" data-path="live-orders" href="#"><span class="material-symbols-outlined text-[22px]">receipt_long</span><span class="text-label-sm font-label-sm mt-0.5">Orders</span></a><a class="flex flex-col items-center justify-center min-w-[48px] min-h-[48px] px-2 py-1 text-on-surface-variant transition-colors hover:text-on-surface" data-path="kitchen-display-system" href="#"><span class="material-symbols-outlined text-[22px]">soup_kitchen</span><span class="text-label-sm font-label-sm mt-0.5">KDS</span></a><a aria-current="page" class="flex flex-col items-center justify-center min-w-[48px] min-h-[48px] px-2 py-1 transition-colors text-primary-container font-semibold" data-path="menu-catalog" href="#"><span class="material-symbols-outlined text-[22px]">restaurant_menu</span><span class="text-label-sm font-label-sm mt-0.5">Menu</span></a><a class="flex flex-col items-center justify-center min-w-[48px] min-h-[48px] px-2 py-1 text-on-surface-variant transition-colors hover:text-on-surface" data-path="operations-hub" href="#"><span class="material-symbols-outlined text-[22px]">storefront</span><span class="text-label-sm font-label-sm mt-0.5">Operations</span></a></div></nav></body></html>

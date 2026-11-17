@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+
+<html class="h-full bg-surface" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport"/>
+<title>Staff Management &amp; RBAC - NABIN RMS</title>
+<!-- Inter Google Font -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<!-- Material Symbols Outlined -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS with CDN -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "surface-container": "#eceef2",
+            "outline-variant": "#c5c5d5",
+            "surface-dim": "#d8dade",
+            "on-secondary-fixed": "#380d00",
+            "on-secondary": "#ffffff",
+            "on-primary-container": "#9cafff",
+            "on-primary-fixed": "#001452",
+            "background": "#f7f9fd",
+            "on-tertiary-container": "#4cca6c",
+            "primary-fixed": "#dde1ff",
+            "on-surface-variant": "#444653",
+            "inverse-primary": "#b7c4ff",
+            "secondary": "#a93700",
+            "on-background": "#181c1f",
+            "secondary-fixed-dim": "#ffb59b",
+            "on-error": "#ffffff",
+            "tertiary-fixed-dim": "#62df7d",
+            "primary-fixed-dim": "#b7c4ff",
+            "on-primary-fixed-variant": "#1c3da4",
+            "on-tertiary-fixed-variant": "#005320",
+            "surface-bright": "#f7f9fd",
+            "inverse-surface": "#2d3134",
+            "primary-container": "#1a3ba2",
+            "on-error-container": "#93000a",
+            "on-secondary-fixed-variant": "#812800",
+            "surface-container-lowest": "#ffffff",
+            "on-primary": "#ffffff",
+            "on-secondary-container": "#5c1a00",
+            "surface-container-high": "#e6e8ec",
+            "outline": "#757684",
+            "error": "#ba1a1a",
+            "secondary-container": "#fc6b32",
+            "surface-variant": "#e0e3e6",
+            "inverse-on-surface": "#eff1f5",
+            "surface": "#f7f9fd",
+            "on-tertiary-fixed": "#002109",
+            "surface-container-highest": "#e0e3e6",
+            "on-surface": "#181c1f",
+            "surface-container-low": "#f2f4f8",
+            "tertiary-fixed": "#7ffc97",
+            "tertiary-container": "#005120",
+            "secondary-fixed": "#ffdbcf",
+            "primary": "#00247f",
+            "on-tertiary": "#ffffff",
+            "tertiary": "#003813",
+            "error-container": "#ffdad6",
+            "surface-tint": "#3a56bd"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.25rem",
+            "lg": "0.5rem",
+            "xl": "0.75rem",
+            "full": "9999px"
+          },
+          "spacing": {
+            "margin-mobile": "1rem",
+            "gutter": "1rem",
+            "space-lg": "1.5rem",
+            "gutter-kds": "1.25rem",
+            "space-sm": "0.5rem",
+            "space-md": "1rem",
+            "space-xl": "2rem",
+            "space-xs": "0.25rem",
+            "margin": "1.5rem"
+          },
+          "fontFamily": {
+            "ticket-mono": ["Inter"],
+            "headline-lg": ["Inter"],
+            "label-lg": ["Inter"],
+            "label-sm": ["Inter"],
+            "body-sm": ["Inter"],
+            "label-md": ["Inter"],
+            "headline-md": ["Inter"],
+            "headline-sm": ["Inter"],
+            "headline-xl": ["Inter"],
+            "headline-xl-mobile": ["Inter"],
+            "body-lg": ["Inter"],
+            "headline-lg-mobile": ["Inter"],
+            "body-md": ["Inter"]
+          },
+          "fontSize": {
+            "ticket-mono": ["16px", { "lineHeight": "20px", "letterSpacing": "0.05em", "fontWeight": "700" }],
+            "headline-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.015em", "fontWeight": "700" }],
+            "label-lg": ["15px", { "lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600" }],
+            "label-sm": ["11px", { "lineHeight": "14px", "letterSpacing": "0.04em", "fontWeight": "700" }],
+            "body-sm": ["13px", { "lineHeight": "18px", "fontWeight": "400" }],
+            "label-md": ["13px", { "lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "600" }],
+            "headline-md": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+            "headline-sm": ["20px", { "lineHeight": "28px", "fontWeight": "600" }],
+            "headline-xl": ["40px", { "lineHeight": "48px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+            "headline-xl-mobile": ["30px", { "lineHeight": "38px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+            "body-lg": ["18px", { "lineHeight": "26px", "fontWeight": "500" }],
+            "headline-lg-mobile": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "700" }],
+            "body-md": ["15px", { "lineHeight": "22px", "fontWeight": "400" }]
+          }
+        }
+      }
+    }
+  </script>
+<style>
+    body {
+      font-family: 'Inter', sans-serif;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+      display: inline-block;
+      vertical-align: middle;
+      line-height: 1;
+    }
+    .no-scrollbar::-webkit-scrollbar {
+      display: none;
+    }
+    .no-scrollbar {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+  </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-surface text-on-surface antialiased min-h-screen flex flex-col items-center">
+<!-- Mobile Viewport Shell (390px base layout) -->
+<div class="w-full max-w-[420px] min-h-screen bg-surface flex flex-col relative pb-28 shadow-sm">
+<!-- Top App Bar (Task-Focused Sub-page Header, 48dp+ tap targets) -->
+<header class="sticky top-0 z-40 bg-surface-container-lowest/95 backdrop-blur-md px-margin-mobile h-16 flex items-center justify-between border-b border-outline-variant/30">
+<div class="flex items-center gap-2">
+<button aria-label="Go back to Settings" class="w-12 h-12 -ml-2 rounded-xl flex items-center justify-center text-on-surface hover:bg-surface-container transition-all active:scale-95" type="button">
+<span class="material-symbols-outlined text-[24px]">arrow_back</span>
+</button>
+<div class="flex flex-col">
+<h1 class="font-headline-sm text-headline-sm text-on-surface leading-tight font-bold tracking-tight">Staff &amp; Permissions</h1>
+<span class="font-body-sm text-body-sm text-on-surface-variant flex items-center gap-1">
+            Downtown Flagship <span class="inline-block w-1 h-1 rounded-full bg-outline"></span> 6 Active Members
+          </span>
+</div>
+</div>
+<button class="h-10 px-3 bg-primary-container hover:bg-primary text-on-primary rounded-xl font-label-md text-label-md font-semibold flex items-center gap-1.5 active:scale-95 transition-all shadow-sm" type="button">
+<span class="material-symbols-outlined text-[18px]">person_add</span>
+<span>+ Add</span>
+</button>
+</header>
+<!-- Role Filter Pills Strip (Horizontal Scrollable) -->
+<div class="w-full bg-surface-container-lowest py-3 px-margin-mobile border-b border-outline-variant/20 overflow-x-auto no-scrollbar flex items-center gap-2">
+<!-- Active Pill -->
+<button class="whitespace-nowrap px-3.5 py-2 rounded-xl bg-primary-container text-on-primary font-label-md text-label-md font-semibold shadow-xs flex items-center gap-1.5 transition-all" type="button">
+<span>All Staff</span>
+<span class="bg-white/20 text-white rounded-full px-1.5 py-0.2 font-label-sm text-label-sm">6</span>
+</button>
+<!-- Inactive Pills -->
+<button class="whitespace-nowrap px-3.5 py-2 rounded-xl bg-surface-container-lowest border border-outline-variant/60 text-on-surface-variant hover:bg-surface-container font-label-md text-label-md font-medium transition-all flex items-center gap-1.5" type="button">
+<span>Store Managers</span>
+<span class="bg-surface-container text-on-surface-variant rounded-full px-1.5 py-0.2 font-label-sm text-label-sm">2</span>
+</button>
+<button class="whitespace-nowrap px-3.5 py-2 rounded-xl bg-surface-container-lowest border border-outline-variant/60 text-on-surface-variant hover:bg-surface-container font-label-md text-label-md font-medium transition-all flex items-center gap-1.5" type="button">
+<span>Kitchen Leads &amp; Cooks</span>
+<span class="bg-surface-container text-on-surface-variant rounded-full px-1.5 py-0.2 font-label-sm text-label-sm">3</span>
+</button>
+<button class="whitespace-nowrap px-3.5 py-2 rounded-xl bg-surface-container-lowest border border-outline-variant/60 text-on-surface-variant hover:bg-surface-container font-label-md text-label-md font-medium transition-all flex items-center gap-1.5" type="button">
+<span>Front Desk / Cashiers</span>
+<span class="bg-surface-container text-on-surface-variant rounded-full px-1.5 py-0.2 font-label-sm text-label-sm">1</span>
+</button>
+</div>
+<!-- Main Content Canvas -->
+<main class="p-margin-mobile flex flex-col gap-5">
+<!-- Directory Header & Search Bar -->
+<div class="flex flex-col gap-2.5">
+<div class="flex items-center justify-between">
+<span class="font-label-sm text-label-sm text-on-surface-variant tracking-wider font-bold">
+            ACTIVE RESTAURANT ROLES &amp; STAFF (6)
+          </span>
+<span class="font-label-sm text-label-sm text-on-tertiary-container bg-tertiary-container/10 px-2 py-0.5 rounded-full font-semibold flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse"></span> KDS Synced
+          </span>
+</div>
+<!-- Quick Search Bar -->
+<div class="relative w-full">
+<div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-outline">
+<span class="material-symbols-outlined text-[20px]">search</span>
+</div>
+<input class="w-full h-11 pl-10 pr-4 bg-surface-container-lowest border border-outline-variant/60 rounded-xl text-on-surface font-body-md text-body-md placeholder:text-outline focus:outline-none focus:border-primary-container focus:ring-1 focus:ring-primary-container transition-all" placeholder="Search by staff name or mobile..." type="text"/>
+</div>
+</div>
+<!-- Staff Member Cards Section -->
+<div class="flex flex-col gap-3.5">
+<!-- CARD 1: Owner (Rajesh Sharma) -->
+<article class="bg-surface-container-lowest rounded-xl p-4 border border-outline-variant/30 shadow-[0_2px_8px_rgba(23,32,51,0.04)] relative overflow-hidden">
+<div class="absolute top-0 right-0 w-24 h-24 bg-gradient-to-bl from-amber-100/60 via-amber-50/20 to-transparent pointer-events-none rounded-tr-xl"></div>
+<div class="flex items-start justify-between gap-3 relative">
+<div class="flex items-center gap-3">
+<div class="w-12 h-12 rounded-xl bg-primary flex items-center justify-center text-white font-headline-sm text-headline-sm font-bold shadow-xs">
+                RS
+              </div>
+<div>
+<div class="flex items-center gap-1.5">
+<h2 class="font-headline-sm text-headline-sm text-on-surface font-bold">Rajesh Sharma</h2>
+<span class="font-body-sm text-body-sm text-on-surface-variant font-medium">(You)</span>
+</div>
+<div class="flex items-center gap-2 mt-0.5">
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 border border-amber-200 text-amber-800 font-label-sm text-label-sm font-bold">
+<span class="material-symbols-outlined text-[14px]" style="font-variation-settings: 'FILL' 1;">crown</span>
+                    Primary Owner
+                  </span>
+</div>
+</div>
+</div>
+<!-- Master Admin Badge (Permanent Lock) -->
+<div class="flex items-center gap-1 px-2.5 py-1 bg-surface-container rounded-lg text-on-surface-variant font-label-sm text-label-sm font-semibold" title="Permanent Root Access">
+<span class="material-symbols-outlined text-[16px] text-primary">lock</span>
+<span>Master Admin</span>
+</div>
+</div>
+<!-- Metadata -->
+<div class="mt-3 pt-2.5 border-t border-outline-variant/20 flex items-center justify-between text-on-surface-variant font-body-sm text-body-sm">
+<span>+91 98412 •••••</span>
+<span class="text-outline">Joined Jan 2024</span>
+</div>
+<!-- Permissions Pills -->
+<div class="mt-3 flex flex-wrap gap-1.5">
+<span class="px-2 py-1 bg-surface-container-low text-on-surface font-label-sm text-label-sm rounded-md font-medium border border-outline-variant/20">
+              Full System Access
+            </span>
+<span class="px-2 py-1 bg-surface-container-low text-on-surface font-label-sm text-label-sm rounded-md font-medium border border-outline-variant/20">
+              Bank Account Authority
+            </span>
+<span class="px-2 py-1 bg-surface-container-low text-on-surface font-label-sm text-label-sm rounded-md font-medium border border-outline-variant/20">
+              Unrestricted Refunds
+            </span>
+<span class="px-2 py-1 bg-surface-container-low text-on-surface font-label-sm text-label-sm rounded-md font-medium border border-outline-variant/20">
+              Tax &amp; Ledger Sync
+            </span>
+</div>
+</article>
+<!-- CARD 2: Store Manager (Vikram Malhotra) -->
+<article class="bg-surface-container-lowest rounded-xl p-4 border border-outline-variant/30 shadow-[0_2px_8px_rgba(23,32,51,0.04)]">
+<div class="flex items-start justify-between gap-3">
+<div class="flex items-center gap-3">
+<div class="w-12 h-12 rounded-xl bg-slate-700 flex items-center justify-center text-white font-headline-sm text-headline-sm font-bold">
+                VM
+              </div>
+<div>
+<h2 class="font-headline-sm text-headline-sm text-on-surface font-bold">Vikram Malhotra</h2>
+<div class="flex items-center gap-1.5 mt-0.5">
+<span class="inline-flex items-center px-2 py-0.5 rounded-md bg-blue-50 border border-blue-200 text-blue-800 font-label-sm text-label-sm font-bold">
+                    Store Manager
+                  </span>
+<span class="font-body-sm text-body-sm text-on-surface-variant">+91 98110 44291</span>
+</div>
+</div>
+</div>
+<!-- Active Status Toggle Switch (Emerald) -->
+<div class="flex items-center pt-1">
+<label class="relative inline-flex items-center cursor-pointer min-h-[48px] min-w-[48px] justify-center">
+<input checked="" class="sr-only peer" type="checkbox"/>
+<div class="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[14px] after:left-[5px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+</label>
+</div>
+</div>
+<!-- KDS Cook PIN & Action -->
+<div class="mt-3 pt-2.5 border-t border-outline-variant/20 flex items-center justify-between">
+<div class="inline-flex items-center gap-1.5 px-2.5 py-1 bg-amber-50/80 rounded-lg border border-amber-200 text-amber-900 font-ticket-mono text-label-md">
+<span class="material-symbols-outlined text-[16px] text-amber-700">pin</span>
+<span>PIN: 5821</span>
+<button aria-label="Toggle PIN Visibility" class="ml-1 text-amber-700 hover:text-amber-900" type="button">
+<span class="material-symbols-outlined text-[16px]">visibility</span>
+</button>
+</div>
+<button class="text-primary-container font-label-md text-label-md font-semibold hover:underline flex items-center gap-0.5" type="button">
+              Edit Permissions ▾
+            </button>
+</div>
+<!-- Permissions Pills -->
+<div class="mt-2.5 flex flex-wrap gap-1.5">
+<span class="px-2 py-1 bg-surface-container-low text-on-surface font-label-sm text-label-sm rounded-md font-medium border border-outline-variant/20">
+              Order Accept/Reject
+            </span>
+<span class="px-2 py-1 bg-surface-container-low text-on-surface font-label-sm text-label-sm rounded-md font-medium border border-outline-variant/20">
+              Prep SLA Adjustment
+            </span>
+<span class="px-2 py-1 bg-surface-container-low text-on-surface font-label-sm text-label-sm rounded-md font-medium border border-outline-variant/20">
+              Menu 86 Stockout
+            </span>
+<span class="px-2 py-1 bg-surface-container-low text-on-surface font-label-sm text-label-sm rounded-md font-medium border border-outline-variant/20">
+              Staff Shifts
+            </span>
+</div>
+</article>
+<!-- CARD 3: Kitchen Lead / Head Chef (Chef Sunil Thapa) -->
+<article class="bg-surface-container-lowest rounded-xl p-4 border border-outline-variant/30 shadow-[0_2px_8px_rgba(23,32,51,0.04)]">
+<div class="flex items-start justify-between gap-3">
+<div class="flex items-center gap-3">
+<div class="w-12 h-12 rounded-xl bg-secondary-container flex items-center justify-center text-white font-headline-sm text-headline-sm font-bold">
+                ST
+              </div>
+<div>
+<h2 class="font-headline-sm text-headline-sm text-on-surface font-bold">Chef Sunil Thapa</h2>
+<div class="flex items-center gap-1.5 mt-0.5">
+<span class="inline-flex items-center px-2 py-0.5 rounded-md bg-orange-50 border border-orange-200 text-secondary font-label-sm text-label-sm font-bold">
+                    Head Chef &amp; Line Lead
+                  </span>
+<span class="font-body-sm text-body-sm text-on-surface-variant">+91 97701 88320</span>
+</div>
+</div>
+</div>
+<!-- Active Status Toggle Switch -->
+<div class="flex items-center pt-1">
+<label class="relative inline-flex items-center cursor-pointer min-h-[48px] min-w-[48px] justify-center">
+<input checked="" class="sr-only peer" type="checkbox"/>
+<div class="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[14px] after:left-[5px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+</label>
+</div>
+</div>
+<!-- KDS Bump PIN & Reset -->
+<div class="mt-3 pt-2.5 border-t border-outline-variant/20 flex items-center justify-between">
+<div class="inline-flex items-center gap-1.5 px-2.5 py-1 bg-amber-50/80 rounded-lg border border-amber-200 text-amber-900 font-ticket-mono text-label-md">
+<span class="material-symbols-outlined text-[16px] text-amber-700">key</span>
+<span>KDS Bump PIN: 2940</span>
+</div>
+<button class="text-secondary font-label-md text-label-md font-semibold hover:underline" type="button">
+              Quick Reset
+            </button>
+</div>
+<!-- Permissions Pills -->
+<div class="mt-2.5 flex flex-wrap gap-1.5">
+<span class="px-2 py-1 bg-surface-container-low text-on-surface font-label-sm text-label-sm rounded-md font-medium border border-outline-variant/20">
+              Master KDS Kitchen Board
+            </span>
+<span class="px-2 py-1 bg-surface-container-low text-on-surface font-label-sm text-label-sm rounded-md font-medium border border-outline-variant/20">
+              Recipe &amp; Modifiers
+            </span>
+<span class="px-2 py-1 bg-surface-container-low text-on-surface font-label-sm text-label-sm rounded-md font-medium border border-outline-variant/20">
+              Station Routing
+            </span>
+<span class="px-2 py-1 bg-surface-container-low text-on-surface font-label-sm text-label-sm rounded-md font-medium border border-outline-variant/20">
+              Prep Rush Override
+            </span>
+</div>
+</article>
+<!-- CARD 4: Line Cook (Manoj Gurung) -->
+<article class="bg-surface-container-lowest rounded-xl p-4 border border-outline-variant/30 shadow-[0_2px_8px_rgba(23,32,51,0.04)]">
+<div class="flex items-start justify-between gap-3">
+<div class="flex items-center gap-3">
+<div class="w-12 h-12 rounded-xl bg-slate-500 flex items-center justify-center text-white font-headline-sm text-headline-sm font-bold">
+                MG
+              </div>
+<div>
+<h2 class="font-headline-sm text-headline-sm text-on-surface font-bold">Manoj Gurung</h2>
+<div class="flex items-center gap-1.5 mt-0.5">
+<span class="inline-flex items-center px-2 py-0.5 rounded-md bg-teal-50 border border-teal-200 text-teal-800 font-label-sm text-label-sm font-bold">
+                    Wok Line Cook
+                  </span>
+</div>
+</div>
+</div>
+<!-- Active Status Toggle Switch -->
+<div class="flex items-center pt-1">
+<label class="relative inline-flex items-center cursor-pointer min-h-[48px] min-w-[48px] justify-center">
+<input checked="" class="sr-only peer" type="checkbox"/>
+<div class="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[14px] after:left-[5px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+</label>
+</div>
+</div>
+<!-- Station PIN -->
+<div class="mt-3 pt-2.5 border-t border-outline-variant/20 flex items-center justify-between">
+<div class="inline-flex items-center gap-1.5 px-2.5 py-1 bg-surface-container rounded-lg text-on-surface font-ticket-mono text-label-md">
+<span class="material-symbols-outlined text-[16px] text-outline">dialpad</span>
+<span>Station PIN: 1104</span>
+</div>
+<span class="font-body-sm text-body-sm text-outline">Station #1 (Hot Wok)</span>
+</div>
+<!-- Permissions Pills -->
+<div class="mt-2.5 flex flex-wrap gap-1.5">
+<span class="px-2 py-1 bg-surface-container-low text-on-surface font-label-sm text-label-sm rounded-md font-medium border border-outline-variant/20">
+              Station 1 (Wok &amp; Curry) Bump Only
+            </span>
+<span class="px-2 py-1 bg-rose-50 text-error font-label-sm text-label-sm rounded-md font-medium border border-rose-100">
+              No order cancellations
+            </span>
+<span class="px-2 py-1 bg-surface-container-low text-on-surface-variant font-label-sm text-label-sm rounded-md font-medium border border-outline-variant/20">
+              Restricted from financials
+            </span>
+</div>
+</article>
+<!-- CARD 5: Cashier (Pooja Das) -->
+<article class="bg-surface-container-lowest rounded-xl p-4 border border-outline-variant/30 shadow-[0_2px_8px_rgba(23,32,51,0.04)]">
+<div class="flex items-start justify-between gap-3">
+<div class="flex items-center gap-3">
+<div class="w-12 h-12 rounded-xl bg-indigo-600 flex items-center justify-center text-white font-headline-sm text-headline-sm font-bold">
+                PD
+              </div>
+<div>
+<h2 class="font-headline-sm text-headline-sm text-on-surface font-bold">Pooja Das</h2>
+<div class="flex items-center gap-1.5 mt-0.5">
+<span class="inline-flex items-center px-2 py-0.5 rounded-md bg-indigo-50 border border-indigo-200 text-indigo-800 font-label-sm text-label-sm font-bold">
+                    Counter Cashier
+                  </span>
+</div>
+</div>
+</div>
+<!-- Active Status Toggle Switch -->
+<div class="flex items-center pt-1">
+<label class="relative inline-flex items-center cursor-pointer min-h-[48px] min-w-[48px] justify-center">
+<input checked="" class="sr-only peer" type="checkbox"/>
+<div class="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[14px] after:left-[5px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+</label>
+</div>
+</div>
+<!-- Permissions Pills -->
+<div class="mt-3 pt-2.5 border-t border-outline-variant/20 flex flex-wrap gap-1.5">
+<span class="px-2 py-1 bg-surface-container-low text-on-surface font-label-sm text-label-sm rounded-md font-medium border border-outline-variant/20">
+              Dine-in Table Billing
+            </span>
+<span class="px-2 py-1 bg-surface-container-low text-on-surface font-label-sm text-label-sm rounded-md font-medium border border-outline-variant/20">
+              Takeaway Handovers
+            </span>
+<span class="px-2 py-1 bg-surface-container-low text-on-surface font-label-sm text-label-sm rounded-md font-medium border border-outline-variant/20">
+              Daily Cash Drawer Shift Close
+            </span>
+</div>
+</article>
+</div>
+<!-- Enterprise RBAC Safeguards Box -->
+<section class="bg-surface-container-low rounded-xl p-4 border border-outline-variant/40 flex flex-col gap-2.5">
+<div class="flex items-center gap-2">
+<div class="w-8 h-8 rounded-lg bg-primary-container text-white flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-[18px]">verified_user</span>
+</div>
+<h3 class="font-label-lg text-label-lg font-bold text-on-surface">
+            Enterprise Separation of Duties (RBI &amp; PCI-DSS)
+          </h3>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant leading-relaxed">
+          Sensitive financial operations including bank account updates, penny-drop re-verification, and payout triggers remain exclusively restricted to the Primary Owner. Frontline staff KDS PINs expire automatically every 90 days.
+        </p>
+<a class="inline-flex items-center gap-1 font-label-md text-label-md text-primary-container font-semibold hover:underline mt-0.5" href="#configure-rotation">
+<span>Configure 90-Day PIN Rotation Policy</span>
+<span class="material-symbols-outlined text-[16px]">arrow_forward</span>
+</a>
+</section>
+<!-- Quick Action Card: Invite New Employee -->
+<section class="bg-surface-container-lowest rounded-xl p-4 border border-outline-variant/40 shadow-xs flex flex-col gap-3.5">
+<div class="flex items-center justify-between border-b border-outline-variant/20 pb-2.5">
+<h3 class="font-headline-sm text-headline-sm font-bold text-on-surface flex items-center gap-2">
+<span class="material-symbols-outlined text-primary-container text-[20px]">person_add</span>
+            + Quick Invite Team Member
+          </h3>
+<span class="font-label-sm text-label-sm text-outline uppercase tracking-wider font-bold">SMS Dispatch</span>
+</div>
+<form class="flex flex-col gap-3" onsubmit="event.preventDefault();">
+<!-- Input Field 1: Staff Full Name -->
+<div>
+<label class="block font-label-sm text-label-sm font-semibold text-on-surface-variant mb-1">
+              Staff Full Name
+            </label>
+<input class="w-full h-11 px-3 bg-surface border border-outline-variant/60 rounded-xl font-body-md text-body-md text-on-surface placeholder:text-outline focus:outline-none focus:border-primary-container focus:ring-1 focus:ring-primary-container" placeholder="e.g. Ramesh Kulkarni" type="text"/>
+</div>
+<!-- Input Field 2: Mobile Number -->
+<div>
+<label class="block font-label-sm text-label-sm font-semibold text-on-surface-variant mb-1">
+              Mobile Number (SMS verification)
+            </label>
+<div class="flex gap-2">
+<span class="inline-flex items-center px-3 bg-surface-container border border-outline-variant/60 rounded-xl font-body-md text-body-md text-on-surface-variant font-medium">
+                +91
+              </span>
+<input class="w-full h-11 px-3 bg-surface border border-outline-variant/60 rounded-xl font-body-md text-body-md text-on-surface placeholder:text-outline focus:outline-none focus:border-primary-container focus:ring-1 focus:ring-primary-container" placeholder="98000 00000" type="tel"/>
+</div>
+</div>
+<!-- Dropdown Selector: Assigned Role -->
+<div>
+<label class="block font-label-sm text-label-sm font-semibold text-on-surface-variant mb-1">
+              Assigned Role &amp; Access Tier
+            </label>
+<div class="relative">
+<select class="w-full h-11 px-3 bg-surface border border-outline-variant/60 rounded-xl font-body-md text-body-md text-on-surface appearance-none focus:outline-none focus:border-primary-container focus:ring-1 focus:ring-primary-container">
+<option value="manager">Store Manager (POS + KDS Overseer)</option>
+<option value="chef">Head Chef (Kitchen Screen Lead)</option>
+<option value="cook">Line Cook (Station Bump Only)</option>
+<option value="cashier">Cashier (Billing &amp; Settlement)</option>
+</select>
+<div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-outline">
+<span class="material-symbols-outlined text-[20px]">expand_more</span>
+</div>
+</div>
+</div>
+<!-- Input Field: 4-digit KDS Lock PIN -->
+<div>
+<label class="block font-label-sm text-label-sm font-semibold text-on-surface-variant mb-1">
+              Assign Initial 4-digit KDS Lock PIN
+            </label>
+<input class="w-full h-11 px-3 bg-surface border border-outline-variant/60 rounded-xl font-ticket-mono text-label-lg tracking-widest text-on-surface placeholder:text-outline focus:outline-none focus:border-primary-container focus:ring-1 focus:ring-primary-container text-center" maxlength="4" placeholder="••••" type="password"/>
+</div>
+<!-- Submit CTA Button -->
+<button class="mt-1 w-full min-h-[48px] bg-primary-container hover:bg-primary text-on-primary rounded-xl font-label-lg text-label-lg font-bold flex items-center justify-center gap-2 active:scale-98 transition-all shadow-sm" type="submit">
+<span class="material-symbols-outlined text-[20px]">send</span>
+<span>Send SMS Onboarding Invite</span>
+</button>
+</form>
+</section>
+</main>
+<!-- Sticky Footer Bar (Mobile Stack Actions with 48dp touch targets) -->
+<div class="fixed bottom-0 left-0 right-0 z-40 flex justify-center bg-transparent pointer-events-none">
+<div class="w-full max-w-[420px] bg-surface-container-lowest/95 backdrop-blur-md px-margin-mobile py-3 border-t border-outline-variant/30 flex items-center gap-3 shadow-[0_-4px_16px_rgba(23,32,51,0.06)] pointer-events-auto">
+<!-- Secondary Button: Audit Log -->
+<button class="flex-1 min-h-[48px] px-3 rounded-xl border border-outline-variant/80 bg-surface-container-lowest hover:bg-surface-container text-on-surface font-label-md text-label-md font-semibold flex items-center justify-center gap-1.5 active:scale-98 transition-all" type="button">
+<span class="material-symbols-outlined text-[18px] text-outline">history</span>
+<span>Audit Log (14)</span>
+</button>
+<!-- Primary Button: Save Permissions -->
+<button class="flex-[1.2] min-h-[48px] px-4 rounded-xl bg-primary-container hover:bg-primary text-on-primary font-label-md text-label-md font-bold flex items-center justify-center gap-1.5 active:scale-98 transition-all shadow-sm" type="button">
+<span class="material-symbols-outlined text-[18px]">check_circle</span>
+<span>Save Permissions</span>
+</button>
+</div>
+</div>
+</div>
+</body></html>

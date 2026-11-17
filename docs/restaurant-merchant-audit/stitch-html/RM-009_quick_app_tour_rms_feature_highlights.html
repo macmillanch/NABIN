@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>RM-009: Quick App Tour &amp; RMS Feature Highlights</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              DEFAULT: '#1A3BA2',
+              dark: '#132B7A',
+              light: '#EEF2FF',
+              subtle: '#E0E7FE'
+            },
+            urgent: {
+              DEFAULT: '#E85D24',
+              surface: '#FFF5F0',
+              border: '#FFD9C7'
+            },
+            surface: {
+              canvas: '#F7F9FD',
+              card: '#FFFFFF',
+              muted: '#F1F4F9'
+            },
+            slateText: {
+              primary: '#0F172A',
+              secondary: '#475569',
+              muted: '#64748B'
+            }
+          },
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'ui-monospace', 'monospace']
+          },
+          boxShadow: {
+            subtle: '0 1px 3px rgba(15, 23, 42, 0.05), 0 1px 2px rgba(15, 23, 42, 0.03)',
+            elevated: '0 8px 24px -4px rgba(26, 59, 162, 0.08), 0 2px 6px -1px rgba(15, 23, 42, 0.04)',
+            glow: '0 0 0 3px rgba(232, 93, 36, 0.15)'
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      -webkit-tap-highlight-color: transparent;
+    }
+    @keyframes pulseRing {
+      0% { transform: scale(0.95); opacity: 0.8; }
+      50% { transform: scale(1.15); opacity: 0.3; }
+      100% { transform: scale(0.95); opacity: 0.8; }
+    }
+    .pulse-ring {
+      animation: pulseRing 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    }
+  </style>
+</head>
+<body class="bg-[#F7F9FD] text-[#0F172A] antialiased min-h-screen flex justify-center selection:bg-brand-light">
+  <!-- Mobile Container (390px base width) -->
+  <div class="w-full max-w-[390px] min-h-screen bg-[#F7F9FD] flex flex-col relative shadow-2xl border-x border-slate-200/80">
+
+    <!-- Top Safe Area & App Bar -->
+    <header class="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-100 px-4 pt-3 pb-3 flex items-center justify-between">
+      <div class="flex items-center space-x-2.5">
+        <div class="w-8 h-8 rounded-lg bg-brand flex items-center justify-center text-white font-black text-lg shadow-sm">
+          <img src="https://lh3.googleusercontent.com/aida-public/AB6AXuA91SZA35jJoCe6Jf7hntBsGvHDnGQ586sqUOmWLOgmZ2eXxvzAEoGH5q-WdFnS3gehtsl1NIcLnt-v4dbyTe5GQg_HG-VUmPp8YgbDiHYLq-ZAT47UBrPYjAdCAMafDfNOjimrHzooThApErKw_5VR2j5o0XHNKoo-ZyTsL8WgzvLpqT1tOcnBH1-x8NzP-vZkkK38OMwL1Qkn-34qFKFRibI84WM3KxHOjwZ4YElO_TmucyUTiAvZz2zcTfS4we4q_MqINvY2Dwg" alt="NABIN Arch" class="w-5 h-5 object-contain invert brightness-0" onerror="this.onerror=null; this.parentElement.innerHTML='<span class=\'text-white font-extrabold text-sm\'>N</span>'">
+        </div>
+        <div class="flex flex-col">
+          <div class="flex items-center space-x-1.5">
+            <span class="text-[14px] font-extrabold tracking-tight text-[#0F172A]">NABIN</span>
+            <span class="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-brand-light text-brand">RMS</span>
+          </div>
+          <span class="text-[10px] font-semibold text-slate-500">Merchant Walkthrough</span>
+        </div>
+      </div>
+
+      <button class="h-9 px-3 rounded-full text-[12px] font-bold text-slate-600 hover:text-brand hover:bg-brand-light/60 transition-colors flex items-center space-x-1 active:scale-95" onclick="alert('Skip tour to Main Dashboard')">
+        <span>Skip Tour</span>
+        <svg class="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"/>
+        </svg>
+      </button>
+    </header>
+
+    <!-- Main Scrollable Body -->
+    <main class="flex-1 px-4 pt-4 pb-28 space-y-4">
+
+      <!-- Step Progress Meter Bar -->
+      <section class="bg-white rounded-xl p-3 border border-slate-100 shadow-subtle space-y-2">
+        <div class="flex items-center justify-between text-xs">
+          <div class="flex items-center space-x-1.5">
+            <span class="inline-flex items-center justify-center w-4 h-4 rounded-full bg-brand text-[10px] font-bold text-white">1</span>
+            <span class="font-bold text-slate-800">Tour Progress</span>
+          </div>
+          <span class="font-semibold text-brand text-[11px] bg-brand-light px-2 py-0.5 rounded-full">Step 1 of 4</span>
+        </div>
+
+        <!-- 4 Step Pill Indicators -->
+        <div class="grid grid-cols-4 gap-1.5 pt-0.5">
+          <div class="h-2 rounded-full bg-brand transition-all"></div>
+          <div class="h-2 rounded-full bg-slate-200"></div>
+          <div class="h-2 rounded-full bg-slate-200"></div>
+          <div class="h-2 rounded-full bg-slate-200"></div>
+        </div>
+
+        <div class="flex justify-between text-[10px] text-slate-500 font-medium px-0.5">
+          <span class="text-brand font-bold">1. Order Inflow</span>
+          <span>2. Kitchen Routing</span>
+          <span>3. Hardware</span>
+          <span>4. Payouts</span>
+        </div>
+      </section>
+
+      <!-- Step Headline & Value Prop -->
+      <section class="space-y-1">
+        <div class="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full bg-urgent-surface border border-urgent-border">
+          <span class="w-2 h-2 rounded-full bg-urgent animate-ping"></span>
+          <span class="text-[11px] font-bold text-urgent tracking-wide uppercase">Core RMS Engine</span>
+        </div>
+        <h1 class="text-[20px] font-black leading-tight text-slate-900 tracking-tight">
+          High-Velocity Order Inflow &amp; Live KDS
+        </h1>
+        <p class="text-[13px] leading-relaxed text-slate-600">
+          Capture high-volume dining, delivery, and takeaway requests without dropped tickets or kitchen bottlenecks.
+        </p>
+      </section>
+
+      <!-- Mockup Card: Live Order Flow Simulation -->
+      <section class="bg-white rounded-2xl p-3.5 border border-slate-200/90 shadow-elevated relative overflow-hidden">
+        <!-- Live Alert Ribbon -->
+        <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+          <div class="flex items-center space-x-2">
+            <div class="relative flex items-center justify-center">
+              <span class="absolute w-3 h-3 rounded-full bg-urgent/30 pulse-ring"></span>
+              <span class="w-2.5 h-2.5 rounded-full bg-urgent"></span>
+            </div>
+            <span class="font-mono text-[13px] font-bold text-slate-900 tracking-tight">ORDER #NB-4825</span>
+            <span class="text-[10px] font-extrabold uppercase bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded">Rider Assigned</span>
+          </div>
+          <div class="flex items-center space-x-1 text-urgent text-[11px] font-bold font-mono bg-urgent-surface px-2 py-0.5 rounded-full border border-urgent-border">
+            <svg class="w-3 h-3 text-urgent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
+            <span>00:48 left</span>
+          </div>
+        </div>
+
+        <!-- Simulated Order Items -->
+        <div class="py-2.5 space-y-2">
+          <div class="flex items-start justify-between">
+            <div class="space-y-0.5">
+              <div class="flex items-center space-x-1.5">
+                <span class="w-2.5 h-2.5 rounded-sm border border-red-600 p-[1px] flex items-center justify-center" title="Non-Veg">
+                  <span class="w-1.5 h-1.5 rounded-full bg-red-600"></span>
+                </span>
+                <span class="text-[13px] font-bold text-slate-900">2x Steamed Chicken Momo</span>
+              </div>
+              <p class="text-[11px] text-slate-500 pl-4">Custom: Fiery Timur Chutney (Extra Spicy)</p>
+            </div>
+            <span class="font-mono text-[12px] font-semibold text-slate-800">₹320</span>
+          </div>
+
+          <div class="flex items-start justify-between">
+            <div class="space-y-0.5">
+              <div class="flex items-center space-x-1.5">
+                <span class="w-2.5 h-2.5 rounded-sm border border-emerald-600 p-[1px] flex items-center justify-center" title="Veg">
+                  <span class="w-1.5 h-1.5 rounded-full bg-emerald-600"></span>
+                </span>
+                <span class="text-[13px] font-bold text-slate-900">1x Butter Naan Basket</span>
+              </div>
+              <p class="text-[11px] text-slate-500 pl-4">Station: Tandoor Line · Garlic Glaze</p>
+            </div>
+            <span class="font-mono text-[12px] font-semibold text-slate-800">₹140</span>
+          </div>
+        </div>
+
+        <!-- Simulated Quick Action Triggers -->
+        <div class="pt-2.5 border-t border-slate-100 space-y-2">
+          <div class="flex items-center justify-between text-[11px] text-slate-500">
+            <span class="font-semibold">Prep Buffer Time:</span>
+            <div class="flex space-x-1.5">
+              <button class="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[10px] active:scale-95 transition-transform">+5m</button>
+              <button class="px-2.5 py-1 rounded bg-brand-light text-brand border border-brand/20 font-bold text-[10px] active:scale-95 transition-transform shadow-sm">+10m</button>
+              <button class="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[10px] active:scale-95 transition-transform">+15m</button>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 gap-2 pt-1">
+            <button class="h-10 rounded-lg border border-slate-200 text-slate-700 font-bold text-[12px] hover:bg-slate-50 flex items-center justify-center space-x-1">
+              <span>Reject (Reason)</span>
+            </button>
+            <button class="h-10 rounded-lg bg-emerald-600 text-white font-bold text-[12px] hover:bg-emerald-700 flex items-center justify-center space-x-1.5 shadow-sm active:scale-[0.98]">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/>
+              </svg>
+              <span>Accept &amp; Fire KOT</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Audio Chime & Hardware Telemetry Pill -->
+        <div class="mt-2.5 py-1.5 px-2 bg-slate-50 rounded-lg flex items-center justify-between text-[10px] text-slate-500 font-medium">
+          <div class="flex items-center space-x-1.5">
+            <svg class="w-3.5 h-3.5 text-brand" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"/>
+            </svg>
+            <span>Kitchen Chime: <strong class="text-slate-800">Double Gong (Active)</strong></span>
+          </div>
+          <span class="inline-flex items-center text-emerald-700 font-bold">
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1"></span>
+            Printer Ready
+          </span>
+        </div>
+      </section>
+
+      <!-- Key Feature Highlights List -->
+      <section class="space-y-2.5">
+        <h2 class="text-[12px] font-extrabold uppercase tracking-wider text-slate-500 px-1">
+          Why Kitchens Love NABIN RMS
+        </h2>
+
+        <!-- Feature 1 -->
+        <div class="bg-white rounded-xl p-3 border border-slate-100 shadow-subtle flex items-start space-x-3">
+          <div class="w-9 h-9 rounded-lg bg-blue-50 text-brand flex items-center justify-center shrink-0 mt-0.5">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+            </svg>
+          </div>
+          <div class="space-y-0.5">
+            <div class="flex items-center space-x-1.5">
+              <h3 class="text-[13px] font-bold text-slate-900">Live Order Acceptance</h3>
+              <span class="text-[9px] font-bold px-1.5 py-0.2 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded">60s SLA</span>
+            </div>
+            <p class="text-[12px] text-slate-600 leading-snug">
+              Instant visual &amp; acoustic alerts. One-tap SLA prep extensions (+10m, +15m) protect merchant ratings during peak meal hours.
+            </p>
+          </div>
+        </div>
+
+        <!-- Feature 2 -->
+        <div class="bg-white rounded-xl p-3 border border-slate-100 shadow-subtle flex items-start space-x-3">
+          <div class="w-9 h-9 rounded-lg bg-orange-50 text-urgent flex items-center justify-center shrink-0 mt-0.5">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2"/>
+            </svg>
+          </div>
+          <div class="space-y-0.5">
+            <h3 class="text-[13px] font-bold text-slate-900">Smart Kitchen Routing</h3>
+            <p class="text-[12px] text-slate-600 leading-snug">
+              Auto-split tickets across Wok, Tandoor, and Expo stations. Line cooks check off items independently with 0 cross-line confusion.
+            </p>
+          </div>
+        </div>
+
+        <!-- Feature 3 -->
+        <div class="bg-white rounded-xl p-3 border border-slate-100 shadow-subtle flex items-start space-x-3">
+          <div class="w-9 h-9 rounded-lg bg-indigo-50 text-indigo-700 flex items-center justify-center shrink-0 mt-0.5">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/>
+            </svg>
+          </div>
+          <div class="space-y-0.5">
+            <h3 class="text-[13px] font-bold text-slate-900">One-Click Thermal KOT</h3>
+            <p class="text-[12px] text-slate-600 leading-snug">
+              Instant ESC/POS printing over Bluetooth BLE or LAN Wi-Fi with auto-cutter support and bold modifier allergy callouts.
+            </p>
+          </div>
+        </div>
+
+        <!-- Feature 4 -->
+        <div class="bg-white rounded-xl p-3 border border-slate-100 shadow-subtle flex items-start space-x-3">
+          <div class="w-9 h-9 rounded-lg bg-emerald-50 text-emerald-700 flex items-center justify-center shrink-0 mt-0.5">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+            </svg>
+          </div>
+          <div class="space-y-0.5">
+            <h3 class="text-[13px] font-bold text-slate-900">Real-Time Settlements</h3>
+            <p class="text-[12px] text-slate-600 leading-snug">
+              Transparent commission breakdown with T+1 scheduled bank transfers or instant on-demand penny-drop payout reconciliation.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Trust Badge / Social Proof -->
+      <section class="bg-gradient-to-r from-brand-light to-blue-50 border border-brand/15 rounded-xl p-3 flex items-center space-x-3">
+        <div class="w-8 h-8 rounded-full bg-brand text-white flex items-center justify-center shrink-0 shadow-sm">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/>
+          </svg>
+        </div>
+        <p class="text-[11px] leading-snug text-slate-700 font-medium">
+          Over <strong class="text-brand font-bold">12,000 partner restaurants</strong> fulfill <strong class="text-slate-900 font-bold">98.4% orders on time</strong> using the NABIN RMS suite.
+        </p>
+      </section>
+
+    </main>
+
+    <!-- Sticky Bottom Navigation Footer (Ergonomic 48dp+ Touch Targets) -->
+    <footer class="fixed bottom-0 max-w-[390px] w-full bg-white/95 backdrop-blur-md border-t border-slate-200 px-4 py-3 z-30 shadow-[0_-4px_12px_rgba(0,0,0,0.05)]">
+      <div class="grid grid-cols-5 gap-2 items-center">
+        <!-- Disabled Previous CTA on Step 1 -->
+        <button disabled class="col-span-2 h-12 rounded-xl border border-slate-200 bg-slate-100 text-slate-400 font-bold text-[13px] cursor-not-allowed flex items-center justify-center space-x-1.5 opacity-60">
+          <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15 19l-7-7 7-7"/>
+          </svg>
+          <span>Previous</span>
+        </button>
+
+        <!-- Primary Next CTA -->
+        <button class="col-span-3 h-12 rounded-xl bg-brand hover:bg-brand-dark text-white font-bold text-[13px] shadow-md shadow-brand/20 active:scale-[0.98] transition-all flex items-center justify-center space-x-2" onclick="alert('Proceed to Step 2: Kitchen Station Routing')">
+          <span>Next: Kitchen Routing</span>
+          <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"/>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Quick Step Jump Indicator Dots -->
+      <div class="flex items-center justify-center space-x-1.5 pt-2">
+        <span class="w-2 h-2 rounded-full bg-brand"></span>
+        <span class="w-1.5 h-1.5 rounded-full bg-slate-300"></span>
+        <span class="w-1.5 h-1.5 rounded-full bg-slate-300"></span>
+        <span class="w-1.5 h-1.5 rounded-full bg-slate-300"></span>
+      </div>
+    </footer>
+
+  </div>
+</body>
+</html>

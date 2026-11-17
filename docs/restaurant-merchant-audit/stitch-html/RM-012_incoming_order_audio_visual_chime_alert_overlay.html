@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+
+<html class="h-full" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport"/>
+<title>RM-012: Incoming Order Chime Alert Overlay</title>
+<!-- Material Symbols Outlined -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Inter Google Font -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS CDN -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<!-- Tailwind Configuration verbatim -->
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "on-error-container": "#93000a",
+            "primary-fixed-dim": "#b7c4ff",
+            "on-error": "#ffffff",
+            "surface": "#f7f9fd",
+            "primary": "#00247f",
+            "outline-variant": "#c5c5d5",
+            "on-primary-container": "#9cafff",
+            "on-primary": "#ffffff",
+            "secondary-fixed": "#ffdbcf",
+            "on-primary-fixed": "#001452",
+            "on-tertiary-fixed-variant": "#005320",
+            "inverse-primary": "#b7c4ff",
+            "secondary": "#a93700",
+            "surface-container-highest": "#e0e3e6",
+            "outline": "#757684",
+            "background": "#f7f9fd",
+            "on-secondary": "#ffffff",
+            "surface-dim": "#d8dade",
+            "primary-container": "#1a3ba2",
+            "error-container": "#ffdad6",
+            "surface-container-lowest": "#ffffff",
+            "on-background": "#181c1f",
+            "tertiary-fixed-dim": "#62df7d",
+            "primary-fixed": "#dde1ff",
+            "surface-tint": "#3a56bd",
+            "on-tertiary": "#ffffff",
+            "on-tertiary-fixed": "#002109",
+            "tertiary-container": "#005120",
+            "tertiary-fixed": "#7ffc97",
+            "on-tertiary-container": "#4cca6c",
+            "tertiary": "#003813",
+            "on-surface": "#181c1f",
+            "surface-container": "#eceef2",
+            "secondary-container": "#fc6b32",
+            "inverse-surface": "#2d3134",
+            "surface-container-low": "#f2f4f8",
+            "on-primary-fixed-variant": "#1c3da4",
+            "surface-variant": "#e0e3e6",
+            "on-secondary-fixed-variant": "#812800",
+            "secondary-fixed-dim": "#ffb59b",
+            "on-surface-variant": "#444653",
+            "inverse-on-surface": "#eff1f5",
+            "surface-container-high": "#e6e8ec",
+            "on-secondary-fixed": "#380d00",
+            "error": "#ba1a1a",
+            "on-secondary-container": "#5c1a00",
+            "surface-bright": "#f7f9fd"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.25rem",
+            "lg": "0.5rem",
+            "xl": "0.75rem",
+            "full": "9999px"
+          },
+          "spacing": {
+            "margin-mobile": "1rem",
+            "space-sm": "0.5rem",
+            "margin": "1.5rem",
+            "gutter-kds": "1.25rem",
+            "gutter": "1rem",
+            "space-lg": "1.5rem",
+            "space-md": "1rem",
+            "space-xs": "0.25rem",
+            "space-xl": "2rem"
+          },
+          "fontFamily": {
+            "headline-lg": ["Inter"],
+            "headline-md": ["Inter"],
+            "body-lg": ["Inter"],
+            "label-sm": ["Inter"],
+            "headline-sm": ["Inter"],
+            "body-sm": ["Inter"],
+            "body-md": ["Inter"],
+            "label-lg": ["Inter"],
+            "headline-lg-mobile": ["Inter"],
+            "ticket-mono": ["Inter"],
+            "headline-xl": ["Inter"],
+            "headline-xl-mobile": ["Inter"],
+            "label-md": ["Inter"]
+          },
+          "fontSize": {
+            "headline-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.015em", "fontWeight": "700" }],
+            "headline-md": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+            "body-lg": ["18px", { "lineHeight": "26px", "fontWeight": "500" }],
+            "label-sm": ["11px", { "lineHeight": "14px", "letterSpacing": "0.04em", "fontWeight": "700" }],
+            "headline-sm": ["20px", { "lineHeight": "28px", "fontWeight": "600" }],
+            "body-sm": ["13px", { "lineHeight": "18px", "fontWeight": "400" }],
+            "body-md": ["15px", { "lineHeight": "22px", "fontWeight": "400" }],
+            "label-lg": ["15px", { "lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600" }],
+            "headline-lg-mobile": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "700" }],
+            "ticket-mono": ["16px", { "lineHeight": "20px", "letterSpacing": "0.05em", "fontWeight": "700" }],
+            "headline-xl": ["40px", { "lineHeight": "48px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+            "headline-xl-mobile": ["30px", { "lineHeight": "38px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+            "label-md": ["13px", { "lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "600" }]
+          }
+        }
+      }
+    }
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-family: 'Material Symbols Outlined';
+      font-weight: normal;
+      font-style: normal;
+      font-size: 24px;
+      line-height: 1;
+      display: inline-block;
+      white-space: nowrap;
+      word-wrap: normal;
+      direction: ltr;
+      -webkit-font-smoothing: antialiased;
+    }
+    
+    @keyframes pulse-intense {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.88; transform: scale(1.01); }
+    }
+    .animate-chime-pulse {
+      animation: pulse-intense 1.2s infinite ease-in-out;
+    }
+
+    @keyframes soundwave-bar {
+      0%, 100% { height: 6px; }
+      50% { height: 18px; }
+    }
+    .wave-bar-1 { animation: soundwave-bar 0.7s infinite ease-in-out; }
+    .wave-bar-2 { animation: soundwave-bar 0.5s infinite ease-in-out 0.15s; }
+    .wave-bar-3 { animation: soundwave-bar 0.9s infinite ease-in-out 0.3s; }
+    .wave-bar-4 { animation: soundwave-bar 0.6s infinite ease-in-out 0.1s; }
+  </style>
+</head>
+<body class="bg-[#0b1120] text-on-surface antialiased min-h-screen flex justify-center items-center overflow-x-hidden p-0 m-0">
+<!-- Mobile Viewport Frame (390px simulated POS/RMS handheld terminal) -->
+<div class="relative w-full max-w-[390px] h-[844px] bg-surface-container overflow-hidden flex flex-col shadow-2xl">
+<!-- Blurred Live Orders KDS in Background (Atmospheric Context under scrim) -->
+<div class="absolute inset-0 select-none pointer-events-none filter blur-[6px] opacity-40 p-4 space-y-3">
+<!-- Background Header Mock -->
+<div class="flex justify-between items-center py-2 px-3 bg-surface-container-lowest rounded-lg border border-outline-variant">
+<span class="font-headline-sm text-headline-sm text-primary font-bold">Kitchen Display #01</span>
+<span class="font-label-md text-label-md text-on-surface-variant">Live Rush: 8 active</span>
+</div>
+<!-- Background Mock Tickets -->
+<div class="bg-surface-container-lowest p-3 rounded-xl border border-outline-variant">
+<div class="flex justify-between border-b pb-2 mb-2">
+<span class="font-ticket-mono text-ticket-mono font-bold">T-04 · Dine In</span>
+<span class="font-label-sm text-label-sm bg-error-container text-on-error-container px-2 py-0.5 rounded-full">18:40</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant">2x Butter Chicken Handi</p>
+<p class="font-body-sm text-body-sm text-on-surface-variant">4x Tandoori Roti</p>
+</div>
+<div class="bg-surface-container-lowest p-3 rounded-xl border border-outline-variant">
+<div class="flex justify-between border-b pb-2 mb-2">
+<span class="font-ticket-mono text-ticket-mono font-bold">#NB-4911 · Swiggy</span>
+<span class="font-label-sm text-label-sm bg-tertiary-fixed text-on-tertiary-fixed px-2 py-0.5 rounded-full">04:12</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant">1x Mutton Galouti Kebab (6 pcs)</p>
+<p class="font-body-sm text-body-sm text-on-surface-variant">1x Roomali Roti</p>
+</div>
+<div class="bg-surface-container-lowest p-3 rounded-xl border border-outline-variant">
+<div class="flex justify-between border-b pb-2 mb-2">
+<span class="font-ticket-mono text-ticket-mono font-bold">T-12 · Dine In</span>
+<span class="font-label-sm text-label-sm bg-surface-container-high px-2 py-0.5 rounded-full">08:00</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant">1x Paneer Tikka Masala</p>
+</div>
+</div>
+<!-- High-Urgency Modal Scrim Overlay (rgba(15, 23, 42, 0.88)) -->
+<div class="absolute inset-0 bg-[#0F172A]/[0.88] z-30 backdrop-blur-[4px] flex flex-col justify-end">
+<!-- Modal Card Container (Level 3 Industrial Tactile Sheet) -->
+<div class="w-full bg-surface-container-lowest rounded-t-[20px] shadow-2xl flex flex-col max-h-[810px] overflow-hidden border-t-2 border-secondary-container">
+<!-- 1. HIGH-URGENCY AUDIO/VISUAL HEADER BAR -->
+<div class="bg-gradient-to-r from-secondary-container via-secondary to-error text-on-secondary px-4 py-2.5 flex items-center justify-between animate-chime-pulse">
+<div class="flex items-center space-x-2.5">
+<!-- Brand Mark Icon Embedded -->
+<img alt="NABIN" class="w-6 h-7 object-contain rounded bg-surface-container-lowest p-0.5 shadow-sm" src="https://lh3.googleusercontent.com/aida-public/AB6AXuD30tULlzbRHwZxUantRoCK1vTLU25V58PtMkIOi_zBhY4v3EIzfwIBtowxTJoEDTRRxhSm-ALcCnUAkqFDNc_IycVlwjnqIpmvBOf6ybjmcsXOx4pi6y0uaCIPqC2Mip75pHZeMYdqI1x8kw97rrQmdnFg1AcqO5c3QZ0snaBUaWGzg6vsN0KYzoK6o_cJQWJ1IRo3neilbklBcW6fSanq4gEf0CwEPRuq_Pi1UhldJPCVvhFwrQL6p2e3mgpUScQRBV9E2Qnze6Q"/>
+<div class="flex items-center space-x-1.5">
+<span class="material-symbols-outlined text-white text-[22px]" data-icon="notifications_active" style="font-variation-settings: 'FILL' 1;">notifications_active</span>
+<span class="font-headline-sm-mobile text-headline-sm-mobile font-bold tracking-tight text-white leading-none">NEW ORDER ARRIVED</span>
+</div>
+</div>
+<!-- Mute / Chime Toggle Action -->
+<button class="flex items-center space-x-1 bg-white/20 hover:bg-white/30 text-white rounded-lg px-2.5 py-1.5 min-h-[36px] transition-transform active:scale-95" id="muteBtn" onclick="toggleMute()">
+<!-- Animated Soundwave Equalizer Bars -->
+<div class="flex items-end space-x-[2px] h-[16px] px-0.5" id="soundbars">
+<div class="w-[3px] bg-white rounded-full wave-bar-1"></div>
+<div class="w-[3px] bg-white rounded-full wave-bar-2"></div>
+<div class="w-[3px] bg-white rounded-full wave-bar-3"></div>
+<div class="w-[3px] bg-white rounded-full wave-bar-4"></div>
+</div>
+<span class="material-symbols-outlined text-[18px]" data-icon="volume_up" id="muteIcon">volume_up</span>
+</button>
+</div>
+<!-- Audio Indicator Acoustic Telemetry Bar -->
+<div class="bg-surface-container-high px-4 py-1.5 flex items-center justify-between border-b border-outline-variant">
+<div class="flex items-center space-x-2">
+<span class="w-2 h-2 rounded-full bg-secondary-container animate-ping"></span>
+<span class="font-label-sm text-label-sm text-on-surface-variant font-semibold">Double Gong Chime playing at 85dB</span>
+</div>
+<span class="font-label-sm text-label-sm text-secondary font-bold">KITCHEN PRIORITY #1</span>
+</div>
+<!-- Scrollable Modal Body Canvas -->
+<div class="overflow-y-auto px-4 py-3 space-y-3 pb-24">
+<!-- 2. URGENT SLA COUNTDOWN CLOCK SECTION -->
+<div class="bg-surface-container-low rounded-xl p-3 border border-outline-variant flex items-center justify-between">
+<div class="flex items-center space-x-3">
+<!-- Radial Progress Ring Simulation -->
+<div class="relative w-14 h-14 flex items-center justify-center shrink-0">
+<svg class="w-14 h-14 -rotate-90 transform" viewbox="0 0 56 56">
+<circle cx="28" cy="28" fill="none" r="23" stroke="#e0e3e6" stroke-width="5"></circle>
+<circle cx="28" cy="28" fill="none" r="23" stroke="#fc6b32" stroke-dasharray="144" stroke-dashoffset="24" stroke-linecap="round" stroke-width="5"></circle>
+</svg>
+<div class="absolute inset-0 flex items-center justify-center">
+<span class="font-ticket-mono text-ticket-mono font-bold text-secondary text-sm tracking-tighter" id="timerDigits">00:52</span>
+</div>
+</div>
+<div>
+<div class="flex items-center space-x-1">
+<span class="material-symbols-outlined text-secondary text-[16px]" data-icon="timer">timer</span>
+<span class="font-label-md text-label-md font-bold text-on-surface">60s SLA Acceptance Window</span>
+</div>
+<p class="font-body-sm text-body-sm text-error font-medium">Auto-rejects in <span id="secsCount">52</span>s to prevent delivery breach</p>
+</div>
+</div>
+<span class="font-label-sm text-label-sm px-2 py-1 rounded bg-secondary-fixed text-on-secondary-fixed font-bold uppercase tracking-wider">EXPEDITE</span>
+</div>
+<!-- 3. ORDER KEY FACTS CARD -->
+<div class="bg-surface-container-lowest rounded-xl p-3 border border-outline-variant space-y-2.5">
+<div class="flex items-start justify-between">
+<div>
+<div class="flex items-center space-x-2">
+<span class="font-ticket-mono text-headline-sm font-bold text-primary">#NB-4912</span>
+<span class="font-label-sm text-label-sm px-2 py-0.5 rounded-full bg-primary-fixed text-on-primary-fixed font-bold">Rider Dispatched</span>
+</div>
+<div class="flex items-center space-x-1.5 text-on-surface-variant mt-0.5">
+<span class="material-symbols-outlined text-[15px]" data-icon="two_wheeler">two_wheeler</span>
+<span class="font-label-sm text-label-sm font-semibold text-primary">NABIN Delivery · ETA 14m</span>
+</div>
+</div>
+<div class="text-right">
+<span class="font-label-sm text-label-sm text-on-surface-variant font-medium">Placement Time</span>
+<p class="font-ticket-mono text-label-md font-bold text-on-surface">Just now (19:42:10)</p>
+</div>
+</div>
+<!-- Customer & Payment Strip -->
+<div class="bg-surface-container rounded-lg p-2.5 flex items-center justify-between text-on-surface">
+<div class="flex items-center space-x-2">
+<div class="w-8 h-8 rounded-full bg-primary-container text-on-primary flex items-center justify-center font-bold text-xs">
+                  AR
+                </div>
+<div>
+<p class="font-label-md text-label-md font-bold leading-tight">Ananya Roy</p>
+<p class="font-body-sm text-body-sm text-on-surface-variant">3 Items · First Order</p>
+</div>
+</div>
+<div class="text-right">
+<span class="font-headline-sm text-headline-sm font-bold text-on-surface">₹680.00</span>
+<div class="flex items-center justify-end space-x-1 text-tertiary-container">
+<span class="material-symbols-outlined text-[14px]" data-icon="check_circle" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+<span class="font-label-sm text-label-sm font-bold text-tertiary-container">Paid via UPI</span>
+</div>
+</div>
+</div>
+</div>
+<!-- 4. RAPID KITCHEN LINE ITEMIZED PREVIEW -->
+<div class="space-y-2">
+<div class="flex items-center justify-between">
+<span class="font-label-md text-label-md font-bold text-on-surface tracking-tight">KITCHEN LINE ITEMS (3)</span>
+<span class="font-label-sm text-label-sm text-on-surface-variant">Tap item to flag 86</span>
+</div>
+<!-- Item 1: Biryani -->
+<div class="bg-surface-container-lowest p-2.5 rounded-xl border border-outline-variant space-y-1.5">
+<div class="flex items-start justify-between">
+<div class="flex items-start space-x-2">
+<!-- NV Dietary Badge (16x16 with 6x6 dot) -->
+<div class="w-4 h-4 border border-[#DC2626] rounded-[2px] flex items-center justify-center shrink-0 mt-0.5" title="Non-Vegetarian">
+<div class="w-1.5 h-1.5 rounded-full bg-[#DC2626]"></div>
+</div>
+<div>
+<div class="flex items-baseline space-x-1.5">
+<span class="font-label-md text-label-md font-bold bg-surface-container-highest px-1.5 py-0.2 rounded text-on-surface">1x</span>
+<span class="font-label-lg text-label-lg font-bold text-on-surface">Chicken Dum Biryani Handi</span>
+</div>
+<!-- Station Routing Tag -->
+<div class="flex items-center space-x-1 mt-1">
+<span class="material-symbols-outlined text-[13px] text-primary" data-icon="skillet">skillet</span>
+<span class="font-label-sm text-label-sm text-primary font-bold">Station 1: Wok &amp; Curry Line</span>
+</div>
+</div>
+</div>
+<span class="font-ticket-mono text-label-md font-semibold text-on-surface">₹390</span>
+</div>
+<!-- Modifier Indented Callout in warm secondary orange -->
+<div class="ml-6 pl-2 border-l-2 border-secondary-container bg-secondary-fixed/30 rounded-r py-1 px-2">
+<span class="font-label-sm text-label-sm font-bold text-secondary uppercase tracking-wide">Modifier:</span>
+<span class="font-label-md text-label-md font-bold text-on-secondary-fixed">Extra Spicy · Salan on side</span>
+</div>
+</div>
+<!-- Item 2: Garlic Butter Naan -->
+<div class="bg-surface-container-lowest p-2.5 rounded-xl border border-outline-variant flex items-start justify-between">
+<div class="flex items-start space-x-2">
+<!-- V Dietary Badge (16x16 with 6x6 green dot) -->
+<div class="w-4 h-4 border border-[#16A34A] rounded-[2px] flex items-center justify-center shrink-0 mt-0.5" title="Vegetarian">
+<div class="w-1.5 h-1.5 rounded-full bg-[#16A34A]"></div>
+</div>
+<div>
+<div class="flex items-baseline space-x-1.5">
+<span class="font-label-md text-label-md font-bold bg-surface-container-highest px-1.5 py-0.2 rounded text-on-surface">2x</span>
+<span class="font-label-lg text-label-lg font-bold text-on-surface">Garlic Butter Naan</span>
+</div>
+<div class="flex items-center space-x-1 mt-1">
+<span class="material-symbols-outlined text-[13px] text-primary" data-icon="outdoor_grill">outdoor_grill</span>
+<span class="font-label-sm text-label-sm text-primary font-bold">Station 2: Tandoor Line</span>
+</div>
+</div>
+</div>
+<span class="font-ticket-mono text-label-md font-semibold text-on-surface">₹140</span>
+</div>
+<!-- Item 3: Firni Kheer Pot -->
+<div class="bg-surface-container-lowest p-2.5 rounded-xl border border-outline-variant flex items-start justify-between">
+<div class="flex items-start space-x-2">
+<!-- V Dietary Badge -->
+<div class="w-4 h-4 border border-[#16A34A] rounded-[2px] flex items-center justify-center shrink-0 mt-0.5" title="Vegetarian">
+<div class="w-1.5 h-1.5 rounded-full bg-[#16A34A]"></div>
+</div>
+<div>
+<div class="flex items-baseline space-x-1.5">
+<span class="font-label-md text-label-md font-bold bg-surface-container-highest px-1.5 py-0.2 rounded text-on-surface">1x</span>
+<span class="font-label-lg text-label-lg font-bold text-on-surface">Firni Kheer Pot</span>
+</div>
+<div class="flex items-center space-x-1 mt-1">
+<span class="material-symbols-outlined text-[13px] text-primary" data-icon="ac_unit">ac_unit</span>
+<span class="font-label-sm text-label-sm text-primary font-bold">Cold Counter / Dessert</span>
+</div>
+</div>
+</div>
+<span class="font-ticket-mono text-label-md font-semibold text-on-surface">₹150</span>
+</div>
+</div>
+<!-- 5. PREPARATION SLA TIME SELECTOR -->
+<div class="bg-surface-container-low rounded-xl p-3 border border-outline-variant space-y-2">
+<div class="flex justify-between items-center">
+<label class="font-label-md text-label-md font-bold text-on-surface">Confirm Kitchen Preparation Time:</label>
+<span class="font-label-sm text-label-sm text-secondary font-bold" id="prepBadge">Ready in 15m</span>
+</div>
+<!-- Horizontal Touch Chips (min 48dp ergonomics) -->
+<div class="grid grid-cols-2 gap-2">
+<!-- +10 min -->
+<button class="prep-chip min-h-[48px] px-3 py-2 rounded-xl border border-outline-variant bg-surface-container-lowest text-on-surface font-label-md text-label-md flex items-center justify-center text-center transition-all active:scale-98" onclick="selectPrep(this, 'Ready in 10m')">
+                +10 min
+              </button>
+<!-- +15 min (Recommended) Active State -->
+<button class="prep-chip min-h-[48px] px-3 py-2 rounded-xl border-2 border-primary bg-primary-fixed text-on-primary-fixed font-label-md text-label-md font-bold flex items-center justify-center space-x-1 shadow-sm transition-all active:scale-98" onclick="selectPrep(this, 'Ready in 15m')">
+<span class="material-symbols-outlined text-[18px] text-primary" data-icon="check_circle" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+<span>+15 min (Rec.)</span>
+</button>
+<!-- +25 min -->
+<button class="prep-chip min-h-[48px] px-3 py-2 rounded-xl border border-outline-variant bg-surface-container-lowest text-on-surface font-label-md text-label-md flex items-center justify-center text-center transition-all active:scale-98" onclick="selectPrep(this, 'Ready in 25m')">
+                +25 min
+              </button>
+<!-- +35 min Rush -->
+<button class="prep-chip min-h-[48px] px-3 py-2 rounded-xl border border-outline-variant bg-surface-container-lowest text-secondary font-label-md text-label-md font-bold flex items-center justify-center text-center transition-all active:scale-98" onclick="selectPrep(this, 'Ready in 35m (Rush)')">
+                +35 min (Rush)
+              </button>
+</div>
+</div>
+<!-- 6. AUTO-PRINT TELEMETRY STATUS PILL -->
+<div class="bg-surface-container-highest/60 rounded-lg px-3 py-2 border border-outline-variant flex items-center justify-between">
+<div class="flex items-center space-x-2">
+<span class="material-symbols-outlined text-primary text-[18px]" data-icon="print">print</span>
+<span class="font-label-sm text-label-sm text-on-surface font-medium leading-tight">Auto-Print KOT Ready (Station 1 &amp; 2 LAN ESC/POS)</span>
+</div>
+<div class="flex items-center space-x-1 bg-tertiary-fixed text-on-tertiary-fixed px-2 py-0.5 rounded-full shrink-0">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary-container animate-pulse"></span>
+<span class="font-label-sm text-label-sm font-bold">ONLINE</span>
+</div>
+</div>
+</div>
+<!-- 7. HIGH-CONFIDENCE DUAL TOUCH FOOTER (Sticky Docked Bottom Actions) -->
+<div class="fixed bottom-0 left-0 w-full max-w-[390px] mx-auto bg-surface-container-lowest border-t border-outline-variant p-3 px-4 flex items-center space-x-3 z-40 shadow-[0_-4px_16px_rgba(0,0,0,0.12)]">
+<!-- Reject Button: 48-56dp ergonomic target, high-contrast Red Outline -->
+<button class="flex-1 min-h-[52px] bg-surface-container-lowest border-2 border-error text-error rounded-xl font-label-lg text-label-lg font-bold flex items-center justify-center space-x-1.5 active:scale-98 active:bg-error-container transition-all" onclick="handleReject()">
+<span class="material-symbols-outlined text-[20px]" data-icon="close">close</span>
+<span>Reject</span>
+</button>
+<!-- Accept & Fire KOT Button: 56dp height, Solid Warm Culinary Orange/Red -->
+<button class="flex-[2] min-h-[52px] bg-secondary-container hover:bg-secondary text-white rounded-xl font-label-lg text-label-lg font-bold flex items-center justify-center space-x-2 active:scale-98 shadow-md transition-all" onclick="handleAccept()">
+<span class="material-symbols-outlined text-[22px]" data-icon="receipt_long" style="font-variation-settings: 'FILL' 1;">receipt_long</span>
+<span class="tracking-wide uppercase">ACCEPT &amp; FIRE KOT</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+<!-- Inline Interaction Logic (Timer, SLA Countdown, Mute Toggle, Chip Selection) -->
+<script>
+    let secondsLeft = 52;
+    let isMuted = false;
+
+    // Countdown SLA loop
+    const timerInterval = setInterval(() => {
+      if (secondsLeft > 0) {
+        secondsLeft--;
+        const formatted = '00:' + (secondsLeft < 10 ? '0' + secondsLeft : secondsLeft);
+        const timerDigits = document.getElementById('timerDigits');
+        const secsCount = document.getElementById('secsCount');
+        if (timerDigits) timerDigits.innerText = formatted;
+        if (secsCount) secsCount.innerText = secondsLeft;
+      } else {
+        clearInterval(timerInterval);
+      }
+    }, 1000);
+
+    // Mute sound toggle
+    function toggleMute() {
+      isMuted = !isMuted;
+      const soundbars = document.getElementById('soundbars');
+      const muteIcon = document.getElementById('muteIcon');
+      if (isMuted) {
+        soundbars.classList.add('opacity-30', 'grayscale');
+        muteIcon.innerText = 'volume_off';
+      } else {
+        soundbars.classList.remove('opacity-30', 'grayscale');
+        muteIcon.innerText = 'volume_up';
+      }
+    }
+
+    // Prep SLA selection
+    function selectPrep(btn, label) {
+      document.querySelectorAll('.prep-chip').forEach(el => {
+        el.className = 'prep-chip min-h-[48px] px-3 py-2 rounded-xl border border-outline-variant bg-surface-container-lowest text-on-surface font-label-md text-label-md flex items-center justify-center text-center transition-all active:scale-98';
+        // Remove existing checkmark icons if present
+        const icon = el.querySelector('.material-symbols-outlined');
+        if (icon) icon.remove();
+      });
+
+      btn.className = 'prep-chip min-h-[48px] px-3 py-2 rounded-xl border-2 border-primary bg-primary-fixed text-on-primary-fixed font-label-md text-label-md font-bold flex items-center justify-center space-x-1 shadow-sm transition-all active:scale-98';
+      
+      const checkSpan = document.createElement('span');
+      checkSpan.className = 'material-symbols-outlined text-[18px] text-primary';
+      checkSpan.innerText = 'check_circle';
+      checkSpan.style.fontVariationSettings = "'FILL' 1";
+      btn.prepend(checkSpan);
+
+      const prepBadge = document.getElementById('prepBadge');
+      if (prepBadge) prepBadge.innerText = label;
+    }
+
+    function handleAccept() {
+      alert("Order #NB-4912 ACCEPTED!\n\n• KOT Dispatched to Station 1 (Wok) & Station 2 (Tandoor)\n• SLA Timer set to 15m\n• Rider notified for pickup in 14m");
+    }
+
+    function handleReject() {
+      const reason = prompt("Select Reason for Rejection:\n1. Kitchen Rush Capacity Exceeded\n2. Menu Item 86'd\n3. Power / Stove Technical Fault", "Kitchen Rush Capacity Exceeded");
+      if (reason) {
+        alert("Order #NB-4912 Rejected: " + reason);
+      }
+    }
+  </script>
+</body></html>

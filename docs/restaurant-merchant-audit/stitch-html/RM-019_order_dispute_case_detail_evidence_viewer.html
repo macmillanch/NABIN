@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RM-019: Order Dispute Case Detail &amp; Evidence Viewer</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            brand: {
+              DEFAULT: '#1a3ba2',
+              dark: '#132c7e',
+              light: '#eff3ff',
+            },
+            accent: {
+              DEFAULT: '#e85d24',
+              light: '#fff5f0',
+            },
+            surface: {
+              canvas: '#f7f9fd',
+              card: '#ffffff',
+              subtle: '#f1f4fa',
+              dim: '#e2e7f2',
+            },
+            slate: {
+              900: '#0f172a',
+              700: '#334155',
+              600: '#475569',
+              500: '#64748b',
+              400: '#94a3b8',
+              200: '#e2e8f0',
+              100: '#f1f5f9',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    /* Custom scrollbar and touch ergonomics */
+    body {
+      background-color: #0b1120;
+      font-family: 'Inter', sans-serif;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 4px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-track {
+      background: #f1f4fa;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 9999px;
+    }
+  </style>
+</head>
+<body class="flex justify-center items-start min-h-screen p-0 sm:py-6 sm:px-4 bg-slate-900">
+
+  <!-- Mobile Viewport Container (390px base responsive mobile frame) -->
+  <div class="w-full max-w-[412px] bg-surface-canvas min-h-screen flex flex-col shadow-2xl relative overflow-hidden sm:rounded-2xl border border-slate-700/30">
+    
+    <!-- Top System & Status Header -->
+    <header class="sticky top-0 z-30 bg-white border-b border-slate-200/80 shadow-sm">
+      <!-- Status bar simulation -->
+      <div class="px-5 pt-2 pb-1 flex justify-between items-center text-xs font-semibold text-slate-500">
+        <span>09:41</span>
+        <div class="flex items-center space-x-1.5">
+          <svg class="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M12 3c-4.97 0-9 4.03-9 9 0 2.12.74 4.07 1.97 5.61L4.35 19.4c-.39.39-.39 1.02 0 1.41.39.39 1.02.39 1.41 0l1.9-1.9C9.23 19.64 10.57 20 12 20c4.97 0 9-4.03 9-9s-4.03-9-9-9zm0 15c-3.31 0-6-2.69-6-6s2.69-6 6-6 6 2.69 6 6-2.69 6-6 6z"/></svg>
+          <svg class="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M12 4C7.31 4 3.07 5.9 0 8.98L12 21 24 8.98C20.93 5.9 16.69 4 12 4zm0 3.5c3.34 0 6.38 1.37 8.57 3.58L12 19.34 3.43 11.08C5.62 8.87 8.66 7.5 12 7.5z"/></svg>
+          <div class="w-5 h-2.5 border border-slate-400 rounded-sm p-0.5 flex items-center">
+            <div class="h-full w-full bg-slate-600 rounded-2xs"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Main Navigation Bar -->
+      <div class="px-4 py-2.5 flex items-center justify-between">
+        <div class="flex items-center space-x-3">
+          <button type="button" aria-label="Go back to RM-017 disputes list" class="w-10 h-10 -ml-1 flex items-center justify-center rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 active:scale-95 transition-all focus:outline-none focus:ring-2 focus:ring-brand">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+            </svg>
+          </button>
+          <div>
+            <div class="flex items-center space-x-2">
+              <h1 class="text-base font-bold text-slate-900 tracking-tight">Dispute Case #DSP-9042</h1>
+            </div>
+            <div class="flex items-center space-x-2 text-xs mt-0.5">
+              <span class="font-mono font-semibold text-brand bg-brand-light px-1.5 py-0.5 rounded">Order #NB-4825</span>
+              <span class="text-slate-400">•</span>
+              <span class="text-slate-500 font-medium">Delivery</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Brand Icon -->
+        <div class="flex items-center">
+          <img src="https://lh3.googleusercontent.com/aida-public/AB6AXuAHlfrsGmKCpXfEAIkWcxvuKFhAF5aeEiqHvSTsL6ycwS3CxXC2TKtiO8oWrWRD1bPq1yjtrujoMFXbMeuRGQv5amNtwTsCxSb6GPr5V5R3F5-faPe6fsSvIoPEzn3xh9GCxwnpNplUfpelRAikS8SDhyRMF_ZEn8vHL82GvAIOfdUlJI0Xot3CS91NnefLDjJ6CIASZmxqeb3X4yKjiZl4xNGAwv49k9LjcE2fKslUEZf55jpTYUODbU9UvhhAO4wnvk4Dk63Ziq0" alt="NABIN RMS" class="h-8 w-auto object-contain opacity-90" />
+        </div>
+      </div>
+
+      <!-- SLA Response Countdown Banner -->
+      <div class="bg-amber-50 border-t border-b border-amber-200/80 px-4 py-2 flex items-center justify-between">
+        <div class="flex items-center space-x-2">
+          <span class="relative flex h-2.5 w-2.5">
+            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+            <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500"></span>
+          </span>
+          <span class="text-xs font-semibold text-amber-900 tracking-tight">SLA Action Required</span>
+        </div>
+        <div class="flex items-center space-x-1.5 text-xs font-bold text-amber-800 bg-amber-100/90 px-2.5 py-1 rounded-full border border-amber-300">
+          <svg class="w-3.5 h-3.5 text-amber-700" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="9" />
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 7v5l3 3" />
+          </svg>
+          <span class="font-mono">1h 42m left to respond</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Scrollable Main Content Body -->
+    <main class="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-4 pb-28">
+
+      <!-- 1. Customer Claim Summary Card -->
+      <section class="bg-white rounded-xl p-4 border border-slate-200 shadow-xs relative">
+        <div class="flex items-start justify-between pb-3 border-b border-slate-100">
+          <div>
+            <div class="flex items-center space-x-2">
+              <span class="text-sm font-bold text-slate-900">Rahul Sharma</span>
+              <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                ★ 4.8 Rating (24 Orders)
+              </span>
+            </div>
+            <p class="text-xs text-slate-500 mt-0.5">Kamalanagar Hub · Fulfilled by Rider Amit V. (#RD-771)</p>
+          </div>
+          <div class="text-right">
+            <span class="text-xs text-slate-500 block">Disputed Amount</span>
+            <span class="text-base font-extrabold text-rose-600 font-mono">₹340.00</span>
+          </div>
+        </div>
+
+        <div class="pt-3 space-y-2.5 text-xs">
+          <div>
+            <span class="text-slate-500 block text-[11px] font-medium uppercase tracking-wider">Contested Item</span>
+            <div class="flex items-center justify-between mt-1 p-2 rounded-lg bg-slate-50 border border-slate-100">
+              <div class="flex items-center space-x-2">
+                <span class="w-3.5 h-3.5 rounded border border-rose-600 flex items-center justify-center p-0.5">
+                  <span class="w-1.5 h-1.5 rounded-full bg-rose-600"></span>
+                </span>
+                <span class="font-semibold text-slate-800">1x Butter Chicken Special Combo</span>
+              </div>
+              <span class="text-slate-600 font-mono font-medium">₹340</span>
+            </div>
+            <p class="text-[11px] text-slate-500 ml-6 mt-1">Included: 2x Garlic Butter Naan + Steamed Rice (500ml)</p>
+          </div>
+
+          <!-- Claim Reason Badge -->
+          <div>
+            <span class="text-slate-500 block text-[11px] font-medium uppercase tracking-wider">Reported Issue</span>
+            <div class="mt-1 flex items-center space-x-2">
+              <span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold bg-rose-50 text-rose-700 border border-rose-200">
+                <svg class="w-3.5 h-3.5 mr-1 text-rose-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/>
+                </svg>
+                Damaged packaging / spilt gravy in transit
+              </span>
+            </div>
+          </div>
+
+          <!-- Customer Remark -->
+          <div class="bg-rose-50/60 rounded-lg p-3 border border-rose-100 text-slate-700">
+            <span class="text-[11px] font-bold text-rose-900 uppercase tracking-wider block mb-1">Customer Statement</span>
+            <p class="italic text-xs text-slate-800 leading-relaxed">
+              &ldquo;The container lid was loose; entire curry soaked into the carry bag and spoiled the naans. Unfit for consumption.&rdquo;
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- 2. Photographic Evidence Comparison -->
+      <section class="bg-white rounded-xl p-4 border border-slate-200 shadow-xs space-y-3">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center space-x-2">
+            <div class="w-6 h-6 rounded-md bg-brand-light flex items-center justify-center text-brand">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
+              </svg>
+            </div>
+            <h2 class="text-sm font-bold text-slate-900">Photographic Evidence Audit</h2>
+          </div>
+          <span class="text-[11px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">Side-by-Side</span>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <!-- Evidence Photo A: Customer Delivered Photo -->
+          <div class="group relative rounded-xl overflow-hidden border border-rose-200 bg-rose-50/30 flex flex-col">
+            <div class="relative aspect-4/3 w-full bg-slate-200 overflow-hidden">
+              <img src="https://lh3.googleusercontent.com/aida-public/AB6AXuB6p_BfDeSrHZxKG-g52pUlnaokcuLnR2vblQ2XaVn-mTM8faqRzz9hz1Gh1IBLEhAxrOpujtILZdK9OsnE8X6EkEwvmTOuRH40-G8SKQqOlJOLJWh2Wkyk3-FlM1GptEl4FTxUZDb5ghoNKvF9ev51x5m0lLIfiRj4Xqke5lccMBzpoJ8Ko8VJO8-jhVuZn7IWz4tMKfQTapD6XDA0XhU5-cenAGnEi_oJZP7sTBleDFQhtCAWHIzeTqUf1slrPTIBkRZ1Gixkr_0" alt="Customer photo showing curry spill inside paper delivery bag" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+              <div class="absolute top-1.5 left-1.5 bg-rose-600/90 backdrop-blur-xs text-white text-[10px] font-bold px-1.5 py-0.5 rounded shadow-xs">
+                Customer Upload
+              </div>
+              <button type="button" aria-label="Expand customer photo" class="absolute bottom-1.5 right-1.5 w-7 h-7 rounded-md bg-black/60 hover:bg-black/80 text-white flex items-center justify-center backdrop-blur-xs transition">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15"/>
+                </svg>
+              </button>
+            </div>
+            <div class="p-2 flex-1 flex flex-col justify-between">
+              <div>
+                <p class="text-[11px] font-bold text-slate-900 leading-tight">Delivered Condition</p>
+                <p class="text-[10px] text-slate-500 mt-0.5">Spill in transit bag</p>
+              </div>
+              <div class="mt-1.5 pt-1.5 border-t border-rose-100 flex items-center justify-between text-[10px]">
+                <span class="text-rose-700 font-medium">Logged 20:14</span>
+                <span class="font-mono text-slate-400">EXIF ✓</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Evidence Photo B: Restaurant Expo Photo -->
+          <div class="group relative rounded-xl overflow-hidden border border-emerald-200 bg-emerald-50/30 flex flex-col">
+            <div class="relative aspect-4/3 w-full bg-slate-200 overflow-hidden">
+              <img src="https://lh3.googleusercontent.com/aida-public/AB6AXuBD-mrsRBWBmHO6WKWyayWf22YWUUSs-3GTdN_1kNMA0wRKeHgzxY2vlsjfTnLE9mqgov4iv1lqFrwj6ch0xePoRl3QkAKttlLxg-93iaWN12DVVWV-8Q8drVQ-zT_2jW2u3V_vUwzW8ZbfZ-3GrhU-mbBsdxLPnjc8oK1t-1vDi0vadoH4yQFLJRnHkytkZPprKAZt5rHRcfsEPQR7xSxTPQhn6sa5yjiYDR9sQE7URasAJ11iT9DDhUA05Hl3A_Q46NVhpbXpyNM" alt="Restaurant kitchen photo showing sealed container with tamper seal at expo pass" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+              <div class="absolute top-1.5 left-1.5 bg-emerald-600/90 backdrop-blur-xs text-white text-[10px] font-bold px-1.5 py-0.5 rounded shadow-xs">
+                Expo Pass Audit
+              </div>
+              <button type="button" aria-label="Expand expo kitchen photo" class="absolute bottom-1.5 right-1.5 w-7 h-7 rounded-md bg-black/60 hover:bg-black/80 text-white flex items-center justify-center backdrop-blur-xs transition">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15"/>
+                </svg>
+              </button>
+            </div>
+            <div class="p-2 flex-1 flex flex-col justify-between">
+              <div>
+                <p class="text-[11px] font-bold text-slate-900 leading-tight">Kitchen Handover</p>
+                <p class="text-[10px] text-emerald-800 font-medium mt-0.5">Tamper Seal #2384791 Intact</p>
+              </div>
+              <div class="mt-1.5 pt-1.5 border-t border-emerald-100 flex items-center justify-between text-[10px]">
+                <span class="text-emerald-700 font-medium">Logged 19:46</span>
+                <span class="font-mono text-emerald-600 font-semibold">100% Intact</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Evidence Insight Note -->
+        <div class="p-2.5 rounded-lg bg-blue-50/70 border border-blue-200/80 text-slate-700 flex items-start space-x-2">
+          <svg class="w-4 h-4 text-brand shrink-0 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
+          </svg>
+          <p class="text-[11px] text-blue-950 leading-relaxed">
+            <strong class="font-semibold text-brand">System Telemetry Check:</strong> Dispatch photo confirms container was heat-sealed and taped at 19:46. Damage occurred during 24-minute bike transit before delivery at 20:12.
+          </p>
+        </div>
+      </section>
+
+      <!-- 3. Handover & Delivery Audit Trail Timeline -->
+      <section class="bg-white rounded-xl p-4 border border-slate-200 shadow-xs space-y-3">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center space-x-2">
+            <div class="w-6 h-6 rounded-md bg-slate-100 flex items-center justify-center text-slate-700">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <h2 class="text-sm font-bold text-slate-900">Handover &amp; Delivery Audit Trail</h2>
+          </div>
+          <span class="text-[10px] font-mono font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+            OTP Verified
+          </span>
+        </div>
+
+        <!-- Vertical Stepper Timeline -->
+        <div class="relative pl-6 space-y-3.5 before:absolute before:left-2.5 before:top-2 before:bottom-2 before:w-0.5 before:bg-slate-200">
+          
+          <!-- Event 1 -->
+          <div class="relative flex items-start space-x-3 text-xs">
+            <span class="absolute -left-6 top-1 w-2.5 h-2.5 rounded-full bg-slate-400 ring-4 ring-white"></span>
+            <div class="flex-1 flex items-baseline justify-between">
+              <div>
+                <p class="font-semibold text-slate-800">Order Accepted by Kitchen</p>
+                <p class="text-[11px] text-slate-500">+20m prep SLA targeted</p>
+              </div>
+              <span class="font-mono text-[11px] text-slate-500">19:24</span>
+            </div>
+          </div>
+
+          <!-- Event 2 -->
+          <div class="relative flex items-start space-x-3 text-xs">
+            <span class="absolute -left-6 top-1 w-2.5 h-2.5 rounded-full bg-brand ring-4 ring-white"></span>
+            <div class="flex-1 flex items-baseline justify-between">
+              <div>
+                <p class="font-semibold text-slate-900">Prepped &amp; Sealed (Station 1 Wok)</p>
+                <p class="text-[11px] text-slate-500">Tamper-evident seal tape applied</p>
+              </div>
+              <span class="font-mono text-[11px] text-slate-500">19:44</span>
+            </div>
+          </div>
+
+          <!-- Event 3: Rider Handover (OTP) -->
+          <div class="relative flex items-start space-x-3 text-xs">
+            <span class="absolute -left-6 top-1 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-4 ring-white"></span>
+            <div class="flex-1">
+              <div class="flex items-baseline justify-between">
+                <p class="font-bold text-slate-900">Rider Handover Verified</p>
+                <span class="font-mono text-[11px] text-emerald-700 font-semibold">19:48</span>
+              </div>
+              <p class="text-[11px] text-slate-600">4-digit OTP authenticated: <span class="font-mono font-bold text-brand bg-slate-100 px-1 py-0.5 rounded">#8291</span> (Rider: Amit V.)</p>
+            </div>
+          </div>
+
+          <!-- Event 4: Delivered -->
+          <div class="relative flex items-start space-x-3 text-xs">
+            <span class="absolute -left-6 top-1 w-2.5 h-2.5 rounded-full bg-blue-500 ring-4 ring-white"></span>
+            <div class="flex-1 flex items-baseline justify-between">
+              <div>
+                <p class="font-semibold text-slate-800">Delivered to Customer Doorstep</p>
+                <p class="text-[11px] text-slate-500">Transit duration: 24 minutes (3.8 km)</p>
+              </div>
+              <span class="font-mono text-[11px] text-slate-500">20:12</span>
+            </div>
+          </div>
+
+          <!-- Event 5: Dispute Raised -->
+          <div class="relative flex items-start space-x-3 text-xs">
+            <span class="absolute -left-6 top-1 w-2.5 h-2.5 rounded-full bg-rose-500 ring-4 ring-white"></span>
+            <div class="flex-1 flex items-baseline justify-between">
+              <div>
+                <p class="font-bold text-rose-700">Customer Dispute Ticket Raised</p>
+                <p class="text-[11px] text-rose-600">Packaging damage complaint with photo</p>
+              </div>
+              <span class="font-mono text-[11px] text-rose-700 font-semibold">20:16</span>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- 4. Merchant Decision & Compensation Selector -->
+      <section class="bg-white rounded-xl p-4 border border-slate-200 shadow-xs space-y-3">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center space-x-2">
+            <div class="w-6 h-6 rounded-md bg-accent-light flex items-center justify-center text-accent">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <h2 class="text-sm font-bold text-slate-900">Resolution Decision</h2>
+          </div>
+          <span class="text-[11px] font-semibold text-slate-500">Step 1 of 2</span>
+        </div>
+
+        <p class="text-xs text-slate-600 leading-normal">
+          Select resolution stance. Photographic proof allows contesting transit faults to safeguard merchant score and avoid store deduction.
+        </p>
+
+        <!-- Decision Radio Group -->
+        <div class="space-y-2.5 pt-1">
+          
+          <!-- Option 3 (Preselected / Recommended based on photo evidence) -->
+          <label class="relative flex items-start p-3 rounded-xl border-2 border-brand bg-brand-light/40 cursor-pointer transition-all hover:bg-brand-light/70">
+            <div class="flex items-center h-5">
+              <input type="radio" name="dispute_resolution" value="dispute_transit" checked class="w-4 h-4 text-brand border-slate-300 focus:ring-brand accent-brand">
+            </div>
+            <div class="ml-3 flex-1 text-xs">
+              <div class="flex items-center justify-between">
+                <span class="font-bold text-brand">Dispute Claim — Transit Damage</span>
+                <span class="text-[10px] font-extrabold uppercase bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded border border-emerald-300">
+                  Recommended
+                </span>
+              </div>
+              <p class="text-slate-700 mt-1">Rider handling issue. Expo photo proves intact seal at handover. Platform logistics covers customer compensation (₹0 merchant deduction).</p>
+            </div>
+          </label>
+
+          <!-- Option 2: 50% Goodwill Credit -->
+          <label class="relative flex items-start p-3 rounded-xl border border-slate-200 bg-white cursor-pointer hover:border-slate-300 transition-all">
+            <div class="flex items-center h-5">
+              <input type="radio" name="dispute_resolution" value="partial_goodwill" class="w-4 h-4 text-brand border-slate-300 focus:ring-brand accent-brand">
+            </div>
+            <div class="ml-3 flex-1 text-xs">
+              <div class="flex items-center justify-between">
+                <span class="font-semibold text-slate-900">Offer 50% Goodwill Credit (₹170.00)</span>
+                <span class="text-slate-500 font-mono font-medium">Split 50/50</span>
+              </div>
+              <p class="text-slate-500 mt-0.5">Retain customer loyalty while requesting logistics split. ₹85 merchant contribution.</p>
+            </div>
+          </label>
+
+          <!-- Option 1: Full Refund -->
+          <label class="relative flex items-start p-3 rounded-xl border border-slate-200 bg-white cursor-pointer hover:border-slate-300 transition-all">
+            <div class="flex items-center h-5">
+              <input type="radio" name="dispute_resolution" value="accept_full_refund" class="w-4 h-4 text-brand border-slate-300 focus:ring-brand accent-brand">
+            </div>
+            <div class="ml-3 flex-1 text-xs">
+              <div class="flex items-center justify-between">
+                <span class="font-semibold text-slate-900">Accept Fault &amp; Issue Full Refund</span>
+                <span class="text-rose-600 font-mono font-bold">₹340.00</span>
+              </div>
+              <p class="text-slate-500 mt-0.5">Instant refund to customer wallet. Deducted from restaurant's next daily payout (RM-047).</p>
+            </div>
+          </label>
+
+        </div>
+      </section>
+
+      <!-- 5. Merchant Counter-Notes Field -->
+      <section class="bg-white rounded-xl p-4 border border-slate-200 shadow-xs space-y-2.5">
+        <div class="flex items-center justify-between">
+          <label for="merchant_notes" class="text-xs font-bold text-slate-900 uppercase tracking-wider block">
+            Merchant Operator Response / Notes
+          </label>
+          <span class="text-[11px] text-slate-400">Optional for escalation</span>
+        </div>
+        
+        <div class="relative">
+          <textarea id="merchant_notes" rows="3" class="w-full text-xs text-slate-800 p-3 rounded-lg border border-slate-300 focus:border-brand focus:ring-1 focus:ring-brand focus:outline-none placeholder-slate-400 resize-none leading-relaxed" placeholder="e.g. As shown in Expo Station timestamp photo 19:46, container lid was heat-crimped with security tape #2384791 intact. Rider Amit V. confirmed vertical placement in thermal box.">As shown in Kitchen Expo Audit photo (19:46), the 500ml container was heat-crimped with tamper seal #2384791 intact. Rider OTP was signed at 19:48. Spill indicates bike tilt or harsh handling in transit.</textarea>
+        </div>
+        
+        <div class="flex items-center justify-between text-[11px] text-slate-500 pt-1">
+          <span class="flex items-center text-emerald-700">
+            <svg class="w-3.5 h-3.5 mr-1" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            Expo photo will be attached automatically
+          </span>
+          <span class="font-mono text-slate-400">242 / 500 chars</span>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- Sticky Bottom Action Footer (Accessible 48dp+ interactive buttons) -->
+    <footer class="absolute bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-t border-slate-200/90 px-4 py-3 shadow-lg">
+      <div class="flex items-center space-x-3">
+        <!-- Secondary Outline Button: Escalate -->
+        <button type="button" class="w-2/5 min-h-[48px] px-3 py-2.5 rounded-xl border border-slate-300 hover:border-slate-400 bg-white text-slate-700 font-bold text-xs active:bg-slate-50 transition flex items-center justify-center space-x-1.5 focus:outline-none focus:ring-2 focus:ring-slate-300">
+          <svg class="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m0-10.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.75c0 5.592 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.57-.598-3.75h-.002A11.959 11.959 0 0112 2.964z" />
+          </svg>
+          <span class="truncate">Escalate to Ops</span>
+        </button>
+
+        <!-- Primary Royal Blue CTA: Submit Resolution -->
+        <button type="button" class="flex-1 min-h-[48px] px-4 py-2.5 rounded-xl bg-brand hover:bg-brand-dark active:scale-[0.98] text-white font-bold text-xs tracking-wide shadow-md shadow-brand/20 transition flex items-center justify-center space-x-2 focus:outline-none focus:ring-2 focus:ring-brand focus:ring-offset-2">
+          <span>Submit Decision</span>
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
+          </svg>
+        </button>
+      </div>
+    </footer>
+
+  </div>
+
+</body>
+</html>

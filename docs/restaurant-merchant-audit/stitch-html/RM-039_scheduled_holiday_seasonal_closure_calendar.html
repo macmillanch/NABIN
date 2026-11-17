@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>RM-039: Scheduled Holiday &amp; Seasonal Closure Calendar | NABIN RMS</title>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "surface-container": "#eceef2",
+            "tertiary-container": "#005120",
+            "on-background": "#181c1f",
+            "surface-variant": "#e0e3e6",
+            "secondary-fixed-dim": "#ffb59b",
+            "on-primary-fixed": "#001452",
+            "background": "#f7f9fd",
+            "on-primary-container": "#9cafff",
+            "surface-container-highest": "#e0e3e6",
+            "primary-fixed": "#dde1ff",
+            "on-tertiary-container": "#4cca6c",
+            "on-secondary-container": "#5c1a00",
+            "on-secondary-fixed-variant": "#812800",
+            "inverse-surface": "#2d3134",
+            "surface-container-lowest": "#ffffff",
+            "surface-container-low": "#f2f4f8",
+            "on-surface": "#181c1f",
+            "on-primary": "#ffffff",
+            "error": "#ba1a1a",
+            "outline": "#757684",
+            "on-tertiary-fixed": "#002109",
+            "on-error-container": "#93000a",
+            "tertiary-fixed": "#7ffc97",
+            "surface-dim": "#d8dade",
+            "on-error": "#ffffff",
+            "on-secondary-fixed": "#380d00",
+            "inverse-on-surface": "#eff1f5",
+            "secondary-container": "#fc6b32",
+            "primary-container": "#1a3ba2",
+            "surface": "#f7f9fd",
+            "secondary-fixed": "#ffdbcf",
+            "tertiary-fixed-dim": "#62df7d",
+            "on-tertiary": "#ffffff",
+            "tertiary": "#003813",
+            "inverse-primary": "#b7c4ff",
+            "on-primary-fixed-variant": "#1c3da4",
+            "secondary": "#a93700",
+            "on-secondary": "#ffffff",
+            "surface-bright": "#f7f9fd",
+            "surface-container-high": "#e6e8ec",
+            "primary-fixed-dim": "#b7c4ff",
+            "on-tertiary-fixed-variant": "#005320",
+            "outline-variant": "#c5c5d5",
+            "on-surface-variant": "#444653",
+            "surface-tint": "#3a56bd",
+            "error-container": "#ffdad6",
+            "primary": "#00247f"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.25rem",
+            "lg": "0.5rem",
+            "xl": "0.75rem",
+            "full": "9999px"
+          },
+          "spacing": {
+            "space-xl": "2rem",
+            "margin": "1.5rem",
+            "space-sm": "0.5rem",
+            "gutter": "1rem",
+            "space-md": "1rem",
+            "space-lg": "1.5rem",
+            "margin-mobile": "1rem",
+            "space-xs": "0.25rem",
+            "gutter-kds": "1.25rem"
+          },
+          "fontFamily": {
+            "label-lg": ["Inter"],
+            "label-sm": ["Inter"],
+            "label-md": ["Inter"],
+            "headline-xl": ["Inter"],
+            "ticket-mono": ["Inter"],
+            "body-lg": ["Inter"],
+            "body-sm": ["Inter"],
+            "headline-xl-mobile": ["Inter"],
+            "headline-lg": ["Inter"],
+            "body-md": ["Inter"],
+            "headline-md": ["Inter"],
+            "headline-sm": ["Inter"],
+            "headline-lg-mobile": ["Inter"]
+          },
+          "fontSize": {
+            "label-lg": ["15px", { "lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600" }],
+            "label-sm": ["11px", { "lineHeight": "14px", "letterSpacing": "0.04em", "fontWeight": "700" }],
+            "label-md": ["13px", { "lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "600" }],
+            "headline-xl": ["40px", { "lineHeight": "48px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+            "ticket-mono": ["16px", { "lineHeight": "20px", "letterSpacing": "0.05em", "fontWeight": "700" }],
+            "body-lg": ["18px", { "lineHeight": "26px", "fontWeight": "500" }],
+            "body-sm": ["13px", { "lineHeight": "18px", "fontWeight": "400" }],
+            "headline-xl-mobile": ["30px", { "lineHeight": "38px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+            "headline-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.015em", "fontWeight": "700" }],
+            "body-md": ["15px", { "lineHeight": "22px", "fontWeight": "400" }],
+            "headline-md": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+            "headline-sm": ["20px", { "lineHeight": "28px", "fontWeight": "600" }],
+            "headline-lg-mobile": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "700" }]
+          }
+        }
+      }
+    }
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 500, 'GRAD' 0, 'opsz' 24;
+      display: inline-block;
+      vertical-align: middle;
+      line-height: 1;
+    }
+    .material-symbols-fill {
+      font-variation-settings: 'FILL' 1, 'wght' 600, 'GRAD' 0, 'opsz' 24;
+    }
+    body {
+      -webkit-tap-highlight-color: transparent;
+      font-family: 'Inter', sans-serif;
+    }
+    input, select, textarea, button {
+      font-family: inherit;
+    }
+  </style>
+</head>
+<body class="bg-background text-on-surface antialiased selection:bg-primary-fixed selection:text-on-primary-fixed flex justify-center min-h-screen">
+<!-- Mobile Viewport Wrapper (390px constrained canvas with fluid responsiveness on small devices) -->
+<div class="w-full max-w-[420px] bg-background min-h-screen flex flex-col relative pb-32">
+<!-- TOP APP BAR (Shared Component Anchor adapted for Mobile Stack RM-039) -->
+<header class="sticky top-0 z-40 bg-surface-container-lowest border-b border-outline-variant/40 px-margin-mobile h-16 flex items-center justify-between shadow-[0_1px_3px_rgba(24,28,31,0.04)]">
+<div class="flex items-center gap-2">
+<a aria-label="Back to Operating Hours RM-035" class="min-h-[48px] min-w-[48px] flex items-center justify-center rounded-lg text-on-surface hover:bg-surface-container active:scale-95 transition-all" href="#rm-035" title="Operating Hours (RM-035)">
+<span class="material-symbols-outlined text-primary text-[24px]">arrow_back</span>
+</a>
+<div class="flex flex-col">
+<div class="flex items-center gap-1.5">
+<h1 class="text-headline-sm font-headline-sm font-bold tracking-tight text-on-surface">Holiday Calendar</h1>
+<span class="inline-flex items-center justify-center bg-primary-fixed text-on-primary-fixed text-[10px] font-bold px-1.5 py-0.5 rounded tracking-wide">RM-039</span>
+</div>
+<p class="text-body-sm font-body-sm text-on-surface-variant flex items-center gap-1">
+<img alt="NABIN RMS" class="w-3.5 h-3.5 object-contain inline-block" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDTjyrKxknB_XBGfafaHFBNNyhvJu74DfWQnL0lQ-20OR7hVAGtK4xXVhF3xMzlsxDrYGBbRJQMDhjF9SxIW2fjOlzRqhvbQLxfVZrtr4gqVJejrGaqLOLXqHJ388PvuXMc_W65xU0RevgAywpaLZ8yb6HcGYWs5_l65NXDDhaBIA_-VuwR8fXTqP1TOEbFqx60ZLRNb9BBs0HKHzHXv446ABUEjLFqDWdWA0AQqnJW4bbWcnBGWrHQvsM-orOHEqO_mxr3EnbcP3k"/>
+<span>Downtown Flagship</span>
+<span class="text-outline-variant">·</span>
+<span class="text-secondary font-semibold">Active Sync</span>
+</p>
+</div>
+</div>
+<div class="flex items-center">
+<a class="min-h-[48px] px-3.5 flex items-center justify-center gap-1.5 rounded-lg bg-primary-container text-on-primary font-label-md text-label-md shadow-sm hover:opacity-95 active:scale-95 transition-all" href="#quick-schedule">
+<span class="material-symbols-outlined text-[18px]">add</span>
+<span>Schedule</span>
+</a>
+</div>
+</header>
+<!-- MAIN SCROLLABLE CONTENT CANVAS -->
+<main class="flex-1 px-margin-mobile pt-4 space-y-5">
+<!-- SECTION 1: INTERACTIVE MONTHLY MINI-CALENDAR GRID -->
+<section class="bg-surface-container-lowest border border-outline-variant/60 rounded-xl p-4 shadow-[0_2px_8px_rgba(24,28,31,0.03)]">
+<!-- Calendar Header & Navigation Controls -->
+<div class="flex items-center justify-between pb-3.5 border-b border-surface-container">
+<div>
+<div class="flex items-center gap-2">
+<span class="text-headline-sm font-headline-sm font-bold text-on-surface">November 2026</span>
+<span class="text-[11px] font-semibold bg-surface-container text-on-surface-variant px-2 py-0.5 rounded-full">Q4 Peak</span>
+</div>
+<p class="text-[12px] text-on-surface-variant font-medium">4 Closures &amp; Partial Breaks Planned</p>
+</div>
+<div class="flex items-center gap-1">
+<button class="min-h-[48px] min-w-[36px] px-2 flex items-center justify-center text-label-md font-label-md text-primary font-semibold hover:bg-surface-container rounded-lg transition-colors" title="Jump to current date" type="button">
+              Today
+            </button>
+<div class="flex items-center bg-surface-container-low rounded-lg p-0.5 border border-outline-variant/30">
+<button aria-label="Previous month" class="min-h-[40px] min-w-[40px] flex items-center justify-center rounded text-on-surface-variant hover:text-on-surface hover:bg-surface-container-lowest transition-all" type="button">
+<span class="material-symbols-outlined text-[20px]">chevron_left</span>
+</button>
+<button aria-label="Next month" class="min-h-[40px] min-w-[40px] flex items-center justify-center rounded text-on-surface-variant hover:text-on-surface hover:bg-surface-container-lowest transition-all" type="button">
+<span class="material-symbols-outlined text-[20px]">chevron_right</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Days of Week Header (Mon - Sun) -->
+<div class="grid grid-cols-7 gap-1 pt-3 pb-1 text-center font-label-sm text-label-sm text-outline">
+<span>MON</span>
+<span>TUE</span>
+<span>WED</span>
+<span>THU</span>
+<span>FRI</span>
+<span class="text-on-surface-variant font-bold">SAT</span>
+<span class="text-secondary font-bold">SUN</span>
+</div>
+<!-- 7-Column Calendar Grid Cells -->
+<div class="grid grid-cols-7 gap-1 pt-1 text-center">
+<!-- Row 1: Oct 26 - Nov 1 -->
+<div class="h-10 flex flex-col items-center justify-center rounded-lg text-outline-variant font-medium text-[13px] bg-surface-container-low/40 opacity-40">26</div>
+<div class="h-10 flex flex-col items-center justify-center rounded-lg text-outline-variant font-medium text-[13px] bg-surface-container-low/40 opacity-40">27</div>
+<div class="h-10 flex flex-col items-center justify-center rounded-lg text-outline-variant font-medium text-[13px] bg-surface-container-low/40 opacity-40">28</div>
+<div class="h-10 flex flex-col items-center justify-center rounded-lg text-outline-variant font-medium text-[13px] bg-surface-container-low/40 opacity-40">29</div>
+<div class="h-10 flex flex-col items-center justify-center rounded-lg text-outline-variant font-medium text-[13px] bg-surface-container-low/40 opacity-40">30</div>
+<div class="h-10 flex flex-col items-center justify-center rounded-lg text-outline-variant font-medium text-[13px] bg-surface-container-low/40 opacity-40">31</div>
+<!-- Nov 1 (Sun - Normal Day) -->
+<div class="h-10 flex flex-col items-center justify-center rounded-lg bg-surface-container-lowest border border-outline-variant/30 text-on-surface font-semibold text-[13px]">
+<span>1</span>
+</div>
+<!-- Row 2: Nov 2 - Nov 8 -->
+<div class="h-10 flex flex-col items-center justify-center rounded-lg bg-surface-container-lowest border border-outline-variant/30 text-on-surface font-semibold text-[13px]">2</div>
+<div class="h-10 flex flex-col items-center justify-center rounded-lg bg-surface-container-lowest border border-outline-variant/30 text-on-surface font-semibold text-[13px]">3</div>
+<div class="h-10 flex flex-col items-center justify-center rounded-lg bg-surface-container-lowest border border-outline-variant/30 text-on-surface font-semibold text-[13px]">4</div>
+<div class="h-10 flex flex-col items-center justify-center rounded-lg bg-surface-container-lowest border border-outline-variant/30 text-on-surface font-semibold text-[13px]">5</div>
+<div class="h-10 flex flex-col items-center justify-center rounded-lg bg-surface-container-lowest border border-outline-variant/30 text-on-surface font-semibold text-[13px]">6</div>
+<div class="h-10 flex flex-col items-center justify-center rounded-lg bg-surface-container-lowest border border-outline-variant/30 text-on-surface font-semibold text-[13px]">7</div>
+<!-- Nov 8 Weekly off regular -->
+<div class="h-10 flex flex-col items-center justify-center rounded-lg bg-surface-container-low text-on-surface-variant font-medium text-[13px] relative">
+<span>8</span>
+<span class="w-1.5 h-1.5 rounded-full bg-outline"></span>
+</div>
+<!-- Row 3: Nov 9 - Nov 15 -->
+<div class="h-10 flex flex-col items-center justify-center rounded-lg bg-surface-container-lowest border border-outline-variant/30 text-on-surface font-semibold text-[13px]">9</div>
+<!-- Nov 10: Today indicator with blue ring -->
+<div class="h-10 flex flex-col items-center justify-center rounded-lg bg-primary-fixed/30 border-2 border-primary text-primary font-bold text-[13px] relative shadow-sm">
+<span>10</span>
+<span class="text-[8px] uppercase tracking-wider font-extrabold text-primary leading-none">TODAY</span>
+</div>
+<div class="h-10 flex flex-col items-center justify-center rounded-lg bg-surface-container-lowest border border-outline-variant/30 text-on-surface font-semibold text-[13px]">11</div>
+<!-- Nov 12: Diwali Festival Full Closure Start -->
+<div class="h-10 flex flex-col items-center justify-center rounded-l-lg bg-[#fef3c7] border-y border-l border-[#fde68a] text-[#b45309] font-bold text-[13px] relative">
+<span>12</span>
+<span class="w-2 h-1 bg-[#d97706] rounded-full"></span>
+</div>
+<!-- Nov 13: Diwali Festival Full Closure End -->
+<div class="h-10 flex flex-col items-center justify-center rounded-r-lg bg-[#fef3c7] border-y border-r border-[#fde68a] text-[#b45309] font-bold text-[13px] relative">
+<span>13</span>
+<span class="w-2 h-1 bg-[#d97706] rounded-full"></span>
+</div>
+<div class="h-10 flex flex-col items-center justify-center rounded-lg bg-surface-container-lowest border border-outline-variant/30 text-on-surface font-semibold text-[13px]">14</div>
+<div class="h-10 flex flex-col items-center justify-center rounded-lg bg-surface-container-low text-on-surface-variant font-medium text-[13px] relative">
+<span>15</span>
+<span class="w-1.5 h-1.5 rounded-full bg-outline"></span>
+</div>
+<!-- Row 4: Nov 16 - Nov 22 -->
+<div class="h-10 flex flex-col items-center justify-center rounded-lg bg-surface-container-lowest border border-outline-variant/30 text-on-surface font-semibold text-[13px]">16</div>
+<div class="h-10 flex flex-col items-center justify-center rounded-lg bg-surface-container-lowest border border-outline-variant/30 text-on-surface font-semibold text-[13px]">17</div>
+<div class="h-10 flex flex-col items-center justify-center rounded-lg bg-surface-container-lowest border border-outline-variant/30 text-on-surface font-semibold text-[13px]">18</div>
+<div class="h-10 flex flex-col items-center justify-center rounded-lg bg-surface-container-lowest border border-outline-variant/30 text-on-surface font-semibold text-[13px]">19</div>
+<div class="h-10 flex flex-col items-center justify-center rounded-lg bg-surface-container-lowest border border-outline-variant/30 text-on-surface font-semibold text-[13px]">20</div>
+<div class="h-10 flex flex-col items-center justify-center rounded-lg bg-surface-container-lowest border border-outline-variant/30 text-on-surface font-semibold text-[13px]">21</div>
+<div class="h-10 flex flex-col items-center justify-center rounded-lg bg-surface-container-low text-on-surface-variant font-medium text-[13px] relative">
+<span>22</span>
+<span class="w-1.5 h-1.5 rounded-full bg-outline"></span>
+</div>
+<!-- Row 5: Nov 23 - Nov 29 -->
+<div class="h-10 flex flex-col items-center justify-center rounded-lg bg-surface-container-lowest border border-outline-variant/30 text-on-surface font-semibold text-[13px]">23</div>
+<!-- Nov 24: Partial Maintenance Dot/Stripe -->
+<div class="h-10 flex flex-col items-center justify-center rounded-lg bg-[#eff6ff] border border-[#bfdbfe] text-[#1d4ed8] font-bold text-[13px] relative">
+<span>24</span>
+<span class="flex items-center gap-0.5">
+<span class="w-1.5 h-1.5 rounded-full bg-[#1d4ed8]"></span>
+<span class="w-1.5 h-1.5 rounded-full bg-surface-container-highest"></span>
+</span>
+</div>
+<div class="h-10 flex flex-col items-center justify-center rounded-lg bg-surface-container-lowest border border-outline-variant/30 text-on-surface font-semibold text-[13px]">25</div>
+<div class="h-10 flex flex-col items-center justify-center rounded-lg bg-surface-container-lowest border border-outline-variant/30 text-on-surface font-semibold text-[13px]">26</div>
+<div class="h-10 flex flex-col items-center justify-center rounded-lg bg-surface-container-lowest border border-outline-variant/30 text-on-surface font-semibold text-[13px]">27</div>
+<div class="h-10 flex flex-col items-center justify-center rounded-lg bg-surface-container-lowest border border-outline-variant/30 text-on-surface font-semibold text-[13px]">28</div>
+<div class="h-10 flex flex-col items-center justify-center rounded-lg bg-surface-container-low text-on-surface-variant font-medium text-[13px] relative">
+<span>29</span>
+<span class="w-1.5 h-1.5 rounded-full bg-outline"></span>
+</div>
+<!-- Row 6: Nov 30 - Dec 6 -->
+<div class="h-10 flex flex-col items-center justify-center rounded-lg bg-surface-container-lowest border border-outline-variant/30 text-on-surface font-semibold text-[13px]">30</div>
+<div class="h-10 flex flex-col items-center justify-center rounded-lg text-outline-variant font-medium text-[13px] bg-surface-container-low/40 opacity-40">1</div>
+<div class="h-10 flex flex-col items-center justify-center rounded-lg text-outline-variant font-medium text-[13px] bg-surface-container-low/40 opacity-40">2</div>
+<div class="h-10 flex flex-col items-center justify-center rounded-lg text-outline-variant font-medium text-[13px] bg-surface-container-low/40 opacity-40">3</div>
+<div class="h-10 flex flex-col items-center justify-center rounded-lg text-outline-variant font-medium text-[13px] bg-surface-container-low/40 opacity-40">4</div>
+<div class="h-10 flex flex-col items-center justify-center rounded-lg text-outline-variant font-medium text-[13px] bg-surface-container-low/40 opacity-40">5</div>
+<div class="h-10 flex flex-col items-center justify-center rounded-lg text-outline-variant font-medium text-[13px] bg-surface-container-low/40 opacity-40">6</div>
+</div>
+<!-- Multi-Day Festival Closure Ribbon Highlight Bar -->
+<div class="mt-2.5 p-2 bg-[#fef3c7] border border-[#fde68a] rounded-lg flex items-center justify-between text-[11px] font-bold text-[#b45309]">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[16px] material-symbols-fill">festival</span>
+<span>Nov 12 - 13: Diwali Festival (Full Closure 48 hrs)</span>
+</div>
+<span class="text-[10px] uppercase bg-[#fde68a] px-1.5 py-0.5 rounded text-[#92400e]">Scheduled</span>
+</div>
+<!-- Legend Bar Below Calendar -->
+<div class="mt-3 pt-3 border-t border-surface-container grid grid-cols-2 gap-y-1.5 gap-x-2 text-[11px] font-label-sm text-on-surface-variant">
+<div class="flex items-center gap-1.5">
+<span class="w-2.5 h-2.5 rounded-full bg-[#d97706] inline-block"></span>
+<span>Full Closure (Amber)</span>
+</div>
+<div class="flex items-center gap-1.5">
+<span class="w-2.5 h-2.5 rounded-full bg-[#1d4ed8] inline-block"></span>
+<span>Partial Hours (Blue)</span>
+</div>
+<div class="flex items-center gap-1.5">
+<span class="w-2.5 h-2.5 rounded-full border border-outline inline-block"></span>
+<span>Normal Hours</span>
+</div>
+<div class="flex items-center gap-1.5">
+<span class="w-2.5 h-2.5 rounded-full bg-outline-variant inline-block"></span>
+<span>Weekly Off / Reset</span>
+</div>
+</div>
+</section>
+<!-- SECTION 2: OPERATIONAL GUARDRAIL INFORMATION BOX -->
+<section class="bg-surface-container-low border border-primary-fixed rounded-xl p-3.5 relative overflow-hidden">
+<div class="flex items-start gap-3">
+<div class="w-9 h-9 rounded-lg bg-primary-fixed flex items-center justify-center text-primary flex-shrink-0 mt-0.5">
+<span class="material-symbols-outlined text-[22px] material-symbols-fill">verified_user</span>
+</div>
+<div class="space-y-1">
+<div class="flex items-center gap-1.5">
+<h2 class="text-label-lg font-label-lg font-bold text-on-surface">Automatic Customer Discovery Lock</h2>
+<span class="bg-primary/10 text-primary text-[10px] font-bold px-1.5 py-0.5 rounded">T-45m Shield</span>
+</div>
+<p class="text-body-sm font-body-sm text-on-surface-variant leading-relaxed">
+              Stores with scheduled closures are automatically delisted from customer search &amp; ordering 45 minutes prior to shutdown. This ensures in-flight kitchen orders are prepped and handed over without delivery breaches.
+            </p>
+</div>
+</div>
+</section>
+<!-- SECTION 3: UPCOMING SCHEDULED CLOSURES LIST -->
+<section class="space-y-3">
+<div class="flex items-center justify-between">
+<h2 class="text-headline-sm font-headline-sm font-bold text-on-surface">Upcoming Scheduled Closures (2)</h2>
+<span class="text-body-sm font-body-sm font-semibold text-primary">RMS Live Sync</span>
+</div>
+<!-- Card 1 (Multi-Day Festival) -->
+<article class="bg-surface-container-lowest border border-outline-variant/60 rounded-xl p-4 shadow-[0_2px_8px_rgba(24,28,31,0.03)] space-y-3">
+<div class="flex items-start justify-between">
+<span class="bg-[#fef3c7] text-[#b45309] border border-[#fde68a] text-label-sm font-label-sm px-2.5 py-1 rounded-full uppercase tracking-wider font-extrabold flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">celebration</span>
+<span>FESTIVAL CLOSURE</span>
+</span>
+<span class="text-label-sm font-label-sm font-bold text-secondary">All Terminals</span>
+</div>
+<div>
+<h3 class="text-headline-sm font-headline-sm font-bold text-on-surface">Diwali &amp; Kali Puja Festival</h3>
+<p class="text-label-md font-label-md text-on-surface-variant font-medium mt-0.5 flex items-center gap-1">
+<span class="material-symbols-outlined text-[16px] text-[#b45309]">calendar_month</span>
+<span>Nov 12 – Nov 13, 2026 (2 Days Full Closure)</span>
+</p>
+</div>
+<!-- Channels Paused Chips -->
+<div>
+<span class="text-[11px] font-bold text-outline uppercase tracking-wider block mb-1.5">Paused Channels:</span>
+<div class="flex flex-wrap gap-1.5">
+<span class="inline-flex items-center gap-1 bg-[#fee2e2] text-[#b91c1c] text-label-sm font-label-sm px-2.5 py-1 rounded-full">
+<span class="material-symbols-outlined text-[14px]">pause_circle</span>
+<span>Delivery (App &amp; Aggregators)</span>
+</span>
+<span class="inline-flex items-center gap-1 bg-[#fee2e2] text-[#b91c1c] text-label-sm font-label-sm px-2.5 py-1 rounded-full">
+<span class="material-symbols-outlined text-[14px]">pause_circle</span>
+<span>Takeaway</span>
+</span>
+<span class="inline-flex items-center gap-1 bg-[#fee2e2] text-[#b91c1c] text-label-sm font-label-sm px-2.5 py-1 rounded-full">
+<span class="material-symbols-outlined text-[14px]">block</span>
+<span>Dine-in QR Table Pay</span>
+</span>
+</div>
+</div>
+<!-- Public Customer Notice Quote Box -->
+<div class="bg-surface-container-low border-l-4 border-[#d97706] p-2.5 rounded-r-lg">
+<span class="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider block">Customer Notice Preview</span>
+<p class="text-body-sm font-body-sm text-on-surface italic mt-0.5">
+              “Closed for Diwali festival celebrations. Reopening Nov 14 at 11:00 AM sharp.”
+            </p>
+</div>
+<!-- Action Row -->
+<div class="pt-2 border-t border-surface-container flex items-center justify-between">
+<button class="min-h-[48px] px-3 text-label-md font-label-md font-semibold text-primary hover:text-on-primary-fixed-variant flex items-center gap-1 active:scale-95 transition-all" type="button">
+<span class="material-symbols-outlined text-[18px]">edit_calendar</span>
+<span>Edit Dates</span>
+</button>
+<button class="min-h-[48px] px-3 text-label-md font-label-md font-semibold text-error hover:text-on-error-container flex items-center gap-1 active:scale-95 transition-all" type="button">
+<span class="material-symbols-outlined text-[18px]">delete</span>
+<span>Delete Closure</span>
+</button>
+</div>
+</article>
+<!-- Card 2 (Partial Day Maintenance) -->
+<article class="bg-surface-container-lowest border border-outline-variant/60 rounded-xl p-4 shadow-[0_2px_8px_rgba(24,28,31,0.03)] space-y-3">
+<div class="flex items-start justify-between">
+<span class="bg-[#eff6ff] text-[#1d4ed8] border border-[#bfdbfe] text-label-sm font-label-sm px-2.5 py-1 rounded-full uppercase tracking-wider font-extrabold flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">build_circle</span>
+<span>PARTIAL SHUTDOWN</span>
+</span>
+<span class="text-label-sm font-label-sm font-bold text-primary">Kitchen Work</span>
+</div>
+<div>
+<h3 class="text-headline-sm font-headline-sm font-bold text-on-surface">Kitchen Chimney &amp; Hood Degreasing</h3>
+<p class="text-label-md font-label-md text-on-surface-variant font-medium mt-0.5 flex items-center gap-1">
+<span class="material-symbols-outlined text-[16px] text-[#1d4ed8]">schedule</span>
+<span>Nov 24, 2026 · 06:00 to 16:00 (10 hrs)</span>
+</p>
+</div>
+<!-- Operational Impact Pill -->
+<div class="p-2 bg-surface-container-low rounded-lg text-body-sm font-body-sm text-on-surface flex items-center gap-2">
+<span class="material-symbols-outlined text-[18px] text-secondary">info</span>
+<span>Lunch service paused · Dinner service auto-resumes at 16:00</span>
+</div>
+<!-- Public Notice Quote -->
+<div class="bg-surface-container-low border-l-4 border-primary p-2.5 rounded-r-lg">
+<span class="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider block">Customer Notice Preview</span>
+<p class="text-body-sm font-body-sm text-on-surface italic mt-0.5">
+              “Kitchen deep maintenance. Dinner deliveries open at 4:00 PM.”
+            </p>
+</div>
+<!-- Action Row -->
+<div class="pt-2 border-t border-surface-container flex items-center justify-between">
+<button class="min-h-[48px] px-3 text-label-md font-label-md font-semibold text-primary hover:text-on-primary-fixed-variant flex items-center gap-1 active:scale-95 transition-all" type="button">
+<span class="material-symbols-outlined text-[18px]">update</span>
+<span>Edit Timings</span>
+</button>
+<button class="min-h-[48px] px-3 text-label-md font-label-md font-semibold text-outline hover:text-error flex items-center gap-1 active:scale-95 transition-all" type="button">
+<span class="material-symbols-outlined text-[18px]">cancel</span>
+<span>Cancel Maintenance</span>
+</button>
+</div>
+</article>
+</section>
+<!-- SECTION 4: QUICK ADD / SCHEDULE CLOSURE FORM CARD -->
+<section class="bg-surface-container-lowest border border-outline-variant rounded-xl p-4 shadow-[0_2px_12px_rgba(24,28,31,0.04)] space-y-4" id="quick-schedule">
+<div class="flex items-center gap-2 border-b border-surface-container pb-3">
+<div class="w-8 h-8 rounded-lg bg-primary-fixed flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-[20px]">edit_calendar</span>
+</div>
+<div>
+<h2 class="text-headline-sm font-headline-sm font-bold text-on-surface">Schedule New Planned Closure</h2>
+<p class="text-body-sm font-body-sm text-on-surface-variant">Update POS terminals, KDS lines, and aggregator shops</p>
+</div>
+</div>
+<!-- Form Body -->
+<form class="space-y-4" onsubmit="event.preventDefault();">
+<!-- Start Date & End Date Selectors -->
+<div class="grid grid-cols-2 gap-3">
+<div>
+<label class="block text-[12px] font-bold text-on-surface-variant mb-1" for="closure-start-date">START DATE</label>
+<div class="relative">
+<input class="w-full h-12 pl-3 pr-9 rounded-lg border border-outline-variant bg-surface-container-lowest text-on-surface font-semibold text-body-sm focus:border-primary-container focus:ring-0 focus:outline-none transition-all" id="closure-start-date" type="text" value="Nov 12, 2026"/>
+<span class="material-symbols-outlined absolute right-2.5 top-3 text-[20px] text-outline pointer-events-none">calendar_today</span>
+</div>
+</div>
+<div>
+<label class="block text-[12px] font-bold text-on-surface-variant mb-1" for="closure-end-date">END DATE</label>
+<div class="relative">
+<input class="w-full h-12 pl-3 pr-9 rounded-lg border border-outline-variant bg-surface-container-lowest text-on-surface font-semibold text-body-sm focus:border-primary-container focus:ring-0 focus:outline-none transition-all" id="closure-end-date" type="text" value="Nov 13, 2026"/>
+<span class="material-symbols-outlined absolute right-2.5 top-3 text-[20px] text-outline pointer-events-none">event</span>
+</div>
+</div>
+</div>
+<!-- Closure Type Selector Pills -->
+<div>
+<label class="block text-[12px] font-bold text-on-surface-variant mb-1.5">CLOSURE TYPE</label>
+<div class="grid grid-cols-3 gap-1.5 p-1 bg-surface-container-low rounded-lg border border-outline-variant/40">
+<button class="min-h-[44px] px-2 py-1.5 rounded-lg text-center font-label-sm text-[11px] font-bold transition-all bg-primary-container text-on-primary shadow-sm" type="button">
+                Full Day (All)
+              </button>
+<button class="min-h-[44px] px-2 py-1.5 rounded-lg text-center font-label-sm text-[11px] font-semibold transition-all text-on-surface-variant hover:text-on-surface hover:bg-surface-container-lowest" type="button">
+                Partial Shift
+              </button>
+<button class="min-h-[44px] px-2 py-1.5 rounded-lg text-center font-label-sm text-[11px] font-semibold transition-all text-on-surface-variant hover:text-on-surface hover:bg-surface-container-lowest" type="button">
+                Weekly Off
+              </button>
+</div>
+</div>
+<!-- Reason Category Dropdown -->
+<div>
+<label class="block text-[12px] font-bold text-on-surface-variant mb-1" for="closure-reason-select">REASON CATEGORY</label>
+<div class="relative">
+<select class="w-full h-12 pl-3 pr-9 rounded-lg border border-outline-variant bg-surface-container-lowest text-on-surface font-medium text-body-sm appearance-none focus:border-primary-container focus:ring-0 focus:outline-none transition-all" id="closure-reason-select">
+<option selected="" value="festival">Festival Holiday (Diwali / Puja / New Year)</option>
+<option value="maintenance">Equipment Maintenance (Hood / Chimney / Grease Trap)</option>
+<option value="outing">Staff Outing / Annual Restaurant Gala</option>
+<option value="renovation">Renovation / Deep Kitchen Sanitization</option>
+<option value="emergency">Civic Order / Weather Emergency Closure</option>
+</select>
+<span class="material-symbols-outlined absolute right-3 top-3 text-[22px] text-outline pointer-events-none">expand_more</span>
+</div>
+</div>
+<!-- Customer Notification Banner Text Input -->
+<div>
+<div class="flex items-center justify-between mb-1">
+<label class="block text-[12px] font-bold text-on-surface-variant" for="customer-banner-text">CUSTOMER APP NOTIFICATION BANNER</label>
+<span class="text-[11px] text-outline">64/120</span>
+</div>
+<textarea class="w-full p-3 rounded-lg border border-outline-variant bg-surface-container-lowest text-on-surface text-body-sm focus:border-primary-container focus:ring-0 focus:outline-none transition-all" id="customer-banner-text" placeholder="e.g. Closed for staff annual retreat. Reopening Monday at 10 AM." rows="3">Closed for Diwali festival celebrations. Reopening Nov 14 at 11:00 AM sharp.</textarea>
+</div>
+<!-- Broadcast SMS / Push Checkbox -->
+<div class="flex items-start gap-2.5 pt-1">
+<input checked="" class="w-5 h-5 mt-0.5 rounded border-outline-variant text-primary-container focus:ring-primary-container" id="auto-broadcast-check" type="checkbox"/>
+<label class="text-body-sm font-body-sm text-on-surface leading-tight cursor-pointer" for="auto-broadcast-check">
+              Auto-send SMS/App push notification to <strong class="font-bold text-primary">1,420 registered loyal diners</strong> 24 hours prior.
+            </label>
+</div>
+</form>
+</section>
+<!-- Culinary Operations Summary Footer Note -->
+<div class="px-2 py-3 bg-surface-container rounded-lg border border-outline-variant/30 flex items-center justify-between text-body-sm font-body-sm text-on-surface-variant">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[20px] text-primary">receipt_long</span>
+<span>Aggregator APIs: Zomato, Swiggy, UberEats Linked</span>
+</div>
+<span class="w-2 h-2 rounded-full bg-[#15803d]"></span>
+</div>
+</main>
+<!-- SECTION 5: STICKY BOTTOM ACTION FOOTER -->
+<footer class="fixed bottom-0 left-0 right-0 z-50 flex justify-center bg-surface-container-lowest/95 backdrop-blur-md border-t border-outline-variant/50 px-margin-mobile py-3 shadow-[0_-4px_16px_rgba(24,28,31,0.06)]">
+<div class="w-full max-w-[420px] space-y-2">
+<button class="w-full h-[52px] rounded-lg bg-primary-container text-on-primary font-bold text-label-lg tracking-wide shadow-md hover:bg-primary-container/90 active:scale-[0.98] transition-all flex items-center justify-center gap-2" type="button">
+<span class="material-symbols-outlined text-[22px]">save</span>
+<span>Save Closure Schedule</span>
+</button>
+<div class="text-center">
+<a class="inline-block py-1 text-label-md font-label-md text-primary font-semibold hover:underline" href="#rm-035">
+            View Operating Shifts &amp; Breaks (RM-035) →
+          </a>
+</div>
+</div>
+</footer>
+</div>
+</body></html>

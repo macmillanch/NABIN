@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>RM-055: Merchant Notifications &amp; Broadcast Announcements</title>
+<!-- Material Symbols Outlined -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Inter Google Font -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS with Forms and Container Queries -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "surface-container-high": "#e6e8ec",
+            "tertiary-fixed-dim": "#62df7d",
+            "inverse-on-surface": "#eff1f5",
+            "on-primary-fixed": "#001452",
+            "secondary-fixed-dim": "#ffb59b",
+            "on-secondary-fixed": "#380d00",
+            "surface-tint": "#3a56bd",
+            "tertiary-container": "#005120",
+            "on-primary": "#ffffff",
+            "primary": "#00247f",
+            "on-surface-variant": "#444653",
+            "surface-dim": "#d8dade",
+            "secondary-container": "#fc6b32",
+            "outline-variant": "#c5c5d5",
+            "error": "#ba1a1a",
+            "on-tertiary-container": "#4cca6c",
+            "on-surface": "#181c1f",
+            "error-container": "#ffdad6",
+            "primary-fixed-dim": "#b7c4ff",
+            "surface-bright": "#f7f9fd",
+            "tertiary": "#003813",
+            "surface-container": "#eceef2",
+            "on-secondary-fixed-variant": "#812800",
+            "background": "#f7f9fd",
+            "inverse-surface": "#2d3134",
+            "tertiary-fixed": "#7ffc97",
+            "on-secondary-container": "#5c1a00",
+            "on-error": "#ffffff",
+            "inverse-primary": "#b7c4ff",
+            "on-background": "#181c1f",
+            "surface-variant": "#e0e3e6",
+            "secondary": "#a93700",
+            "surface-container-lowest": "#ffffff",
+            "primary-fixed": "#dde1ff",
+            "on-tertiary-fixed-variant": "#005320",
+            "on-error-container": "#93000a",
+            "secondary-fixed": "#ffdbcf",
+            "on-secondary": "#ffffff",
+            "on-primary-fixed-variant": "#1c3da4",
+            "surface": "#f7f9fd",
+            "surface-container-highest": "#e0e3e6",
+            "outline": "#757684",
+            "on-primary-container": "#9cafff",
+            "surface-container-low": "#f2f4f8",
+            "primary-container": "#1a3ba2",
+            "on-tertiary": "#ffffff",
+            "on-tertiary-fixed": "#002109"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.25rem",
+            "lg": "0.5rem",
+            "xl": "0.75rem",
+            "full": "9999px"
+          },
+          "spacing": {
+            "margin": "1.5rem",
+            "space-lg": "1.5rem",
+            "gutter": "1rem",
+            "space-md": "1rem",
+            "gutter-kds": "1.25rem",
+            "space-xl": "2rem",
+            "margin-mobile": "1rem",
+            "space-xs": "0.25rem",
+            "space-sm": "0.5rem"
+          },
+          "fontFamily": {
+            "headline-xl-mobile": ["Inter"],
+            "headline-xl": ["Inter"],
+            "headline-lg-mobile": ["Inter"],
+            "ticket-mono": ["Inter"],
+            "headline-lg": ["Inter"],
+            "label-sm": ["Inter"],
+            "body-lg": ["Inter"],
+            "label-md": ["Inter"],
+            "body-sm": ["Inter"],
+            "headline-sm": ["Inter"],
+            "headline-md": ["Inter"],
+            "label-lg": ["Inter"],
+            "body-md": ["Inter"]
+          },
+          "fontSize": {
+            "headline-xl-mobile": ["30px", {"lineHeight": "38px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+            "headline-xl": ["40px", {"lineHeight": "48px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+            "headline-lg-mobile": ["24px", {"lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "700"}],
+            "ticket-mono": ["16px", {"lineHeight": "20px", "letterSpacing": "0.05em", "fontWeight": "700"}],
+            "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.015em", "fontWeight": "700"}],
+            "label-sm": ["11px", {"lineHeight": "14px", "letterSpacing": "0.04em", "fontWeight": "700"}],
+            "body-lg": ["18px", {"lineHeight": "26px", "fontWeight": "500"}],
+            "label-md": ["13px", {"lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "600"}],
+            "body-sm": ["13px", {"lineHeight": "18px", "fontWeight": "400"}],
+            "headline-sm": ["20px", {"lineHeight": "28px", "fontWeight": "600"}],
+            "headline-md": ["24px", {"lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+            "label-lg": ["15px", {"lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600"}],
+            "body-md": ["15px", {"lineHeight": "22px", "fontWeight": "400"}]
+          }
+        }
+      }
+    };
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 500, 'GRAD' 0, 'opsz' 24;
+      display: inline-block;
+      vertical-align: middle;
+      line-height: 1;
+    }
+    .no-scrollbar::-webkit-scrollbar {
+      display: none;
+    }
+    .no-scrollbar {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+  </style>
+</head>
+<body class="bg-background text-on-surface antialiased font-body-md text-body-md min-h-screen pb-20 selection:bg-primary-fixed selection:text-on-primary-fixed">
+<!-- Top App Bar (Shared Component Anchor) -->
+<header class="fixed top-0 left-0 w-full z-50 flex items-center justify-between px-margin-mobile h-14 bg-surface-container-lowest border-b border-outline-variant shadow-sm">
+<div class="flex items-center gap-2">
+<button aria-label="Go back" class="flex items-center justify-center w-11 h-11 -ml-1.5 rounded-lg text-on-surface hover:bg-surface-container active:scale-95 transition-all duration-150" type="button">
+<span class="material-symbols-outlined text-primary text-[24px]">arrow_back</span>
+</button>
+<div class="flex items-center gap-2">
+<img alt="NABIN logo icon" class="w-6 h-7 object-contain" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAmoUGwEiAOgmB39Xhxdj8NT1j-IFIMrxa4KR1VXQ0cCuw8BilBf2wIFUlwYZPphpbYHoqziQGDVodSDtSbfPuCX4sRgvyY_OSBViHYRADngVEsPSRvyE4BHtM1qQDSu9N_XgCrZDYw_gUgvxoEAgacXO4WocPE4XNg4jOvDQ7nWLaK-KijSUpkDbbiCN6WiuO6YO6S1S9ExNfAa53WhACcYqmCARBBwAa9Zo-zDb1t16WyPEi03hmnQuilANOpHCOhHh1sKydBapQ"/>
+<h1 class="font-headline-sm text-headline-sm text-on-surface tracking-tight truncate max-w-[190px]">
+          Notifications &amp; Broadcasts
+        </h1>
+</div>
+</div>
+<button class="text-primary font-label-md text-label-md hover:bg-surface-container px-2.5 py-2 rounded-lg transition-all duration-150 active:scale-98 min-h-[44px] flex items-center justify-center whitespace-nowrap" type="button">
+      Mark all read
+    </button>
+</header>
+<!-- Mobile Viewport Wrapper (390px base width centered) -->
+<main class="max-w-[420px] mx-auto pt-16 px-3.5 space-y-3.5">
+<!-- Category Filter Pill Bar -->
+<section aria-label="Notification Categories" class="pt-1">
+<div class="flex items-center gap-2 overflow-x-auto no-scrollbar py-1 -mx-3.5 px-3.5">
+<!-- Active Pill -->
+<button class="flex-shrink-0 flex items-center gap-1.5 bg-primary-container text-on-primary px-4 py-2 rounded-full font-label-md text-label-md shadow-sm active:scale-95 transition-transform min-h-[40px]" type="button">
+<span>All (5)</span>
+</button>
+<!-- Inactive Pill 1 -->
+<button class="flex-shrink-0 flex items-center gap-1.5 bg-surface-container-lowest border border-outline-variant text-on-surface-variant font-label-md text-label-md px-3.5 py-2 rounded-full hover:bg-surface-container active:scale-95 transition-all min-h-[40px]" type="button">
+<span class="w-1.5 h-1.5 rounded-full bg-secondary-container"></span>
+<span>Kitchen &amp; Orders (2)</span>
+</button>
+<!-- Inactive Pill 2 -->
+<button class="flex-shrink-0 flex items-center gap-1.5 bg-surface-container-lowest border border-outline-variant text-on-surface-variant font-label-md text-label-md px-3.5 py-2 rounded-full hover:bg-surface-container active:scale-95 transition-all min-h-[40px]" type="button">
+<span>Finance &amp; Payouts (1)</span>
+</button>
+<!-- Inactive Pill 3 -->
+<button class="flex-shrink-0 flex items-center gap-1.5 bg-surface-container-lowest border border-outline-variant text-on-surface-variant font-label-md text-label-md px-3.5 py-2 rounded-full hover:bg-surface-container active:scale-95 transition-all min-h-[40px]" type="button">
+<span>Announcements (2)</span>
+</button>
+</div>
+</section>
+<!-- Priority Hero Item: Pinned Broadcast Announcement Card -->
+<section aria-label="Official Broadcast">
+<div class="relative bg-gradient-to-br from-[#FFFBEB] via-[#FEF3C7]/40 to-[#FFF7ED] border-2 border-[#FDE68A] rounded-xl p-4 shadow-sm overflow-hidden">
+<!-- Pinned Watermark Accent -->
+<div class="absolute -right-3 -bottom-3 text-secondary-fixed/50 pointer-events-none select-none">
+<span class="material-symbols-outlined text-[90px] opacity-15">campaign</span>
+</div>
+<!-- Header line -->
+<div class="flex items-center justify-between gap-2 mb-2 relative z-10">
+<div class="flex items-center gap-1.5">
+<span class="flex items-center justify-center w-6 h-6 rounded-md bg-[#FEF3C7] text-secondary">
+<span class="material-symbols-outlined text-[16px]" style="font-variation-settings: 'FILL' 1;">campaign</span>
+</span>
+<span class="font-label-sm text-label-sm tracking-wider uppercase text-secondary font-bold">
+              OFFICIAL BROADCAST
+            </span>
+</div>
+<span class="inline-flex items-center gap-1 bg-[#FDE68A] text-[#92400E] font-label-sm text-[10px] uppercase font-bold px-2 py-0.5 rounded-full">
+<span class="material-symbols-outlined text-[12px]" style="font-variation-settings: 'FILL' 1;">push_pin</span>
+            PINNED
+          </span>
+</div>
+<!-- Content -->
+<div class="relative z-10 space-y-1.5">
+<h2 class="font-headline-sm text-[17px] leading-tight font-bold text-on-surface">
+            Diwali Festival Surge Incentive: Earn ₹15 bonus per delivered order
+          </h2>
+<p class="font-body-sm text-body-sm text-on-surface-variant leading-relaxed">
+            Valid during peak dinner hours (19:00–23:00) from Oct 29 to Nov 3. Auto-credited to your daily settlement ledger.
+          </p>
+</div>
+<!-- CTA footer -->
+<div class="mt-3 pt-2.5 border-t border-[#FDE68A]/60 flex items-center justify-between relative z-10">
+<button class="inline-flex items-center gap-1 font-label-md text-label-md font-bold text-primary-container hover:text-primary transition-colors min-h-[44px]" type="button">
+<span>View Incentive Terms</span>
+<span class="material-symbols-outlined text-[18px]">arrow_forward</span>
+</button>
+<span class="font-label-sm text-[11px] text-[#B45309] font-medium">Valid for 5 days</span>
+</div>
+</div>
+</section>
+<!-- Notification Feed Section -->
+<section aria-label="Notification Feed" class="space-y-3">
+<div class="flex items-center justify-between px-0.5">
+<h3 class="font-label-md text-label-md uppercase tracking-wider text-outline font-bold">
+          Operational Activity &amp; Alerts
+        </h3>
+<span class="font-label-sm text-label-sm text-on-surface-variant font-medium">5 total</span>
+</div>
+<!-- Item 1: Kitchen SLA / Urgent Capacity (UNREAD) -->
+<article class="bg-surface-container-lowest border-2 border-secondary-container/30 rounded-xl p-4 shadow-sm hover:border-secondary-container transition-all relative">
+<div class="flex items-start gap-3">
+<!-- Icon -->
+<div class="flex-shrink-0 w-10 h-10 rounded-lg bg-[#FEF2F2] flex items-center justify-center text-error border border-error/20">
+<span class="material-symbols-outlined text-[22px]" style="font-variation-settings: 'FILL' 1;">local_fire_department</span>
+</div>
+<!-- Body Container -->
+<div class="flex-1 min-w-0">
+<div class="flex items-center justify-between gap-1 mb-1">
+<span class="inline-flex items-center px-2 py-0.5 rounded-full font-label-sm text-label-sm bg-[#FFEDD5] text-[#C2410C] font-bold">
+                KITCHEN SLA
+              </span>
+<div class="flex items-center gap-1.5">
+<span class="font-label-sm text-label-sm text-outline">12m ago</span>
+<!-- Vibrant Blue Unread Dot -->
+<span class="w-2.5 h-2.5 rounded-full bg-primary-container shadow-sm ring-2 ring-surface-container-lowest" title="Unread"></span>
+</div>
+</div>
+<h4 class="font-headline-sm text-[15px] font-bold text-on-surface leading-snug">
+              Kamalanagar High Order Volume Alert
+            </h4>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-1 leading-relaxed">
+              Cluster order demand up 45%. 16 orders active. Toggle prep buffer (+10m) if your kitchen reaches maximum station capacity.
+            </p>
+<!-- Inline Quick Action Button -->
+<div class="mt-3 flex flex-wrap items-center gap-2">
+<button class="inline-flex items-center justify-center gap-1.5 bg-secondary-container text-on-secondary px-3.5 py-2 rounded-lg font-label-md text-label-md font-bold hover:opacity-95 active:scale-95 transition-all min-h-[44px]" type="button">
+<span class="material-symbols-outlined text-[18px]">more_time</span>
+<span>+10m Prep Buffer</span>
+</button>
+<button class="inline-flex items-center justify-center gap-1 bg-surface-container text-on-surface px-3 py-2 rounded-lg font-label-md text-label-md hover:bg-surface-container-high active:scale-95 transition-all min-h-[44px]" type="button">
+<span class="material-symbols-outlined text-[18px]">kitchen</span>
+<span>Open Live Orders</span>
+</button>
+</div>
+</div>
+</div>
+</article>
+<!-- Item 2: Financial Payout (READ) -->
+<article class="bg-surface-container-lowest border border-outline-variant/70 rounded-xl p-4 shadow-sm hover:border-outline transition-all">
+<div class="flex items-start gap-3">
+<!-- Icon -->
+<div class="flex-shrink-0 w-10 h-10 rounded-lg bg-[#F0FDF4] flex items-center justify-center text-[#16A34A] border border-[#BBF7D0]">
+<span class="material-symbols-outlined text-[22px]" style="font-variation-settings: 'FILL' 1;">account_balance</span>
+</div>
+<!-- Body -->
+<div class="flex-1 min-w-0">
+<div class="flex items-center justify-between gap-1 mb-1">
+<span class="inline-flex items-center px-2 py-0.5 rounded-full font-label-sm text-label-sm bg-[#DCFCE7] text-[#15803D] font-bold">
+                PAYOUTS &amp; LEDGER
+              </span>
+<span class="font-label-sm text-label-sm text-outline">2h ago</span>
+</div>
+<h4 class="font-headline-sm text-[15px] font-bold text-on-surface leading-snug">
+              Daily Payout Credited — UTR #HDFC89124
+            </h4>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-1 leading-relaxed">
+              ₹38,412.50 has been settled to your registered HDFC Bank account ending in <span class="font-semibold text-on-surface">**4821</span>.
+            </p>
+<!-- Inline Link -->
+<div class="mt-2.5">
+<button class="inline-flex items-center gap-1 font-label-md text-label-md font-semibold text-primary hover:text-primary-container transition-colors min-h-[44px]" type="button">
+<span>View Statement (RM-047)</span>
+<span class="material-symbols-outlined text-[16px]">arrow_forward</span>
+</button>
+</div>
+</div>
+</div>
+</article>
+<!-- Item 3: Menu Catalog / 86 List (READ) -->
+<article class="bg-surface-container-lowest border border-outline-variant/70 rounded-xl p-4 shadow-sm hover:border-outline transition-all">
+<div class="flex items-start gap-3">
+<!-- Icon -->
+<div class="flex-shrink-0 w-10 h-10 rounded-lg bg-[#FEF3C7] flex items-center justify-center text-[#D97706] border border-[#FDE68A]">
+<span class="material-symbols-outlined text-[22px]">restaurant_menu</span>
+</div>
+<!-- Body -->
+<div class="flex-1 min-w-0">
+<div class="flex items-center justify-between gap-1 mb-1">
+<span class="inline-flex items-center px-2 py-0.5 rounded-full font-label-sm text-label-sm bg-[#FEF3C7] text-[#D97706] font-bold">
+                MENU &amp; 86 LIST
+              </span>
+<span class="font-label-sm text-label-sm text-outline">4h ago</span>
+</div>
+<h4 class="font-headline-sm text-[15px] font-bold text-on-surface leading-snug">
+              Auto-86 Out-of-Stock: Butter Naan
+            </h4>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-1 leading-relaxed">
+              Marked temporarily unavailable after inventory limit reached. Tap to resume availability for incoming diner orders.
+            </p>
+<!-- Inline Action Button -->
+<div class="mt-3">
+<button class="inline-flex items-center justify-center gap-1.5 bg-surface-container border border-outline-variant text-on-surface px-3.5 py-2 rounded-lg font-label-md text-label-md font-bold hover:bg-surface-container-high active:scale-95 transition-all min-h-[44px]" type="button">
+<span class="material-symbols-outlined text-[18px] text-tertiary">check_circle</span>
+<span>Mark In-Stock Now</span>
+</button>
+</div>
+</div>
+</div>
+</article>
+<!-- Item 4: Regulatory Compliance (UNREAD) -->
+<article class="bg-surface-container-lowest border border-outline-variant/70 rounded-xl p-4 shadow-sm hover:border-outline transition-all relative">
+<div class="flex items-start gap-3">
+<!-- Icon -->
+<div class="flex-shrink-0 w-10 h-10 rounded-lg bg-[#FAF5FF] flex items-center justify-center text-[#9333EA] border border-[#F3E8FF]">
+<span class="material-symbols-outlined text-[22px]" style="font-variation-settings: 'FILL' 1;">verified_user</span>
+</div>
+<!-- Body -->
+<div class="flex-1 min-w-0">
+<div class="flex items-center justify-between gap-1 mb-1">
+<span class="inline-flex items-center px-2 py-0.5 rounded-full font-label-sm text-label-sm bg-[#FAF5FF] text-[#9333EA] font-bold">
+                COMPLIANCE &amp; FSSAI
+              </span>
+<div class="flex items-center gap-1.5">
+<span class="font-label-sm text-label-sm text-outline">Yesterday</span>
+<!-- Blue Unread Dot -->
+<span class="w-2.5 h-2.5 rounded-full bg-primary-container shadow-sm ring-2 ring-surface-container-lowest" title="Unread"></span>
+</div>
+</div>
+<h4 class="font-headline-sm text-[15px] font-bold text-on-surface leading-snug">
+              FSSAI Annual Renewal Required
+            </h4>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-1 leading-relaxed">
+              Your food license expires in 24 days. Upload your renewed FSSAI certificate to maintain active store status without interruption.
+            </p>
+<!-- Inline Link -->
+<div class="mt-2.5">
+<button class="inline-flex items-center gap-1 font-label-md text-label-md font-semibold text-primary hover:text-primary-container transition-colors min-h-[44px]" type="button">
+<span>Upload Document (RM-006)</span>
+<span class="material-symbols-outlined text-[16px]">arrow_forward</span>
+</button>
+</div>
+</div>
+</div>
+</article>
+<!-- Item 5: Thermal Hardware Update (READ) -->
+<article class="bg-surface-container-lowest border border-outline-variant/70 rounded-xl p-4 shadow-sm hover:border-outline transition-all">
+<div class="flex items-start gap-3">
+<!-- Icon -->
+<div class="flex-shrink-0 w-10 h-10 rounded-lg bg-[#EFF6FF] flex items-center justify-center text-[#2563EB] border border-[#DBEAFE]">
+<span class="material-symbols-outlined text-[22px]">print</span>
+</div>
+<!-- Body -->
+<div class="flex-1 min-w-0">
+<div class="flex items-center justify-between gap-1 mb-1">
+<span class="inline-flex items-center px-2 py-0.5 rounded-full font-label-sm text-label-sm bg-[#DBEAFE] text-[#1E40AF] font-bold">
+                THERMAL HARDWARE
+              </span>
+<span class="font-label-sm text-label-sm text-outline">2 days ago</span>
+</div>
+<h4 class="font-headline-sm text-[15px] font-bold text-on-surface leading-snug">
+              Thermal Printer Firmware Update v2.4
+            </h4>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-1 leading-relaxed">
+              Enhanced Bluetooth BLE reconnection stability for 58mm mobile receipt printers is now available.
+            </p>
+<!-- Inline Link -->
+<div class="mt-2.5">
+<button class="inline-flex items-center gap-1 font-label-md text-label-md font-semibold text-primary hover:text-primary-container transition-colors min-h-[44px]" type="button">
+<span>Update Printer Settings (RM-041)</span>
+<span class="material-symbols-outlined text-[16px]">arrow_forward</span>
+</button>
+</div>
+</div>
+</div>
+</article>
+</section>
+<!-- Feed Footer: Catch-Up & Notification Settings -->
+<section class="pt-3 pb-8 text-center space-y-3">
+<div class="inline-flex items-center justify-center w-12 h-12 rounded-full bg-surface-container border border-outline-variant/50 text-primary-container">
+<span class="material-symbols-outlined text-[26px]">task_alt</span>
+</div>
+<div class="space-y-1">
+<p class="font-label-md text-label-md font-semibold text-on-surface">
+          You are all caught up on operational notices
+        </p>
+<p class="font-body-sm text-[12px] text-outline">
+          Critical order alarms and KDS overrides will trigger chime alerts in real-time.
+        </p>
+</div>
+<div class="pt-1">
+<button class="w-full inline-flex items-center justify-center gap-2 bg-surface-container-lowest border border-outline-variant text-on-surface hover:bg-surface-container font-label-md text-label-md py-3 px-4 rounded-xl shadow-sm transition-all active:scale-98 min-h-[48px]" type="button">
+<span class="material-symbols-outlined text-[20px] text-on-surface-variant">tune</span>
+<span>Notification &amp; Sound Settings</span>
+</button>
+</div>
+</section>
+</main>
+<!-- BottomNavBar (Shared Component Anchor) -->
+<nav class="fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-2 py-1 bg-surface-container-lowest border-t border-outline-variant min-h-[56px] shadow-sm">
+<!-- Tab 1: Orders -->
+<a class="flex flex-col items-center justify-center text-on-surface-variant px-3 py-1.5 min-h-[48px] hover:bg-surface-container-low transition-colors" href="#">
+<span class="material-symbols-outlined text-[22px]">receipt_long</span>
+<span class="font-label-sm text-label-sm mt-0.5">Orders</span>
+</a>
+<!-- Tab 2: Kitchen -->
+<a class="flex flex-col items-center justify-center text-on-surface-variant px-3 py-1.5 min-h-[48px] hover:bg-surface-container-low transition-colors" href="#">
+<span class="material-symbols-outlined text-[22px]">skillet</span>
+<span class="font-label-sm text-label-sm mt-0.5">Kitchen</span>
+</a>
+<!-- Tab 3: Broadcasts (Active Destination) -->
+<a class="flex flex-col items-center justify-center bg-primary-fixed text-on-primary-fixed rounded-xl px-3 py-1.5 min-h-[48px] font-semibold transition-all" href="#">
+<span class="material-symbols-outlined text-[22px]" style="font-variation-settings: 'FILL' 1;">notifications</span>
+<span class="font-label-sm text-label-sm mt-0.5">Broadcasts</span>
+</a>
+<!-- Tab 4: Settings -->
+<a class="flex flex-col items-center justify-center text-on-surface-variant px-3 py-1.5 min-h-[48px] hover:bg-surface-container-low transition-colors" href="#">
+<span class="material-symbols-outlined text-[22px]">tune</span>
+<span class="font-label-sm text-label-sm mt-0.5">Settings</span>
+</a>
+</nav>
+</body></html>

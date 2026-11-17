@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+
+<html lang="en"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" name="viewport"/><meta content="mobile_stack" name="shell-type"/><style>@layer base{html,body{width:100vw;margin:0;padding:0;}body{overscroll-behavior:none;}.pb-safe{padding-bottom:env(safe-area-inset-bottom,0px);}.pt-safe{padding-top:env(safe-area-inset-top,0px);}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config = { darkMode: "class", theme: { extend: { colors: { "primary-container": "#1a3ba2", "surface-container-lowest": "#ffffff", "background": "#f7f9fd", "on-primary-fixed": "#001452", "on-secondary-container": "#5c1a00", "on-primary-container": "#9cafff", "surface": "#f7f9fd", "primary": "#00247f", "surface-container-low": "#f2f4f8", "outline": "#757684", "surface-container-high": "#e6e8ec", "error": "#ba1a1a", "error-container": "#ffdad6", "on-secondary-fixed-variant": "#812800", "on-background": "#181c1f", "outline-variant": "#c5c5d5", "tertiary": "#003813", "primary-fixed": "#dde1ff", "on-primary": "#ffffff", "on-error-container": "#93000a", "on-tertiary-container": "#4cca6c", "on-secondary": "#ffffff", "secondary-fixed": "#ffdbcf", "secondary-container": "#fc6b32", "inverse-primary": "#b7c4ff", "primary-fixed-dim": "#b7c4ff", "surface-dim": "#d8dade", "secondary-fixed-dim": "#ffb59b", "on-tertiary": "#ffffff", "inverse-surface": "#2d3134", "on-surface-variant": "#444653", "inverse-on-surface": "#eff1f5", "on-error": "#ffffff", "on-secondary-fixed": "#380d00", "on-surface": "#181c1f", "tertiary-fixed": "#7ffc97", "surface-variant": "#e0e3e6", "surface-tint": "#3a56bd", "surface-container": "#eceef2", "surface-container-highest": "#e0e3e6", "on-primary-fixed-variant": "#1c3da4", "on-tertiary-fixed-variant": "#005320", "surface-bright": "#f7f9fd", "tertiary-fixed-dim": "#62df7d", "on-tertiary-fixed": "#002109", "tertiary-container": "#005120", "secondary": "#a93700" }, borderRadius: { "DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px" }, spacing: { "space-sm": "0.5rem", "margin-mobile": "1rem", "gutter": "1rem", "gutter-kds": "1.25rem", "space-xl": "2rem", "margin": "1.5rem", "space-xs": "0.25rem", "space-md": "1rem", "space-lg": "1.5rem" }, fontFamily: { "body-lg": ["Inter"], "label-lg": ["Inter"], "ticket-mono": ["Inter"], "headline-xl-mobile": ["Inter"], "headline-xl": ["Inter"], "body-sm": ["Inter"], "label-md": ["Inter"], "headline-lg-mobile": ["Inter"], "headline-md": ["Inter"], "headline-lg": ["Inter"], "body-md": ["Inter"], "headline-sm": ["Inter"], "label-sm": ["Inter"] }, fontSize: { "body-lg": ["18px", { "lineHeight": "26px", "fontWeight": "500" }], "label-lg": ["15px", { "lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600" }], "ticket-mono": ["16px", { "lineHeight": "20px", "letterSpacing": "0.05em", "fontWeight": "700" }], "headline-xl-mobile": ["30px", { "lineHeight": "38px", "letterSpacing": "-0.02em", "fontWeight": "700" }], "headline-xl": ["40px", { "lineHeight": "48px", "letterSpacing": "-0.02em", "fontWeight": "700" }], "body-sm": ["13px", { "lineHeight": "18px", "fontWeight": "400" }], "label-md": ["13px", { "lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "600" }], "headline-lg-mobile": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "700" }], "headline-md": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }], "headline-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.015em", "fontWeight": "700" }], "body-md": ["15px", { "lineHeight": "22px", "fontWeight": "400" }], "headline-sm": ["20px", { "lineHeight": "28px", "fontWeight": "600" }], "label-sm": ["11px", { "lineHeight": "14px", "letterSpacing": "0.04em", "fontWeight": "700" }] } } } };</script><style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head><body class="bg-surface font-body-md text-on-surface min-h-screen flex flex-col antialiased selection:bg-primary selection:text-on-primary"><header class="fixed top-0 inset-x-0 z-50 bg-surface/90 backdrop-blur-xl shadow-[0_1px_8px_rgba(0,0,0,0.04)] pt-safe"><div class="h-16 px-margin-mobile flex items-center justify-between gap-space-sm"><div class="flex items-center gap-space-xs min-w-0 flex-1"><button aria-label="Go back" class="w-11 h-11 -ml-1 flex items-center justify-center text-on-surface hover:text-primary transition-colors shrink-0" onclick="history.back()"><span class="material-symbols-outlined text-[24px]">arrow_back</span></button><img alt="NABIN Logo" class="h-6 w-auto object-contain shrink-0" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDIUmrxKI9QMynyqgzTjOR2xYU02Wy5Ona-jBcAnSDs5F2jOxxRv6YxL8ngGl34VYmZmF0KZuBRTsgg6Q12qMwHFuHlsHP9QDM_yp0zrpuRnfe-3gAJ1MpgfCmUuGgCbHzsR6JXirbcpLQL9ipZWKyocarKopoN6t4Q9w50VQVfNmI5apKzRL5KBlvQX8iIFa2xbhbRlnOZHfs3zWgHjvQ_ve1C7M_JbKIfxUHzuHaJ7LAveEUYlgB6"/><h1 class="font-headline-sm text-headline-sm text-on-surface truncate ml-1">Rm 025: Kds Display Settings</h1></div><div class="flex items-center gap-space-xs shrink-0"><button aria-label="Audio Alerts" class="w-11 h-11 flex items-center justify-center text-on-surface hover:text-primary transition-colors"><span class="material-symbols-outlined text-[20px]">volume_up</span></button><div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center shrink-0"><span class="material-symbols-outlined text-on-primary text-[18px]">person</span></div></div></div></header><main class="flex flex-col relative w-full pt-16 pb-safe bg-surface min-h-screen"><div class="flex flex-col w-full px-margin-mobile pb-space-xl gap-space-md">
+<!-- Station Header & Context Banner -->
+<div class="bg-surface-container-low rounded-xl p-space-md shadow-sm mt-space-sm flex items-center justify-between">
+<div class="flex items-center gap-space-sm min-w-0">
+<div class="w-10 h-10 rounded-lg bg-primary-fixed flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-primary text-[22px]" style="font-variation-settings: 'FILL' 1;">kitchen</span>
+</div>
+<div class="min-w-0">
+<div class="flex items-center gap-space-xs">
+<span class="font-ticket-mono text-ticket-mono text-primary">STN-01</span>
+<span class="bg-tertiary-container text-on-tertiary-container text-label-sm font-label-sm px-2 py-0.5 rounded-full uppercase tracking-wider">Online</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant truncate">Hot Line Display • Wall Mount 24"</p>
+</div>
+</div>
+<button class="h-9 px-space-sm bg-surface-container rounded-lg text-primary font-label-md text-label-md flex items-center gap-1 active:scale-95 transition-transform shrink-0" onclick="resetDefaults()" type="button">
+<span class="material-symbols-outlined text-[18px]">restart_alt</span>
+<span>Reset</span>
+</button>
+</div>
+<!-- Section 1: Display Mode & Kitchen Theme -->
+<section class="flex flex-col gap-space-sm">
+<div class="flex items-center justify-between">
+<h2 class="font-headline-sm text-headline-sm text-on-surface flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-primary text-[20px]">palette</span>
+        Display &amp; Ergonomics
+      </h2>
+<span class="font-label-sm text-label-sm text-on-surface-variant uppercase">Lighting Sync</span>
+</div>
+<!-- Theme Cards (Segmented Selection) -->
+<div aria-label="Theme Selection" class="grid grid-cols-2 gap-space-sm" role="radiogroup">
+<!-- High Contrast Light (Selected) -->
+<button class="relative flex flex-col p-space-sm rounded-xl bg-surface-container-lowest shadow-sm text-left active:scale-[0.98] transition-all" id="theme-light-btn" onclick="selectTheme('light')" style="box-shadow: inset 0 0 0 2px #00247f;" type="button">
+<div class="w-full h-16 rounded-lg bg-surface-container-low p-2 flex flex-col gap-1.5 justify-between">
+<div class="flex justify-between items-center">
+<span class="w-6 h-2 rounded bg-primary"></span>
+<span class="w-4 h-2 rounded bg-secondary-container"></span>
+</div>
+<div class="flex gap-1">
+<span class="w-1/2 h-4 rounded bg-surface-container-lowest shadow-xs"></span>
+<span class="w-1/2 h-4 rounded bg-surface-container-lowest shadow-xs"></span>
+</div>
+</div>
+<div class="mt-space-sm flex items-start justify-between">
+<div class="min-w-0 pr-1">
+<p class="font-label-lg text-label-lg text-on-surface truncate">High Contrast Light</p>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Clean line / Daylight prep</p>
+</div>
+<span class="material-symbols-outlined text-primary text-[20px] shrink-0" id="theme-light-check" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+</div>
+</button>
+<!-- Kitchen Dark Mode (Unselected) -->
+<button class="relative flex flex-col p-space-sm rounded-xl bg-surface-container-low shadow-sm text-left active:scale-[0.98] transition-all" id="theme-dark-btn" onclick="selectTheme('dark')" type="button">
+<div class="w-full h-16 rounded-lg bg-inverse-surface p-2 flex flex-col gap-1.5 justify-between">
+<div class="flex justify-between items-center">
+<span class="w-6 h-2 rounded bg-inverse-primary"></span>
+<span class="w-4 h-2 rounded bg-secondary-container"></span>
+</div>
+<div class="flex gap-1">
+<span class="w-1/2 h-4 rounded bg-[#1f2429]"></span>
+<span class="w-1/2 h-4 rounded bg-[#1f2429]"></span>
+</div>
+</div>
+<div class="mt-space-sm flex items-start justify-between">
+<div class="min-w-0 pr-1">
+<p class="font-label-lg text-label-lg text-on-surface truncate">Kitchen Dark (OLED)</p>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Anti-glare under heat lamps</p>
+</div>
+<span class="material-symbols-outlined text-outline text-[20px] shrink-0" id="theme-dark-check">radio_button_unchecked</span>
+</div>
+</button>
+</div>
+<!-- Screen Orientation Setting -->
+<div class="bg-surface-container-lowest rounded-xl p-space-md shadow-sm flex items-center justify-between">
+<div class="flex items-center gap-space-sm min-w-0 pr-space-xs">
+<div class="w-10 h-10 rounded-lg bg-surface-container flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-on-surface text-[22px]">screen_rotation</span>
+</div>
+<div class="min-w-0">
+<p class="font-label-lg text-label-lg text-on-surface">Screen Orientation</p>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Landscape Locked (Cook Wall)</p>
+</div>
+</div>
+<span class="font-ticket-mono text-label-md text-primary bg-primary-fixed px-space-sm py-1 rounded-lg shrink-0">16:9 FIXED</span>
+</div>
+</section>
+<!-- Section 2: Ticket Typography & Density -->
+<section class="bg-surface-container-lowest rounded-xl p-space-md shadow-sm flex flex-col gap-space-md">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-primary text-[20px]">format_size</span>
+<h2 class="font-headline-sm text-headline-sm text-on-surface">Typography &amp; Scale</h2>
+</div>
+<span class="text-label-sm font-label-sm text-on-surface-variant bg-surface-container px-2 py-0.5 rounded">High Glanceability</span>
+</div>
+<!-- Distance / Size Segmented Control -->
+<div class="flex flex-col gap-space-xs">
+<span class="font-label-md text-label-md text-on-surface">Reading Distance Preset</span>
+<div class="grid grid-cols-3 bg-surface-container-low p-1 rounded-xl gap-1" id="text-size-tabs">
+<button class="py-2 px-1 rounded-lg text-center font-label-md text-label-md text-on-surface-variant active:scale-95 transition-all" onclick="setTextSize('standard', this)" type="button">
+          Standard
+          <span class="block text-label-sm font-label-sm text-outline font-normal">0.8m Handheld</span>
+</button>
+<button class="py-2 px-1 rounded-lg text-center font-label-md text-label-md bg-surface-container-lowest text-primary shadow-xs active:scale-95 transition-all font-semibold" onclick="setTextSize('large', this)" type="button">
+          Large (2m)
+          <span class="block text-label-sm font-label-sm text-primary font-normal">Cook Line</span>
+</button>
+<button class="py-2 px-1 rounded-lg text-center font-label-md text-label-md text-on-surface-variant active:scale-95 transition-all" onclick="setTextSize('xlarge', this)" type="button">
+          Extra Large
+          <span class="block text-label-sm font-label-sm text-outline font-normal">4m Wall Mount</span>
+</button>
+</div>
+</div>
+<!-- Layout Column Density -->
+<div class="flex flex-col gap-space-xs pt-space-xs">
+<span class="font-label-md text-label-md text-on-surface">Grid Columns on Station</span>
+<div class="grid grid-cols-3 gap-space-sm" id="column-grid-options">
+<button class="flex flex-col items-center justify-center p-space-sm rounded-lg bg-surface-container-low active:scale-95 transition-all" onclick="setColumnLayout(2, this)" type="button">
+<div class="flex gap-1 w-full h-8 px-1 items-center justify-center">
+<span class="w-1/2 h-full bg-primary-fixed rounded"></span>
+<span class="w-1/2 h-full bg-primary-fixed rounded"></span>
+</div>
+<span class="mt-1 font-label-md text-label-md text-on-surface">2 Columns</span>
+<span class="font-label-sm text-label-sm text-outline">10" Tablet</span>
+</button>
+<button class="flex flex-col items-center justify-center p-space-sm rounded-lg bg-primary-fixed text-on-primary-fixed active:scale-95 transition-all" onclick="setColumnLayout(3, this)" style="box-shadow: inset 0 0 0 2px #00247f;" type="button">
+<div class="flex gap-1 w-full h-8 px-1 items-center justify-center">
+<span class="w-1/3 h-full bg-primary rounded"></span>
+<span class="w-1/3 h-full bg-primary rounded"></span>
+<span class="w-1/3 h-full bg-primary rounded"></span>
+</div>
+<span class="mt-1 font-label-md text-label-md text-on-primary-fixed font-bold">3 Columns</span>
+<span class="font-label-sm text-label-sm text-on-primary-fixed-variant">15" Station</span>
+</button>
+<button class="flex flex-col items-center justify-center p-space-sm rounded-lg bg-surface-container-low active:scale-95 transition-all" onclick="setColumnLayout(1, this)" type="button">
+<div class="flex gap-1 w-full h-8 px-1 items-center justify-center">
+<span class="w-full h-full bg-primary-fixed rounded"></span>
+</div>
+<span class="mt-1 font-label-md text-label-md text-on-surface">Compact</span>
+<span class="font-label-sm text-label-sm text-outline">Mobile Runner</span>
+</button>
+</div>
+</div>
+</section>
+<!-- Section 3: Audio Alert Configuration -->
+<section class="bg-surface-container-lowest rounded-xl p-space-md shadow-sm flex flex-col gap-space-md">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-secondary text-[22px]">volume_up</span>
+<h2 class="font-headline-sm text-headline-sm text-on-surface">Kitchen Audio Engine</h2>
+</div>
+<span class="font-label-sm text-label-sm bg-secondary-fixed text-on-secondary-fixed px-2 py-0.5 rounded-full font-semibold">High Noise Mode</span>
+</div>
+<!-- Volume Slider with Tactile Feedback -->
+<div class="flex flex-col gap-space-xs bg-surface-container-low p-space-md rounded-xl">
+<div class="flex justify-between items-center">
+<span class="font-label-lg text-label-lg text-on-surface flex items-center gap-1">
+<span class="material-symbols-outlined text-primary text-[18px]">speaker</span>
+          Master Chime Level
+        </span>
+<span class="font-ticket-mono text-ticket-mono text-primary font-bold" id="volume-readout">85%</span>
+</div>
+<input aria-label="Kitchen Master Volume Slider" class="w-full h-2.5 bg-surface-container-high rounded-lg appearance-none cursor-pointer accent-primary" id="volume-range" max="100" min="0" oninput="updateVolume(this.value)" type="range" value="85"/>
+<div class="flex justify-between font-label-sm text-label-sm text-on-surface-variant pt-0.5">
+<span>Quiet (30%)</span>
+<span>Standard Prep (65%)</span>
+<span class="text-secondary font-bold">Fryer/Hood Peak (85%+)</span>
+</div>
+</div>
+<!-- Chime Customization Triggers -->
+<div class="flex flex-col gap-space-sm divide-y-0">
+<!-- Chime 1: New Order -->
+<div class="flex items-center justify-between p-space-sm bg-surface-container-low rounded-xl">
+<div class="min-w-0 pr-space-xs">
+<p class="font-label-md text-label-md text-on-surface">New Order Incoming</p>
+<p class="font-body-sm text-body-sm text-on-surface-variant truncate">Loud Two-Tone Bell (Chime 02)</p>
+</div>
+<button class="h-10 px-3 bg-surface-container-lowest text-primary font-label-md text-label-md rounded-lg shadow-xs flex items-center gap-1 active:scale-95 transition-all shrink-0" onclick="playAudioTest(this, 'Two-Tone Bell')" type="button">
+<span class="material-symbols-outlined text-[18px]">play_circle</span>
+<span>Test</span>
+</button>
+</div>
+<!-- Chime 2: Overdue Warning -->
+<div class="flex items-center justify-between p-space-sm bg-surface-container-low rounded-xl">
+<div class="min-w-0 pr-space-xs">
+<p class="font-label-md text-label-md text-on-surface">Ticket Overdue Escalation</p>
+<p class="font-body-sm text-body-sm text-secondary truncate">Urgent Triple Rapid Beep</p>
+</div>
+<button class="h-10 px-3 bg-surface-container-lowest text-secondary font-label-md text-label-md rounded-lg shadow-xs flex items-center gap-1 active:scale-95 transition-all shrink-0" onclick="playAudioTest(this, 'Triple Beep')" type="button">
+<span class="material-symbols-outlined text-[18px]">play_circle</span>
+<span>Test</span>
+</button>
+</div>
+<!-- Chime 3: Rider Arrived -->
+<div class="flex items-center justify-between p-space-sm bg-surface-container-low rounded-xl">
+<div class="min-w-0 pr-space-xs">
+<p class="font-label-md text-label-md text-on-surface">Courier / Rider Arrived</p>
+<p class="font-body-sm text-body-sm text-on-surface-variant truncate">Soft Double Marimba</p>
+</div>
+<button class="h-10 px-3 bg-surface-container-lowest text-primary font-label-md text-label-md rounded-lg shadow-xs flex items-center gap-1 active:scale-95 transition-all shrink-0" onclick="playAudioTest(this, 'Soft Chime')" type="button">
+<span class="material-symbols-outlined text-[18px]">play_circle</span>
+<span>Test</span>
+</button>
+</div>
+</div>
+<!-- Repeating Audio Loop Toggle -->
+<div class="flex items-center justify-between pt-space-xs">
+<div class="min-w-0 pr-space-sm">
+<p class="font-label-md text-label-md text-on-surface">Persistent Rush Alert</p>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Repeat overdue chime every 30s until bumped</p>
+</div>
+<label class="relative inline-flex items-center cursor-pointer shrink-0">
+<input checked="" class="sr-only peer" id="toggle-repeating-chime" type="checkbox"/>
+<div class="w-12 h-7 bg-surface-container-highest peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[3px] after:bg-surface-container-lowest after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-primary"></div>
+</label>
+</div>
+</section>
+<!-- Section 4: Auto-Bump & Timing Thresholds -->
+<section class="bg-surface-container-lowest rounded-xl p-space-md shadow-sm flex flex-col gap-space-md">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-primary text-[20px]">timer</span>
+<h2 class="font-headline-sm text-headline-sm text-on-surface">Timing &amp; Expedite Alerts</h2>
+</div>
+<span class="font-ticket-mono text-label-sm text-primary">STAGE TIMERS</span>
+</div>
+<!-- Threshold Metrics -->
+<div class="grid grid-cols-2 gap-space-sm">
+<!-- Amber Threshold -->
+<div class="bg-surface-container-low rounded-xl p-space-sm flex flex-col justify-between">
+<div class="flex items-center justify-between">
+<span class="font-label-sm text-label-sm text-on-surface-variant">Warning Alert</span>
+<span class="w-3 h-3 rounded-full bg-secondary-container"></span>
+</div>
+<div class="mt-2 flex items-baseline gap-1">
+<span class="font-headline-lg-mobile text-headline-lg-mobile text-on-secondary-container font-ticket-mono font-bold">10</span>
+<span class="font-label-sm text-label-sm text-on-secondary-container">MIN</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-1">Yellow border + chime</p>
+</div>
+<!-- Red Urgent Threshold -->
+<div class="bg-error-container rounded-xl p-space-sm flex flex-col justify-between">
+<div class="flex items-center justify-between">
+<span class="font-label-sm text-label-sm text-on-error-container font-semibold">Critical Rush</span>
+<span class="w-3 h-3 rounded-full bg-error animate-ping"></span>
+</div>
+<div class="mt-2 flex items-baseline gap-1">
+<span class="font-headline-lg-mobile text-headline-lg-mobile text-error font-ticket-mono font-bold">15</span>
+<span class="font-label-sm text-label-sm text-on-error-container">MIN</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-error-container mt-1">Flashing red header</p>
+</div>
+</div>
+<!-- Automation Toggles -->
+<div class="flex flex-col gap-space-sm pt-space-xs">
+<div class="flex items-center justify-between">
+<div class="min-w-0 pr-space-sm">
+<p class="font-label-md text-label-md text-on-surface">Auto-Bump on All Items Done</p>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Moves ticket to Expedit when all items are checked</p>
+</div>
+<label class="relative inline-flex items-center cursor-pointer shrink-0">
+<input checked="" class="sr-only peer" id="toggle-autobump" type="checkbox"/>
+<div class="w-12 h-7 bg-surface-container-highest peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[3px] after:bg-surface-container-lowest after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-primary"></div>
+</label>
+</div>
+<div class="flex items-center justify-between">
+<div class="min-w-0 pr-space-sm">
+<p class="font-label-md text-label-md text-on-surface">Show Delivery / Rider ETA</p>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Live sync DoorDash &amp; UberEats driver arrival countdown</p>
+</div>
+<label class="relative inline-flex items-center cursor-pointer shrink-0">
+<input checked="" class="sr-only peer" id="toggle-eta" type="checkbox"/>
+<div class="w-12 h-7 bg-surface-container-highest peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[3px] after:bg-surface-container-lowest after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-primary"></div>
+</label>
+</div>
+</div>
+</section>
+<!-- Section 5: Hardware & Kitchen Security -->
+<section class="bg-surface-container-lowest rounded-xl p-space-md shadow-sm flex flex-col gap-space-md">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-primary text-[20px]">lock</span>
+<h2 class="font-headline-sm text-headline-sm text-on-surface">Station Security &amp; Mode</h2>
+</div>
+<span class="font-label-sm text-label-sm text-on-surface-variant bg-surface-container px-2 py-0.5 rounded">Supervisor Pin Required</span>
+</div>
+<!-- PIN Lock Toggle -->
+<div class="flex items-center justify-between">
+<div class="min-w-0 pr-space-sm">
+<p class="font-label-md text-label-md text-on-surface">PIN Lock KDS View</p>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Require 4-digit code to exit to RMS register</p>
+</div>
+<label class="relative inline-flex items-center cursor-pointer shrink-0">
+<input checked="" class="sr-only peer" id="toggle-pinlock" type="checkbox"/>
+<div class="w-12 h-7 bg-surface-container-highest peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[3px] after:bg-surface-container-lowest after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-primary"></div>
+</label>
+</div>
+<!-- Fullscreen Launcher Button -->
+<button class="w-full h-12 bg-surface-container-high text-on-surface rounded-xl font-label-lg text-label-lg flex items-center justify-center gap-space-sm active:scale-[0.98] transition-all" onclick="triggerFullscreenMode(this)" type="button">
+<span class="material-symbols-outlined text-[20px]">fullscreen</span>
+<span>Launch Kitchen Fullscreen Mode</span>
+</button>
+</section>
+<!-- Section 6: Primary Footer Action -->
+<div class="sticky bottom-2 z-20 pt-space-xs">
+<button class="w-full h-14 bg-primary text-on-primary rounded-xl font-label-lg text-label-lg shadow-md flex items-center justify-center gap-space-sm active:scale-[0.98] transition-all" id="apply-btn" onclick="applySettings()" type="button">
+<span class="material-symbols-outlined text-[22px]">save</span>
+<span>Apply Settings to Station #01</span>
+</button>
+</div>
+<!-- Notification Toast for Delight (Hidden by Default) -->
+<div class="fixed bottom-20 inset-x-margin-mobile bg-inverse-surface text-inverse-on-surface px-space-md py-space-sm rounded-xl shadow-xl flex items-center gap-space-sm transition-all duration-300 opacity-0 pointer-events-none translate-y-3 z-50" id="toast-delight">
+<span class="material-symbols-outlined text-tertiary-fixed text-[24px]">task_alt</span>
+<div class="min-w-0 flex-1">
+<p class="font-label-md text-label-md text-inverse-on-surface font-semibold" id="toast-title">Settings Deployed</p>
+<p class="font-body-sm text-body-sm text-outline-variant" id="toast-message">Hot Line Display synced in 0.12s.</p>
+</div>
+</div>
+</div>
+<script>
+  function selectTheme(theme) {
+    const lightBtn = document.getElementById('theme-light-btn');
+    const darkBtn = document.getElementById('theme-dark-btn');
+    const lightCheck = document.getElementById('theme-light-check');
+    const darkCheck = document.getElementById('theme-dark-check');
+
+    if (theme === 'light') {
+      lightBtn.style.boxShadow = 'inset 0 0 0 2px #00247f';
+      lightBtn.classList.replace('bg-surface-container-low', 'bg-surface-container-lowest');
+      lightCheck.textContent = 'check_circle';
+      lightCheck.className = 'material-symbols-outlined text-primary text-[20px] shrink-0';
+      lightCheck.style.fontVariationSettings = "'FILL' 1";
+
+      darkBtn.style.boxShadow = 'none';
+      darkBtn.classList.replace('bg-surface-container-lowest', 'bg-surface-container-low');
+      darkCheck.textContent = 'radio_button_unchecked';
+      darkCheck.className = 'material-symbols-outlined text-outline text-[20px] shrink-0';
+      darkCheck.style.fontVariationSettings = "'FILL' 0";
+      showFeedback('High Contrast Light Theme activated for Station 01');
+    } else {
+      darkBtn.style.boxShadow = 'inset 0 0 0 2px #00247f';
+      darkBtn.classList.replace('bg-surface-container-low', 'bg-surface-container-lowest');
+      darkCheck.textContent = 'check_circle';
+      darkCheck.className = 'material-symbols-outlined text-primary text-[20px] shrink-0';
+      darkCheck.style.fontVariationSettings = "'FILL' 1";
+
+      lightBtn.style.boxShadow = 'none';
+      lightBtn.classList.replace('bg-surface-container-lowest', 'bg-surface-container-low');
+      lightCheck.textContent = 'radio_button_unchecked';
+      lightCheck.className = 'material-symbols-outlined text-outline text-[20px] shrink-0';
+      lightCheck.style.fontVariationSettings = "'FILL' 0";
+      showFeedback('Kitchen Dark OLED Mode activated for Station 01');
+    }
+  }
+
+  function setTextSize(size, el) {
+    const container = document.getElementById('text-size-tabs');
+    const buttons = container.querySelectorAll('button');
+    buttons.forEach(b => {
+      b.className = 'py-2 px-1 rounded-lg text-center font-label-md text-label-md text-on-surface-variant active:scale-95 transition-all';
+      const sub = b.querySelector('span');
+      if (sub) sub.className = 'block text-label-sm font-label-sm text-outline font-normal';
+    });
+    el.className = 'py-2 px-1 rounded-lg text-center font-label-md text-label-md bg-surface-container-lowest text-primary shadow-xs active:scale-95 transition-all font-semibold';
+    const sub = el.querySelector('span');
+    if (sub) sub.className = 'block text-label-sm font-label-sm text-primary font-normal';
+    showFeedback('Font scale set to ' + size.toUpperCase());
+  }
+
+  function setColumnLayout(cols, el) {
+    const container = document.getElementById('column-grid-options');
+    const buttons = container.querySelectorAll('button');
+    buttons.forEach(b => {
+      b.className = 'flex flex-col items-center justify-center p-space-sm rounded-lg bg-surface-container-low active:scale-95 transition-all';
+      b.style.boxShadow = 'none';
+    });
+    el.className = 'flex flex-col items-center justify-center p-space-sm rounded-lg bg-primary-fixed text-on-primary-fixed active:scale-95 transition-all';
+    el.style.boxShadow = 'inset 0 0 0 2px #00247f';
+    showFeedback('Ticket density adapted to ' + cols + ' Columns');
+  }
+
+  function updateVolume(val) {
+    const readout = document.getElementById('volume-readout');
+    if (readout) readout.textContent = val + '%';
+  }
+
+  function playAudioTest(btn, soundName) {
+    const origHtml = btn.innerHTML;
+    btn.innerHTML = '<span class="material-symbols-outlined text-[18px] animate-spin">refresh</span><span>Playing</span>';
+    btn.classList.add('opacity-75');
+
+    // Visual chime bounce
+    setTimeout(() => {
+      btn.innerHTML = '<span class="material-symbols-outlined text-[18px] text-tertiary-fixed-variant">check</span><span>Done</span>';
+      showFeedback('Auditioning "' + soundName + '" on Kitchen Horn');
+      setTimeout(() => {
+        btn.innerHTML = origHtml;
+        btn.classList.remove('opacity-75');
+      }, 1000);
+    }, 600);
+  }
+
+  function triggerFullscreenMode(btn) {
+    if (!document.fullscreenElement) {
+      if (document.documentElement.requestFullscreen) {
+        document.documentElement.requestFullscreen().catch(() => {});
+      }
+      btn.innerHTML = '<span class="material-symbols-outlined text-[20px]">fullscreen_exit</span><span>Exit Fullscreen Mode</span>';
+      showFeedback('Entering Fullscreen Kitchen View');
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen().catch(() => {});
+      }
+      btn.innerHTML = '<span class="material-symbols-outlined text-[20px]">fullscreen</span><span>Launch Kitchen Fullscreen Mode</span>';
+      showFeedback('Exited Fullscreen View');
+    }
+  }
+
+  function applySettings() {
+    const applyBtn = document.getElementById('apply-btn');
+    applyBtn.disabled = true;
+    applyBtn.innerHTML = '<span class="material-symbols-outlined text-[22px] animate-spin">sync</span><span>Syncing Station #01...</span>';
+
+    setTimeout(() => {
+      applyBtn.disabled = false;
+      applyBtn.innerHTML = '<span class="material-symbols-outlined text-[22px]">check_circle</span><span>Configuration Synchronized</span>';
+      applyBtn.classList.replace('bg-primary', 'bg-tertiary-container');
+      showFeedback('All KDS profiles pushed to Hot Line STN-01');
+
+      setTimeout(() => {
+        applyBtn.innerHTML = '<span class="material-symbols-outlined text-[22px]">save</span><span>Apply Settings to Station #01</span>';
+        applyBtn.classList.replace('bg-tertiary-container', 'bg-primary');
+      }, 2500);
+    }, 700);
+  }
+
+  function resetDefaults() {
+    selectTheme('light');
+    updateVolume(85);
+    const range = document.getElementById('volume-range');
+    if (range) range.value = 85;
+    showFeedback('Settings reverted to NABIN Kitchen Defaults');
+  }
+
+  let toastTimer = null;
+  function showFeedback(msg) {
+    const toast = document.getElementById('toast-delight');
+    const msgEl = document.getElementById('toast-message');
+    if (!toast || !msgEl) return;
+
+    msgEl.textContent = msg;
+    toast.classList.remove('opacity-0', 'pointer-events-none', 'translate-y-3');
+    toast.classList.add('opacity-100', 'translate-y-0');
+
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => {
+      toast.classList.remove('opacity-100', 'translate-y-0');
+      toast.classList.add('opacity-0', 'pointer-events-none', 'translate-y-3');
+    }, 2800);
+  }
+</script></main>
+</body></html>

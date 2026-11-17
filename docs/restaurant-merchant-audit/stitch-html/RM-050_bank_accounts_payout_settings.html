@@ -1,0 +1,384 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" name="viewport"><meta content="mobile_stack" name="shell-type"><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"><link href="https://fonts.googleapis.com" rel="preconnect"><link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"><style>@layer base{html,body{width:100vw;margin:0;padding:0;background-color:#f7f9fd;color:#181c1f;}body{overscroll-behavior:none;}.pb-safe{padding-bottom:env(safe-area-inset-bottom,0px);}.pt-safe{padding-top:env(safe-area-inset-top,0px);}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config = { darkMode: "class", theme: { extend: { "colors": { "surface-tint": "#3a56bd", "secondary": "#a93700", "on-tertiary-fixed-variant": "#005320", "secondary-container": "#fc6b32", "primary-container": "#1a3ba2", "surface-container-highest": "#e0e3e6", "outline-variant": "#c5c5d5", "on-primary": "#ffffff", "on-surface": "#181c1f", "on-secondary-fixed": "#380d00", "secondary-fixed": "#ffdbcf", "tertiary-fixed": "#7ffc97", "surface-container": "#eceef2", "surface-dim": "#d8dade", "on-primary-container": "#9cafff", "outline": "#757684", "surface-container-low": "#f2f4f8", "on-secondary-fixed-variant": "#812800", "tertiary-container": "#005120", "on-secondary-container": "#5c1a00", "surface-variant": "#e0e3e6", "on-tertiary-fixed": "#002109", "inverse-on-surface": "#eff1f5", "on-background": "#181c1f", "on-surface-variant": "#444653", "tertiary-fixed-dim": "#62df7d", "primary-fixed-dim": "#b7c4ff", "inverse-surface": "#2d3134", "on-primary-fixed-variant": "#1c3da4", "surface-container-lowest": "#ffffff", "tertiary": "#003813", "error": "#ba1a1a", "primary": "#00247f", "background": "#f7f9fd", "surface": "#f7f9fd", "surface-container-high": "#e6e8ec", "inverse-primary": "#b7c4ff", "on-error-container": "#93000a", "on-tertiary": "#ffffff", "primary-fixed": "#dde1ff", "surface-bright": "#f7f9fd", "on-secondary": "#ffffff", "secondary-fixed-dim": "#ffb59b", "error-container": "#ffdad6", "on-primary-fixed": "#001452", "on-error": "#ffffff", "on-tertiary-container": "#4cca6c" }, "borderRadius": { "DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px" }, "spacing": { "space-lg": "1.5rem", "margin": "1.5rem", "space-sm": "0.5rem", "margin-mobile": "1rem", "space-xs": "0.25rem", "gutter": "1rem", "space-xl": "2rem", "gutter-kds": "1.25rem", "space-md": "1rem" }, "fontFamily": { "ticket-mono": ["Inter"], "headline-xl": ["Inter"], "headline-md": ["Inter"], "body-lg": ["Inter"], "headline-lg-mobile": ["Inter"], "body-md": ["Inter"], "label-lg": ["Inter"], "label-md": ["Inter"], "headline-lg": ["Inter"], "headline-xl-mobile": ["Inter"], "headline-sm": ["Inter"], "label-sm": ["Inter"], "body-sm": ["Inter"] }, "fontSize": { "ticket-mono": ["16px", { "lineHeight": "20px", "letterSpacing": "0.05em", "fontWeight": "700" }], "headline-xl": ["40px", { "lineHeight": "48px", "letterSpacing": "-0.02em", "fontWeight": "700" }], "headline-md": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }], "body-lg": ["18px", { "lineHeight": "26px", "fontWeight": "500" }], "headline-lg-mobile": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "700" }], "body-md": ["15px", { "lineHeight": "22px", "fontWeight": "400" }], "label-lg": ["15px", { "lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600" }], "label-md": ["13px", { "lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "600" }], "headline-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.015em", "fontWeight": "700" }], "headline-xl-mobile": ["30px", { "lineHeight": "38px", "letterSpacing": "-0.02em", "fontWeight": "700" }], "headline-sm": ["20px", { "lineHeight": "28px", "fontWeight": "600" }], "label-sm": ["11px", { "lineHeight": "14px", "letterSpacing": "0.04em", "fontWeight": "700" }], "body-sm": ["13px", { "lineHeight": "18px", "fontWeight": "400" }] } } } };</script><style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head><body class="bg-surface font-body-md text-on-surface flex flex-col min-h-screen"><header class="fixed top-0 w-full z-50 pt-safe bg-surface/80 backdrop-blur-xl shadow-[0_1px_8px_rgba(0,0,0,0.04)]"><div class="h-16 px-space-md flex items-center justify-between gap-space-sm"><div class="flex items-center gap-space-sm min-w-0 flex-1"><button aria-label="Go back" class="w-10 h-10 -ml-2 flex items-center justify-center rounded-full text-on-surface hover:bg-surface-container-high transition-colors" onclick="history.back()" type="button"><span class="material-symbols-outlined text-[24px]">arrow_back</span></button><div class="flex items-center gap-2 min-w-0"><img alt="NABIN Logo" class="h-7 w-auto object-contain flex-shrink-0" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDDqGNGdKyhvTZjCiIEJIWjnzDeqFzeBRCCdX5CKBiSQQwp0aRKJBBHk9CxEzv_jNRpFCXwaGtlMF-aVQOWf8bycwGGBlvcbaRKcKM1N444RQwF6wKcKqytxcNh3AhTwv4VpPGKgB9_vQeg_n7qhmbB06IgpTlW1gyoragL91XToxoILy2Blm9FbQLHgBkjDYm2hIjRLH_esjI3xRZj8xA3EFB6D33K92BjiD0GtWDrYeEaBBOfTyW2"><div class="min-w-0"><h1 class="font-headline-sm text-on-surface truncate leading-tight text-[18px]">Bank Accounts &amp; Payouts</h1><p class="font-label-sm text-outline text-[11px] truncate">Settlement &amp; Treasury Settings</p></div></div></div><div class="flex items-center gap-space-xs flex-shrink-0"><button aria-label="Notifications" class="relative w-10 h-10 flex items-center justify-center rounded-full text-on-surface-variant hover:bg-surface-container-high transition-colors" type="button"><span class="material-symbols-outlined text-[22px]">notifications</span><span class="absolute top-2 right-2 w-2 h-2 rounded-full bg-secondary"></span></button><div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-on-primary font-bold text-[13px] shadow-sm ml-1">HF</div></div></div></header><main class="flex-1 flex flex-col relative w-full pt-16 pb-safe bg-surface"><div class="flex flex-col w-full">
+<div class="px-space-md py-space-md flex flex-col gap-space-lg"><!-- Section 1: Accrued Settlement Treasury Hero Card -->
+<div class="bg-gradient-to-br from-primary-container to-primary rounded-xl p-space-md text-on-primary shadow-md flex flex-col gap-space-md relative overflow-hidden">
+  <div class="absolute -right-8 -bottom-8 w-36 h-36 rounded-full bg-white/10 pointer-events-none blur-sm"></div>
+  <div class="flex items-center justify-between z-10">
+    <div class="flex items-center gap-2 bg-black/20 backdrop-blur-md px-2.5 py-1 rounded-full">
+      <span class="w-2.5 h-2.5 rounded-full bg-tertiary-fixed animate-pulse"></span>
+      <span class="font-label-sm text-tertiary-fixed tracking-wider uppercase text-[11px]">Settlement Engine Live</span>
+    </div>
+    <span class="font-ticket-mono text-[11px] text-primary-fixed-dim/90 uppercase tracking-wider">Ref: NAB-SETTLE-884</span>
+  </div>
+
+  <div class="flex flex-col gap-1 z-10 pt-1">
+    <div class="flex items-center justify-between">
+      <span class="font-body-sm text-primary-fixed-dim">Available Payout Balance</span>
+      <span class="bg-white/15 backdrop-blur-md px-2.5 py-0.5 rounded-full font-label-sm text-white text-[11px]">T+0 Clearing</span>
+    </div>
+    <div class="flex items-baseline gap-2">
+      <span class="font-headline-xl text-white tracking-tight leading-none text-[34px] font-bold">₹48,290.50</span>
+      <span class="font-label-sm text-tertiary-fixed-dim flex items-center gap-0.5 text-[12px]"><span class="material-symbols-outlined text-[14px]">trending_up</span> Accrued</span>
+    </div>
+  </div>
+
+  <div class="bg-white/10 backdrop-blur-md rounded-lg p-space-sm flex flex-col gap-1.5 z-10 border border-white/10">
+    <div class="flex items-center justify-between text-[13px]">
+      <div class="flex items-center gap-1.5 text-primary-fixed-dim">
+        <span class="material-symbols-outlined text-[16px] text-tertiary-fixed">schedule</span>
+        <span>Next auto-sweep: <strong class="text-white font-semibold">Tomorrow, 06:00 AM IST</strong></span>
+      </div>
+      <span class="font-label-sm text-[11px] text-tertiary-fixed">Zero Fee</span>
+    </div>
+    <div class="flex items-center justify-between text-[12px] text-primary-fixed-dim/90 pt-1 border-t border-white/10">
+      <span class="truncate">Routing to <strong class="text-white">HDFC Bank (•••• 4019)</strong></span>
+      <span class="text-tertiary-fixed underline font-label-sm cursor-pointer hover:opacity-90 flex items-center gap-0.5"><span class="material-symbols-outlined text-[14px]">bolt</span> Instant Payout</span>
+    </div>
+  </div>
+</div>
+
+<!-- Section 2: Structured Primary Settlement Account Card -->
+<div class="flex flex-col gap-space-xs">
+  <div class="flex items-center justify-between px-space-xs">
+    <div class="flex items-center gap-space-xs">
+      <span class="material-symbols-outlined text-[18px] text-primary-container" style="font-variation-settings: 'FILL' 1;">account_balance</span>
+      <h2 class="font-label-lg text-on-surface uppercase tracking-wide text-[13px]">Primary Settlement Account</h2>
+    </div>
+    <span class="bg-tertiary-fixed text-on-tertiary-fixed-variant font-label-sm px-2.5 py-0.5 rounded-full flex items-center gap-1 text-[11px] font-semibold">
+      <span class="material-symbols-outlined text-[14px]" style="font-variation-settings: 'FILL' 1;">check_circle</span> Auto-Sweep Active
+    </span>
+  </div>
+
+  <div class="bg-surface-container-lowest rounded-xl p-space-md shadow-sm border border-outline-variant/40 flex flex-col gap-space-md">
+    <div class="flex items-start justify-between gap-space-sm">
+      <div class="flex items-center gap-space-sm">
+        <div class="w-12 h-12 rounded-xl bg-primary/5 border border-primary/10 flex items-center justify-center flex-shrink-0 text-primary-container shadow-sm font-bold text-[18px]">
+          HDFC
+        </div>
+        <div class="min-w-0">
+          <h3 class="font-headline-sm text-on-surface truncate text-[17px]">HDFC Bank Ltd</h3>
+          <p class="font-body-sm text-on-surface font-medium truncate">Himalayan Flavors Private Limited</p>
+          <p class="font-label-sm text-outline text-[11px]">Current Commercial Account</p>
+        </div>
+      </div>
+      <button aria-label="More options" class="w-8 h-8 flex items-center justify-center text-outline hover:text-on-surface rounded-full hover:bg-surface-container transition-colors" type="button">
+        <span class="material-symbols-outlined text-[20px]">more_vert</span>
+      </button>
+    </div>
+
+    <div class="bg-surface-container-low rounded-lg p-space-sm flex flex-col gap-2">
+      <div class="flex items-center justify-between">
+        <span class="font-body-sm text-outline">Account Number</span>
+        <div class="flex items-center gap-2">
+          <span class="font-ticket-mono text-on-surface tracking-wider text-[15px]">•••• •••• •••• 4019</span>
+          <button class="text-primary-container hover:opacity-80 p-0.5" title="Copy Account Number" type="button">
+            <span class="material-symbols-outlined text-[16px]">content_copy</span>
+          </button>
+        </div>
+      </div>
+      <div class="flex items-center justify-between">
+        <span class="font-body-sm text-outline">IFSC &amp; Branch</span>
+        <span class="font-label-md text-on-surface">HDFC0000128 <span class="text-outline font-normal">(Durbar Marg Branch)</span></span>
+      </div>
+      <div class="flex items-center justify-between">
+        <span class="font-body-sm text-outline">Routing Method</span>
+        <span class="font-label-md text-primary-container flex items-center gap-1">
+          <span class="material-symbols-outlined text-[16px] text-tertiary-container">bolt</span> IMPS / RTGS Direct (Instant SLA)
+        </span>
+      </div>
+    </div>
+
+    <!-- Penny Drop Status -->
+    <div class="bg-tertiary-fixed/30 border border-tertiary-fixed-dim/40 px-3 py-2 rounded-lg flex items-center justify-between gap-space-sm">
+      <div class="flex items-center gap-2 min-w-0">
+        <span class="material-symbols-outlined text-tertiary-container text-[18px]" style="font-variation-settings: 'FILL' 1;">verified</span>
+        <span class="font-label-sm text-on-tertiary-fixed-variant truncate text-[12px]">₹1.00 Penny-Drop Verified on 12 Oct · Name Match 100%</span>
+      </div>
+      <span class="font-label-sm text-tertiary-container font-bold text-[11px] flex-shrink-0">SECURE</span>
+    </div>
+
+    <!-- Card Actions: Manage Account & Transfer History -->
+    <div class="grid grid-cols-2 gap-space-sm pt-space-xs">
+      <button class="h-11 px-space-sm bg-surface-container hover:bg-surface-container-high text-on-surface rounded-lg font-label-md flex items-center justify-center gap-1.5 transition-colors" type="button">
+        <span class="material-symbols-outlined text-[18px]">manage_accounts</span> Manage Account
+      </button>
+      <button class="h-11 px-space-sm bg-primary-container text-on-primary hover:bg-primary-container/90 rounded-lg font-label-md flex items-center justify-center gap-1.5 shadow-sm active:scale-[0.98] transition-transform" type="button">
+        <span class="material-symbols-outlined text-[18px]">history</span> Transfer History
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Section 3: Standby Failover Account -->
+<div class="flex flex-col gap-space-xs">
+  <div class="flex items-center justify-between px-space-xs">
+    <h2 class="font-label-lg text-on-surface uppercase tracking-wide text-[13px]">Backup &amp; Standby Accounts</h2>
+    <span class="bg-surface-container text-outline font-label-sm px-2.5 py-0.5 rounded-full">1 Configured</span>
+  </div>
+
+  <div class="bg-surface-container-lowest rounded-xl p-space-md shadow-sm border border-outline-variant/40 flex flex-col gap-space-md">
+    <div class="flex items-center justify-between gap-space-sm">
+      <div class="flex items-center gap-space-sm min-w-0">
+        <div class="w-11 h-11 rounded-lg bg-surface-container-low flex items-center justify-center flex-shrink-0 text-on-surface-variant font-bold text-[14px]">
+          ICICI
+        </div>
+        <div class="min-w-0">
+          <div class="flex items-center gap-1.5">
+            <h4 class="font-label-lg text-on-surface truncate">ICICI Bank · Current</h4>
+            <span class="bg-primary-fixed text-primary font-label-sm px-1.5 py-0.5 rounded text-[10px] font-bold">99.98% Uptime SLA</span>
+          </div>
+          <p class="font-ticket-mono text-on-surface-variant text-[12px]">•••• •••• •••• 8832 · IFSC: ICIC0001044</p>
+        </div>
+      </div>
+      <span class="bg-surface-container text-on-surface-variant font-label-sm px-2 py-0.5 rounded-full text-[11px] flex-shrink-0">Standby</span>
+    </div>
+
+    <!-- Auto-Failover Switch Box -->
+    <div class="bg-surface-container-low p-space-sm rounded-lg flex items-center justify-between gap-space-sm border border-outline-variant/30">
+      <div class="flex flex-col min-w-0 flex-1">
+        <div class="flex items-center gap-1.5">
+          <span class="font-label-md text-on-surface">Auto-Failover Protection</span>
+          <span class="material-symbols-outlined text-tertiary-container text-[16px]" style="font-variation-settings: 'FILL' 1;">shield</span>
+        </div>
+        <span class="font-body-sm text-outline truncate text-[12px]">Routes payouts automatically via ICICI if HDFC node drops or times out</span>
+      </div>
+      <label class="relative inline-flex items-center cursor-pointer flex-shrink-0">
+        <input checked="" class="sr-only peer" id="failover-toggle" type="checkbox">
+        <div class="w-11 h-6 bg-surface-container-highest peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-container"></div>
+      </label>
+    </div>
+  </div>
+</div>
+
+<!-- Section 4: Add New Account Trigger -->
+<div class="flex flex-col gap-2">
+  <button class="w-full py-3.5 px-space-md bg-surface-container-lowest hover:bg-surface-container text-primary-container border border-primary-container/30 border-dashed rounded-xl font-label-md flex items-center justify-center gap-space-xs shadow-sm active:scale-[0.99] transition-all" type="button">
+    <span class="material-symbols-outlined text-[20px]">add_circle</span>
+    <span>+ Link New Bank Account</span>
+  </button>
+  <div class="flex items-center justify-center gap-1.5">
+    <span class="material-symbols-outlined text-[14px] text-tertiary-container" style="font-variation-settings: 'FILL' 1;">verified</span>
+    <span class="font-label-sm text-outline text-[12px]">Instant ₹1.00 Penny-Drop verification via NPCI e-Mandate</span>
+  </div>
+</div>
+
+<!-- Section 5: Automated Payout Schedule & Frequency with Modern Radio Tile Cards -->
+<div class="flex flex-col gap-space-sm">
+  <div class="px-space-xs">
+    <h2 class="font-label-lg text-on-surface uppercase tracking-wide text-[13px]">Payout Schedule &amp; Frequency</h2>
+    <p class="font-body-sm text-on-surface-variant text-[13px]">Choose when accrued net kitchen revenues are swept to your bank.</p>
+  </div>
+
+  <div class="flex flex-col gap-space-xs" id="payout-frequency-group">
+    <!-- Tile 1: Daily Early Morning (Selected) -->
+    <label class="payout-tile bg-surface-container-lowest p-space-md rounded-xl shadow-sm border-2 border-primary-container flex items-start gap-space-sm cursor-pointer transition-all relative overflow-hidden group">
+      <div class="pt-0.5">
+        <input checked="" class="accent-primary-container w-4 h-4 mt-0.5" name="payout-freq" type="radio" value="daily">
+      </div>
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center justify-between flex-wrap gap-1">
+          <span class="font-label-lg text-on-surface font-semibold">Daily Early Morning (06:00 AM IST)</span>
+          <span class="bg-tertiary-fixed text-on-tertiary-fixed-variant font-label-sm px-2 py-0.5 rounded-full text-[11px] font-bold">Recommended · Zero Fee</span>
+        </div>
+        <p class="font-body-sm text-on-surface-variant mt-1 text-[13px]">Consolidated daily close from previous business day including midnight delivery shifts.</p>
+      </div>
+    </label>
+
+    <!-- Tile 2: Twice Daily -->
+    <label class="payout-tile bg-surface-container-lowest p-space-md rounded-xl shadow-sm border border-outline-variant/40 flex items-start gap-space-sm cursor-pointer transition-all relative overflow-hidden group hover:border-outline">
+      <div class="pt-0.5">
+        <input class="accent-primary-container w-4 h-4 mt-0.5" name="payout-freq" type="radio" value="twice">
+      </div>
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center justify-between flex-wrap gap-1">
+          <span class="font-label-lg text-on-surface font-semibold">Twice Daily (Shift Wise - 11:00 AM &amp; 23:30 PM)</span>
+          <span class="bg-primary-fixed text-primary font-label-sm px-2 py-0.5 rounded-full text-[11px] font-bold">Peak Liquidity</span>
+        </div>
+        <p class="font-body-sm text-on-surface-variant mt-1 text-[13px]">Batch 1 post lunch service (11:00 AM) and Batch 2 post dinner service (23:30 PM).</p>
+      </div>
+    </label>
+
+    <!-- Tile 3: Weekly -->
+    <label class="payout-tile bg-surface-container-lowest p-space-md rounded-xl shadow-sm border border-outline-variant/40 flex items-start gap-space-sm cursor-pointer transition-all relative overflow-hidden group hover:border-outline">
+      <div class="pt-0.5">
+        <input class="accent-primary-container w-4 h-4 mt-0.5" name="payout-freq" type="radio" value="weekly">
+      </div>
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center justify-between flex-wrap gap-1">
+          <span class="font-label-lg text-on-surface font-semibold">Weekly Consolidated (Every Monday 09:00 AM)</span>
+          <span class="bg-surface-container text-on-surface-variant font-label-sm px-2 py-0.5 rounded-full text-[11px]">Simplified GST Reconciliation</span>
+        </div>
+        <p class="font-body-sm text-on-surface-variant mt-1 text-[13px]">One aggregated transfer each week. Streamlines corporate tax &amp; auditor balance ledgers.</p>
+      </div>
+    </label>
+  </div>
+
+  <!-- Instant Payout on Demand Card -->
+  <div class="bg-surface-container-lowest p-space-md rounded-xl shadow-sm border border-outline-variant/40 flex items-center justify-between gap-space-sm mt-space-xs">
+    <div class="flex items-start gap-space-sm min-w-0 flex-1">
+      <div class="w-11 h-11 rounded-xl bg-primary-fixed/40 flex items-center justify-center flex-shrink-0 text-primary-container">
+        <span class="material-symbols-outlined text-[24px]">bolt</span>
+      </div>
+      <div class="flex flex-col min-w-0">
+        <div class="flex items-center gap-space-xs flex-wrap">
+          <span class="font-label-lg text-on-surface font-semibold">Instant Transfer via IMPS (60s SLA)</span>
+          <span class="bg-primary-fixed/50 text-primary-container px-2 py-0.5 rounded font-label-sm text-[11px] font-bold">On-Demand</span>
+        </div>
+        <p class="font-body-sm text-on-surface-variant text-[13px] mt-0.5">Enable manual express draw button on Merchant Dashboard. ₹15 flat per on-demand draw · Maximum ₹1,00,000/day.</p>
+      </div>
+    </div>
+    <label class="relative inline-flex items-center cursor-pointer flex-shrink-0 ml-2">
+      <input checked="" class="sr-only peer" id="instant-payout-toggle" type="checkbox">
+      <div class="w-11 h-6 bg-surface-container-highest peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-container"></div>
+    </label>
+  </div>
+</div>
+
+<!-- Section 6: Auto-Transfer Minimum Threshold -->
+<div class="flex flex-col gap-space-sm">
+  <div class="px-space-xs">
+    <h2 class="font-label-lg text-on-surface uppercase tracking-wide text-[13px]">Auto-Transfer Minimum Threshold</h2>
+    <p class="font-body-sm text-on-surface-variant text-[13px]">Sweeps initiate automatically once net accrued earnings meet or exceed the trigger.</p>
+  </div>
+  <div class="grid grid-cols-5 gap-1.5" id="threshold-pills">
+    <button class="threshold-btn h-12 rounded-lg bg-surface-container-lowest border border-outline-variant/40 font-label-md text-on-surface shadow-sm transition-all flex flex-col items-center justify-center text-[13px]" onclick="selectThreshold(this, '₹500')" type="button">
+      <span>₹500</span>
+    </button>
+    <button class="threshold-btn h-12 rounded-lg bg-primary-container text-on-primary border border-primary-container font-label-md shadow-sm transition-all flex flex-col items-center justify-center text-[13px] font-semibold" onclick="selectThreshold(this, '₹1,000')" type="button">
+      <span>₹1,000</span>
+    </button>
+    <button class="threshold-btn h-12 rounded-lg bg-surface-container-lowest border border-outline-variant/40 font-label-md text-on-surface shadow-sm transition-all flex flex-col items-center justify-center text-[13px]" onclick="selectThreshold(this, '₹2,500')" type="button">
+      <span>₹2,500</span>
+    </button>
+    <button class="threshold-btn h-12 rounded-lg bg-surface-container-lowest border border-outline-variant/40 font-label-md text-on-surface shadow-sm transition-all flex flex-col items-center justify-center text-[13px]" onclick="selectThreshold(this, '₹5,000')" type="button">
+      <span>₹5,000</span>
+    </button>
+    <button class="threshold-btn h-12 rounded-lg bg-surface-container-lowest border border-outline-variant/40 font-label-md text-on-surface shadow-sm transition-all flex flex-col items-center justify-center text-[12px] leading-tight px-1" onclick="selectThreshold(this, 'No Minimum')" type="button">
+      <span>No Min</span>
+    </button>
+  </div>
+  <div class="bg-surface-container-low p-space-sm rounded-lg flex items-center justify-between text-on-surface-variant font-body-sm border border-outline-variant/20">
+    <span class="text-[13px]">Selected threshold trigger:</span>
+    <span class="font-label-md text-primary-container font-semibold text-[13px]" id="threshold-label">₹1,000 Net Accrued</span>
+  </div>
+</div>
+
+<!-- Section 7: Security Safeguards & Compliance Controls -->
+<div class="flex flex-col gap-space-xs">
+  <div class="px-space-xs">
+    <h2 class="font-label-lg text-on-surface uppercase tracking-wide text-[13px]">Security &amp; Notifications</h2>
+  </div>
+  <div class="bg-surface-container-lowest rounded-xl p-space-md shadow-sm border border-outline-variant/40 flex flex-col gap-space-md">
+    <!-- 2FA Safeguard Note -->
+    <div class="flex items-start gap-space-sm bg-surface-container-low p-space-sm rounded-lg border border-outline-variant/20">
+      <span class="material-symbols-outlined text-primary-container text-[22px] flex-shrink-0" style="font-variation-settings: 'FILL' 1;">shield_person</span>
+      <div class="min-w-0">
+        <span class="font-label-md text-on-surface block font-semibold">Director 2FA Security Guard Active</span>
+        <p class="font-body-sm text-outline text-[12px]">Bank account modifications or sweep threshold shifts require Biometric signature or Director OTP.</p>
+      </div>
+    </div>
+
+    <!-- Alert Dispatch Targets with Interactive Toggles -->
+    <div class="flex flex-col gap-2.5">
+      <span class="font-label-md text-on-surface text-[13px]">Live Payout Dispatch Alerts</span>
+      <div class="flex items-center justify-between bg-surface p-space-sm rounded-lg border border-outline-variant/20">
+        <div class="flex items-center gap-space-xs min-w-0">
+          <span class="material-symbols-outlined text-outline text-[18px]">sms</span>
+          <div class="min-w-0">
+            <span class="font-label-sm text-on-surface block">SMS Real-Time Credit Notification</span>
+            <span class="font-ticket-mono text-outline text-[12px] truncate">+977 98012-34567</span>
+          </div>
+        </div>
+        <label class="relative inline-flex items-center cursor-pointer flex-shrink-0">
+          <input checked="" class="sr-only peer" type="checkbox">
+          <div class="w-9 h-5 bg-surface-container-highest peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary-container"></div>
+        </label>
+      </div>
+      <div class="flex items-center justify-between bg-surface p-space-sm rounded-lg border border-outline-variant/20">
+        <div class="flex items-center gap-space-xs min-w-0">
+          <span class="material-symbols-outlined text-outline text-[18px]">mail</span>
+          <div class="min-w-0">
+            <span class="font-label-sm text-on-surface block">Finance Email Dispatch &amp; Tax Statement</span>
+            <span class="font-body-sm text-outline text-[12px] truncate">finance@himalayanflavors.com</span>
+          </div>
+        </div>
+        <label class="relative inline-flex items-center cursor-pointer flex-shrink-0">
+          <input checked="" class="sr-only peer" type="checkbox">
+          <div class="w-9 h-5 bg-surface-container-highest peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary-container"></div>
+        </label>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Section 8: Save Action Button Bar & Compliance Badges -->
+<div class="pt-space-xs flex flex-col gap-3 pb-space-lg">
+  <button class="w-full h-14 bg-primary-container text-on-primary rounded-xl font-label-lg flex items-center justify-center gap-space-xs shadow-md active:scale-[0.98] transition-all" id="save-settings-btn" onclick="triggerSaveAnimation()" type="button">
+    <span class="material-symbols-outlined text-[20px]" id="save-icon">lock</span>
+    <span id="save-text">Save Payout Settings</span>
+  </button>
+  <p class="font-body-sm text-center text-outline text-[12px]">Requires Director OTP verification upon saving</p>
+
+  <!-- Official Compliance Trust Badges Row -->
+  <div class="flex items-center justify-center gap-3 text-outline text-[11px] pt-1 flex-wrap text-center">
+    <span class="inline-flex items-center gap-1 font-medium"><span class="material-symbols-outlined text-[13px] text-tertiary-container">verified_user</span> PCI-DSS v4.0 Certified</span>
+    <span>•</span>
+    <span class="inline-flex items-center gap-1 font-medium"><span class="material-symbols-outlined text-[13px] text-tertiary-container">account_balance</span> RBI-PA Compliant</span>
+    <span>•</span>
+    <span class="inline-flex items-center gap-1 font-medium"><span class="material-symbols-outlined text-[13px] text-tertiary-container">security</span> ISO 27001</span>
+  </div>
+</div></div>
+</div>
+<script>
+  function selectThreshold(element, amount) {
+    const buttons = document.querySelectorAll('.threshold-btn');
+    buttons.forEach(btn => {
+      btn.classList.remove('bg-primary-container', 'text-on-primary');
+      btn.classList.add('bg-surface-container-lowest', 'text-on-surface');
+    });
+    element.classList.remove('bg-surface-container-lowest', 'text-on-surface');
+    element.classList.add('bg-primary-container', 'text-on-primary');
+    
+    const label = document.getElementById('threshold-label');
+    if (label) {
+      label.textContent = amount + ' Net Accrued';
+    }
+  }
+
+  function triggerSaveAnimation() {
+    const btn = document.getElementById('save-settings-btn');
+    const icon = document.getElementById('save-icon');
+    const text = document.getElementById('save-text');
+
+    if (!btn || !icon || !text) return;
+
+    btn.disabled = true;
+    btn.classList.add('opacity-90');
+    icon.textContent = 'sync';
+    icon.classList.add('animate-spin');
+    text.textContent = 'Authenticating via 2FA...';
+
+    setTimeout(() => {
+      icon.classList.remove('animate-spin');
+      icon.textContent = 'task_alt';
+      text.textContent = 'Settings Locked & Saved!';
+      btn.classList.remove('bg-primary-container');
+      btn.classList.add('bg-tertiary-container');
+
+      setTimeout(() => {
+        icon.textContent = 'lock';
+        text.textContent = 'Save Payout Settings';
+        btn.classList.remove('bg-tertiary-container', 'opacity-90');
+        btn.classList.add('bg-primary-container');
+        btn.disabled = false;
+      }, 2500);
+    }, 1200);
+  }
+</script></main>
+
+</body></html>

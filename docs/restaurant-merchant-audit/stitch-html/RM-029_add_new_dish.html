@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+
+<html class="h-full" lang="en"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" name="viewport"/><meta content="mobile_stack" name="shell-type"/><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet"/><style>@layer base{html,body{width:100%;margin:0;padding:0;}body{overscroll-behavior-y:none;}.pb-safe{padding-bottom:env(safe-area-inset-bottom,0px);}.pt-safe{padding-top:env(safe-area-inset-top,0px);}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config = { darkMode: "class", theme: { extend: { "colors": { "on-surface-variant": "#444653", "outline-variant": "#c5c5d5", "error-container": "#ffdad6", "inverse-surface": "#2d3134", "on-background": "#181c1f", "on-tertiary-container": "#4cca6c", "on-error-container": "#93000a", "secondary-fixed-dim": "#ffb59b", "surface-tint": "#3a56bd", "on-tertiary-fixed": "#002109", "surface-container-low": "#f2f4f8", "on-secondary-fixed": "#380d00", "tertiary": "#003813", "on-primary-fixed": "#001452", "primary-fixed-dim": "#b7c4ff", "surface": "#f7f9fd", "surface-variant": "#e0e3e6", "secondary-container": "#fc6b32", "inverse-on-surface": "#eff1f5", "secondary-fixed": "#ffdbcf", "inverse-primary": "#b7c4ff", "on-tertiary": "#ffffff", "surface-container-high": "#e6e8ec", "surface-container-highest": "#e0e3e6", "tertiary-fixed-dim": "#62df7d", "surface-dim": "#d8dade", "surface-container-lowest": "#ffffff", "on-secondary-container": "#5c1a00", "tertiary-container": "#005120", "on-surface": "#181c1f", "on-primary-fixed-variant": "#1c3da4", "surface-container": "#eceef2", "primary-fixed": "#dde1ff", "tertiary-fixed": "#7ffc97", "on-secondary": "#ffffff", "on-error": "#ffffff", "on-secondary-fixed-variant": "#812800", "primary": "#00247f", "on-primary": "#ffffff", "error": "#ba1a1a", "background": "#f7f9fd", "on-tertiary-fixed-variant": "#005320", "outline": "#757684", "primary-container": "#1a3ba2", "secondary": "#a93700", "surface-bright": "#f7f9fd", "on-primary-container": "#9cafff" }, "borderRadius": { "DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px" }, "spacing": { "margin-mobile": "1rem", "gutter": "1rem", "space-md": "1rem", "space-xs": "0.25rem", "gutter-kds": "1.25rem", "margin": "1.5rem", "space-xl": "2rem", "space-sm": "0.5rem", "space-lg": "1.5rem" }, "fontFamily": { "label-md": ["Inter"], "label-lg": ["Inter"], "body-md": ["Inter"], "label-sm": ["Inter"], "headline-md": ["Inter"], "headline-lg": ["Inter"], "headline-xl": ["Inter"], "body-sm": ["Inter"], "headline-xl-mobile": ["Inter"], "body-lg": ["Inter"], "headline-lg-mobile": ["Inter"], "headline-sm": ["Inter"], "ticket-mono": ["Inter"] }, "fontSize": { "label-md": ["13px", { "lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "600" }], "label-lg": ["15px", { "lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600" }], "body-md": ["15px", { "lineHeight": "22px", "fontWeight": "400" }], "label-sm": ["11px", { "lineHeight": "14px", "letterSpacing": "0.04em", "fontWeight": "700" }], "headline-md": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }], "headline-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.015em", "fontWeight": "700" }], "headline-xl": ["40px", { "lineHeight": "48px", "letterSpacing": "-0.02em", "fontWeight": "700" }], "body-sm": ["13px", { "lineHeight": "18px", "fontWeight": "400" }], "headline-xl-mobile": ["30px", { "lineHeight": "38px", "letterSpacing": "-0.02em", "fontWeight": "700" }], "body-lg": ["18px", { "lineHeight": "26px", "fontWeight": "500" }], "headline-lg-mobile": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "700" }], "headline-sm": ["20px", { "lineHeight": "28px", "fontWeight": "600" }], "ticket-mono": ["16px", { "lineHeight": "20px", "letterSpacing": "0.05em", "fontWeight": "700" }] } } } };</script><style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head><body class="bg-background text-on-surface min-h-full flex flex-col font-body-md"><header class="fixed top-0 w-full z-50 pt-safe bg-surface/90 backdrop-blur-xl shadow-[0_1px_8px_rgba(0,0,0,0.04)]"><div class="h-16 px-margin-mobile flex items-center justify-between gap-space-sm"><div class="flex items-center gap-space-xs min-w-0"><button aria-label="Go Back" class="min-h-[44px] min-w-[44px] w-11 h-11 flex items-center justify-center rounded-full text-on-surface hover:bg-surface-container transition-colors" onclick="history.back()" type="button"><span class="material-symbols-outlined text-[24px]">arrow_back</span></button><img alt="nabin-icon-primary-192.png" class="h-7 w-auto object-contain flex-shrink-0" src="https://lh3.googleusercontent.com/aida/ALJJyrCTdp3uQlj1WEfbLaNul4jOVx9bLaPCickvf6jmMYIcgT0Dcg7scdiyYcenxu6gWsr9pQoUH2ealX0ppYFChKRsrSROV4GAWIufXLB4Kqk0tya-g8WVkLGo8G2JXdmV2FtyqNKN4nVrii5a0BrRU8tprEgBBKpA-1TjJ2dpdkwTdVThxJC8MtB1oJnLbkoTQdgVrALpqrvijqcpjjvt0XuvSBGWqqksC2TXzI9_ZrXfqDX6mvsypJ2Uq74"/><div class="flex flex-col min-w-0 pl-1"><span class="text-body-sm font-body-sm text-on-surface-variant truncate">NABIN Demo Restaurant</span><h1 class="text-label-lg font-label-lg text-on-surface truncate">Add Menu Item</h1></div></div><div class="flex items-center gap-space-xs flex-shrink-0"><button aria-label="Contextual Action" class="min-h-[44px] min-w-[44px] w-11 h-11 flex items-center justify-center rounded-full text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors" type="button"><span class="material-symbols-outlined text-[22px]">more_vert</span></button><button aria-label="Merchant Profile" class="min-h-[44px] min-w-[44px] flex items-center justify-center p-1 rounded-full hover:bg-surface-container transition-colors" type="button"><img alt="Profile" class="w-8 h-8 rounded-full object-cover" src="https://lh3.googleusercontent.com/aida/ALJJyrD7CdH9drOcwljFpMkdcCYO4FWfU1sYSv3rBCMCvnlz46b3_yZLypJ2zZNf896C1lLJZqnPqVZRulZpFAVb56OVtaPnhiJxUc9YUDOg8AlWiHQjv82HG7gDsVvLpDT9LLmGP79FbRkY6NhGhNA1_NimXYEMCIdimx75j--dMt2bmRUNNYv9UUR6AE3FctStnpUIArD2IJyYZ2i4lepHWcMtkMaGGUjctd5DQ4rJEGenQAm7sQeIX1Rowfw"/></button></div></div></header><main class="flex flex-col flex-1 w-full bg-background pt-16 pb-safe px-margin-mobile"><div class="flex flex-col w-full pb-28">
+<!-- Top Progress Step Indicator (Breadcrumb Rail) -->
+<div class="w-full bg-surface-container-lowest rounded-xl p-space-sm shadow-sm mb-space-md">
+<div class="flex items-center justify-between gap-space-xs">
+<!-- Step 1: Active -->
+<div class="flex items-center gap-1.5 flex-1 min-w-0">
+<div class="w-6 h-6 rounded-full bg-primary-container text-on-primary flex items-center justify-center text-label-sm font-label-sm shrink-0">1</div>
+<div class="flex flex-col min-w-0">
+<span class="text-label-sm font-label-sm text-primary-container truncate">Basic Info</span>
+<span class="text-[10px] leading-tight text-on-surface-variant">Step 1 of 4</span>
+</div>
+</div>
+<span class="material-symbols-outlined text-[16px] text-outline-variant shrink-0">chevron_right</span>
+<!-- Step 2 -->
+<div class="flex items-center gap-1.5 shrink-0 opacity-70">
+<div class="w-6 h-6 rounded-full bg-surface-container-high text-on-surface-variant flex items-center justify-center text-label-sm font-label-sm">2</div>
+<span class="text-label-sm font-label-sm text-on-surface-variant hidden sm:inline">Pricing</span>
+</div>
+<span class="material-symbols-outlined text-[16px] text-outline-variant shrink-0 hidden sm:inline">chevron_right</span>
+<!-- Step 3 -->
+<div class="flex items-center gap-1.5 shrink-0 opacity-70">
+<div class="w-6 h-6 rounded-full bg-surface-container-high text-on-surface-variant flex items-center justify-center text-label-sm font-label-sm">3</div>
+<span class="text-label-sm font-label-sm text-on-surface-variant hidden sm:inline">Station</span>
+</div>
+<span class="material-symbols-outlined text-[16px] text-outline-variant shrink-0 hidden sm:inline">chevron_right</span>
+<!-- Step 4 -->
+<div class="flex items-center gap-1.5 shrink-0 opacity-70">
+<div class="w-6 h-6 rounded-full bg-surface-container-high text-on-surface-variant flex items-center justify-center text-label-sm font-label-sm">4</div>
+<span class="text-label-sm font-label-sm text-on-surface-variant hidden sm:inline">Modifiers</span>
+</div>
+</div>
+<!-- Step progress bar -->
+<div class="w-full bg-surface-container-high h-1.5 rounded-full mt-space-sm overflow-hidden">
+<div class="bg-primary-container h-full rounded-full w-1/4 transition-all duration-300"></div>
+</div>
+</div>
+<!-- Quick Action & Draft Bar -->
+<div class="flex items-center justify-between mb-space-md px-1">
+<div class="flex items-center gap-2">
+<span class="w-2.5 h-2.5 rounded-full bg-tertiary-container animate-pulse"></span>
+<span class="text-body-sm font-body-sm text-on-surface-variant">Unsaved Draft Auto-Sync</span>
+</div>
+<button class="min-h-[36px] px-3 py-1.5 rounded-lg bg-surface-container text-primary-container font-label-md text-label-md flex items-center gap-1.5 active:scale-95 transition-transform" type="button">
+<span class="material-symbols-outlined text-[18px]">bookmark</span>
+      Save as Draft
+    </button>
+</div>
+<form class="flex flex-col gap-space-md" onsubmit="event.preventDefault();">
+<!-- SECTION 1: BASIC INFORMATION -->
+<section class="bg-surface-container-lowest rounded-xl p-space-md shadow-sm flex flex-col gap-space-md">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[20px] text-primary-container">restaurant_menu</span>
+<h2 class="text-label-lg font-label-lg text-on-surface">1. Basic Dish Details</h2>
+</div>
+<span class="text-label-sm font-label-sm text-secondary font-semibold bg-secondary-fixed px-2 py-0.5 rounded-full">Mandatory</span>
+</div>
+<!-- Dish Name -->
+<div class="flex flex-col gap-1.5">
+<label class="text-label-md font-label-md text-on-surface flex items-center justify-between" for="dish-name">
+<span>Dish Name <span class="text-error">*</span></span>
+<span class="text-label-sm font-label-sm text-on-surface-variant font-normal">Max 60 chars</span>
+</label>
+<div class="relative flex items-center">
+<input class="w-full h-12 bg-surface-container-low rounded-lg px-3.5 text-body-md font-body-md text-on-surface placeholder:text-outline focus:bg-surface-container-lowest focus:ring-0 focus:outline-none transition-colors" id="dish-name" placeholder="e.g. Kothey Chicken Momo" type="text" value="Kothey Chicken Momo"/>
+<span class="material-symbols-outlined absolute right-3 text-[20px] text-on-tertiary-container pointer-events-none">check_circle</span>
+</div>
+</div>
+<!-- Food Category Dropdown -->
+<div class="flex flex-col gap-1.5">
+<label class="text-label-md font-label-md text-on-surface" for="food-category">
+          Menu Category <span class="text-error">*</span>
+</label>
+<div class="relative">
+<select class="w-full h-12 bg-surface-container-low rounded-lg px-3.5 pr-10 text-body-md font-body-md text-on-surface appearance-none focus:bg-surface-container-lowest focus:outline-none transition-colors" id="food-category">
+<option selected="">Momos & Tibetan Delicacies</option>
+<option>Himalayan Appetizers & Soups</option>
+<option>Tandoori & Kebabs</option>
+<option>Claypot Curries</option>
+<option>Artisanal Beverages</option>
+</select>
+<span class="material-symbols-outlined absolute right-3 top-3 text-[24px] text-on-surface-variant pointer-events-none">expand_more</span>
+</div>
+</div>
+<!-- Dietary Safety Type Badges (3 Interactive Radio-style Cards) -->
+<div class="flex flex-col gap-2">
+<div class="flex items-center justify-between">
+<label class="text-label-md font-label-md text-on-surface">Dietary Classification <span class="text-error">*</span></label>
+<span class="text-label-sm font-label-sm text-on-surface-variant">POS & KDS color tags</span>
+</div>
+<div class="grid grid-cols-3 gap-2" id="dietary-selector">
+<!-- Pure Veg Card -->
+<button class="flex flex-col items-center justify-center p-3 rounded-xl bg-surface-container-low text-on-surface active:scale-95 transition-all gap-1.5 text-center min-h-[72px]" id="diet-veg" onclick="selectDiet('veg')" type="button">
+<!-- Veg Badge Symbol (Green Square in Circle) -->
+<div class="w-5 h-5 rounded-md bg-tertiary/15 flex items-center justify-center">
+<div class="w-2.5 h-2.5 rounded-full bg-tertiary-container"></div>
+</div>
+<span class="text-label-md font-label-md">Pure Veg</span>
+</button>
+<!-- Non-Veg Card (Active Selection) -->
+<button class="flex flex-col items-center justify-center p-3 rounded-xl bg-secondary text-on-secondary shadow-md active:scale-95 transition-all gap-1.5 text-center min-h-[72px]" id="diet-non-veg" onclick="selectDiet('non-veg')" type="button">
+<!-- Non-Veg Badge Symbol (Red Triangle in Square) -->
+<div class="w-5 h-5 rounded-md bg-surface-container-lowest flex items-center justify-center">
+<div class="w-0 h-0 border-l-[4px] border-l-transparent border-r-[4px] border-r-transparent border-b-[8px] border-b-secondary"></div>
+</div>
+<span class="text-label-md font-label-md">Non-Veg</span>
+</button>
+<!-- Egg Card -->
+<button class="flex flex-col items-center justify-center p-3 rounded-xl bg-surface-container-low text-on-surface active:scale-95 transition-all gap-1.5 text-center min-h-[72px]" id="diet-egg" onclick="selectDiet('egg')" type="button">
+<!-- Egg Badge Symbol (Yellow/Amber Circle) -->
+<div class="w-5 h-5 rounded-md bg-secondary-fixed flex items-center justify-center">
+<div class="w-2.5 h-3 rounded-full bg-secondary-container"></div>
+</div>
+<span class="text-label-md font-label-md">Contains Egg</span>
+</button>
+</div>
+</div>
+<!-- Short Description -->
+<div class="flex flex-col gap-1.5">
+<label class="text-label-md font-label-md text-on-surface flex items-center justify-between" for="dish-desc">
+<span>Short Description</span>
+<span class="text-label-sm font-label-sm text-on-surface-variant font-normal">KDS & Guest Menu</span>
+</label>
+<textarea class="w-full bg-surface-container-low rounded-lg p-3 text-body-md font-body-md text-on-surface placeholder:text-outline focus:bg-surface-container-lowest focus:outline-none resize-none transition-colors" id="dish-desc" placeholder="Crispy pan-fried dumplings filled with seasoned minced chicken, ginger, and scallions." rows="3">Crispy pan-fried dumplings filled with seasoned minced chicken, ginger, and scallions.</textarea>
+</div>
+<!-- Photo Upload Zone -->
+<div class="flex flex-col gap-1.5">
+<div class="flex items-center justify-between">
+<label class="text-label-md font-label-md text-on-surface">Dish Presentation Photo</label>
+<button class="text-label-sm font-label-sm text-primary-container flex items-center gap-1" type="button">
+<span class="material-symbols-outlined text-[16px]">help</span>
+            Photo Guidelines
+          </button>
+</div>
+<div class="relative w-full rounded-xl bg-surface-container-low overflow-hidden p-4 flex flex-col items-center justify-center text-center cursor-pointer active:bg-surface-container transition-colors min-h-[160px]">
+<!-- Visual Preview Placeholder Thumbnail Background -->
+<div class="absolute inset-0 opacity-15 bg-cover bg-center" data-alt="Close up top-down gourmet presentation of golden crispy pan-fried Kothey dumplings on artisanal ceramic tableware with hot chili oil dip and cilantro garnish in a cozy warm atmospheric kitchen setting." style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuCG-_xww-XsvZI3KreWHyDK7HFwROk1RnQ8VXC4lbygF6PiYpkAxttxWtVt042O-yPfmoYC5atyJDDYU33FzRsZUIIQEqbY2olbyfCQdqbWW7Xg5zNFDc0d7r_ovlKZ6isZd1narHhEKpD7yzBupctCiQwMAXRTd0BRBmDgUxUB0w4YfakEauo-3_PJfBvykMsvsm13dwxLixRllFPvIyjD9dHum12gW_e-t1ukokM')"></div>
+<div class="relative z-10 flex flex-col items-center gap-2 max-w-[280px]">
+<div class="w-12 h-12 rounded-full bg-surface-container-lowest shadow-sm flex items-center justify-center text-primary-container">
+<span class="material-symbols-outlined text-[26px]">add_photo_alternate</span>
+</div>
+<span class="text-label-md font-label-md text-on-surface">Tap to upload high-res dish photo</span>
+<span class="text-body-sm font-body-sm text-on-surface-variant">Min 800×800px JPG/PNG • Max 5MB</span>
+<span class="text-label-sm font-label-sm text-primary-container font-semibold mt-1 bg-primary-fixed/60 px-3 py-1 rounded-full">Browse Gallery or Camera</span>
+</div>
+</div>
+</div>
+</section>
+<!-- SECTION 2: PRICING & TAXES -->
+<section class="bg-surface-container-lowest rounded-xl p-space-md shadow-sm flex flex-col gap-space-md">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[20px] text-primary-container">payments</span>
+<h2 class="text-label-lg font-label-lg text-on-surface">2. Pricing & Tax Structure</h2>
+</div>
+<span class="text-label-sm font-label-sm text-on-surface-variant bg-surface-container px-2 py-0.5 rounded-full">INR (₹)</span>
+</div>
+<!-- Base Selling Price & Packaging Fee Grid -->
+<div class="grid grid-cols-2 gap-space-sm">
+<!-- Base Price -->
+<div class="flex flex-col gap-1.5">
+<label class="text-label-md font-label-md text-on-surface" for="base-price">Base Price <span class="text-error">*</span></label>
+<div class="relative flex items-center">
+<span class="absolute left-3.5 text-body-lg font-body-lg text-on-surface font-semibold">₹</span>
+<input class="w-full h-12 bg-surface-container-low rounded-lg pl-8 pr-3 text-headline-sm font-headline-sm text-on-surface focus:bg-surface-container-lowest focus:outline-none" id="base-price" type="number" value="220"/>
+</div>
+</div>
+<!-- Packaging Charge -->
+<div class="flex flex-col gap-1.5">
+<label class="text-label-md font-label-md text-on-surface" for="pkg-price">Packaging Fee</label>
+<div class="relative flex items-center">
+<span class="absolute left-3.5 text-body-lg font-body-lg text-secondary font-semibold">+₹</span>
+<input class="w-full h-12 bg-surface-container-low rounded-lg pl-10 pr-3 text-headline-sm font-headline-sm text-on-surface focus:bg-surface-container-lowest focus:outline-none" id="pkg-price" type="number" value="15"/>
+</div>
+</div>
+</div>
+<!-- GST Slab Dropdown -->
+<div class="flex flex-col gap-1.5">
+<label class="text-label-md font-label-md text-on-surface" for="tax-slab">Applicable GST Slab</label>
+<div class="relative">
+<select class="w-full h-12 bg-surface-container-low rounded-lg px-3.5 pr-10 text-body-md font-body-md text-on-surface appearance-none focus:bg-surface-container-lowest focus:outline-none" id="tax-slab">
+<option selected="">5% Restaurant GST (2.5% CGST + 2.5% SGST)</option>
+<option>18% Packaged / Aerated GST Slab</option>
+<option>0% Exempted Food Items</option>
+</select>
+<span class="material-symbols-outlined absolute right-3 top-3 text-[24px] text-on-surface-variant pointer-events-none">expand_more</span>
+</div>
+</div>
+<!-- Revenue Net Preview Pill -->
+<div class="p-3 bg-surface-container-low rounded-xl flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[20px] text-tertiary-container">point_of_sale</span>
+<span class="text-body-sm font-body-sm text-on-surface-variant">Dine-in Customer Total (Incl. 5% GST):</span>
+</div>
+<span class="text-label-lg font-label-lg text-tertiary-container">₹ 231.00</span>
+</div>
+</section>
+<!-- SECTION 3: KITCHEN STATION ROUTING -->
+<section class="bg-surface-container-lowest rounded-xl p-space-md shadow-sm flex flex-col gap-space-md">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[20px] text-primary-container">countertops</span>
+<h2 class="text-label-lg font-label-lg text-on-surface">3. Station Routing & Prep</h2>
+</div>
+<span class="text-label-sm font-label-sm text-primary-container bg-primary-fixed px-2 py-0.5 rounded-full font-semibold">KDS Linked</span>
+</div>
+<!-- Kitchen Station Picker -->
+<div class="flex flex-col gap-1.5">
+<label class="text-label-md font-label-md text-on-surface" for="station-route">Prep Station (KDS Display)</label>
+<div class="relative">
+<select class="w-full h-12 bg-surface-container-low rounded-lg px-3.5 pr-10 text-body-md font-body-md text-on-surface appearance-none focus:bg-surface-container-lowest focus:outline-none" id="station-route">
+<option selected="">Station 2: Steam & Tandoor</option>
+<option>Station 1: Wok & Sauté</option>
+<option>Station 3: Cold Prep & Dessert</option>
+<option>Station 4: Bar & Beverages</option>
+</select>
+<span class="material-symbols-outlined absolute right-3 top-3 text-[24px] text-on-surface-variant pointer-events-none">expand_more</span>
+</div>
+</div>
+<!-- Standard Preparation Time Input -->
+<div class="flex flex-col gap-1.5">
+<label class="text-label-md font-label-md text-on-surface flex items-center justify-between" for="prep-time">
+<span>Standard Prep Quota</span>
+<span class="text-label-sm font-label-sm text-secondary font-semibold">KDS Rush Threshold: 15m</span>
+</label>
+<div class="flex items-center gap-space-sm">
+<div class="relative flex-1 flex items-center">
+<input class="w-full h-12 bg-surface-container-low rounded-lg pl-3.5 pr-14 text-headline-sm font-headline-sm text-on-surface focus:bg-surface-container-lowest focus:outline-none" id="prep-time" type="number" value="15"/>
+<span class="absolute right-3.5 text-body-sm font-body-sm text-on-surface-variant font-medium">Minutes</span>
+</div>
+<!-- Quick Increment Buttons for Quick Operation in busy kitchens -->
+<div class="flex items-center gap-1 shrink-0">
+<button class="w-11 h-11 rounded-lg bg-surface-container flex items-center justify-center text-on-surface active:scale-95 transition-transform" onclick="adjustPrep(-2)" type="button">
+<span class="material-symbols-outlined text-[20px]">remove</span>
+</button>
+<button class="w-11 h-11 rounded-lg bg-surface-container flex items-center justify-center text-on-surface active:scale-95 transition-transform" onclick="adjustPrep(2)" type="button">
+<span class="material-symbols-outlined text-[20px]">add</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Kitchen Print Flag -->
+<div class="flex items-center justify-between p-3 bg-surface-container-low rounded-xl">
+<div class="flex items-center gap-2.5">
+<span class="material-symbols-outlined text-[22px] text-on-surface-variant">print</span>
+<div class="flex flex-col">
+<span class="text-label-md font-label-md text-on-surface">Print Thermal KOT Ticket</span>
+<span class="text-body-sm font-body-sm text-on-surface-variant">Route duplicate slip to expeditor table</span>
+</div>
+</div>
+<input checked="" class="w-5 h-5 accent-primary rounded cursor-pointer" type="checkbox"/>
+</div>
+</section>
+<!-- SECTION 4: MODIFIERS PREVIEW CALLOUT -->
+<section class="bg-surface-container-low rounded-xl p-space-md flex items-center justify-between">
+<div class="flex items-center gap-3 min-w-0">
+<div class="w-10 h-10 rounded-full bg-secondary-fixed flex items-center justify-center text-secondary shrink-0">
+<span class="material-symbols-outlined text-[22px]">tune</span>
+</div>
+<div class="flex flex-col min-w-0">
+<span class="text-label-md font-label-md text-on-surface truncate">4. Modifier Groups (Next Step)</span>
+<span class="text-body-sm font-body-sm text-on-surface-variant truncate">Configure dips, spice levels & sides</span>
+</div>
+</div>
+<span class="material-symbols-outlined text-[20px] text-on-surface-variant shrink-0">arrow_forward</span>
+</section>
+</form>
+<!-- Sticky Bottom Ergonomic Footer Bar -->
+<div class="fixed bottom-0 left-0 right-0 z-40 bg-surface/95 backdrop-blur-xl px-margin-mobile py-3 shadow-[0_-4px_16px_rgba(0,0,0,0.06)] pb-safe">
+<div class="max-w-md mx-auto flex items-center gap-3">
+<!-- Cancel / Discard Draft Button -->
+<button class="h-13 px-4 py-3 rounded-xl bg-surface-container text-on-surface font-label-lg text-label-lg active:scale-95 transition-transform flex items-center justify-center shrink-0" onclick="history.back()" type="button">
+        Cancel
+      </button>
+<!-- Primary Advance Trigger Button -->
+<button class="h-13 flex-1 px-5 py-3 rounded-xl bg-primary-container text-on-primary font-label-lg text-label-lg shadow-md hover:bg-primary active:scale-[0.98] transition-all flex items-center justify-center gap-2 text-center min-w-0" type="button">
+<span class="truncate">Continue to Modifiers</span>
+<span class="material-symbols-outlined text-[20px] shrink-0">arrow_forward</span>
+</button>
+</div>
+</div>
+</div>
+<script>
+  function selectDiet(type) {
+    const vegBtn = document.getElementById('diet-veg');
+    const nonVegBtn = document.getElementById('diet-non-veg');
+    const eggBtn = document.getElementById('diet-egg');
+
+    // Reset base active classes
+    [vegBtn, nonVegBtn, eggBtn].forEach(btn => {
+      btn.className = "flex flex-col items-center justify-center p-3 rounded-xl bg-surface-container-low text-on-surface active:scale-95 transition-all gap-1.5 text-center min-h-[72px]";
+    });
+
+    if (type === 'veg') {
+      vegBtn.className = "flex flex-col items-center justify-center p-3 rounded-xl bg-tertiary-container text-on-tertiary shadow-md active:scale-95 transition-all gap-1.5 text-center min-h-[72px]";
+    } else if (type === 'non-veg') {
+      nonVegBtn.className = "flex flex-col items-center justify-center p-3 rounded-xl bg-secondary text-on-secondary shadow-md active:scale-95 transition-all gap-1.5 text-center min-h-[72px]";
+    } else if (type === 'egg') {
+      eggBtn.className = "flex flex-col items-center justify-center p-3 rounded-xl bg-secondary-container text-on-secondary-container shadow-md active:scale-95 transition-all gap-1.5 text-center min-h-[72px]";
+    }
+  }
+
+  function adjustPrep(delta) {
+    const input = document.getElementById('prep-time');
+    let val = parseInt(input.value) || 15;
+    val = Math.max(1, val + delta);
+    input.value = val;
+  }
+</script></main></body></html>

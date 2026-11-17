@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+
+<html lang="en"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" name="viewport"/><meta content="mobile_stack" name="shell-type"/><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet"/><style>@layer base{html,body{width:100vw;margin:0;padding:0;background-color:#f7f9fd;}body{overscroll-behavior:none;-webkit-tap-highlight-color:transparent;}.pb-safe{padding-bottom:env(safe-area-inset-bottom,0px);}.pt-safe{padding-top:env(safe-area-inset-top,0px);}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config = { darkMode: "class", theme: { extend: { "colors": { "on-error": "#ffffff", "on-tertiary-fixed-variant": "#005320", "secondary": "#a93700", "inverse-on-surface": "#eff1f5", "on-surface": "#181c1f", "outline-variant": "#c5c5d5", "on-surface-variant": "#444653", "surface-variant": "#e0e3e6", "on-primary-fixed": "#001452", "on-secondary": "#ffffff", "primary-fixed": "#dde1ff", "on-secondary-container": "#5c1a00", "secondary-container": "#fc6b32", "primary": "#00247f", "tertiary-fixed-dim": "#62df7d", "tertiary-fixed": "#7ffc97", "surface-dim": "#d8dade", "error-container": "#ffdad6", "surface-container-highest": "#e0e3e6", "secondary-fixed": "#ffdbcf", "inverse-primary": "#b7c4ff", "surface": "#f7f9fd", "on-tertiary-container": "#4cca6c", "primary-fixed-dim": "#b7c4ff", "surface-bright": "#f7f9fd", "inverse-surface": "#2d3134", "surface-container-high": "#e6e8ec", "surface-container": "#eceef2", "on-primary": "#ffffff", "primary-container": "#1a3ba2", "tertiary": "#003813", "tertiary-container": "#005120", "on-tertiary-fixed": "#002109", "on-background": "#181c1f", "on-tertiary": "#ffffff", "error": "#ba1a1a", "on-secondary-fixed-variant": "#812800", "outline": "#757684", "on-secondary-fixed": "#380d00", "on-primary-container": "#9cafff", "surface-tint": "#3a56bd", "surface-container-low": "#f2f4f8", "secondary-fixed-dim": "#ffb59b", "surface-container-lowest": "#ffffff", "on-primary-fixed-variant": "#1c3da4", "on-error-container": "#93000a", "background": "#f7f9fd" }, "borderRadius": { "DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px" }, "spacing": { "space-sm": "0.5rem", "space-lg": "1.5rem", "space-xl": "2rem", "margin-mobile": "1rem", "space-xs": "0.25rem", "gutter-kds": "1.25rem", "space-md": "1rem", "gutter": "1rem", "margin": "1.5rem" }, "fontFamily": { "label-lg": ["Inter"], "body-lg": ["Inter"], "body-md": ["Inter"], "ticket-mono": ["Inter"], "headline-lg": ["Inter"], "headline-sm": ["Inter"], "body-sm": ["Inter"], "headline-lg-mobile": ["Inter"], "headline-xl": ["Inter"], "headline-xl-mobile": ["Inter"], "headline-md": ["Inter"], "label-sm": ["Inter"], "label-md": ["Inter"] }, "fontSize": { "label-lg": ["15px", { "lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600" }], "body-lg": ["18px", { "lineHeight": "26px", "fontWeight": "500" }], "body-md": ["15px", { "lineHeight": "22px", "fontWeight": "400" }], "ticket-mono": ["16px", { "lineHeight": "20px", "letterSpacing": "0.05em", "fontWeight": "700" }], "headline-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.015em", "fontWeight": "700" }], "headline-sm": ["20px", { "lineHeight": "28px", "fontWeight": "600" }], "body-sm": ["13px", { "lineHeight": "18px", "fontWeight": "400" }], "headline-lg-mobile": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "700" }], "headline-xl": ["40px", { "lineHeight": "48px", "letterSpacing": "-0.02em", "fontWeight": "700" }], "headline-xl-mobile": ["30px", { "lineHeight": "38px", "letterSpacing": "-0.02em", "fontWeight": "700" }], "headline-md": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }], "label-sm": ["11px", { "lineHeight": "14px", "letterSpacing": "0.04em", "fontWeight": "700" }], "label-md": ["13px", { "lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "600" }] } } } };</script><style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head><body class="bg-surface font-body-md text-body-md text-on-surface flex flex-col min-h-screen"><header class="fixed top-0 w-full z-50 bg-surface/85 backdrop-blur-xl pt-safe shadow-[0_1px_8px_rgba(0,0,0,0.04)]"><div class="h-16 px-margin-mobile flex items-center justify-between gap-space-sm"><div class="flex items-center gap-space-xs"><button aria-label="Go Back" class="w-11 h-11 flex items-center justify-center rounded-lg text-on-surface hover:bg-surface-container-high transition-colors" onclick="history.back()" type="button"><span class="material-symbols-outlined text-[24px]">arrow_back</span></button><img alt="nabin-icon-primary-192.png" class="h-8 w-auto object-contain" src="https://lh3.googleusercontent.com/aida/ALJJyrCTdp3uQlj1WEfbLaNul4jOVx9bLaPCickvf6jmMYIcgT0Dcg7scdiyYcenxu6gWsr9pQoUH2ealX0ppYFChKRsrSROV4GAWIufXLB4Kqk0tya-g8WVkLGo8G2JXdmV2FtyqNKN4nVrii5a0BrRU8tprEgBBKpA-1TjJ2dpdkwTdVThxJC8MtB1oJnLbkoTQdgVrALpqrvijqcpjjvt0XuvSBGWqqksC2TXzI9_ZrXfqDX6mvsypJ2Uq74"/><span class="font-headline-sm text-headline-sm text-primary tracking-tight ml-space-xs hidden xs:inline-block">NABIN</span></div><div class="flex-1 text-center px-space-xs truncate"><h1 class="font-label-lg text-label-lg text-on-surface truncate">Hardware & Printer Setup</h1></div><div class="flex items-center gap-space-xs"><button aria-label="Help & Diagnostics" class="w-11 h-11 flex items-center justify-center rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-colors relative" type="button"><span class="material-symbols-outlined text-[22px]">help_outline</span><span class="absolute top-2.5 right-2.5 w-2 h-2 rounded-full bg-secondary ring-2 ring-surface"></span></button><div class="flex items-center justify-center pl-space-xs"><img alt="Profile" class="w-8 h-8 rounded-full object-cover ring-1 ring-outline-variant/30" src="https://lh3.googleusercontent.com/aida/ALJJyrD7CdH9drOcwljFpMkdcCYO4FWfU1sYSv3rBCMCvnlz46b3_yZLypJ2zZNf896C1lLJZqnPqVZRulZpFAVb56OVtaPnhiJxUc9YUDOg8AlWiHQjv82HG7gDsVvLpDT9LLmGP79FbRkY6NhGhNA1_NimXYEMCIdimx75j--dMt2bmRUNNYv9UUR6AE3FctStnpUIArD2IJyYZ2i4lepHWcMtkMaGGUjctd5DQ4rJEGenQAm7sQeIX1Rowfw"/></div></div></div></header><main class="flex flex-col relative w-full pt-16 pb-safe bg-surface min-h-screen"><div class="flex flex-col w-full pb-28">
+<!-- Subtle Kitchen Diagnostic Status Bar -->
+<div class="px-margin-mobile pt-space-md pb-space-xs flex items-center justify-between">
+<div class="flex items-center gap-space-xs">
+<span class="w-2.5 h-2.5 rounded-full bg-tertiary-fixed-dim inline-block animate-pulse"></span>
+<span class="font-label-md text-label-md text-on-surface">Station 01 • Main Hot Line</span>
+</div>
+<div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-surface-container-high text-on-surface-variant font-label-sm text-label-sm">
+<span class="material-symbols-outlined text-[14px] text-tertiary">lan</span>
+<span>192.168.1.88</span>
+</div>
+</div>
+<!-- Paired Printer Hero Card -->
+<div class="px-margin-mobile my-space-xs">
+<div class="bg-surface-container-lowest rounded-xl p-space-md shadow-sm">
+<div class="flex items-start gap-space-md">
+<!-- Visual Printer Thumbnail with Status Glow -->
+<div class="relative w-16 h-16 rounded-lg bg-surface-container flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-[36px] text-primary" style="font-variation-settings: 'FILL' 1;">print</span>
+<span class="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-tertiary-container flex items-center justify-center ring-2 ring-surface-container-lowest">
+<span class="w-2 h-2 rounded-full bg-tertiary-fixed"></span>
+</span>
+</div>
+<!-- Identity & Serial Details -->
+<div class="flex-1 min-w-0">
+<div class="flex items-center justify-between gap-space-xs">
+<h2 class="font-headline-sm text-headline-sm text-on-surface truncate">EPSON TM-T82III</h2>
+<span class="shrink-0 px-2 py-0.5 rounded-full bg-surface-container-high text-on-surface-variant font-label-sm text-label-sm">v2.14 FW</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant truncate mt-0.5">SN: EPS-8492019A • Station 01 Main Kitchen</p>
+<div class="flex flex-wrap items-center gap-space-xs mt-2">
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary-fixed text-on-primary-fixed font-label-sm text-label-sm">
+<span class="material-symbols-outlined text-[13px]">settings_ethernet</span>
+              Gigabit LAN
+            </span>
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-surface-container text-on-surface-variant font-label-sm text-label-sm">
+<span class="material-symbols-outlined text-[13px]">bluetooth</span>
+              BT Mesh 5.2
+            </span>
+</div>
+</div>
+</div>
+<!-- Real-Time Thermal & Paper Health Meters -->
+<div class="mt-space-md pt-space-sm grid grid-cols-3 gap-space-xs bg-surface-container-low rounded-lg p-2.5">
+<div class="flex flex-col items-center justify-center text-center">
+<div class="flex items-center gap-1 text-tertiary">
+<span class="material-symbols-outlined text-[16px]">speed</span>
+<span class="font-ticket-mono text-ticket-mono text-on-surface">4ms</span>
+</div>
+<span class="font-label-sm text-label-sm text-on-surface-variant mt-0.5">Ultra-Low</span>
+</div>
+<div class="flex flex-col items-center justify-center text-center">
+<div class="flex items-center gap-1 text-primary">
+<span class="material-symbols-outlined text-[16px]">thermostat</span>
+<span class="font-ticket-mono text-ticket-mono text-on-surface">34°C</span>
+</div>
+<span class="font-label-sm text-label-sm text-on-surface-variant mt-0.5">Head Normal</span>
+</div>
+<div class="flex flex-col items-center justify-center text-center">
+<div class="flex items-center gap-1 text-secondary-container">
+<span class="material-symbols-outlined text-[16px]">receipt_long</span>
+<span class="font-ticket-mono text-ticket-mono text-on-surface">70%</span>
+</div>
+<span class="font-label-sm text-label-sm text-on-surface-variant mt-0.5">~240 Tickets</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Hardware Specifications & Controls Container -->
+<div class="px-margin-mobile flex flex-col gap-space-md mt-space-sm">
+<!-- 1. Thermal Paper Width Selector -->
+<div class="bg-surface-container-lowest rounded-xl p-space-md shadow-sm">
+<div class="flex items-center justify-between mb-space-sm">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary text-[20px]">straighten</span>
+<h3 class="font-label-lg text-label-lg text-on-surface">Thermal Paper Width</h3>
+</div>
+<span class="font-label-sm text-label-sm text-on-surface-variant">KDS Format</span>
+</div>
+<div class="grid grid-cols-2 gap-space-xs p-1 bg-surface-container rounded-lg" id="paper-width-group" role="radiogroup">
+<button aria-checked="true" class="width-btn flex flex-col items-center py-2.5 px-2 rounded-lg bg-surface-container-lowest shadow-sm text-primary transition-all" data-value="80" onclick="selectWidth(this)" role="radio" type="button">
+<span class="font-ticket-mono text-ticket-mono font-bold">80mm</span>
+<span class="font-label-sm text-label-sm text-on-surface-variant text-center">Standard KOT (48 chars)</span>
+</button>
+<button aria-checked="false" class="width-btn flex flex-col items-center py-2.5 px-2 rounded-lg text-on-surface-variant transition-all hover:bg-surface-container-high/60" data-value="58" onclick="selectWidth(this)" role="radio" type="button">
+<span class="font-ticket-mono text-ticket-mono font-bold">58mm</span>
+<span class="font-label-sm text-label-sm text-on-surface-variant text-center">Compact (32 chars)</span>
+</button>
+</div>
+</div>
+<!-- 2. Print Density & Heat Level -->
+<div class="bg-surface-container-lowest rounded-xl p-space-md shadow-sm">
+<div class="flex items-center justify-between mb-1">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-secondary text-[20px]">local_fire_department</span>
+<h3 class="font-label-lg text-label-lg text-on-surface">Print Density & Heat Level</h3>
+</div>
+<span class="font-ticket-mono text-ticket-mono text-secondary" id="density-val">100% Normal</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant mb-space-md">
+        High contrast kitchen mode prevents fade from steam, kitchen grease, and pass warmers.
+      </p>
+<div class="relative px-1 pt-1 pb-2">
+<input class="w-full h-2.5 bg-surface-container rounded-full appearance-none cursor-pointer accent-secondary focus:outline-none" id="heat-slider" max="120" min="80" oninput="updateDensity(this.value)" step="20" type="range" value="100"/>
+<div class="flex justify-between items-center text-center mt-3">
+<button class="flex flex-col items-start text-left" onclick="setDensityDirect(80)" type="button">
+<span class="font-label-sm text-label-sm text-on-surface-variant">80%</span>
+<span class="font-label-sm text-label-sm text-on-surface-variant/80">Eco Light</span>
+</button>
+<button class="flex flex-col items-center" onclick="setDensityDirect(100)" type="button">
+<span class="font-label-sm text-label-sm text-secondary font-bold">100%</span>
+<span class="font-label-sm text-label-sm text-on-surface-variant">Standard</span>
+</button>
+<button class="flex flex-col items-end text-right" onclick="setDensityDirect(120)" type="button">
+<span class="font-label-sm text-label-sm text-on-surface-variant">120%</span>
+<span class="font-label-sm text-label-sm text-on-surface-variant/80">Kitchen Bold</span>
+</button>
+</div>
+</div>
+</div>
+<!-- 3. Auto-Cutter Behavior -->
+<div class="bg-surface-container-lowest rounded-xl p-space-md shadow-sm">
+<div class="flex items-center justify-between mb-space-sm">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary text-[20px]">content_cut</span>
+<h3 class="font-label-lg text-label-lg text-on-surface">Auto-Cutter Action</h3>
+</div>
+<span class="font-label-sm text-label-sm text-tertiary">Blade OK</span>
+</div>
+<div class="flex flex-col gap-space-xs" id="cutter-group">
+<button class="cutter-opt w-full flex items-center justify-between p-3 rounded-lg bg-surface-container-low hover:bg-surface-container text-left transition-colors" onclick="selectCutter(this, 'full')" type="button">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-[20px] text-on-surface-variant">splitscreen</span>
+<div>
+<p class="font-label-md text-label-md text-on-surface">Full Cut</p>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Completely separates ticket drop</p>
+</div>
+</div>
+<span class="cutter-radio w-5 h-5 rounded-full bg-surface-container-highest flex items-center justify-center">
+<span class="w-2.5 h-2.5 rounded-full bg-transparent"></span>
+</span>
+</button>
+<button class="cutter-opt w-full flex items-center justify-between p-3 rounded-lg bg-primary-fixed/40 text-left transition-colors" onclick="selectCutter(this, 'partial')" type="button">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-[20px] text-primary">horizontal_split</span>
+<div>
+<p class="font-label-md text-label-md text-primary font-bold">Partial Cut (Leaves Center Tab)</p>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Recommended: tickets hang on roll till grabbed</p>
+</div>
+</div>
+<span class="cutter-radio w-5 h-5 rounded-full bg-primary flex items-center justify-center">
+<span class="w-2 h-2 rounded-full bg-on-primary"></span>
+</span>
+</button>
+<button class="cutter-opt w-full flex items-center justify-between p-3 rounded-lg bg-surface-container-low hover:bg-surface-container text-left transition-colors" onclick="selectCutter(this, 'none')" type="button">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-[20px] text-on-surface-variant">drag_handle</span>
+<div>
+<p class="font-label-md text-label-md text-on-surface">No Cut</p>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Continuous feed for manual jagged tear</p>
+</div>
+</div>
+<span class="cutter-radio w-5 h-5 rounded-full bg-surface-container-highest flex items-center justify-center">
+<span class="w-2.5 h-2.5 rounded-full bg-transparent"></span>
+</span>
+</button>
+</div>
+</div>
+<!-- 4. Cash Drawer Kick Pulse -->
+<div class="bg-surface-container-lowest rounded-xl p-space-md shadow-sm flex items-center justify-between gap-space-sm">
+<div class="flex items-start gap-3 min-w-0">
+<div class="w-10 h-10 rounded-lg bg-surface-container flex items-center justify-center shrink-0 mt-0.5">
+<span class="material-symbols-outlined text-primary text-[22px]">point_of_sale</span>
+</div>
+<div class="min-w-0">
+<h3 class="font-label-lg text-label-lg text-on-surface truncate">Cash Drawer Kick Pulse</h3>
+<p class="font-body-sm text-body-sm text-on-surface-variant">RJ12 Pin 2 / 24V 100ms on Tax Invoice print</p>
+</div>
+</div>
+<button aria-checked="false" class="relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full bg-surface-container-highest transition-colors duration-200 ease-in-out focus:outline-none" onclick="toggleSwitch(this)" role="switch" type="button">
+<span class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-surface-container-lowest shadow-sm translate-x-1 translate-y-1 transition duration-200 ease-in-out"></span>
+</button>
+</div>
+<!-- 5. Buzzer & Kitchen Rush Audio Chimes -->
+<div class="bg-surface-container-lowest rounded-xl p-space-md shadow-sm">
+<div class="flex items-center justify-between mb-space-sm">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-secondary text-[20px]">notifications_active</span>
+<h3 class="font-label-lg text-label-lg text-on-surface">Buzzer & Line Call Chimes</h3>
+</div>
+<button aria-checked="true" class="relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full bg-primary transition-colors duration-200 ease-in-out focus:outline-none" onclick="toggleSwitch(this)" role="switch" type="button">
+<span class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-on-primary shadow-sm translate-x-6 translate-y-1 transition duration-200 ease-in-out"></span>
+</button>
+</div>
+<div class="bg-surface-container-low rounded-lg p-3 flex flex-col gap-2.5">
+<div class="flex items-center justify-between">
+<span class="font-label-md text-label-md text-on-surface">Order Chime Pattern</span>
+<span class="font-ticket-mono text-label-sm text-secondary bg-secondary-fixed/50 px-2 py-0.5 rounded-full">3x Rapid Beep</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant">
+          Sounds piezoelectric siren immediately when a hot-ticket hits station.
+        </p>
+<div class="pt-1 flex items-center justify-end">
+<button class="h-9 px-3.5 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface font-label-md text-label-md flex items-center gap-1.5 transition-transform active:scale-95" onclick="playChimeSimulation(this)" type="button">
+<span class="material-symbols-outlined text-[18px] text-secondary">volume_up</span>
+<span>Test Chime</span>
+</button>
+</div>
+</div>
+</div>
+<!-- 6. Character Encoding & Multi-Language -->
+<div class="bg-surface-container-lowest rounded-xl p-space-md shadow-sm">
+<div class="flex items-center gap-2 mb-space-xs">
+<span class="material-symbols-outlined text-primary text-[20px]">translate</span>
+<h3 class="font-label-lg text-label-lg text-on-surface">Encoding & Glyph Support</h3>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant mb-space-sm">
+        Ensures dish names, modifiers, and allergy callouts render crisp in local scripts.
+      </p>
+<div class="p-3 bg-surface-container-low rounded-lg flex items-start gap-3">
+<span class="material-symbols-outlined text-tertiary text-[20px] shrink-0 mt-0.5">verified</span>
+<div class="min-w-0">
+<p class="font-label-md text-label-md text-on-surface">PC437 Standard + UTF-8 Devanagari</p>
+<p class="font-body-sm text-body-sm text-on-surface-variant truncate">Full support for English, Hindi, and Nepali dish names.</p>
+<div class="mt-2 flex items-center gap-2">
+<span class="px-2 py-0.5 bg-surface-container-highest rounded font-ticket-mono text-label-sm text-on-surface">मोमो (Steamed)</span>
+<span class="px-2 py-0.5 bg-surface-container-highest rounded font-ticket-mono text-label-sm text-on-surface">Butter Chicken #12</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Diagnostic Ticket Preview Card -->
+<div class="bg-surface-container-lowest rounded-xl p-space-md shadow-sm">
+<div class="flex items-center justify-between mb-space-xs">
+<span class="font-label-md text-label-md text-on-surface">Live Ticket Geometry Preview</span>
+<span class="font-label-sm text-label-sm text-on-surface-variant">Scaled 1:1</span>
+</div>
+<!-- Monospace Thermal Receipt Mock -->
+<div class="bg-surface-container-low p-space-md rounded-lg font-ticket-mono text-[13px] leading-tight text-on-surface shadow-inner flex flex-col gap-1">
+<div class="text-center font-bold tracking-widest text-[14px]">NABIN KITCHEN DISPATCH</div>
+<div class="text-center text-on-surface-variant text-[11px]">T-14 • ORDER #402 • 19:42:10</div>
+<div class="border-b border-outline-variant/30 my-1"></div>
+<div class="flex justify-between font-bold">
+<span>2x CHICKEN MOMO (SPICY)</span>
+<span>ST-01</span>
+</div>
+<div class="text-secondary pl-3 text-[11px] font-semibold tracking-normal">
+          ↳ EXTRA TIMUR CHILLI DIP [STEAMED]
+        </div>
+<div class="flex justify-between font-bold mt-1">
+<span>1x DAL MAKHANI (CLAY POT)</span>
+<span>ST-01</span>
+</div>
+<div class="border-b border-outline-variant/30 my-1"></div>
+<div class="flex justify-between text-on-surface-variant text-[11px]">
+<span>CUTTER: PARTIAL TAB</span>
+<span id="preview-heat">HEAT: 100%</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Bottom Sticky Action Bar -->
+<div class="fixed bottom-0 left-0 right-0 z-40 bg-surface/90 backdrop-blur-md px-margin-mobile py-space-sm shadow-[0_-4px_16px_rgba(0,0,0,0.06)]">
+<div class="max-w-md mx-auto flex items-center gap-space-sm">
+<!-- Test Page Button -->
+<button class="h-12 flex-1 px-3 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface font-label-lg text-label-lg flex items-center justify-center gap-1.5 transition-transform active:scale-98" onclick="triggerTestPrint(this)" type="button">
+<span class="material-symbols-outlined text-[20px] text-primary">receipt</span>
+<span class="truncate">Test Print</span>
+</button>
+<!-- Save Config Button -->
+<button class="h-12 flex-1 px-4 rounded-lg bg-primary-container text-on-primary font-label-lg text-label-lg shadow-sm flex items-center justify-center gap-2 transition-transform active:scale-98" onclick="saveConfiguration(this)" type="button">
+<span class="material-symbols-outlined text-[20px]">save</span>
+<span class="truncate">Save Profile</span>
+</button>
+</div>
+</div>
+<!-- Notification Toast (Hidden by default) -->
+<div class="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-inverse-surface text-inverse-on-surface px-4 py-2.5 rounded-lg shadow-xl font-label-md text-label-md flex items-center gap-2 opacity-0 pointer-events-none transition-all duration-300" id="toast">
+<span class="material-symbols-outlined text-[18px] text-tertiary-fixed" id="toast-icon">check_circle</span>
+<span id="toast-msg">Configuration saved to Station 01</span>
+</div>
+</div>
+<script>
+  function selectWidth(btn) {
+    const parent = document.getElementById('paper-width-group');
+    const buttons = parent.querySelectorAll('.width-btn');
+    buttons.forEach(b => {
+      b.classList.remove('bg-surface-container-lowest', 'shadow-sm', 'text-primary');
+      b.classList.add('text-on-surface-variant');
+      b.setAttribute('aria-checked', 'false');
+    });
+    btn.classList.add('bg-surface-container-lowest', 'shadow-sm', 'text-primary');
+    btn.classList.remove('text-on-surface-variant');
+    btn.setAttribute('aria-checked', 'true');
+    showToast('Width set to ' + btn.getAttribute('data-value') + 'mm (Paper feed recalculated)');
+  }
+
+  function updateDensity(val) {
+    const label = document.getElementById('density-val');
+    const preview = document.getElementById('preview-heat');
+    if (val == 80) {
+      label.textContent = '80% Eco Light';
+      label.className = 'font-ticket-mono text-ticket-mono text-on-surface-variant';
+    } else if (val == 100) {
+      label.textContent = '100% Normal';
+      label.className = 'font-ticket-mono text-ticket-mono text-secondary';
+    } else {
+      label.textContent = '120% Kitchen Bold';
+      label.className = 'font-ticket-mono text-ticket-mono text-secondary font-bold';
+    }
+    preview.textContent = 'HEAT: ' + val + '%';
+  }
+
+  function setDensityDirect(val) {
+    const slider = document.getElementById('heat-slider');
+    slider.value = val;
+    updateDensity(val);
+  }
+
+  function selectCutter(selectedBtn, type) {
+    const group = document.getElementById('cutter-group');
+    const buttons = group.querySelectorAll('.cutter-opt');
+    buttons.forEach(btn => {
+      btn.className = 'cutter-opt w-full flex items-center justify-between p-3 rounded-lg bg-surface-container-low hover:bg-surface-container text-left transition-colors';
+      const icon = btn.querySelector('.material-symbols-outlined');
+      if (icon) icon.className = 'material-symbols-outlined text-[20px] text-on-surface-variant';
+      const title = btn.querySelector('p:first-child');
+      if (title) title.className = 'font-label-md text-label-md text-on-surface';
+      const radio = btn.querySelector('.cutter-radio');
+      if (radio) {
+        radio.className = 'cutter-radio w-5 h-5 rounded-full bg-surface-container-highest flex items-center justify-center';
+        radio.innerHTML = '<span class="w-2.5 h-2.5 rounded-full bg-transparent"></span>';
+      }
+    });
+
+    selectedBtn.className = 'cutter-opt w-full flex items-center justify-between p-3 rounded-lg bg-primary-fixed/40 text-left transition-colors';
+    const activeIcon = selectedBtn.querySelector('.material-symbols-outlined');
+    if (activeIcon) activeIcon.className = 'material-symbols-outlined text-[20px] text-primary';
+    const activeTitle = selectedBtn.querySelector('p:first-child');
+    if (activeTitle) activeTitle.className = 'font-label-md text-label-md text-primary font-bold';
+    const activeRadio = selectedBtn.querySelector('.cutter-radio');
+    if (activeRadio) {
+      activeRadio.className = 'cutter-radio w-5 h-5 rounded-full bg-primary flex items-center justify-center';
+      activeRadio.innerHTML = '<span class="w-2 h-2 rounded-full bg-on-primary"></span>';
+    }
+    showToast('Auto-Cutter set to: ' + type.toUpperCase());
+  }
+
+  function toggleSwitch(btn) {
+    const checked = btn.getAttribute('aria-checked') === 'true';
+    const dot = btn.querySelector('span');
+    if (checked) {
+      btn.setAttribute('aria-checked', 'false');
+      btn.classList.remove('bg-primary');
+      btn.classList.add('bg-surface-container-highest');
+      dot.classList.remove('translate-x-6', 'bg-on-primary');
+      dot.classList.add('translate-x-1', 'bg-surface-container-lowest');
+    } else {
+      btn.setAttribute('aria-checked', 'true');
+      btn.classList.remove('bg-surface-container-highest');
+      btn.classList.add('bg-primary');
+      dot.classList.remove('translate-x-1', 'bg-surface-container-lowest');
+      dot.classList.add('translate-x-6', 'bg-on-primary');
+    }
+  }
+
+  function playChimeSimulation(btn) {
+    btn.classList.add('animate-bounce');
+    showToast('♪ Piezo Beep ×3 triggered on TM-T82III');
+    setTimeout(() => {
+      btn.classList.remove('animate-bounce');
+    }, 1200);
+  }
+
+  function triggerTestPrint(btn) {
+    const originalText = btn.innerHTML;
+    btn.innerHTML = '<span class="material-symbols-outlined text-[20px] animate-spin">refresh</span><span>Printing...</span>';
+    btn.disabled = true;
+    setTimeout(() => {
+      btn.innerHTML = originalText;
+      btn.disabled = false;
+      showToast('Test page printed & cutter cycled');
+    }, 1400);
+  }
+
+  function saveConfiguration(btn) {
+    const originalText = btn.innerHTML;
+    btn.innerHTML = '<span class="material-symbols-outlined text-[20px] animate-spin">sync</span><span>Saving...</span>';
+    btn.disabled = true;
+    setTimeout(() => {
+      btn.innerHTML = originalText;
+      btn.disabled = false;
+      showToast('Hardware profile synced to Station 01');
+    }, 800);
+  }
+
+  function showToast(msg) {
+    const toast = document.getElementById('toast');
+    const toastMsg = document.getElementById('toast-msg');
+    toastMsg.textContent = msg;
+    toast.classList.remove('opacity-0', 'pointer-events-none');
+    toast.classList.add('opacity-100');
+    setTimeout(() => {
+      toast.classList.remove('opacity-100');
+      toast.classList.add('opacity-0', 'pointer-events-none');
+    }, 2400);
+  }
+</script></main></body></html>

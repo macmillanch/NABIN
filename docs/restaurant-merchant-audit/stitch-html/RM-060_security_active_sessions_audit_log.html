@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>RM-060: Security, Active Sessions &amp; Audit Log - NABIN RMS</title>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "inverse-on-surface": "#eff1f5",
+            "on-primary-fixed-variant": "#1c3da4",
+            "on-background": "#181c1f",
+            "on-primary-container": "#9cafff",
+            "inverse-surface": "#2d3134",
+            "inverse-primary": "#b7c4ff",
+            "on-surface-variant": "#444653",
+            "surface-tint": "#3a56bd",
+            "on-error-container": "#93000a",
+            "on-primary-fixed": "#001452",
+            "on-secondary-fixed": "#380d00",
+            "error-container": "#ffdad6",
+            "primary-fixed": "#dde1ff",
+            "surface-bright": "#f7f9fd",
+            "surface": "#f7f9fd",
+            "error": "#ba1a1a",
+            "tertiary-container": "#005120",
+            "surface-dim": "#d8dade",
+            "surface-variant": "#e0e3e6",
+            "on-tertiary-container": "#4cca6c",
+            "tertiary": "#003813",
+            "outline": "#757684",
+            "tertiary-fixed-dim": "#62df7d",
+            "tertiary-fixed": "#7ffc97",
+            "on-secondary-container": "#5c1a00",
+            "surface-container-lowest": "#ffffff",
+            "surface-container-high": "#e6e8ec",
+            "on-error": "#ffffff",
+            "on-tertiary-fixed-variant": "#005320",
+            "on-secondary": "#ffffff",
+            "on-primary": "#ffffff",
+            "outline-variant": "#c5c5d5",
+            "secondary": "#a93700",
+            "on-secondary-fixed-variant": "#812800",
+            "on-tertiary": "#ffffff",
+            "surface-container-highest": "#e0e3e6",
+            "surface-container": "#eceef2",
+            "surface-container-low": "#f2f4f8",
+            "primary-fixed-dim": "#b7c4ff",
+            "on-tertiary-fixed": "#002109",
+            "on-surface": "#181c1f",
+            "primary-container": "#1a3ba2",
+            "secondary-container": "#fc6b32",
+            "background": "#f7f9fd",
+            "secondary-fixed-dim": "#ffb59b",
+            "secondary-fixed": "#ffdbcf",
+            "primary": "#00247f"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.25rem",
+            "lg": "0.5rem",
+            "xl": "0.75rem",
+            "full": "9999px"
+          },
+          "spacing": {
+            "space-md": "1rem",
+            "space-lg": "1.5rem",
+            "margin-mobile": "1rem",
+            "margin": "1.5rem",
+            "space-sm": "0.5rem",
+            "gutter": "1rem",
+            "space-xs": "0.25rem",
+            "gutter-kds": "1.25rem",
+            "space-xl": "2rem"
+          },
+          "fontFamily": {
+            "body-sm": ["Inter"],
+            "label-sm": ["Inter"],
+            "body-md": ["Inter"],
+            "headline-xl-mobile": ["Inter"],
+            "label-md": ["Inter"],
+            "headline-md": ["Inter"],
+            "ticket-mono": ["Inter"],
+            "headline-xl": ["Inter"],
+            "label-lg": ["Inter"],
+            "body-lg": ["Inter"],
+            "headline-lg": ["Inter"],
+            "headline-sm": ["Inter"],
+            "headline-lg-mobile": ["Inter"]
+          },
+          "fontSize": {
+            "body-sm": ["13px", {"lineHeight": "18px", "fontWeight": "400"}],
+            "label-sm": ["11px", {"lineHeight": "14px", "letterSpacing": "0.04em", "fontWeight": "700"}],
+            "body-md": ["15px", {"lineHeight": "22px", "fontWeight": "400"}],
+            "headline-xl-mobile": ["30px", {"lineHeight": "38px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+            "label-md": ["13px", {"lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "600"}],
+            "headline-md": ["24px", {"lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+            "ticket-mono": ["16px", {"lineHeight": "20px", "letterSpacing": "0.05em", "fontWeight": "700"}],
+            "headline-xl": ["40px", {"lineHeight": "48px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+            "label-lg": ["15px", {"lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600"}],
+            "body-lg": ["18px", {"lineHeight": "26px", "fontWeight": "500"}],
+            "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.015em", "fontWeight": "700"}],
+            "headline-sm": ["20px", {"lineHeight": "28px", "fontWeight": "600"}],
+            "headline-lg-mobile": ["24px", {"lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "700"}]
+          }
+        }
+      }
+    }
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-family: 'Material Symbols Outlined';
+      font-weight: normal;
+      font-style: normal;
+      font-size: 20px;
+      line-height: 1;
+      display: inline-block;
+      text-transform: none;
+      letter-spacing: normal;
+      word-wrap: normal;
+      white-space: nowrap;
+      direction: ltr;
+      -webkit-font-smoothing: antialiased;
+    }
+    .custom-scrollbar::-webkit-scrollbar {
+      display: none;
+    }
+    .custom-scrollbar {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+  </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background text-on-background font-body-md antialiased min-h-screen flex justify-center selection:bg-primary-fixed selection:text-on-primary-fixed">
+<!-- Mobile Viewport Container (RMS Terminal Experience) -->
+<div class="w-full max-w-md bg-surface flex flex-col min-h-screen shadow-2xl relative pb-28">
+<!-- Top App Bar (Task-Focused: Sub-page with Back Navigation) -->
+<header class="sticky top-0 z-40 bg-surface-container-lowest/95 backdrop-blur-md px-4 py-3 border-b border-outline-variant/30 flex items-center justify-between min-h-[64px]">
+<div class="flex items-center space-x-3">
+<button aria-label="Go back" class="min-w-[48px] min-h-[48px] -ml-2 rounded-xl flex items-center justify-center text-on-surface hover:bg-surface-container active:scale-95 transition-all text-primary" type="button">
+<span class="material-symbols-outlined text-[24px]">arrow_back</span>
+</button>
+<div>
+<div class="flex items-center gap-1.5">
+<h1 class="text-label-lg font-label-lg font-bold text-on-surface tracking-tight">Security &amp; Audit Log</h1>
+</div>
+<p class="text-label-sm font-label-sm text-outline font-medium tracking-wide">RM-060 · Access Control &amp; Compliance</p>
+</div>
+</div>
+<!-- Right Status Chip: Security Shield Verified -->
+<div class="min-h-[48px] flex items-center">
+<div class="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-full bg-surface-container-low border border-outline-variant/40">
+<span class="material-symbols-outlined text-primary-container text-[18px]" style="font-variation-settings: 'FILL' 1;">verified_user</span>
+<span class="text-label-sm font-label-sm text-primary font-bold">Secured</span>
+<span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+</div>
+</div>
+</header>
+<!-- Main Content Canvas -->
+<main class="flex-1 px-4 pt-4 space-y-6">
+<!-- SECTION 1: Active Sessions & Device Management -->
+<section class="space-y-3">
+<div class="flex items-center justify-between">
+<div class="flex items-center space-x-2">
+<h2 class="text-label-lg font-label-lg font-bold text-on-surface">Active Logged-in Devices</h2>
+<span class="px-2 py-0.5 rounded-full text-label-sm font-label-sm bg-primary-fixed text-on-primary-fixed font-bold">3 Devices</span>
+</div>
+<button class="min-h-[48px] px-3 text-label-sm font-label-sm font-bold text-error hover:bg-error-container/30 active:scale-95 transition-all border border-error/30 rounded-lg flex items-center space-x-1.5" type="button">
+<span class="material-symbols-outlined text-[16px]">logout</span>
+<span>Logout All Others</span>
+</button>
+</div>
+<!-- Device Card 1: Current Active Device -->
+<div class="bg-surface-container-lowest rounded-xl p-4 border-2 border-primary-container shadow-sm space-y-3 relative overflow-hidden">
+<div class="flex items-start justify-between">
+<div class="flex items-start space-x-3">
+<div class="w-12 h-12 rounded-xl bg-primary-fixed flex items-center justify-center text-primary-container flex-shrink-0">
+<span class="material-symbols-outlined text-[26px]">tablet_mac</span>
+</div>
+<div class="space-y-1">
+<div class="flex flex-wrap items-center gap-1.5">
+<span class="text-body-md font-label-lg font-bold text-on-surface">Apple iPad Pro 11"</span>
+<span class="px-2 py-0.5 rounded-full text-[10px] font-label-sm bg-primary-container text-surface-container-lowest font-bold">This Device</span>
+<span class="px-2 py-0.5 rounded-full text-[10px] font-label-sm bg-emerald-100 text-emerald-800 font-bold flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-600"></span>Active Now
+                  </span>
+</div>
+<p class="text-label-md font-label-md text-on-surface-variant">Counter Terminal #01</p>
+<p class="text-body-sm font-body-sm text-outline flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">location_on</span>
+                  New Delhi, DL • IP: 103.24.***.*** (Masked)
+                </p>
+</div>
+</div>
+</div>
+<div class="pt-2 border-t border-outline-variant/30 flex items-center justify-between text-body-sm font-body-sm text-on-surface-variant bg-surface-container-low -mx-4 -mb-4 p-3 rounded-b-lg">
+<div class="flex items-center space-x-1.5">
+<span class="material-symbols-outlined text-primary text-[16px]">verified</span>
+<span class="text-[12px]">Logged in today at 07:30 AM via Owner Mobile OTP</span>
+</div>
+<span class="material-symbols-outlined text-outline text-[18px]">lock</span>
+</div>
+</div>
+<!-- Device Card 2: Kitchen KDS Station -->
+<div class="bg-surface-container-lowest rounded-xl p-4 border border-outline-variant/50 space-y-3">
+<div class="flex items-start justify-between">
+<div class="flex items-start space-x-3">
+<div class="w-12 h-12 rounded-xl bg-secondary-fixed flex items-center justify-center text-secondary font-bold flex-shrink-0">
+<span class="material-symbols-outlined text-[26px]">skillet</span>
+</div>
+<div class="space-y-1">
+<div class="flex flex-wrap items-center gap-1.5">
+<span class="text-body-md font-label-lg font-bold text-on-surface">Samsung Galaxy Tab A8</span>
+<span class="px-2 py-0.5 rounded-full text-[10px] font-label-sm bg-surface-container-high text-on-surface-variant font-medium">Active 2m ago</span>
+</div>
+<p class="text-label-md font-label-md text-on-surface-variant">Kitchen KDS Station #01</p>
+<p class="text-body-sm font-body-sm text-outline flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">wifi</span>
+                  New Delhi, DL • Local Network
+                </p>
+</div>
+</div>
+</div>
+<div class="pt-2 border-t border-outline-variant/30 flex items-center justify-between">
+<span class="text-[12px] text-outline">Terminal PIN Authorization</span>
+<button class="min-h-[48px] px-4 rounded-lg border border-outline-variant text-error font-label-md font-bold text-label-md hover:bg-error-container/20 active:scale-95 transition-all flex items-center space-x-1" type="button">
+<span class="material-symbols-outlined text-[18px]">gpp_bad</span>
+<span>Revoke Session</span>
+</button>
+</div>
+</div>
+<!-- Device Card 3: MacBook Air Web Management -->
+<div class="bg-surface-container-lowest rounded-xl p-4 border border-outline-variant/50 space-y-3">
+<div class="flex items-start justify-between">
+<div class="flex items-start space-x-3">
+<div class="w-12 h-12 rounded-xl bg-surface-container-high flex items-center justify-center text-on-surface-variant flex-shrink-0">
+<span class="material-symbols-outlined text-[26px]">laptop_mac</span>
+</div>
+<div class="space-y-1">
+<div class="flex flex-wrap items-center gap-1.5">
+<span class="text-body-md font-label-lg font-bold text-on-surface">MacBook Air</span>
+<span class="px-2 py-0.5 rounded-full text-[10px] font-label-sm bg-surface-container-high text-on-surface-variant font-medium">Active yesterday</span>
+</div>
+<p class="text-label-md font-label-md text-on-surface-variant">Chrome Browser (Management Web)</p>
+<p class="text-body-sm font-body-sm text-outline flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">location_on</span>
+                  Gurugram, HR • IP: 49.36.***.***
+                </p>
+</div>
+</div>
+</div>
+<div class="pt-2 border-t border-outline-variant/30 flex items-center justify-between">
+<span class="text-[12px] text-outline">SSO Authenticated</span>
+<button class="min-h-[48px] px-4 rounded-lg border border-outline-variant text-error font-label-md font-bold text-label-md hover:bg-error-container/20 active:scale-95 transition-all flex items-center space-x-1" type="button">
+<span class="material-symbols-outlined text-[18px]">gpp_bad</span>
+<span>Revoke Session</span>
+</button>
+</div>
+</div>
+</section>
+<!-- SECTION 2: Authentication & POS Security Protocols -->
+<section class="space-y-3">
+<div>
+<h2 class="text-label-lg font-label-lg font-bold text-on-surface">Authentication &amp; Security Protocols</h2>
+<p class="text-body-sm font-body-sm text-outline">Hardware terminal safeguards &amp; owner authorization</p>
+</div>
+<div class="bg-surface-container-lowest rounded-xl border border-outline-variant/50 divide-y divide-outline-variant/30 shadow-sm overflow-hidden">
+<!-- Setting 1: Biometric App Lock -->
+<div class="p-4 flex items-center justify-between gap-3">
+<div class="flex items-start space-x-3">
+<div class="w-10 h-10 rounded-lg bg-surface-container flex items-center justify-center text-primary-container flex-shrink-0 mt-0.5">
+<span class="material-symbols-outlined text-[22px]">fingerprint</span>
+</div>
+<div>
+<p class="text-label-md font-label-md font-bold text-on-surface">Biometric App Lock</p>
+<p class="text-body-sm font-body-sm text-on-surface-variant">FaceID / Fingerprint for cash drawer, void orders &amp; shift closes</p>
+</div>
+</div>
+<!-- Toggle Switch (ON) -->
+<label class="relative inline-flex items-center cursor-pointer min-h-[48px] min-w-[48px] justify-center flex-shrink-0">
+<input checked="" class="sr-only peer" type="checkbox"/>
+<div class="w-12 h-7 bg-surface-container-highest peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[16px] after:left-[6px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-container"></div>
+</label>
+</div>
+<!-- Setting 2: Mandatory 2FA for Bank & Payouts (Enforced) -->
+<div class="p-4 flex items-center justify-between gap-3 bg-surface-container-low/40">
+<div class="flex items-start space-x-3">
+<div class="w-10 h-10 rounded-lg bg-primary-fixed flex items-center justify-center text-primary flex-shrink-0 mt-0.5">
+<span class="material-symbols-outlined text-[22px]">security</span>
+</div>
+<div>
+<div class="flex items-center gap-1.5">
+<p class="text-label-md font-label-md font-bold text-on-surface">Mandatory 2FA for Bank Changes</p>
+<span class="px-1.5 py-0.5 rounded text-[10px] font-label-sm font-bold bg-secondary-fixed text-on-secondary-fixed">Mandatory</span>
+</div>
+<p class="text-body-sm font-body-sm text-outline">Owner OTP required for updating bank accounts &amp; daily payouts</p>
+</div>
+</div>
+<!-- Disabled Locked State -->
+<div class="flex items-center space-x-1.5 min-h-[48px] px-2 text-outline">
+<span class="material-symbols-outlined text-[18px]">lock</span>
+<span class="text-label-sm font-label-sm font-bold text-primary-container">ENFORCED</span>
+</div>
+</div>
+<!-- Setting 3: Auto-lock Inactivity -->
+<div class="p-4 flex items-center justify-between gap-3">
+<div class="flex items-start space-x-3">
+<div class="w-10 h-10 rounded-lg bg-surface-container flex items-center justify-center text-on-surface-variant flex-shrink-0 mt-0.5">
+<span class="material-symbols-outlined text-[22px]">timer</span>
+</div>
+<div>
+<div class="flex items-center gap-2">
+<p class="text-label-md font-label-md font-bold text-on-surface">Auto-lock Counter POS</p>
+<span class="px-2 py-0.5 rounded-full text-[11px] font-label-sm font-bold bg-surface-container-high text-on-surface">15 min</span>
+</div>
+<p class="text-body-sm font-body-sm text-on-surface-variant">Lock screen after inactivity on POS terminals</p>
+</div>
+</div>
+<!-- Toggle Switch (ON) -->
+<label class="relative inline-flex items-center cursor-pointer min-h-[48px] min-w-[48px] justify-center flex-shrink-0">
+<input checked="" class="sr-only peer" type="checkbox"/>
+<div class="w-12 h-7 bg-surface-container-highest peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[16px] after:left-[6px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-container"></div>
+</label>
+</div>
+</div>
+</section>
+<!-- SECTION 3: Immutable Operational Audit Trail (Read-Only) -->
+<section class="space-y-3">
+<div>
+<div class="flex items-center justify-between">
+<h2 class="text-label-lg font-label-lg font-bold text-on-surface">Immutable Operational Audit Trail</h2>
+<span class="text-[12px] font-label-sm font-semibold text-primary flex items-center gap-1">
+<span class="material-symbols-outlined text-[15px]">verified</span> Read-Only
+            </span>
+</div>
+<p class="text-body-sm font-body-sm text-outline">Real-time ledger of privileged actions &amp; revenue alterations</p>
+</div>
+<!-- SHA-256 Ledger Banner Callout -->
+<div class="p-3 bg-surface-container rounded-xl border border-outline-variant/40 flex items-start space-x-2.5">
+<span class="material-symbols-outlined text-primary-container text-[20px] flex-shrink-0 mt-0.5">data_object</span>
+<p class="text-body-sm font-body-sm text-on-surface-variant leading-relaxed">
+            Audit events are cryptographically recorded, hashed with SHA-256, and cannot be edited, rolled back, or deleted.
+          </p>
+</div>
+<!-- Filter Chips (Horizontal Scrollable) -->
+<div class="flex items-center space-x-2 overflow-x-auto py-1 custom-scrollbar -mx-4 px-4">
+<button class="min-h-[48px] px-4 rounded-full bg-primary-container text-surface-container-lowest font-label-md font-bold text-label-md shadow-sm flex-shrink-0 flex items-center" type="button">
+            All Actions
+          </button>
+<button class="min-h-[48px] px-4 rounded-full bg-surface-container-lowest text-on-surface-variant border border-outline-variant font-label-md font-medium text-label-md hover:bg-surface-container-low flex-shrink-0 flex items-center" type="button">
+            Menu &amp; Prices
+          </button>
+<button class="min-h-[48px] px-4 rounded-full bg-surface-container-lowest text-on-surface-variant border border-outline-variant font-label-md font-medium text-label-md hover:bg-surface-container-low flex-shrink-0 flex items-center" type="button">
+            Bank &amp; Payouts
+          </button>
+<button class="min-h-[48px] px-4 rounded-full bg-surface-container-lowest text-on-surface-variant border border-outline-variant font-label-md font-medium text-label-md hover:bg-surface-container-low flex-shrink-0 flex items-center" type="button">
+            Refunds &amp; Voids
+          </button>
+<button class="min-h-[48px] px-4 rounded-full bg-surface-container-lowest text-on-surface-variant border border-outline-variant font-label-md font-medium text-label-md hover:bg-surface-container-low flex-shrink-0 flex items-center" type="button">
+            Permissions
+          </button>
+</div>
+<!-- Audit Event Stream -->
+<div class="space-y-3">
+<!-- Event 1: Menu Price Change -->
+<div class="bg-surface-container-lowest rounded-xl p-4 border border-outline-variant/40 space-y-2">
+<div class="flex items-start justify-between">
+<div class="flex items-center space-x-2">
+<span class="w-7 h-7 rounded-full bg-primary-fixed text-primary font-bold text-label-sm flex items-center justify-center">RK</span>
+<div>
+<p class="text-label-md font-label-md font-bold text-on-surface">Rajesh Kumar <span class="text-outline font-normal">(Owner)</span></p>
+<p class="text-label-sm font-label-sm text-outline">Today, 10:14 AM</p>
+</div>
+</div>
+<span class="px-2 py-1 rounded text-label-sm font-label-sm font-bold bg-[#eff6ff] text-[#1a3ba2] border border-blue-100">
+                Menu Price Change
+              </span>
+</div>
+<p class="text-body-sm font-body-sm text-on-surface">
+              Modified selling price for <strong class="text-on-surface">"Paneer Butter Masala"</strong> from <span class="line-through text-outline">₹320</span> to <strong class="text-primary-container">₹340 (+₹20)</strong> on Delivery channel.
+            </p>
+<div class="pt-2 border-t border-outline-variant/20 flex items-center justify-between font-mono text-[11px] text-outline">
+<span class="font-ticket-mono font-medium">Hash: #a8f2..91c</span>
+<span>Terminal #01</span>
+</div>
+</div>
+<!-- Event 2: Void Order -->
+<div class="bg-surface-container-lowest rounded-xl p-4 border border-outline-variant/40 space-y-2">
+<div class="flex items-start justify-between">
+<div class="flex items-center space-x-2">
+<span class="w-7 h-7 rounded-full bg-secondary-fixed text-secondary font-bold text-label-sm flex items-center justify-center">PM</span>
+<div>
+<p class="text-label-md font-label-md font-bold text-on-surface">Priya Mehta <span class="text-outline font-normal">(Store Manager)</span></p>
+<p class="text-label-sm font-label-sm text-outline">Today, 09:30 AM</p>
+</div>
+</div>
+<span class="px-2 py-1 rounded text-label-sm font-label-sm font-bold bg-[#fffbeb] text-[#d97706] border border-amber-100">
+                Void Order
+              </span>
+</div>
+<p class="text-body-sm font-body-sm text-on-surface">
+              Approved void and full cancellation on <strong class="text-on-surface">Order #NB-4811</strong>. Reason: Customer changed address outside radius.
+            </p>
+<div class="pt-2 border-t border-outline-variant/20 flex items-center justify-between font-mono text-[11px] text-outline">
+<span class="font-ticket-mono font-medium">Hash: #3b01..44e</span>
+<span>Counter POS</span>
+</div>
+</div>
+<!-- Event 3: Bank Details Updated -->
+<div class="bg-surface-container-lowest rounded-xl p-4 border border-outline-variant/40 space-y-2">
+<div class="flex items-start justify-between">
+<div class="flex items-center space-x-2">
+<span class="w-7 h-7 rounded-full bg-primary-fixed text-primary font-bold text-label-sm flex items-center justify-center">RK</span>
+<div>
+<p class="text-label-md font-label-md font-bold text-on-surface">Rajesh Kumar <span class="text-outline font-normal">(Owner)</span></p>
+<p class="text-label-sm font-label-sm text-outline">Yesterday, 04:22 PM</p>
+</div>
+</div>
+<span class="px-2 py-1 rounded text-label-sm font-label-sm font-bold bg-[#faf5ff] text-[#7e22ce] border border-purple-100">
+                Bank Details Updated
+              </span>
+</div>
+<p class="text-body-sm font-body-sm text-on-surface">
+              Updated secondary payout bank account to <strong class="text-on-surface">HDFC Bank (A/C •••• 9104)</strong>. Penny-drop verification passed.
+            </p>
+<div class="pt-2 border-t border-outline-variant/20 flex items-center justify-between font-mono text-[11px] text-outline">
+<span class="font-ticket-mono font-medium">Hash: #78e4..12d</span>
+<span>Web Portal</span>
+</div>
+</div>
+<!-- Event 4: Shift Auto-Close -->
+<div class="bg-surface-container-lowest rounded-xl p-4 border border-outline-variant/40 space-y-2">
+<div class="flex items-start justify-between">
+<div class="flex items-center space-x-2">
+<span class="w-7 h-7 rounded-full bg-surface-container-high text-on-surface-variant font-bold text-label-sm flex items-center justify-center">
+<span class="material-symbols-outlined text-[16px]">smart_toy</span>
+</span>
+<div>
+<p class="text-label-md font-label-md font-bold text-on-surface">System Dispatch Engine</p>
+<p class="text-label-sm font-label-sm text-outline">16 Nov, 11:00 PM</p>
+</div>
+</div>
+<span class="px-2 py-1 rounded text-label-sm font-label-sm font-bold bg-[#f1f5f9] text-[#475569] border border-slate-200">
+                Shift Auto-Close
+              </span>
+</div>
+<p class="text-body-sm font-body-sm text-on-surface">
+              Automated end-of-day register reconcile. Gross sales <strong class="text-on-surface">₹48,250</strong> recorded.
+            </p>
+<div class="pt-2 border-t border-outline-variant/20 flex items-center justify-between font-mono text-[11px] text-outline">
+<span class="font-ticket-mono font-medium">Hash: #09a1..87b</span>
+<span>Cron Job</span>
+</div>
+</div>
+</div>
+</section>
+<!-- Compliance & Security Seal Footer -->
+<div class="pt-4 pb-2 text-center space-y-2">
+<div class="inline-flex items-center justify-center space-x-1.5 px-3 py-1.5 rounded-full bg-surface-container-low border border-outline-variant/40 text-on-surface-variant text-[11px] font-label-sm">
+<span class="material-symbols-outlined text-primary-container text-[16px]">shield_with_heart</span>
+<span class="font-bold text-primary">NABIN Enterprise Shield</span>
+<span class="text-outline">•</span>
+<span>TLS 1.3 End-to-End Encryption</span>
+</div>
+<p class="text-[11px] font-label-sm text-outline">
+          ISO 27001 &amp; SOC 2 Type II Certified Cloud Infrastructure
+        </p>
+</div>
+</main>
+</div>
+</body></html>

@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+
+<html class="h-full bg-surface" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport"/>
+<title>RM-059: Account &amp; Application Master Settings - NABIN RMS</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "outline": "#757684",
+            "surface-tint": "#3a56bd",
+            "surface-dim": "#d8dade",
+            "secondary-container": "#fc6b32",
+            "primary-fixed": "#dde1ff",
+            "secondary-fixed-dim": "#ffb59b",
+            "on-primary-fixed": "#001452",
+            "on-tertiary": "#ffffff",
+            "surface-container": "#eceef2",
+            "inverse-on-surface": "#eff1f5",
+            "tertiary": "#003813",
+            "secondary-fixed": "#ffdbcf",
+            "secondary": "#a93700",
+            "tertiary-container": "#005120",
+            "on-background": "#181c1f",
+            "error": "#ba1a1a",
+            "on-surface-variant": "#444653",
+            "on-primary-container": "#9cafff",
+            "primary-container": "#1a3ba2",
+            "on-error-container": "#93000a",
+            "outline-variant": "#c5c5d5",
+            "surface": "#f7f9fd",
+            "inverse-primary": "#b7c4ff",
+            "on-error": "#ffffff",
+            "on-tertiary-fixed": "#002109",
+            "surface-variant": "#e0e3e6",
+            "on-primary-fixed-variant": "#1c3da4",
+            "tertiary-fixed": "#7ffc97",
+            "surface-container-highest": "#e0e3e6",
+            "on-secondary-fixed": "#380d00",
+            "primary": "#00247f",
+            "on-secondary-fixed-variant": "#812800",
+            "surface-container-lowest": "#ffffff",
+            "background": "#f7f9fd",
+            "on-primary": "#ffffff",
+            "surface-container-low": "#f2f4f8",
+            "error-container": "#ffdad6",
+            "on-tertiary-fixed-variant": "#005320",
+            "surface-container-high": "#e6e8ec",
+            "inverse-surface": "#2d3134",
+            "on-tertiary-container": "#4cca6c",
+            "on-surface": "#181c1f",
+            "surface-bright": "#f7f9fd",
+            "tertiary-fixed-dim": "#62df7d",
+            "primary-fixed-dim": "#b7c4ff",
+            "on-secondary-container": "#5c1a00",
+            "on-secondary": "#ffffff"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.25rem",
+            "lg": "0.5rem",
+            "xl": "0.75rem",
+            "full": "9999px"
+          },
+          "spacing": {
+            "margin-mobile": "1rem",
+            "space-lg": "1.5rem",
+            "space-sm": "0.5rem",
+            "margin": "1.5rem",
+            "space-md": "1rem",
+            "space-xs": "0.25rem",
+            "space-xl": "2rem",
+            "gutter-kds": "1.25rem",
+            "gutter": "1rem"
+          },
+          "fontFamily": {
+            "body-sm": ["Inter"],
+            "headline-sm": ["Inter"],
+            "label-md": ["Inter"],
+            "headline-md": ["Inter"],
+            "ticket-mono": ["Inter"],
+            "body-lg": ["Inter"],
+            "headline-xl-mobile": ["Inter"],
+            "headline-lg": ["Inter"],
+            "label-sm": ["Inter"],
+            "headline-xl": ["Inter"],
+            "label-lg": ["Inter"],
+            "body-md": ["Inter"],
+            "headline-lg-mobile": ["Inter"]
+          },
+          "fontSize": {
+            "body-sm": ["13px", {"lineHeight": "18px", "fontWeight": "400"}],
+            "headline-sm": ["20px", {"lineHeight": "28px", "fontWeight": "600"}],
+            "label-md": ["13px", {"lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "600"}],
+            "headline-md": ["24px", {"lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+            "ticket-mono": ["16px", {"lineHeight": "20px", "letterSpacing": "0.05em", "fontWeight": "700"}],
+            "body-lg": ["18px", {"lineHeight": "26px", "fontWeight": "500"}],
+            "headline-xl-mobile": ["30px", {"lineHeight": "38px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+            "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.015em", "fontWeight": "700"}],
+            "label-sm": ["11px", {"lineHeight": "14px", "letterSpacing": "0.04em", "fontWeight": "700"}],
+            "headline-xl": ["40px", {"lineHeight": "48px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+            "label-lg": ["15px", {"lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600"}],
+            "body-md": ["15px", {"lineHeight": "22px", "fontWeight": "400"}],
+            "headline-lg-mobile": ["24px", {"lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "700"}]
+          }
+        }
+      }
+    }
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 500, 'GRAD' 0, 'opsz' 24;
+      display: inline-block;
+      vertical-align: middle;
+      line-height: 1;
+    }
+    .material-symbols-outlined.fill {
+      font-variation-settings: 'FILL' 1;
+    }
+    /* Hide scrollbar for clean horizontal chip list */
+    .no-scrollbar::-webkit-scrollbar {
+      display: none;
+    }
+    .no-scrollbar {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+    /* Touch optimization */
+    .touch-target {
+      min-height: 48px;
+      min-width: 48px;
+    }
+  </style>
+</head>
+<body class="bg-surface text-on-surface antialiased font-body-md text-body-md flex justify-center selection:bg-primary-fixed selection:text-on-primary-fixed">
+<!-- Mobile Device Simulator Canvas (390px base width standard) -->
+<div class="w-full max-w-[430px] min-h-screen bg-surface-container-low flex flex-col relative pb-36 shadow-xl border-x border-outline-variant/30">
+<!-- Top App Bar (Task Sub-page pattern: Task-focused with Back chevron & primary save) -->
+<header class="sticky top-0 z-40 bg-surface-container-lowest/95 backdrop-blur-md px-margin-mobile py-2.5 flex items-center justify-between border-b border-outline-variant/40 shadow-xs">
+<div class="flex items-center gap-2">
+<button aria-label="Go back" class="touch-target flex items-center justify-center rounded-lg hover:bg-surface-container text-on-surface-variant active:scale-95 transition-transform -ml-2" type="button">
+<span class="material-symbols-outlined text-[24px]">arrow_back</span>
+</button>
+<div class="flex items-center gap-2">
+<img alt="NABIN RMS Logo" class="h-6 w-auto object-contain" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDyvsT-I6KcdtcqugpTwcmJFP6qET4MdCza-gnAist_lfIbqylZmrfjXHWy7s_X69uuqtPmy5yoG6ZshlKFKNf-hiBYJgHUnHY8PeA2IBivslZC1YbzjZ4kjCzkIAcVYBwK1nHNaxaWNhIahD0zau1ZP3QrSHegDOhiADOMM5woP7z2eCfXBSBy81wO3HYBAz1-pgQI-Xlzw49IHyn48XxRYDqcz-CsGe1XFAcF0iPkxTbD9ir8SnZAOirkVT5CYgfUKYWzsoObEmA"/>
+<div>
+<h1 class="font-headline-sm text-headline-sm text-on-surface tracking-tight leading-tight">Master Settings</h1>
+<p class="font-label-sm text-label-sm text-on-surface-variant leading-none">RM-059 · System Preferences</p>
+</div>
+</div>
+</div>
+<button class="touch-target px-4 py-2 bg-secondary text-on-secondary font-label-md text-label-md rounded-lg shadow-sm hover:opacity-95 active:scale-95 transition-all flex items-center justify-center font-semibold" type="button">
+        Save
+      </button>
+</header>
+<!-- Operational System Status Alert Bar -->
+<div class="bg-primary-fixed/60 border-b border-primary/10 px-margin-mobile py-2 flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="relative flex h-2 w-2">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-tertiary-container opacity-75"></span>
+<span class="relative inline-flex rounded-full h-2 w-2 bg-tertiary-container"></span>
+</span>
+<span class="font-label-sm text-label-sm text-on-primary-fixed font-bold">Kitchen Terminal #04 · Active Service</span>
+</div>
+<span class="font-label-sm text-label-sm text-primary font-semibold">Cloud Sync: 12ms</span>
+</div>
+<!-- Main Content Canvas -->
+<main class="flex-1 px-margin-mobile py-space-md space-y-space-md">
+<!-- SECTION 1: Language & Regionalization -->
+<section class="bg-surface-container-lowest rounded-xl border border-outline-variant/40 p-space-md shadow-xs">
+<div class="flex items-center gap-2.5 mb-3">
+<div class="w-8 h-8 rounded-lg bg-primary-fixed flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-[20px]">language</span>
+</div>
+<div>
+<h2 class="font-headline-sm text-[16px] leading-5 text-on-surface font-bold">Language &amp; Regionalization</h2>
+<p class="font-label-sm text-label-sm text-on-surface-variant">Interface localization &amp; thermal print typography</p>
+</div>
+</div>
+<!-- Language Chips (Horizontal Scrollable) -->
+<div class="space-y-1.5">
+<label class="font-label-sm text-label-sm text-on-surface-variant font-medium">Interface Language</label>
+<div class="flex gap-2 overflow-x-auto no-scrollbar py-1 -mx-1 px-1">
+<!-- Selected -->
+<button class="touch-target flex items-center gap-1.5 px-3 py-2 bg-primary text-on-primary rounded-lg border border-primary shrink-0 active:scale-95 transition-transform" type="button">
+<span class="material-symbols-outlined text-[16px]">check</span>
+<span class="font-label-md text-label-md">English (US/UK)</span>
+</button>
+<button class="touch-target flex items-center px-3 py-2 bg-surface-container-low text-on-surface rounded-lg border border-outline-variant/40 shrink-0 hover:bg-surface-container active:scale-95 transition-transform" type="button">
+<span class="font-label-md text-label-md">हिन्दी (Hindi)</span>
+</button>
+<button class="touch-target flex items-center px-3 py-2 bg-surface-container-low text-on-surface rounded-lg border border-outline-variant/40 shrink-0 hover:bg-surface-container active:scale-95 transition-transform" type="button">
+<span class="font-label-md text-label-md">বাংলা (Bengali)</span>
+</button>
+<button class="touch-target flex items-center px-3 py-2 bg-surface-container-low text-on-surface rounded-lg border border-outline-variant/40 shrink-0 hover:bg-surface-container active:scale-95 transition-transform" type="button">
+<span class="font-label-md text-label-md">తెలుగు (Telugu)</span>
+</button>
+<button class="touch-target flex items-center px-3 py-2 bg-surface-container-low text-on-surface rounded-lg border border-outline-variant/40 shrink-0 hover:bg-surface-container active:scale-95 transition-transform" type="button">
+<span class="font-label-md text-label-md">தமிழ் (Tamil)</span>
+</button>
+<button class="touch-target flex items-center px-3 py-2 bg-surface-container-low text-on-surface rounded-lg border border-outline-variant/40 shrink-0 hover:bg-surface-container active:scale-95 transition-transform" type="button">
+<span class="font-label-md text-label-md">म���ाठी (Marathi)</span>
+</button>
+</div>
+</div>
+<!-- Regional Formats Dual Badges -->
+<div class="grid grid-cols-2 gap-2.5 mt-3 pt-3 border-t border-outline-variant/30">
+<div class="bg-surface-container-low p-2.5 rounded-lg border border-outline-variant/30">
+<span class="font-label-sm text-label-sm text-on-surface-variant block">Date Format</span>
+<div class="flex items-center justify-between mt-1">
+<span class="font-ticket-mono text-[14px] text-on-surface font-bold">DD/MM/YYYY</span>
+<span class="material-symbols-outlined text-[16px] text-outline">calendar_today</span>
+</div>
+</div>
+<div class="bg-surface-container-low p-2.5 rounded-lg border border-outline-variant/30">
+<span class="font-label-sm text-label-sm text-on-surface-variant block">Currency Display</span>
+<div class="flex items-center justify-between mt-1">
+<span class="font-ticket-mono text-[14px] text-on-surface font-bold">₹ INR (Rupees)</span>
+<span class="material-symbols-outlined text-[16px] text-outline">payments</span>
+</div>
+</div>
+</div>
+</section>
+<!-- SECTION 2: Sensory Alerts & Order Chimes -->
+<section class="bg-surface-container-lowest rounded-xl border border-outline-variant/40 p-space-md shadow-xs space-y-3.5">
+<div class="flex items-center gap-2.5">
+<div class="w-8 h-8 rounded-lg bg-secondary-fixed flex items-center justify-center text-secondary">
+<span class="material-symbols-outlined text-[20px] fill">volume_up</span>
+</div>
+<div>
+<h2 class="font-headline-sm text-[16px] leading-5 text-on-surface font-bold">Sensory Alerts &amp; Order Chimes</h2>
+<p class="font-label-sm text-label-sm text-on-surface-variant">Acoustic chimes calibrated for noisy kitchen environments</p>
+</div>
+</div>
+<!-- Chime Selector Card -->
+<div class="bg-surface-container-low p-3 rounded-lg border border-outline-variant/40 space-y-2.5">
+<div class="flex items-center justify-between">
+<div>
+<span class="font-label-sm text-label-sm text-secondary font-bold uppercase tracking-wider block">Incoming Order Sound</span>
+<p class="font-label-lg text-label-lg text-on-surface font-bold">Loud Kitchen Chime (Default)</p>
+</div>
+<button class="touch-target px-3 py-1.5 bg-surface-container-lowest border border-outline-variant/60 rounded-full flex items-center gap-1.5 text-primary active:bg-primary-fixed transition-colors" type="button">
+<span class="material-symbols-outlined text-[18px]">graphic_eq</span>
+<span class="font-label-sm text-label-sm font-semibold">Play Preview</span>
+</button>
+</div>
+<!-- Quick audio profile options -->
+<div class="grid grid-cols-3 gap-1.5 pt-1">
+<span class="px-2 py-1 text-center bg-primary text-on-primary rounded text-[11px] font-bold">Continuous Siren</span>
+<span class="px-2 py-1 text-center bg-surface-container-lowest border border-outline-variant/40 rounded text-[11px] text-on-surface font-medium">Gentle Bell</span>
+<span class="px-2 py-1 text-center bg-surface-container-lowest border border-outline-variant/40 rounded text-[11px] text-on-surface font-medium">Double Beep</span>
+</div>
+</div>
+<!-- Chime Volume Slider -->
+<div class="space-y-1.5">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[18px] text-on-surface-variant">campaign</span>
+<span class="font-label-md text-label-md text-on-surface">Chime Volume Level</span>
+</div>
+<span class="font-label-sm text-label-sm bg-secondary-fixed text-on-secondary-fixed px-2 py-0.5 rounded font-bold">High — 85 dB</span>
+</div>
+<!-- Tactile Range Slider -->
+<div class="flex items-center gap-3 pt-1">
+<input aria-label="Volume Level" class="w-full h-2.5 bg-surface-container-high rounded-lg appearance-none cursor-pointer accent-primary" max="100" min="0" type="range" value="85"/>
+<button class="touch-target shrink-0 px-3 py-1 bg-surface-container hover:bg-surface-container-high text-on-surface rounded-lg font-label-sm text-label-sm border border-outline-variant/40 font-semibold active:scale-95 transition-transform" type="button">
+              Test Speaker
+            </button>
+</div>
+</div>
+<!-- Kitchen Screen Flash on Order Arrival -->
+<div class="flex items-start justify-between pt-2 border-t border-outline-variant/30">
+<div class="pr-3">
+<p class="font-label-md text-label-md text-on-surface font-semibold">Kitchen Screen Flash on Order Arrival</p>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Flashes screen borders amber-red during peak ambient noise</p>
+</div>
+<!-- Active ON Toggle -->
+<button aria-pressed="true" class="touch-target flex items-center shrink-0" type="button">
+<div class="w-12 h-6 bg-primary rounded-full relative p-0.5 transition-colors">
+<div class="w-5 h-5 bg-on-primary rounded-full absolute right-0.5 top-0.5 shadow-sm"></div>
+</div>
+</button>
+</div>
+</section>
+<!-- SECTION 3: Default Printing Preferences -->
+<section class="bg-surface-container-lowest rounded-xl border border-outline-variant/40 p-space-md shadow-xs space-y-3.5">
+<div class="flex items-center gap-2.5">
+<div class="w-8 h-8 rounded-lg bg-surface-container-high flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-[20px]">print</span>
+</div>
+<div>
+<h2 class="font-headline-sm text-[16px] leading-5 text-on-surface font-bold">Default Printing Preferences</h2>
+<p class="font-label-sm text-label-sm text-on-surface-variant">Thermal receipt &amp; KOT automated dispatch</p>
+</div>
+</div>
+<!-- KOT Paper Width Segmented Control -->
+<div class="space-y-1.5">
+<span class="font-label-sm text-label-sm text-on-surface-variant font-medium">Primary KOT Paper Width</span>
+<div class="grid grid-cols-2 gap-2 bg-surface-container-low p-1 rounded-lg border border-outline-variant/30">
+<!-- Selected 80mm -->
+<button class="touch-target flex items-center justify-center gap-2 py-2 bg-surface-container-lowest rounded-md shadow-xs border border-primary text-primary font-label-md text-label-md font-bold" type="button">
+<span class="material-symbols-outlined text-[16px]">check_circle</span>
+              80mm (3-inch)
+            </button>
+<button class="touch-target flex items-center justify-center gap-2 py-2 text-on-surface-variant rounded-md font-label-md text-label-md hover:text-on-surface" type="button">
+              58mm (2-inch)
+            </button>
+</div>
+</div>
+<!-- Printing Toggles & Stepper -->
+<div class="divide-y divide-outline-variant/30 pt-1">
+<!-- Toggle 1: Auto-print KOT -->
+<div class="flex items-center justify-between py-2.5">
+<div>
+<p class="font-label-md text-label-md text-on-surface font-semibold">Auto-print KOT on order acceptance</p>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Routes instantly to Station 1 &amp; Grill</p>
+</div>
+<button aria-pressed="true" class="touch-target flex items-center shrink-0" type="button">
+<div class="w-12 h-6 bg-primary rounded-full relative p-0.5">
+<div class="w-5 h-5 bg-on-primary rounded-full absolute right-0.5 top-0.5 shadow-sm"></div>
+</div>
+</button>
+</div>
+<!-- Stepper: Default KOT Copies -->
+<div class="flex items-center justify-between py-2.5">
+<div>
+<p class="font-label-md text-label-md text-on-surface font-semibold">Default KOT Copies</p>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Duplicate ticket for expediter pass</p>
+</div>
+<!-- Tactile 48dp Stepper -->
+<div class="flex items-center bg-surface-container-low rounded-lg border border-outline-variant/40 p-0.5">
+<button aria-label="Decrease copies" class="touch-target w-10 h-10 flex items-center justify-center rounded bg-surface-container-lowest text-on-surface hover:bg-surface-container active:scale-95 transition-transform font-bold text-lg" type="button">
+                –
+              </button>
+<span class="font-ticket-mono text-ticket-mono text-on-surface px-3 min-w-[36px] text-center font-bold">2</span>
+<button aria-label="Increase copies" class="touch-target w-10 h-10 flex items-center justify-center rounded bg-surface-container-lowest text-on-surface hover:bg-surface-container active:scale-95 transition-transform font-bold text-lg" type="button">
+                +
+              </button>
+</div>
+</div>
+<!-- Toggle 2: Auto-print customer bill -->
+<div class="flex items-center justify-between py-2.5">
+<div>
+<p class="font-label-md text-label-md text-on-surface font-semibold">Auto-print customer bill on pickup ready</p>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Generates receipt for takeaway counter</p>
+</div>
+<!-- OFF Toggle -->
+<button aria-pressed="false" class="touch-target flex items-center shrink-0" type="button">
+<div class="w-12 h-6 bg-outline-variant rounded-full relative p-0.5">
+<div class="w-5 h-5 bg-surface-container-lowest rounded-full absolute left-0.5 top-0.5 shadow-sm"></div>
+</div>
+</button>
+</div>
+<!-- Toggle 3: Auto-paper cut -->
+<div class="flex items-center justify-between py-2.5">
+<div>
+<p class="font-label-md text-label-md text-on-surface font-semibold">Auto-paper cut trigger (ESC/POS)</p>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Issues full-cut hex code after ticket footer</p>
+</div>
+<!-- ON Toggle -->
+<button aria-pressed="true" class="touch-target flex items-center shrink-0" type="button">
+<div class="w-12 h-6 bg-primary rounded-full relative p-0.5">
+<div class="w-5 h-5 bg-on-primary rounded-full absolute right-0.5 top-0.5 shadow-sm"></div>
+</div>
+</button>
+</div>
+</div>
+</section>
+<!-- SECTION 4: Display & Operational Environment -->
+<section class="bg-surface-container-lowest rounded-xl border border-outline-variant/40 p-space-md shadow-xs space-y-3.5">
+<div class="flex items-center gap-2.5">
+<div class="w-8 h-8 rounded-lg bg-surface-container-high flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-[20px]">brightness_medium</span>
+</div>
+<div>
+<h2 class="font-headline-sm text-[16px] leading-5 text-on-surface font-bold">Display &amp; Kitchen Environment</h2>
+<p class="font-label-sm text-label-sm text-on-surface-variant">Screen behavior for back-of-house heat and glare</p>
+</div>
+</div>
+<!-- Theme Selector Dual Cards -->
+<div class="grid grid-cols-2 gap-2.5">
+<!-- Light Mode Selected -->
+<div class="p-3 rounded-lg border-2 border-primary bg-primary-fixed/20 relative cursor-pointer flex flex-col justify-between">
+<div class="flex items-center justify-between">
+<span class="material-symbols-outlined text-primary text-[22px]">light_mode</span>
+<span class="material-symbols-outlined text-primary text-[18px]">check_circle</span>
+</div>
+<div class="mt-2">
+<span class="font-label-md text-label-md text-on-surface font-bold block">Light Mode</span>
+<span class="font-label-sm text-[10px] text-on-surface-variant">Recommended for RMS Admin</span>
+</div>
+</div>
+<!-- Dark Mode -->
+<div class="p-3 rounded-lg border border-outline-variant/50 bg-surface-container-low cursor-pointer flex flex-col justify-between hover:bg-surface-container transition-colors">
+<div class="flex items-center justify-between">
+<span class="material-symbols-outlined text-on-surface-variant text-[22px]">dark_mode</span>
+</div>
+<div class="mt-2">
+<span class="font-label-md text-label-md text-on-surface font-bold block">Dark Mode</span>
+<span class="font-label-sm text-[10px] text-on-surface-variant">KDS Kitchen monitor view</span>
+</div>
+</div>
+</div>
+<!-- Keep Awake Toggle -->
+<div class="flex items-start justify-between pt-2 border-t border-outline-variant/30">
+<div class="pr-2">
+<p class="font-label-md text-label-md text-on-surface font-semibold">Keep Screen Awake During Service Hours</p>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Prevents tablet lock during active orders (11:00 AM - 11:30 PM)</p>
+</div>
+<button aria-pressed="true" class="touch-target flex items-center shrink-0" type="button">
+<div class="w-12 h-6 bg-primary rounded-full relative p-0.5">
+<div class="w-5 h-5 bg-on-primary rounded-full absolute right-0.5 top-0.5 shadow-sm"></div>
+</div>
+</button>
+</div>
+<!-- Refresh Engine Row -->
+<div class="bg-surface-container-low p-3 rounded-lg border border-outline-variant/30 flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[18px] text-primary">sync</span>
+<span class="font-label-md text-label-md text-on-surface font-semibold">Live Order Sync Engine</span>
+</div>
+<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-surface-container-lowest border border-outline-variant/40 text-on-surface font-label-sm text-label-sm font-semibold">
+<span class="w-2 h-2 rounded-full bg-tertiary-container animate-pulse"></span>
+            Real-time WebSocket (Instant)
+          </span>
+</div>
+</section>
+<!-- SECTION 5: Notifications & Operational Channels -->
+<section class="bg-surface-container-lowest rounded-xl border border-outline-variant/40 p-space-md shadow-xs space-y-3">
+<div class="flex items-center gap-2.5">
+<div class="w-8 h-8 rounded-lg bg-surface-container-high flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-[20px]">notifications_active</span>
+</div>
+<div>
+<h2 class="font-headline-sm text-[16px] leading-5 text-on-surface font-bold">Notifications &amp; Alerts</h2>
+<p class="font-label-sm text-label-sm text-on-surface-variant">Staff dispatch and executive summaries</p>
+</div>
+</div>
+<div class="divide-y divide-outline-variant/30">
+<!-- Toggle 1: Delay Push Notifications -->
+<div class="flex items-center justify-between py-2.5">
+<div class="pr-3">
+<p class="font-label-md text-label-md text-on-surface font-semibold">Push notifications for order dispatch delays</p>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Alert floor manager when prep exceeds 18 minutes</p>
+</div>
+<button aria-pressed="true" class="touch-target flex items-center shrink-0" type="button">
+<div class="w-12 h-6 bg-primary rounded-full relative p-0.5">
+<div class="w-5 h-5 bg-on-primary rounded-full absolute right-0.5 top-0.5 shadow-sm"></div>
+</div>
+</button>
+</div>
+<!-- Toggle 2: WhatsApp daily summary -->
+<div class="flex items-center justify-between py-2.5">
+<div class="pr-3">
+<p class="font-label-md text-label-md text-on-surface font-semibold">WhatsApp daily summary alerts to owner</p>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Dispatched automatically at end-of-day register close</p>
+</div>
+<button aria-pressed="true" class="touch-target flex items-center shrink-0" type="button">
+<div class="w-12 h-6 bg-primary rounded-full relative p-0.5">
+<div class="w-5 h-5 bg-on-primary rounded-full absolute right-0.5 top-0.5 shadow-sm"></div>
+</div>
+</button>
+</div>
+<!-- Toggle 3: Promotional & Updates -->
+<div class="flex items-center justify-between py-2.5">
+<div class="pr-3">
+<p class="font-label-md text-label-md text-on-surface font-semibold">Promotional campaign &amp; feature updates</p>
+<p class="font-body-sm text-body-sm text-on-surface-variant">NABIN merchant news, discounts, and partner perks</p>
+</div>
+<button aria-pressed="false" class="touch-target flex items-center shrink-0" type="button">
+<div class="w-12 h-6 bg-outline-variant rounded-full relative p-0.5">
+<div class="w-5 h-5 bg-surface-container-lowest rounded-full absolute left-0.5 top-0.5 shadow-sm"></div>
+</div>
+</button>
+</div>
+</div>
+</section>
+<!-- SECTION 6: Store Identity & Fast Links (Read-Only Summary) -->
+<section class="bg-surface-container-lowest rounded-xl border border-outline-variant/40 p-space-md shadow-xs space-y-3">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary text-[20px]">storefront</span>
+<h2 class="font-headline-sm text-[16px] text-on-surface font-bold">Store Profile Information</h2>
+</div>
+<span class="font-label-sm text-[10px] uppercase font-bold text-on-surface-variant bg-surface-container px-2 py-0.5 rounded">Verified</span>
+</div>
+<div class="bg-surface-container-low rounded-lg p-3 border border-outline-variant/30 space-y-2">
+<div class="flex justify-between items-center text-body-sm">
+<span class="text-on-surface-variant">Store Display Name:</span>
+<span class="text-on-surface font-semibold">The Tandoor Express — CP</span>
+</div>
+<div class="flex justify-between items-center text-body-sm">
+<span class="text-on-surface-variant">Contact Phone:</span>
+<span class="font-ticket-mono text-on-surface font-bold">+91 11 2341 5678</span>
+</div>
+<div class="pt-1 text-right">
+<a class="font-label-md text-label-md text-primary font-bold hover:underline inline-flex items-center gap-1" href="#profile">
+              Edit in Restaurant Profile (RM-034)
+              <span class="material-symbols-outlined text-[16px]">arrow_forward</span>
+</a>
+</div>
+</div>
+<!-- Cross-module Callout Banner -->
+<div class="p-3 bg-secondary-fixed/25 border border-secondary-fixed-dim rounded-lg flex gap-2.5 items-start">
+<span class="material-symbols-outlined text-secondary text-[20px] shrink-0 mt-0.5">info</span>
+<p class="font-body-sm text-body-sm text-on-surface">
+            For Bank Accounts, Tax GST, and Financial Settlement rules, visit <a class="text-secondary font-bold underline" href="#finance">Finance &amp; Settlements (RM-046)</a>.
+          </p>
+</div>
+</section>
+</main>
+<!-- Anchored Master Settings Sticky Footer (Action Bar) -->
+<footer class="fixed bottom-0 left-0 right-0 max-w-[430px] mx-auto bg-surface-container-lowest/95 backdrop-blur-md border-t border-outline-variant/40 px-margin-mobile pt-3 pb-5 z-50 shadow-lg">
+<div class="flex items-center gap-2.5">
+<!-- Outlined Reset Button -->
+<button class="touch-target flex-1 px-3 py-3 border border-outline text-on-surface font-label-lg text-label-lg rounded-xl hover:bg-surface-container active:scale-95 transition-all font-semibold text-center flex items-center justify-center" type="button">
+          Reset to Defaults
+        </button>
+<!-- Culinary Orange Save Button (52dp height standard for kitchen touch targets) -->
+<button class="touch-target flex-[1.4] h-[52px] bg-secondary hover:bg-on-secondary-fixed-variant text-on-secondary font-label-lg text-label-lg rounded-xl shadow-md active:scale-98 transition-all font-bold flex items-center justify-center gap-2" type="button">
+<span class="material-symbols-outlined text-[20px]">save</span>
+          Save Preferences
+        </button>
+</div>
+<div class="mt-2 text-center">
+<p class="font-label-sm text-[10px] text-on-surface-variant tracking-wide">
+          NABIN Culinary Operations Engine v3.4 · Synced to Cloud POS
+        </p>
+</div>
+</footer>
+</div>
+</body></html>

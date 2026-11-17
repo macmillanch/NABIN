@@ -1,0 +1,1878 @@
+{
+  "metadata": {
+    "project": "NABIN Restaurant Merchant (RMS + KDS)",
+    "stitchProjectId": "6689743337313822856",
+    "totalScreens": 66,
+    "successfullyExported": 66,
+    "failedExports": 0,
+    "totalBytes": 1821874,
+    "generatedAt": "2026-11-17T21:29:18.962Z",
+    "requiredViewports": [
+      {
+        "name": "mobile",
+        "width": 390,
+        "height": 844
+      },
+      {
+        "name": "tablet",
+        "width": 800,
+        "height": 1280
+      },
+      {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      }
+    ]
+  },
+  "screens": [
+    {
+      "index": 1,
+      "screenCode": "RM-001",
+      "title": "Merchant Welcome",
+      "stitchResourceId": "dd716d3301f54be8b91c721b0f7afa42",
+      "htmlFileName": "RM-001_merchant_welcome.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-001_merchant_welcome.html",
+      "fileSizeBytes": 14589,
+      "fileSizeFormatted": "14.2 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 2,
+      "screenCode": "RM-002",
+      "title": "Merchant Login",
+      "stitchResourceId": "402c95fffcbd40329d5096d85237f6d2",
+      "htmlFileName": "RM-002_merchant_login.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-002_merchant_login.html",
+      "fileSizeBytes": 15048,
+      "fileSizeFormatted": "14.7 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 3,
+      "screenCode": "RM-003",
+      "title": "OTP Verification",
+      "stitchResourceId": "00d6c02dd3d34693b682f4de937a4a5e",
+      "htmlFileName": "RM-003_otp_verification.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-003_otp_verification.html",
+      "fileSizeBytes": 19340,
+      "fileSizeFormatted": "18.9 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 4,
+      "screenCode": "RM-004",
+      "title": "Restaurant Business Details",
+      "stitchResourceId": "29b909c19d9b4b9281ecbe3224ec81dd",
+      "htmlFileName": "RM-004_restaurant_business_details.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-004_restaurant_business_details.html",
+      "fileSizeBytes": 29782,
+      "fileSizeFormatted": "29.1 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 5,
+      "screenCode": "RM-005",
+      "title": "Restaurant Address and Location",
+      "stitchResourceId": "89a6e4d8a5ff48e4919abc9bf108735a",
+      "htmlFileName": "RM-005_restaurant_address_and_location.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-005_restaurant_address_and_location.html",
+      "fileSizeBytes": 21168,
+      "fileSizeFormatted": "20.7 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 6,
+      "screenCode": "RM-006",
+      "title": "Business Documents",
+      "stitchResourceId": "fa873154d3c24da5ac020d6274009798",
+      "htmlFileName": "RM-006_business_documents.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-006_business_documents.html",
+      "fileSizeBytes": 21803,
+      "fileSizeFormatted": "21.3 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 7,
+      "screenCode": "RM-007",
+      "title": "Bank and Settlement Details",
+      "stitchResourceId": "c24e641284a44f6c98d7130a827daef9",
+      "htmlFileName": "RM-007_bank_and_settlement_details.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-007_bank_and_settlement_details.html",
+      "fileSizeBytes": 22375,
+      "fileSizeFormatted": "21.9 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 8,
+      "screenCode": "RM-008",
+      "title": "Onboarding Progress and Verification Status",
+      "stitchResourceId": "9b0db3c459604718be6e5bd4e03ad418",
+      "htmlFileName": "RM-008_onboarding_progress_and_verification_status.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-008_onboarding_progress_and_verification_status.html",
+      "fileSizeBytes": 19090,
+      "fileSizeFormatted": "18.6 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 9,
+      "screenCode": "RM-009",
+      "title": "RM-009: Quick App Tour & RMS Feature Highlights",
+      "stitchResourceId": "3165eacde1b745b3a0a9b267a1bfb0d1",
+      "htmlFileName": "RM-009_quick_app_tour_rms_feature_highlights.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-009_quick_app_tour_rms_feature_highlights.html",
+      "fileSizeBytes": 19128,
+      "fileSizeFormatted": "18.7 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 10,
+      "screenCode": "RM-010",
+      "title": "RM-010: Sales & Revenue Analytics",
+      "stitchResourceId": "66d2ee3a77c44973a7d4858c1e2e63c0",
+      "htmlFileName": "RM-010_sales_revenue_analytics.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-010_sales_revenue_analytics.html",
+      "fileSizeBytes": 32491,
+      "fileSizeFormatted": "31.7 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 11,
+      "screenCode": "RM-011",
+      "title": "RM-011: Dish Performance & Velocity",
+      "stitchResourceId": "9c7464840c9144da910a2abe9be5105f",
+      "htmlFileName": "RM-011_dish_performance_velocity.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-011_dish_performance_velocity.html",
+      "fileSizeBytes": 42120,
+      "fileSizeFormatted": "41.1 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 12,
+      "screenCode": "RM-012",
+      "title": "RM-012: Incoming Order Audio/Visual Chime Alert Overlay",
+      "stitchResourceId": "76ed2a16eb684123a7dc5b987475a3b7",
+      "htmlFileName": "RM-012_incoming_order_audio_visual_chime_alert_overlay.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-012_incoming_order_audio_visual_chime_alert_overlay.html",
+      "fileSizeBytes": 26227,
+      "fileSizeFormatted": "25.6 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 13,
+      "screenCode": "RM-013",
+      "title": "Order Details #NB-4825",
+      "stitchResourceId": "8aaddc458d4940989e6c03639ac78095",
+      "htmlFileName": "RM-013_order_details_nb-4825.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-013_order_details_nb-4825.html",
+      "fileSizeBytes": 26206,
+      "fileSizeFormatted": "25.6 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 14,
+      "screenCode": "RM-014",
+      "title": "Accept Order",
+      "stitchResourceId": "cb0e39ec9c9345de9c58b165636cb8d6",
+      "htmlFileName": "RM-014_accept_order.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-014_accept_order.html",
+      "fileSizeBytes": 22804,
+      "fileSizeFormatted": "22.3 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 15,
+      "screenCode": "RM-015",
+      "title": "Reject Order",
+      "stitchResourceId": "2a93a121365b436087e3d7c5ace52e1c",
+      "htmlFileName": "RM-015_reject_order.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-015_reject_order.html",
+      "fileSizeBytes": 18406,
+      "fileSizeFormatted": "18.0 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 16,
+      "screenCode": "RM-016",
+      "title": "Preparation Time Management",
+      "stitchResourceId": "93a449da956b4b748927d1668c39219c",
+      "htmlFileName": "RM-016_preparation_time_management.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-016_preparation_time_management.html",
+      "fileSizeBytes": 27744,
+      "fileSizeFormatted": "27.1 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 17,
+      "screenCode": "RM-017",
+      "title": "Customer Order Issues & Disputes",
+      "stitchResourceId": "033618c92e754cd69c49b55d6ea11805",
+      "htmlFileName": "RM-017_customer_order_issues_disputes.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-017_customer_order_issues_disputes.html",
+      "fileSizeBytes": 21231,
+      "fileSizeFormatted": "20.7 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 18,
+      "screenCode": "RM-018",
+      "title": "Cancellation & Refund Management",
+      "stitchResourceId": "b5a5065fb27b461098964606a66e4a02",
+      "htmlFileName": "RM-018_cancellation_refund_management.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-018_cancellation_refund_management.html",
+      "fileSizeBytes": 25045,
+      "fileSizeFormatted": "24.5 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 19,
+      "screenCode": "RM-019",
+      "title": "RM-019: Order Dispute Case Detail & Evidence Viewer",
+      "stitchResourceId": "764d869de3124c38a8521ddfbef8d21e",
+      "htmlFileName": "RM-019_order_dispute_case_detail_evidence_viewer.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-019_order_dispute_case_detail_evidence_viewer.html",
+      "fileSizeBytes": 28386,
+      "fileSizeFormatted": "27.7 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 20,
+      "screenCode": "RM-020",
+      "title": "Order History",
+      "stitchResourceId": "1a7697156f5a40b2a2b41cec5b11db5c",
+      "htmlFileName": "RM-020_order_history.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-020_order_history.html",
+      "fileSizeBytes": 29493,
+      "fileSizeFormatted": "28.8 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 21,
+      "screenCode": "RM-021",
+      "title": "RM-021: New Kitchen Orders",
+      "stitchResourceId": "d294e07f3ab2497fba1541dc7b4b3d50",
+      "htmlFileName": "RM-021_new_kitchen_orders.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-021_new_kitchen_orders.html",
+      "fileSizeBytes": 37635,
+      "fileSizeFormatted": "36.8 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 22,
+      "screenCode": "RM-022",
+      "title": "RM-022: Preparing Orders",
+      "stitchResourceId": "524c9fdb53b64cc29453c00c595503eb",
+      "htmlFileName": "RM-022_preparing_orders.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-022_preparing_orders.html",
+      "fileSizeBytes": 28352,
+      "fileSizeFormatted": "27.7 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 23,
+      "screenCode": "RM-023",
+      "title": "RM-023: Ready Orders",
+      "stitchResourceId": "11415345ced64acd85af7760e3eb5e44",
+      "htmlFileName": "RM-023_ready_orders.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-023_ready_orders.html",
+      "fileSizeBytes": 30639,
+      "fileSizeFormatted": "29.9 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 24,
+      "screenCode": "RM-024",
+      "title": "RM-024: Kitchen Station Management",
+      "stitchResourceId": "2a8567ffcbbe47998a5e75da75c58ad3",
+      "htmlFileName": "RM-024_kitchen_station_management.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-024_kitchen_station_management.html",
+      "fileSizeBytes": 24987,
+      "fileSizeFormatted": "24.4 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 25,
+      "screenCode": "RM-025",
+      "title": "RM-025: KDS Display Settings",
+      "stitchResourceId": "ba8484f5fb06427ea43eb9172fc5c41c",
+      "htmlFileName": "RM-025_kds_display_settings.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-025_kds_display_settings.html",
+      "fileSizeBytes": 32901,
+      "fileSizeFormatted": "32.1 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 26,
+      "screenCode": "RM-026",
+      "title": "RM-026: Menu Overview",
+      "stitchResourceId": "ccd50531c85d41efbb673a12b250e58a",
+      "htmlFileName": "RM-026_menu_overview.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-026_menu_overview.html",
+      "fileSizeBytes": 33758,
+      "fileSizeFormatted": "33.0 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 27,
+      "screenCode": "RM-027",
+      "title": "RM-027: Menu Categories",
+      "stitchResourceId": "278dc833bfa54ae7b9780b7daa016dfa",
+      "htmlFileName": "RM-027_menu_categories.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-027_menu_categories.html",
+      "fileSizeBytes": 37731,
+      "fileSizeFormatted": "36.8 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 28,
+      "screenCode": "RM-028",
+      "title": "RM-028: Dish Management",
+      "stitchResourceId": "9ad5f54b84b44e97a52aee49929b44b9",
+      "htmlFileName": "RM-028_dish_management.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-028_dish_management.html",
+      "fileSizeBytes": 31560,
+      "fileSizeFormatted": "30.8 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 29,
+      "screenCode": "RM-029",
+      "title": "RM-029: Add New Dish",
+      "stitchResourceId": "6c8cd939356142a98ada04aead573a0a",
+      "htmlFileName": "RM-029_add_new_dish.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-029_add_new_dish.html",
+      "fileSizeBytes": 26378,
+      "fileSizeFormatted": "25.8 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 30,
+      "screenCode": "RM-030",
+      "title": "RM-030: Edit Dish",
+      "stitchResourceId": "bae7215212284ee1ba3ba78907368922",
+      "htmlFileName": "RM-030_edit_dish.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-030_edit_dish.html",
+      "fileSizeBytes": 27694,
+      "fileSizeFormatted": "27.0 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 31,
+      "screenCode": "RM-031",
+      "title": "RM-031: Dish Customization Management",
+      "stitchResourceId": "2240267ecb334ab99752fa3392fc6bdc",
+      "htmlFileName": "RM-031_dish_customization_management.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-031_dish_customization_management.html",
+      "fileSizeBytes": 35627,
+      "fileSizeFormatted": "34.8 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 32,
+      "screenCode": "RM-032",
+      "title": "RM-032: Menu Availability & Scheduling",
+      "stitchResourceId": "aefb8602dfe84c4da29e6b15c34f3a5d",
+      "htmlFileName": "RM-032_menu_availability_scheduling.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-032_menu_availability_scheduling.html",
+      "fileSizeBytes": 26460,
+      "fileSizeFormatted": "25.8 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 33,
+      "screenCode": "RM-033",
+      "title": "RM-033: Bulk Menu Management",
+      "stitchResourceId": "c1afad8c6d4345d5b940a6b3513a6062",
+      "htmlFileName": "RM-033_bulk_menu_management.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-033_bulk_menu_management.html",
+      "fileSizeBytes": 32394,
+      "fileSizeFormatted": "31.6 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 34,
+      "screenCode": "RM-034",
+      "title": "RM-034: Restaurant Profile & Outlets",
+      "stitchResourceId": "69384befae9b400290de510847c4c7ae",
+      "htmlFileName": "RM-034_restaurant_profile_outlets.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-034_restaurant_profile_outlets.html",
+      "fileSizeBytes": 28321,
+      "fileSizeFormatted": "27.7 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 35,
+      "screenCode": "RM-035",
+      "title": "RM-035: Operating Hours & Shifts",
+      "stitchResourceId": "7d5cb02286ea4429960f066fdba83b60",
+      "htmlFileName": "RM-035_operating_hours_shifts.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-035_operating_hours_shifts.html",
+      "fileSizeBytes": 25512,
+      "fileSizeFormatted": "24.9 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 36,
+      "screenCode": "RM-036",
+      "title": "RM-036: Multi-Outlet Network",
+      "stitchResourceId": "30eb516406ae498995607bd796c22b29",
+      "htmlFileName": "RM-036_multi-outlet_network.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-036_multi-outlet_network.html",
+      "fileSizeBytes": 25695,
+      "fileSizeFormatted": "25.1 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 37,
+      "screenCode": "RM-037",
+      "title": "RM-037: Service Channels & Fulfilment",
+      "stitchResourceId": "c8a080196b214c1dbab5f412e9799152",
+      "htmlFileName": "RM-037_service_channels_fulfilment.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-037_service_channels_fulfilment.html",
+      "fileSizeBytes": 23990,
+      "fileSizeFormatted": "23.4 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 38,
+      "screenCode": "RM-038",
+      "title": "RM-038: Emergency Store Pause",
+      "stitchResourceId": "75343f4435f0404e93a411ed3e4ef483",
+      "htmlFileName": "RM-038_emergency_store_pause.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-038_emergency_store_pause.html",
+      "fileSizeBytes": 24356,
+      "fileSizeFormatted": "23.8 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 39,
+      "screenCode": "RM-039",
+      "title": "RM-039: Scheduled Holiday & Seasonal Closure Calendar",
+      "stitchResourceId": "f7316bbdad9e4fd69abaedbdfb529de2",
+      "htmlFileName": "RM-039_scheduled_holiday_seasonal_closure_calendar.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-039_scheduled_holiday_seasonal_closure_calendar.html",
+      "fileSizeBytes": 34086,
+      "fileSizeFormatted": "33.3 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 40,
+      "screenCode": "RM-040",
+      "title": "RM-040: Printer Discovery & Pairing",
+      "stitchResourceId": "013f6c58ff054fdaa22942477349ae1b",
+      "htmlFileName": "RM-040_printer_discovery_pairing.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-040_printer_discovery_pairing.html",
+      "fileSizeBytes": 27828,
+      "fileSizeFormatted": "27.2 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 41,
+      "screenCode": "RM-041",
+      "title": "RM-041: Printer Configuration & Specs",
+      "stitchResourceId": "981f326ac72a424391bc0e42fbd9ff63",
+      "htmlFileName": "RM-041_printer_configuration_specs.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-041_printer_configuration_specs.html",
+      "fileSizeBytes": 29343,
+      "fileSizeFormatted": "28.7 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 42,
+      "screenCode": "RM-042",
+      "title": "RM-042: KOT Slip Layout & Preview",
+      "stitchResourceId": "422ec1707e3c4e8d932b13b4f014e7af",
+      "htmlFileName": "RM-042_kot_slip_layout_preview.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-042_kot_slip_layout_preview.html",
+      "fileSizeBytes": 28566,
+      "fileSizeFormatted": "27.9 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 43,
+      "screenCode": "RM-043",
+      "title": "RM-043: Customer Bill & Invoice Template",
+      "stitchResourceId": "c321646840ec4a6294ed90c71258f70f",
+      "htmlFileName": "RM-043_customer_bill_invoice_template.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-043_customer_bill_invoice_template.html",
+      "fileSizeBytes": 25995,
+      "fileSizeFormatted": "25.4 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 44,
+      "screenCode": "RM-044",
+      "title": "RM-044: Auto-Print Routing Rules",
+      "stitchResourceId": "ed9ccc3119964c4c9bd1bc50801c35e4",
+      "htmlFileName": "RM-044_auto-print_routing_rules.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-044_auto-print_routing_rules.html",
+      "fileSizeBytes": 25463,
+      "fileSizeFormatted": "24.9 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 45,
+      "screenCode": "RM-045",
+      "title": "RM-045: Print Queue & Diagnostics",
+      "stitchResourceId": "87a6cd0498044fe1ba5925fcebe38f04",
+      "htmlFileName": "RM-045_print_queue_diagnostics.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-045_print_queue_diagnostics.html",
+      "fileSizeBytes": 33707,
+      "fileSizeFormatted": "32.9 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 46,
+      "screenCode": "RM-046",
+      "title": "RM-046: Finance Overview & Payouts",
+      "stitchResourceId": "3fa30319cc9e4f80abf12465acfe62be",
+      "htmlFileName": "RM-046_finance_overview_payouts.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-046_finance_overview_payouts.html",
+      "fileSizeBytes": 27224,
+      "fileSizeFormatted": "26.6 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 47,
+      "screenCode": "RM-047",
+      "title": "RM-047: Daily Settlement & Statement",
+      "stitchResourceId": "0b452a6fbd50479b81f1025d49096a01",
+      "htmlFileName": "RM-047_daily_settlement_statement.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-047_daily_settlement_statement.html",
+      "fileSizeBytes": 25342,
+      "fileSizeFormatted": "24.7 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 48,
+      "screenCode": "RM-048",
+      "title": "RM-048: Order Transaction Ledger",
+      "stitchResourceId": "fb0e9ff1804a47a19ef02f7beeff06e0",
+      "htmlFileName": "RM-048_order_transaction_ledger.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-048_order_transaction_ledger.html",
+      "fileSizeBytes": 29684,
+      "fileSizeFormatted": "29.0 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 49,
+      "screenCode": "RM-049",
+      "title": "RM-049: Commission & Deductions Breakdown",
+      "stitchResourceId": "89051add0e7b402085a7778e0f0c4e5d",
+      "htmlFileName": "RM-049_commission_deductions_breakdown.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-049_commission_deductions_breakdown.html",
+      "fileSizeBytes": 23717,
+      "fileSizeFormatted": "23.2 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 50,
+      "screenCode": "RM-050",
+      "title": "RM-050: Bank Accounts & Payout Settings",
+      "stitchResourceId": "4928b03b887f4b70b8766a59d80f620e",
+      "htmlFileName": "RM-050_bank_accounts_payout_settings.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-050_bank_accounts_payout_settings.html",
+      "fileSizeBytes": 31620,
+      "fileSizeFormatted": "30.9 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 51,
+      "screenCode": "RM-051",
+      "title": "RM-051: Tax & GST Reports",
+      "stitchResourceId": "4424ed00943d4a9c9be5bec46e6ea850",
+      "htmlFileName": "RM-051_tax_gst_reports.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-051_tax_gst_reports.html",
+      "fileSizeBytes": 29291,
+      "fileSizeFormatted": "28.6 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 52,
+      "screenCode": "RM-052",
+      "title": "RM-052: Staff Management & Role-Based Access (RBAC)",
+      "stitchResourceId": "58607955ea274cf596c9d2769b8aa7f7",
+      "htmlFileName": "RM-052_staff_management_role-based_access_rbac.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-052_staff_management_role-based_access_rbac.html",
+      "fileSizeBytes": 30873,
+      "fileSizeFormatted": "30.1 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 53,
+      "screenCode": "RM-053",
+      "title": "RM-053: Kitchen Staff Quick PIN Switcher",
+      "stitchResourceId": "cfcf3c462af54912b3243b0a2f7f811d",
+      "htmlFileName": "RM-053_kitchen_staff_quick_pin_switcher.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-053_kitchen_staff_quick_pin_switcher.html",
+      "fileSizeBytes": 24141,
+      "fileSizeFormatted": "23.6 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 54,
+      "screenCode": "RM-053A",
+      "title": "RM-053A: Invite Staff & Add Employee",
+      "stitchResourceId": "7db5a2591b39454591f9435d7861c2ba",
+      "htmlFileName": "RM-053A_invite_staff_add_employee.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-053A_invite_staff_add_employee.html",
+      "fileSizeBytes": 30808,
+      "fileSizeFormatted": "30.1 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 55,
+      "screenCode": "RM-054",
+      "title": "RM-054: Daily Shift Handover & Cash Drawer Reconciliation",
+      "stitchResourceId": "ec494410033549cf9fb604a6d8ebef53",
+      "htmlFileName": "RM-054_daily_shift_handover_cash_drawer_reconciliation.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-054_daily_shift_handover_cash_drawer_reconciliation.html",
+      "fileSizeBytes": 29186,
+      "fileSizeFormatted": "28.5 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 56,
+      "screenCode": "RM-054A",
+      "title": "RM-054A: Staff Member Profile & Activity History",
+      "stitchResourceId": "41f79e3100fd4dfe9e5ff85983f65f83",
+      "htmlFileName": "RM-054A_staff_member_profile_activity_history.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-054A_staff_member_profile_activity_history.html",
+      "fileSizeBytes": 26988,
+      "fileSizeFormatted": "26.4 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 57,
+      "screenCode": "RM-055",
+      "title": "RM-055: Notifications & Broadcasts",
+      "stitchResourceId": "7a7a07b5912b435788f12ecd10508446",
+      "htmlFileName": "RM-055_notifications_broadcasts.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-055_notifications_broadcasts.html",
+      "fileSizeBytes": 23619,
+      "fileSizeFormatted": "23.1 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 58,
+      "screenCode": "RM-055A",
+      "title": "RM-055A: Roles & Permissions Matrix",
+      "stitchResourceId": "7246cda522824cfc91d801584d5a0d92",
+      "htmlFileName": "RM-055A_roles_permissions_matrix.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-055A_roles_permissions_matrix.html",
+      "fileSizeBytes": 35877,
+      "fileSizeFormatted": "35.0 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 59,
+      "screenCode": "RM-056",
+      "title": "RM-056: 24/7 Merchant Helpdesk & Live Dispute Chat",
+      "stitchResourceId": "cb98da43fb064061b7b7ba39d8f7a365",
+      "htmlFileName": "RM-056_24_7_merchant_helpdesk_live_dispute_chat.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-056_24_7_merchant_helpdesk_live_dispute_chat.html",
+      "fileSizeBytes": 20758,
+      "fileSizeFormatted": "20.3 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 60,
+      "screenCode": "RM-057",
+      "title": "RM-057: Support Tickets Archive & SLA Tracking",
+      "stitchResourceId": "9598b62cd9684bff9705e336152329d4",
+      "htmlFileName": "RM-057_support_tickets_archive_sla_tracking.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-057_support_tickets_archive_sla_tracking.html",
+      "fileSizeBytes": 24655,
+      "fileSizeFormatted": "24.1 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 61,
+      "screenCode": "RM-059",
+      "title": "RM-059: Account & Application Master Settings",
+      "stitchResourceId": "8bad6fcb2d904af8ba89968b89636c00",
+      "htmlFileName": "RM-059_account_application_master_settings.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-059_account_application_master_settings.html",
+      "fileSizeBytes": 30050,
+      "fileSizeFormatted": "29.3 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 62,
+      "screenCode": "RM-060",
+      "title": "RM-060: Security, Active Sessions & Audit Log",
+      "stitchResourceId": "628a42488a9f4cf0936e079bbf692edb",
+      "htmlFileName": "RM-060_security_active_sessions_audit_log.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-060_security_active_sessions_audit_log.html",
+      "fileSizeBytes": 26196,
+      "fileSizeFormatted": "25.6 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 63,
+      "screenCode": "RM-098",
+      "title": "Thermal Printer Management",
+      "stitchResourceId": "3fd25f47c21c434cb7ff6e439ab53ebe",
+      "htmlFileName": "RM-098_thermal_printer_management.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-098_thermal_printer_management.html",
+      "fileSizeBytes": 25773,
+      "fileSizeFormatted": "25.2 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 64,
+      "screenCode": "RM-100",
+      "title": "KDS Kitchen Board",
+      "stitchResourceId": "2e9deaf5e85b46ef92040c42bd687337",
+      "htmlFileName": "RM-100_kds_kitchen_board.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-100_kds_kitchen_board.html",
+      "fileSizeBytes": 38120,
+      "fileSizeFormatted": "37.2 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 65,
+      "screenCode": "RM-102",
+      "title": "Live Order Management",
+      "stitchResourceId": "7c1f66e523614defb3715b9d59604db6",
+      "htmlFileName": "RM-102_live_order_management.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-102_live_order_management.html",
+      "fileSizeBytes": 31275,
+      "fileSizeFormatted": "30.5 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "index": 66,
+      "screenCode": "RM-104",
+      "title": "Restaurant Dashboard",
+      "stitchResourceId": "aa10b7fa682b4b9f9dc7a0cf46c040a2",
+      "htmlFileName": "RM-104_restaurant_dashboard.html",
+      "localHtmlPath": "docs/restaurant-merchant-audit/stitch-html/RM-104_restaurant_dashboard.html",
+      "fileSizeBytes": 35223,
+      "fileSizeFormatted": "34.4 KB",
+      "verificationStatus": "VERIFIED_GENUINE_STITCH_EXPORT",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 800,
+          "height": 1280
+        },
+        {
+          "name": "desktop",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    }
+  ]
+}

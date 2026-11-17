@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>NABIN RMS - RM-054A Staff Member Profile &amp; Activity History</title>
+<!-- Material Symbols Outlined -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Google Fonts Inter -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS CDN with forms and container queries -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "tertiary-container": "#005120",
+            "on-background": "#181c1f",
+            "on-primary-container": "#9cafff",
+            "surface-container-lowest": "#ffffff",
+            "primary-fixed": "#dde1ff",
+            "on-primary-fixed": "#001452",
+            "tertiary": "#003813",
+            "on-tertiary-fixed-variant": "#005320",
+            "on-surface-variant": "#444653",
+            "surface": "#f7f9fd",
+            "surface-dim": "#d8dade",
+            "tertiary-fixed": "#7ffc97",
+            "secondary": "#a93700",
+            "primary-fixed-dim": "#b7c4ff",
+            "on-secondary-container": "#5c1a00",
+            "error-container": "#ffdad6",
+            "secondary-fixed-dim": "#ffb59b",
+            "on-primary": "#ffffff",
+            "on-secondary": "#ffffff",
+            "surface-container-highest": "#e0e3e6",
+            "surface-container-high": "#e6e8ec",
+            "on-surface": "#181c1f",
+            "outline-variant": "#c5c5d5",
+            "surface-bright": "#f7f9fd",
+            "surface-variant": "#e0e3e6",
+            "primary": "#00247f",
+            "tertiary-fixed-dim": "#62df7d",
+            "inverse-on-surface": "#eff1f5",
+            "outline": "#757684",
+            "on-error": "#ffffff",
+            "primary-container": "#1a3ba2",
+            "background": "#f7f9fd",
+            "inverse-primary": "#b7c4ff",
+            "on-tertiary": "#ffffff",
+            "inverse-surface": "#2d3134",
+            "on-tertiary-container": "#4cca6c",
+            "on-primary-fixed-variant": "#1c3da4",
+            "on-tertiary-fixed": "#002109",
+            "on-secondary-fixed": "#380d00",
+            "secondary-container": "#fc6b32",
+            "error": "#ba1a1a",
+            "surface-container-low": "#f2f4f8",
+            "on-error-container": "#93000a",
+            "secondary-fixed": "#ffdbcf",
+            "surface-tint": "#3a56bd",
+            "on-secondary-fixed-variant": "#812800",
+            "surface-container": "#eceef2"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.25rem",
+            "lg": "0.5rem",
+            "xl": "0.75rem",
+            "full": "9999px"
+          },
+          "spacing": {
+            "space-sm": "0.5rem",
+            "space-xs": "0.25rem",
+            "space-lg": "1.5rem",
+            "space-xl": "2rem",
+            "space-md": "1rem",
+            "margin-mobile": "1rem",
+            "gutter-kds": "1.25rem",
+            "margin": "1.5rem",
+            "gutter": "1rem"
+          },
+          "fontFamily": {
+            "label-lg": ["Inter"],
+            "label-md": ["Inter"],
+            "headline-lg-mobile": ["Inter"],
+            "body-sm": ["Inter"],
+            "label-sm": ["Inter"],
+            "body-lg": ["Inter"],
+            "headline-xl": ["Inter"],
+            "headline-md": ["Inter"],
+            "headline-lg": ["Inter"],
+            "ticket-mono": ["Inter"],
+            "body-md": ["Inter"],
+            "headline-sm": ["Inter"],
+            "headline-xl-mobile": ["Inter"]
+          },
+          "fontSize": {
+            "label-lg": ["15px", {"lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600"}],
+            "label-md": ["13px", {"lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "600"}],
+            "headline-lg-mobile": ["24px", {"lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "700"}],
+            "body-sm": ["13px", {"lineHeight": "18px", "fontWeight": "400"}],
+            "label-sm": ["11px", {"lineHeight": "14px", "letterSpacing": "0.04em", "fontWeight": "700"}],
+            "body-lg": ["18px", {"lineHeight": "26px", "fontWeight": "500"}],
+            "headline-xl": ["40px", {"lineHeight": "48px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+            "headline-md": ["24px", {"lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+            "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.015em", "fontWeight": "700"}],
+            "ticket-mono": ["16px", {"lineHeight": "20px", "letterSpacing": "0.05em", "fontWeight": "700"}],
+            "body-md": ["15px", {"lineHeight": "22px", "fontWeight": "400"}],
+            "headline-sm": ["20px", {"lineHeight": "28px", "fontWeight": "600"}],
+            "headline-xl-mobile": ["30px", {"lineHeight": "38px", "letterSpacing": "-0.02em", "fontWeight": "700"}]
+          }
+        }
+      }
+    }
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 500, 'GRAD' 0, 'opsz' 24;
+      display: inline-block;
+      vertical-align: middle;
+      line-height: 1;
+    }
+    /* Touch target baseline */
+    .touch-target-48 {
+      min-height: 48px;
+      min-width: 48px;
+    }
+  </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background text-on-surface antialiased font-body-md text-body-md select-none pb-24">
+<!-- Mobile Container Wrapper: 390px simulated device viewport with industrial styling -->
+<div class="max-w-[390px] mx-auto min-h-screen bg-background border-x border-outline-variant relative flex flex-col">
+<!-- 1. Top Bar (Task-focused context with back navigation to RM-052) -->
+<header class="sticky top-0 z-50 bg-surface-container-lowest/95 backdrop-blur-md px-gutter h-14 flex items-center justify-between border-b border-outline-variant shadow-sm">
+<div class="flex items-center space-x-2">
+<button aria-label="Staff Directory (RM-052)" class="touch-target-48 -ml-2 inline-flex items-center justify-center rounded-lg text-primary hover:bg-surface-container active:scale-95 transition-all" type="button">
+<span class="material-symbols-outlined text-[24px]">arrow_back</span>
+</button>
+<div class="flex flex-col">
+<div class="flex items-center space-x-1.5">
+<span class="font-headline-sm text-[17px] font-bold tracking-tight text-on-surface">Staff Profile</span>
+<span class="bg-primary-fixed text-on-primary-fixed font-ticket-mono text-[10px] px-1.5 py-0.5 rounded font-bold uppercase">RM-054A</span>
+</div>
+<span class="text-[11px] font-medium text-outline">Dir: Staff Directory (RM-052)</span>
+</div>
+</div>
+<button class="touch-target-48 px-3 inline-flex items-center justify-center rounded-lg bg-surface-container-low text-primary-container font-label-md text-label-md hover:bg-surface-container transition-colors active:scale-95" type="button">
+<span class="material-symbols-outlined text-[18px] mr-1">edit</span>
+        Edit
+      </button>
+</header>
+<!-- Main Content Canvas -->
+<main class="flex-1 px-margin-mobile pt-3 pb-8 space-y-4">
+<!-- 2. Employee Profile Header Card -->
+<section class="bg-surface-container-lowest rounded-xl border border-outline-variant p-space-md shadow-sm">
+<div class="flex items-start gap-3.5">
+<!-- Large Avatar with Initial VS & Pulse Ring -->
+<div class="relative flex-shrink-0">
+<div class="w-16 h-16 rounded-full bg-primary-container text-on-primary flex items-center justify-center font-headline-sm text-headline-sm font-bold tracking-wider ring-4 ring-primary-fixed">
+              VS
+            </div>
+<!-- Online status live badge ring -->
+<span class="absolute bottom-0 right-0 w-4 h-4 rounded-full bg-tertiary-container ring-2 ring-surface-container-lowest flex items-center justify-center">
+<span class="w-2 h-2 rounded-full bg-tertiary-fixed animate-ping"></span>
+</span>
+</div>
+<!-- Staff Core Details -->
+<div class="flex-1 min-w-0">
+<div class="flex items-center justify-between">
+<h1 class="font-headline-sm text-[18px] font-bold text-on-surface truncate">Vikramaditya Sharma</h1>
+</div>
+<p class="font-ticket-mono text-[13px] font-bold text-outline mt-0.5">#STF-0842</p>
+<div class="flex flex-wrap items-center gap-1.5 mt-2">
+<!-- Role Badge -->
+<span class="inline-flex items-center bg-primary-container text-on-primary px-2.5 py-0.5 rounded-full font-label-sm text-[10.5px] uppercase tracking-wide font-bold">
+                Line Cook — Hot Kitchen
+              </span>
+<!-- Status Badge -->
+<span class="inline-flex items-center gap-1 bg-tertiary-container text-on-tertiary px-2 py-0.5 rounded-full font-label-sm text-[10.5px] font-bold">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary-fixed inline-block"></span>
+                Active — On Duty
+              </span>
+</div>
+</div>
+</div>
+<!-- Horizontal Divider -->
+<div class="border-t border-outline-variant my-3.5"></div>
+<!-- Metadata Chips Row -->
+<div class="space-y-2">
+<div class="flex items-center gap-2 text-on-surface-variant font-label-md text-label-md">
+<span class="material-symbols-outlined text-outline text-[18px]">call</span>
+<span class="font-ticket-mono font-medium text-[13px] text-on-surface">+91 98765 •••••</span>
+<span class="text-[10px] bg-surface-container px-1.5 py-0.2 rounded font-label-sm text-outline">Masked</span>
+</div>
+<div class="flex items-center gap-2 text-on-surface-variant font-label-md text-label-md">
+<span class="material-symbols-outlined text-outline text-[18px]">store</span>
+<span class="text-on-surface text-[12.5px] truncate font-medium">Connaught Place Flagship (Outlet #01)</span>
+</div>
+</div>
+</section>
+<!-- 3. Shift & Attendance Summary -->
+<section class="space-y-2.5">
+<div class="flex items-center justify-between">
+<h2 class="font-headline-sm text-[15px] font-bold tracking-tight text-on-surface">Shift &amp; Attendance</h2>
+<span class="font-label-sm text-[11px] text-outline font-semibold">Real-Time Sync</span>
+</div>
+<!-- Today's Live Shift Card -->
+<div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-space-md">
+<div class="flex items-center justify-between pb-2.5 border-b border-surface-container-highest">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-secondary text-[20px]">schedule</span>
+<span class="font-label-md text-label-md font-bold text-on-surface">Current Shift Status</span>
+</div>
+<span class="bg-tertiary-container text-on-tertiary font-label-sm text-[11px] font-bold px-2 py-0.5 rounded">
+              Clocked in at 11:15 AM
+            </span>
+</div>
+<div class="grid grid-cols-2 gap-3 pt-3">
+<div class="bg-surface rounded-lg p-2.5 border border-outline-variant/60">
+<span class="text-[11px] font-label-sm text-outline block">Schedule Timing</span>
+<span class="font-body-md text-[13px] font-semibold text-on-surface mt-0.5 block leading-tight">
+                11:30 AM – 11:00 PM
+              </span>
+<span class="text-[10px] font-bold text-secondary-container mt-1 inline-block uppercase">Dinner Shift</span>
+</div>
+<div class="bg-surface rounded-lg p-2.5 border border-outline-variant/60">
+<span class="text-[11px] font-label-sm text-outline block">Active Station</span>
+<div class="flex items-center gap-1 mt-0.5">
+<span class="material-symbols-outlined text-primary-container text-[16px]">skillet</span>
+<span class="font-body-md text-[13px] font-semibold text-on-surface leading-tight truncate">
+                  Station 1
+                </span>
+</div>
+<span class="text-[10.5px] font-medium text-on-surface-variant block mt-1 truncate">Hot Wok &amp; Grill</span>
+</div>
+</div>
+</div>
+<!-- Monthly Attendance Metrics Strip -->
+<div class="grid grid-cols-3 gap-2">
+<div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-2.5 text-center">
+<span class="text-[10px] font-label-sm uppercase text-outline block">Cycle Roster</span>
+<span class="font-headline-sm text-[16px] font-bold text-primary-container mt-0.5 block">24 / 26</span>
+<span class="text-[10px] font-medium text-on-surface-variant">Days Active</span>
+</div>
+<div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-2.5 text-center">
+<span class="text-[10px] font-label-sm uppercase text-outline block">Monthly Total</span>
+<span class="font-headline-sm text-[16px] font-bold text-on-surface mt-0.5 block">192</span>
+<span class="text-[10px] font-medium text-on-surface-variant">Logged Hours</span>
+</div>
+<div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-2.5 text-center">
+<span class="text-[10px] font-label-sm uppercase text-outline block">Punctuality</span>
+<div class="flex items-center justify-center gap-0.5 mt-0.5">
+<span class="material-symbols-outlined text-tertiary-container text-[16px]" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+<span class="font-headline-sm text-[16px] font-bold text-tertiary-container">Zero</span>
+</div>
+<span class="text-[10px] font-medium text-tertiary-container font-semibold">Late Clock-ins</span>
+</div>
+</div>
+</section>
+<!-- 4. Kitchen Performance & Velocity Metrics -->
+<section class="space-y-2.5">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-1.5">
+<h2 class="font-headline-sm text-[15px] font-bold tracking-tight text-on-surface">Kitchen Performance &amp; Velocity</h2>
+</div>
+<span class="bg-surface-container text-on-surface-variant font-ticket-mono text-[10px] px-2 py-0.5 rounded font-bold">
+            30-Day Benchmark
+          </span>
+</div>
+<!-- 3 Metrics Grid -->
+<div class="grid grid-cols-3 gap-2">
+<!-- Total Orders -->
+<div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-2.5 flex flex-col justify-between">
+<span class="text-[10.5px] font-label-sm font-semibold text-outline">Orders Prepped</span>
+<div class="mt-2">
+<span class="font-headline-sm text-[18px] font-bold text-on-surface block font-ticket-mono">1,482</span>
+<span class="text-[9.5px] text-outline font-medium">Lifetime Cook</span>
+</div>
+</div>
+<!-- Average Prep Time -->
+<div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-2.5 flex flex-col justify-between">
+<span class="text-[10.5px] font-label-sm font-semibold text-outline">Avg Ticket Prep</span>
+<div class="mt-2">
+<span class="font-headline-sm text-[18px] font-bold text-secondary block font-ticket-mono">11m 24s</span>
+<span class="text-[9.5px] text-tertiary-container font-bold inline-block bg-tertiary-fixed/40 px-1 py-0.2 rounded">
+                -2m vs Bench
+              </span>
+</div>
+</div>
+<!-- SLA Dispatch -->
+<div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-2.5 flex flex-col justify-between">
+<span class="text-[10.5px] font-label-sm font-semibold text-outline">SLA Dispatch</span>
+<div class="mt-2">
+<span class="font-headline-sm text-[18px] font-bold text-primary-container block font-ticket-mono">98.8%</span>
+<span class="text-[9.5px] text-on-surface-variant font-medium">On-Time Fired</span>
+</div>
+</div>
+</div>
+<!-- Station Quality Rating Banner -->
+<div class="bg-gradient-to-r from-surface-container-lowest to-surface-container-low rounded-xl border border-outline-variant p-3 flex items-center justify-between shadow-xs">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-lg bg-secondary-fixed flex items-center justify-center text-on-secondary-fixed">
+<span class="material-symbols-outlined text-[24px]" style="font-variation-settings: 'FILL' 1;">hotel_class</span>
+</div>
+<div>
+<div class="flex items-center gap-1.5">
+<span class="font-headline-sm text-[17px] font-bold text-on-surface">4.9</span>
+<span class="text-secondary text-[14px]">★</span>
+<span class="bg-primary-fixed text-on-primary-fixed font-label-sm text-[10px] font-bold px-1.5 py-0.5 rounded ml-1">
+                  Top Performer
+                </span>
+</div>
+<p class="text-[11px] text-outline mt-0.5">Customer Station Food Quality (940+ Reviews)</p>
+</div>
+</div>
+<span class="material-symbols-outlined text-outline-variant text-[20px]">chevron_right</span>
+</div>
+</section>
+<!-- 5. Recent Kitchen Activity History (Live KDS completed tickets) -->
+<section class="space-y-2.5">
+<div class="flex items-center justify-between">
+<div>
+<h2 class="font-headline-sm text-[15px] font-bold tracking-tight text-on-surface">Recent Kitchen Activity</h2>
+<p class="text-[11px] text-outline font-medium">Live KDS completed tickets</p>
+</div>
+<span class="text-[11px] font-semibold text-primary-container flex items-center gap-0.5">
+            View All <span class="material-symbols-outlined text-[14px]">arrow_forward</span>
+</span>
+</div>
+<!-- Activity Timeline Cards -->
+<div class="space-y-2">
+<!-- Ticket Item 1 -->
+<div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-3 hover:border-primary transition-colors">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="font-ticket-mono text-[13px] font-bold text-primary-container bg-primary-fixed/60 px-1.5 py-0.5 rounded">
+                  #NB-4825
+                </span>
+<span class="font-label-sm text-[11px] text-outline font-medium">14 mins ago</span>
+</div>
+<span class="bg-tertiary-container text-on-tertiary font-ticket-mono text-[11px] font-bold px-2 py-0.5 rounded">
+                9m 10s
+              </span>
+</div>
+<p class="font-body-md text-[13.5px] font-semibold text-on-surface mt-1.5">
+              Paneer Butter Masala + Garlic Naan
+            </p>
+<div class="flex items-center gap-2 mt-2 pt-2 border-t border-surface-container">
+<span class="inline-flex items-center gap-1 text-[11px] font-medium text-on-surface-variant">
+<span class="material-symbols-outlined text-[14px] text-outline">skillet</span>
+                Station: Hot Wok
+              </span>
+<span class="text-outline text-[10px]">•</span>
+<span class="text-[11px] text-tertiary-container font-semibold flex items-center gap-0.5">
+<span class="material-symbols-outlined text-[13px]" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+                Bumped to Runner
+              </span>
+</div>
+</div>
+<!-- Ticket Item 2 -->
+<div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-3 hover:border-primary transition-colors">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="font-ticket-mono text-[13px] font-bold text-primary-container bg-primary-fixed/60 px-1.5 py-0.5 rounded">
+                  #NB-4819
+                </span>
+<span class="font-label-sm text-[11px] text-outline font-medium">42 mins ago</span>
+</div>
+<span class="bg-surface-container text-on-surface font-ticket-mono text-[11px] font-bold px-2 py-0.5 rounded border border-outline-variant/50">
+                12m 40s
+              </span>
+</div>
+<p class="font-body-md text-[13.5px] font-semibold text-on-surface mt-1.5">
+              Dal Makhani Platter
+            </p>
+<div class="flex items-center gap-2 mt-2 pt-2 border-t border-surface-container">
+<span class="inline-flex items-center gap-1 text-[11px] font-medium text-on-surface-variant">
+<span class="material-symbols-outlined text-[14px] text-outline">skillet</span>
+                Station: Hot Wok
+              </span>
+<span class="text-outline text-[10px]">•</span>
+<span class="text-[11px] text-tertiary-container font-semibold flex items-center gap-0.5">
+<span class="material-symbols-outlined text-[13px]" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+                Bumped to Runner
+              </span>
+</div>
+</div>
+<!-- Ticket Item 3 -->
+<div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-3 hover:border-primary transition-colors">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="font-ticket-mono text-[13px] font-bold text-primary-container bg-primary-fixed/60 px-1.5 py-0.5 rounded">
+                  #NB-4804
+                </span>
+<span class="font-label-sm text-[11px] text-outline font-medium">1h 15m ago</span>
+</div>
+<span class="bg-tertiary-container text-on-tertiary font-ticket-mono text-[11px] font-bold px-2 py-0.5 rounded">
+                6m 15s
+              </span>
+</div>
+<p class="font-body-md text-[13.5px] font-semibold text-on-surface mt-1.5">
+              Tandoori Roti x4
+            </p>
+<div class="flex items-center gap-2 mt-2 pt-2 border-t border-surface-container">
+<span class="inline-flex items-center gap-1 text-[11px] font-medium text-on-surface-variant">
+<span class="material-symbols-outlined text-[14px] text-outline">outdoor_grill</span>
+                Station: Tandoor
+              </span>
+<span class="text-outline text-[10px]">•</span>
+<span class="text-[11px] text-tertiary-container font-semibold flex items-center gap-0.5">
+<span class="material-symbols-outlined text-[13px]" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+                Bumped to Runner
+              </span>
+</div>
+</div>
+</div>
+</section>
+<!-- 6. Account & Security Controls -->
+<section class="space-y-2.5">
+<h2 class="font-headline-sm text-[15px] font-bold tracking-tight text-on-surface">Security &amp; Terminal Credentials</h2>
+<div class="bg-surface-container-lowest rounded-xl border border-outline-variant divide-y divide-outline-variant">
+<!-- Action: Reset Quick PIN -->
+<button class="w-full touch-target-48 p-3 text-left flex items-start gap-3 hover:bg-surface-container-low transition-colors active:scale-[0.99]" type="button">
+<div class="w-9 h-9 rounded-lg bg-surface-container flex items-center justify-center text-primary-container flex-shrink-0 mt-0.5">
+<span class="material-symbols-outlined text-[20px]">lock_reset</span>
+</div>
+<div class="flex-1">
+<span class="font-label-md text-label-md font-bold text-on-surface block">Reset Kitchen Quick PIN</span>
+<span class="text-[11px] text-outline block leading-relaxed mt-0.5">
+                Sends SMS with new temporary 4-digit PIN to +91 98765 •••••
+              </span>
+</div>
+<span class="material-symbols-outlined text-outline text-[18px] self-center">chevron_right</span>
+</button>
+<!-- Action: Change Station Assignment -->
+<button class="w-full touch-target-48 p-3 text-left flex items-center gap-3 hover:bg-surface-container-low transition-colors active:scale-[0.99]" type="button">
+<div class="w-9 h-9 rounded-lg bg-surface-container flex items-center justify-center text-secondary flex-shrink-0">
+<span class="material-symbols-outlined text-[20px]">sync_alt</span>
+</div>
+<div class="flex-1">
+<span class="font-label-md text-label-md font-bold text-on-surface block">Change Station Assignment</span>
+<span class="text-[11px] text-outline block mt-0.5 font-medium">
+                Current: <strong class="text-on-surface">Station 1: Hot Wok &amp; Grill</strong>
+</span>
+</div>
+<span class="material-symbols-outlined text-outline text-[18px]">chevron_right</span>
+</button>
+</div>
+<!-- Danger Zone Box -->
+<div class="bg-error-container/20 rounded-xl border border-error/30 p-3.5 space-y-2.5">
+<div class="flex items-start gap-2">
+<span class="material-symbols-outlined text-error text-[20px] flex-shrink-0 mt-0.5">warning</span>
+<div>
+<span class="font-label-md text-label-md font-bold text-error block">Staff Deactivation Protocol</span>
+<p class="text-[11px] text-on-surface-variant leading-relaxed mt-0.5">
+                Deactivating will immediately revoke KDS terminal PIN access and close active cook shifts.
+              </p>
+</div>
+</div>
+<button class="w-full touch-target-48 h-12 bg-surface-container-lowest text-error border border-error/60 rounded-lg font-label-md text-label-md font-bold flex items-center justify-center gap-1.5 hover:bg-error hover:text-on-error transition-all active:scale-95 shadow-xs" type="button">
+<span class="material-symbols-outlined text-[18px]">person_off</span>
+            Deactivate Staff Member
+          </button>
+</div>
+</section>
+<!-- 7. Footer Audit Trail Notes -->
+<footer class="pt-2 pb-6 text-center">
+<p class="text-[10px] text-outline font-medium tracking-tight">
+          Complies with NABIN Multi-Outlet RBAC Security Guidelines v2.4
+        </p>
+<p class="font-ticket-mono text-[10px] text-outline font-bold mt-0.5">
+          Audit Trail ID #LOG-94821
+        </p>
+</footer>
+</main>
+<!-- Bottom Navigation Bar (Shared Component Anchor) -->
+<!-- Destination context: "Staff" tab active based on label_texts -->
+<nav aria-label="Bottom Navigation" class="fixed bottom-0 left-0 right-0 max-w-[390px] mx-auto z-40 flex justify-around items-center h-16 px-space-xs bg-surface-container-lowest border-t border-outline-variant shadow-lg">
+<!-- 1. Live KDS -->
+<a class="flex flex-col items-center justify-center text-on-surface-variant px-3 py-1.5 hover:text-primary transition-colors active:scale-95" href="#">
+<span class="material-symbols-outlined text-[20px]">skillet</span>
+<span class="font-label-sm text-[10px] mt-0.5">Live KDS</span>
+</a>
+<!-- 2. Orders -->
+<a class="flex flex-col items-center justify-center text-on-surface-variant px-3 py-1.5 hover:text-primary transition-colors active:scale-95" href="#">
+<span class="material-symbols-outlined text-[20px]">receipt_long</span>
+<span class="font-label-sm text-[10px] mt-0.5">Orders</span>
+</a>
+<!-- 3. Menu -->
+<a class="flex flex-col items-center justify-center text-on-surface-variant px-3 py-1.5 hover:text-primary transition-colors active:scale-95" href="#">
+<span class="material-symbols-outlined text-[20px]">restaurant_menu</span>
+<span class="font-label-sm text-[10px] mt-0.5">Menu</span>
+</a>
+<!-- 4. Staff (ACTIVE - Lock rule applied from Shared Components) -->
+<a aria-current="page" class="flex flex-col items-center justify-center bg-primary-fixed text-on-primary-fixed rounded-lg px-3 py-1.5 transition-all active:scale-95" href="#">
+<span class="material-symbols-outlined text-[20px]" style="font-variation-settings: 'FILL' 1;">badge</span>
+<span class="font-label-sm text-[10px] font-bold mt-0.5">Staff</span>
+</a>
+<!-- 5. Settings -->
+<a class="flex flex-col items-center justify-center text-on-surface-variant px-3 py-1.5 hover:text-primary transition-colors active:scale-95" href="#">
+<span class="material-symbols-outlined text-[20px]">settings</span>
+<span class="font-label-sm text-[10px] mt-0.5">Settings</span>
+</a>
+</nav>
+</div>
+</body></html>

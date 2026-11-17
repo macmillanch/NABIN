@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>RM-055A: Roles &amp; Permissions Matrix - NABIN RMS</title>
+<!-- Material Symbols Outlined -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Inter Font -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS CDN with forms and container-queries plugins -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "error": "#ba1a1a",
+            "on-surface": "#181c1f",
+            "surface-container-high": "#e6e8ec",
+            "outline": "#757684",
+            "surface-dim": "#d8dade",
+            "background": "#f7f9fd",
+            "on-primary-fixed-variant": "#1c3da4",
+            "secondary-container": "#fc6b32",
+            "on-tertiary-fixed": "#002109",
+            "surface-variant": "#e0e3e6",
+            "inverse-on-surface": "#eff1f5",
+            "tertiary-fixed-dim": "#62df7d",
+            "tertiary-container": "#005120",
+            "surface-container-lowest": "#ffffff",
+            "inverse-surface": "#2d3134",
+            "on-tertiary": "#ffffff",
+            "on-tertiary-container": "#4cca6c",
+            "surface-container-low": "#f2f4f8",
+            "inverse-primary": "#b7c4ff",
+            "tertiary-fixed": "#7ffc97",
+            "on-error": "#ffffff",
+            "surface-container": "#eceef2",
+            "on-secondary-container": "#5c1a00",
+            "secondary": "#a93700",
+            "surface-bright": "#f7f9fd",
+            "secondary-fixed": "#ffdbcf",
+            "secondary-fixed-dim": "#ffb59b",
+            "surface-tint": "#3a56bd",
+            "on-secondary-fixed": "#380d00",
+            "on-primary": "#ffffff",
+            "on-error-container": "#93000a",
+            "primary": "#00247f",
+            "on-secondary-fixed-variant": "#812800",
+            "on-secondary": "#ffffff",
+            "error-container": "#ffdad6",
+            "on-surface-variant": "#444653",
+            "surface": "#f7f9fd",
+            "surface-container-highest": "#e0e3e6",
+            "primary-container": "#1a3ba2",
+            "on-background": "#181c1f",
+            "on-primary-container": "#9cafff",
+            "on-tertiary-fixed-variant": "#005320",
+            "primary-fixed": "#dde1ff",
+            "tertiary": "#003813",
+            "on-primary-fixed": "#001452",
+            "primary-fixed-dim": "#b7c4ff",
+            "outline-variant": "#c5c5d5"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.25rem",
+            "lg": "0.5rem",
+            "xl": "0.75rem",
+            "full": "9999px"
+          },
+          "spacing": {
+            "space-lg": "1.5rem",
+            "space-xl": "2rem",
+            "space-xs": "0.25rem",
+            "space-sm": "0.5rem",
+            "gutter-kds": "1.25rem",
+            "margin-mobile": "1rem",
+            "space-md": "1rem",
+            "margin": "1.5rem",
+            "gutter": "1rem"
+          },
+          "fontFamily": {
+            "headline-xl": ["Inter"],
+            "label-md": ["Inter"],
+            "label-lg": ["Inter"],
+            "headline-md": ["Inter"],
+            "headline-lg": ["Inter"],
+            "body-md": ["Inter"],
+            "label-sm": ["Inter"],
+            "body-sm": ["Inter"],
+            "headline-xl-mobile": ["Inter"],
+            "ticket-mono": ["Inter"],
+            "headline-lg-mobile": ["Inter"],
+            "headline-sm": ["Inter"],
+            "body-lg": ["Inter"]
+          },
+          "fontSize": {
+            "headline-xl": ["40px", {"lineHeight": "48px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+            "label-md": ["13px", {"lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "600"}],
+            "label-lg": ["15px", {"lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600"}],
+            "headline-md": ["24px", {"lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+            "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.015em", "fontWeight": "700"}],
+            "body-md": ["15px", {"lineHeight": "22px", "fontWeight": "400"}],
+            "label-sm": ["11px", {"lineHeight": "14px", "letterSpacing": "0.04em", "fontWeight": "700"}],
+            "body-sm": ["13px", {"lineHeight": "18px", "fontWeight": "400"}],
+            "headline-xl-mobile": ["30px", {"lineHeight": "38px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+            "ticket-mono": ["16px", {"lineHeight": "20px", "letterSpacing": "0.05em", "fontWeight": "700"}],
+            "headline-lg-mobile": ["24px", {"lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "700"}],
+            "headline-sm": ["20px", {"lineHeight": "28px", "fontWeight": "600"}],
+            "body-lg": ["18px", {"lineHeight": "26px", "fontWeight": "500"}]
+          }
+        }
+      }
+    }
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 500, 'GRAD' 0, 'opsz' 24;
+      display: inline-block;
+      vertical-align: middle;
+      line-height: 1;
+    }
+    /* Hide scrollbars for clean ergonomic mobile browsing */
+    .no-scrollbar::-webkit-scrollbar {
+      display: none;
+    }
+    .no-scrollbar {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+  </style>
+</head>
+<body class="bg-background text-on-surface font-body-md antialiased min-h-screen selection:bg-primary-fixed selection:text-primary">
+<!-- ========================================== -->
+<!-- 1. TOP APP BAR (Shared Components JSON Anchor) -->
+<!-- ========================================== -->
+<header class="fixed top-0 left-0 w-full z-50 flex items-center justify-between px-gutter h-14 bg-surface-container-lowest border-b border-outline-variant">
+<div class="flex items-center gap-space-sm">
+<button aria-label="Go back" class="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-surface-container-high transition-colors active:scale-95 text-on-surface" type="button">
+<span class="material-symbols-outlined text-primary text-[24px]" data-icon="arrow_back">arrow_back</span>
+</button>
+<div class="flex items-center gap-2">
+<img alt="NABIN" class="w-7 h-7 object-contain" src="https://lh3.googleusercontent.com/aida-public/AB6AXuC47D5MeZbaaMDP3gLvd1_SEf05JaqqDG70WPjSkjo5FoWTuJovBo3xvmmziL2lLhak6uMwOxD6qtgl8wvUKBwDu_sl_kP667U2GEl0eZeGcDQNxBZkNTkdOM9fXY3OmiXILoVINs7Dyk9ceQ1L6csGXnOfFcLaCXWNUDXPZgfhQPlckyEcTh_RUmR4AczC81_QIP5bJSRlMriQebFSqpks0wJqzuCfNvEgT6IQdbC2V9apW61d_rZhUXZf74PLJmemvaQtae0Jhs8"/>
+<div class="flex flex-col">
+<h1 class="font-headline-sm text-headline-sm font-bold text-on-surface leading-tight tracking-tight">Roles &amp; Permissions Matrix</h1>
+<span class="font-label-sm text-label-sm text-on-surface-variant">Downtown Flagship (RM-055A)</span>
+</div>
+</div>
+</div>
+<!-- Action Item: Save Changes pill with 2 unsaved indicator -->
+<div class="flex items-center gap-space-xs">
+<button class="flex items-center gap-1.5 bg-secondary px-3 py-1.5 rounded-full text-on-secondary font-label-md text-label-md active:scale-95 transition-transform shadow-sm" type="button">
+<span class="w-2 h-2 rounded-full bg-surface-container-lowest animate-pulse"></span>
+<span>Save Changes</span>
+<span class="bg-on-secondary-container/30 text-on-secondary text-[10px] px-1.5 py-0.2 rounded-full font-bold">2</span>
+</button>
+<button aria-label="Help &amp; Documentation" class="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-surface-container-high text-on-surface-variant active:scale-95 transition-transform" type="button">
+<span class="material-symbols-outlined text-[20px]" data-icon="help_outline">help_outline</span>
+</button>
+</div>
+</header>
+<!-- ========================================== -->
+<!-- 2. STICKY NOTIFICATION BAR -->
+<!-- ========================================== -->
+<aside class="fixed top-14 left-0 w-full z-40 bg-secondary-fixed border-b border-secondary/20 px-gutter py-2 flex items-start gap-2 shadow-sm">
+<span class="material-symbols-outlined text-secondary text-[18px] shrink-0 mt-0.5" data-icon="bolt">bolt</span>
+<p class="font-label-sm text-label-sm text-on-secondary-fixed leading-tight">
+<strong class="font-bold">2 pending permission overrides</strong> modified for <span class="underline decoration-secondary">Store Manager</span> role. Unsaved changes will immediately affect 2 active staff members upon commit.
+    </p>
+</aside>
+<!-- ========================================== -->
+<!-- MAIN CONTENT CANVAS -->
+<!-- ========================================== -->
+<main class="pt-[106px] pb-32 px-gutter space-y-space-md max-w-2xl mx-auto">
+<!-- ========================================== -->
+<!-- 3. ROLE SELECTOR (Horizontal Segmented Tabs) -->
+<!-- ========================================== -->
+<section aria-labelledby="role-selector-title" class="space-y-space-xs">
+<div class="flex items-center justify-between">
+<h2 class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider" id="role-selector-title">Select Role Template</h2>
+<span class="font-label-sm text-label-sm text-primary font-semibold flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]" data-icon="tune">tune</span> 5 Active Roles
+        </span>
+</div>
+<!-- Horizontal Pills -->
+<div class="flex items-center gap-2 overflow-x-auto no-scrollbar py-1 -mx-gutter px-gutter">
+<!-- Store Manager (Active) -->
+<button class="shrink-0 flex items-center gap-2 bg-primary-container text-on-primary px-3.5 py-2 rounded-full font-label-md text-label-md ring-2 ring-primary-container ring-offset-1 active:scale-95 transition-transform shadow-sm" type="button">
+<span class="material-symbols-outlined text-[16px]" data-icon="admin_panel_settings">admin_panel_settings</span>
+<span>Store Manager (Tier 4)</span>
+<span class="bg-primary-fixed/20 text-surface-container-lowest font-label-sm text-[10px] px-1.5 py-0.5 rounded-full font-bold">2 Users</span>
+</button>
+<!-- Cashier -->
+<button class="shrink-0 flex items-center gap-1.5 bg-surface-container-lowest border border-outline-variant text-on-surface-variant px-3 py-2 rounded-full font-label-md text-label-md hover:bg-surface-container-high active:scale-95 transition-colors" type="button">
+<span class="material-symbols-outlined text-[16px] text-outline" data-icon="point_of_sale">point_of_sale</span>
+<span>Cashier (Tier 2)</span>
+<span class="bg-surface-container-high text-on-surface-variant font-label-sm text-[10px] px-1.5 py-0.5 rounded-full font-bold">3 Users</span>
+</button>
+<!-- Head Chef -->
+<button class="shrink-0 flex items-center gap-1.5 bg-surface-container-lowest border border-outline-variant text-on-surface-variant px-3 py-2 rounded-full font-label-md text-label-md hover:bg-surface-container-high active:scale-95 transition-colors" type="button">
+<span class="material-symbols-outlined text-[16px] text-outline" data-icon="skillet">skillet</span>
+<span>Head Chef (Tier 3)</span>
+<span class="bg-surface-container-high text-on-surface-variant font-label-sm text-[10px] px-1.5 py-0.5 rounded-full font-bold">1 User</span>
+</button>
+<!-- Line Cook -->
+<button class="shrink-0 flex items-center gap-1.5 bg-surface-container-lowest border border-outline-variant text-on-surface-variant px-3 py-2 rounded-full font-label-md text-label-md hover:bg-surface-container-high active:scale-95 transition-colors" type="button">
+<span class="material-symbols-outlined text-[16px] text-outline" data-icon="soup_kitchen">soup_kitchen</span>
+<span>Line Cook (Tier 1)</span>
+<span class="bg-surface-container-high text-on-surface-variant font-label-sm text-[10px] px-1.5 py-0.5 rounded-full font-bold">4 Users</span>
+</button>
+<!-- Expo / Dispatcher -->
+<button class="shrink-0 flex items-center gap-1.5 bg-surface-container-lowest border border-outline-variant text-on-surface-variant px-3 py-2 rounded-full font-label-md text-label-md hover:bg-surface-container-high active:scale-95 transition-colors" type="button">
+<span class="material-symbols-outlined text-[16px] text-outline" data-icon="local_shipping">local_shipping</span>
+<span>Expo / Dispatcher</span>
+<span class="bg-surface-container-high text-on-surface-variant font-label-sm text-[10px] px-1.5 py-0.5 rounded-full font-bold">2 Users</span>
+</button>
+</div>
+<!-- Immutable Role Notice Banner -->
+<div class="bg-primary-fixed/40 border border-primary-fixed rounded-xl p-3 flex items-start gap-2.5 mt-2">
+<span class="material-symbols-outlined text-primary text-[20px] shrink-0 mt-0.5" data-icon="security">security</span>
+<div class="space-y-0.5">
+<p class="font-label-sm text-label-sm text-primary font-bold">Role Hierarchy &amp; Compliance Lock</p>
+<p class="font-body-sm text-body-sm text-on-primary-fixed-variant leading-relaxed">
+            Primary Owner role permissions are immutable and cannot be restricted or modified per RBI &amp; NABIN RBAC security standards.
+          </p>
+</div>
+</div>
+</section>
+<!-- ========================================== -->
+<!-- 4. PERMISSION GROUPS -->
+<!-- ========================================== -->
+<div class="space-y-space-md">
+<!-- GROUP 1: Order Operations & Dispatch -->
+<section class="bg-surface-container-lowest rounded-xl border border-outline-variant p-4 space-y-3.5 shadow-sm">
+<div class="flex items-center justify-between border-b border-outline-variant/60 pb-3">
+<div class="flex items-center gap-2.5">
+<div class="w-8 h-8 rounded-lg bg-primary-fixed flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-[18px]" data-icon="receipt_long">receipt_long</span>
+</div>
+<div>
+<h3 class="font-headline-sm text-body-lg font-bold text-on-surface">Order Operations &amp; Dispatch</h3>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Live KDS routing, accept/reject, order voids</p>
+</div>
+</div>
+<span class="font-label-sm text-label-sm bg-surface-container px-2 py-0.5 rounded-full text-on-surface-variant">4 Rules</span>
+</div>
+<div class="divide-y divide-outline-variant/40">
+<!-- Row 1 -->
+<div class="py-3 flex items-center justify-between gap-3">
+<div class="space-y-1 pr-2">
+<p class="font-body-md text-body-md font-medium text-on-surface">Accept &amp; Reject Incoming Orders</p>
+<div class="flex items-center gap-1.5">
+<span class="font-label-sm text-[10px] bg-surface-container text-on-surface-variant px-2 py-0.5 rounded-full">Inherited</span>
+<span class="font-body-sm text-[11px] text-on-surface-variant">Default Tier 4 privilege</span>
+</div>
+</div>
+<!-- Toggle ON (Blue) -->
+<label class="relative inline-flex items-center cursor-pointer shrink-0">
+<input checked="" class="sr-only peer" type="checkbox"/>
+<div class="w-12 h-6 bg-surface-container-highest peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-outline-variant after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-container"></div>
+</label>
+</div>
+<!-- Row 2 -->
+<div class="py-3 flex items-center justify-between gap-3">
+<div class="space-y-1 pr-2">
+<p class="font-body-md text-body-md font-medium text-on-surface">Adjust Preparation Time &amp; Rush Delay</p>
+<div class="flex items-center gap-1.5">
+<span class="font-label-sm text-[10px] bg-surface-container text-on-surface-variant px-2 py-0.5 rounded-full">Inherited</span>
+<span class="font-body-sm text-[11px] text-on-surface-variant">Live kitchen pacing trigger</span>
+</div>
+</div>
+<label class="relative inline-flex items-center cursor-pointer shrink-0">
+<input checked="" class="sr-only peer" type="checkbox"/>
+<div class="w-12 h-6 bg-surface-container-highest peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-outline-variant after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-container"></div>
+</label>
+</div>
+<!-- Row 3 (Highlighted Override & Sensitive) -->
+<div class="py-3 bg-secondary-fixed/20 -mx-4 px-4 border-l-4 border-secondary flex items-center justify-between gap-3">
+<div class="space-y-1 pr-2">
+<div class="flex items-center gap-1.5">
+<p class="font-body-md text-body-md font-bold text-on-surface">Cancel or Void Active Orders</p>
+<span class="font-label-sm text-[10px] bg-error-container text-on-error-container px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">Sensitive</span>
+</div>
+<div class="flex flex-wrap items-center gap-1.5">
+<span class="font-label-sm text-[10px] bg-secondary text-on-secondary px-2 py-0.5 rounded-full font-bold">Override Added</span>
+<span class="font-label-sm text-[10px] bg-secondary-fixed text-on-secondary-fixed px-2 py-0.5 rounded-full flex items-center gap-1">
+<span class="material-symbols-outlined text-[12px]" data-icon="pin">pin</span> Requires Manager PIN
+                </span>
+</div>
+</div>
+<!-- Toggle ON (Culinary Orange highlight) -->
+<label class="relative inline-flex items-center cursor-pointer shrink-0">
+<input checked="" class="sr-only peer" type="checkbox"/>
+<div class="w-12 h-6 bg-surface-container-highest peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-secondary after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-secondary"></div>
+</label>
+</div>
+<!-- Row 4 -->
+<div class="py-3 flex items-center justify-between gap-3">
+<div class="space-y-1 pr-2">
+<p class="font-body-md text-body-md font-medium text-on-surface">Resolve Customer Disputes &amp; Offer Partial Refunds</p>
+<div class="flex items-center gap-1.5">
+<span class="font-label-sm text-[10px] bg-secondary-fixed-dim text-on-secondary-fixed-variant px-2 py-0.5 rounded-full font-bold">Custom Override</span>
+<span class="font-body-sm text-[11px] text-on-surface-variant">Disabled by Downtown GM</span>
+</div>
+</div>
+<!-- Toggle OFF -->
+<label class="relative inline-flex items-center cursor-pointer shrink-0">
+<input class="sr-only peer" type="checkbox"/>
+<div class="w-12 h-6 bg-surface-container-highest peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-outline-variant after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-container"></div>
+</label>
+</div>
+</div>
+</section>
+<!-- GROUP 2: Menu & Catalog Management -->
+<section class="bg-surface-container-lowest rounded-xl border border-outline-variant p-4 space-y-3.5 shadow-sm">
+<div class="flex items-center justify-between border-b border-outline-variant/60 pb-3">
+<div class="flex items-center gap-2.5">
+<div class="w-8 h-8 rounded-lg bg-primary-fixed flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-[18px]" data-icon="restaurant_menu">restaurant_menu</span>
+</div>
+<div>
+<h3 class="font-headline-sm text-body-lg font-bold text-on-surface">Menu &amp; Catalog Management</h3>
+<p class="font-body-sm text-body-sm text-on-surface-variant">86 stock-outs, pricing, recipes, combos</p>
+</div>
+</div>
+<span class="font-label-sm text-label-sm bg-surface-container px-2 py-0.5 rounded-full text-on-surface-variant">3 Rules</span>
+</div>
+<div class="divide-y divide-outline-variant/40">
+<!-- Row 1 -->
+<div class="py-3 flex items-center justify-between gap-3">
+<div class="space-y-1 pr-2">
+<p class="font-body-md text-body-md font-medium text-on-surface">Toggle Item In-Stock / Out-of-Stock (86)</p>
+<div class="flex items-center gap-1.5">
+<span class="font-label-sm text-[10px] bg-surface-container text-on-surface-variant px-2 py-0.5 rounded-full">Inherited</span>
+<span class="font-body-sm text-[11px] text-on-surface-variant">Real-time KDS inventory toggle</span>
+</div>
+</div>
+<label class="relative inline-flex items-center cursor-pointer shrink-0">
+<input checked="" class="sr-only peer" type="checkbox"/>
+<div class="w-12 h-6 bg-surface-container-highest peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-outline-variant after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-container"></div>
+</label>
+</div>
+<!-- Row 2 -->
+<div class="py-3 flex items-center justify-between gap-3">
+<div class="space-y-1 pr-2">
+<p class="font-body-md text-body-md font-medium text-on-surface">Create &amp; Edit Dishes &amp; Modifiers</p>
+<div class="flex items-center gap-1.5">
+<span class="font-label-sm text-[10px] bg-surface-container text-on-surface-variant px-2 py-0.5 rounded-full">Inherited</span>
+<span class="font-body-sm text-[11px] text-on-surface-variant">Menu version drafts</span>
+</div>
+</div>
+<label class="relative inline-flex items-center cursor-pointer shrink-0">
+<input checked="" class="sr-only peer" type="checkbox"/>
+<div class="w-12 h-6 bg-surface-container-highest peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-outline-variant after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-container"></div>
+</label>
+</div>
+<!-- Row 3 (Disabled Lock) -->
+<div class="py-3 flex items-center justify-between gap-3 opacity-70">
+<div class="space-y-1 pr-2">
+<p class="font-body-md text-body-md font-medium text-on-surface">Modify Dish Selling Prices &amp; Tax Slabs</p>
+<div class="flex items-center gap-1.5">
+<span class="font-label-sm text-[10px] bg-surface-variant text-on-surface-variant px-2 py-0.5 rounded-full flex items-center gap-1 font-bold">
+<span class="material-symbols-outlined text-[12px]" data-icon="lock">lock</span> Restricted to Owner
+                </span>
+<span class="font-body-sm text-[11px] text-outline">Fiscal compliance locked</span>
+</div>
+</div>
+<div class="w-12 h-6 bg-surface-container-highest rounded-full flex items-center px-1 shrink-0 cursor-not-allowed">
+<div class="w-4 h-4 rounded-full bg-outline-variant flex items-center justify-center">
+<span class="material-symbols-outlined text-[10px] text-on-surface-variant" data-icon="lock">lock</span>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- GROUP 3: Financial & Settlement Visibility -->
+<section class="bg-surface-container-lowest rounded-xl border border-outline-variant p-4 space-y-3.5 shadow-sm">
+<div class="flex items-center justify-between border-b border-outline-variant/60 pb-3">
+<div class="flex items-center gap-2.5">
+<div class="w-8 h-8 rounded-lg bg-primary-fixed flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-[18px]" data-icon="payments">payments</span>
+</div>
+<div>
+<h3 class="font-headline-sm text-body-lg font-bold text-on-surface">Financial &amp; Settlement Visibility</h3>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Daily gross, payout schedules, tax reconciliations</p>
+</div>
+</div>
+<span class="font-label-sm text-label-sm bg-surface-container px-2 py-0.5 rounded-full text-on-surface-variant">3 Rules</span>
+</div>
+<div class="divide-y divide-outline-variant/40">
+<!-- Row 1 -->
+<div class="py-3 flex items-center justify-between gap-3">
+<div class="space-y-1 pr-2">
+<p class="font-body-md text-body-md font-medium text-on-surface">View Daily Live Sales &amp; Revenue Analytics</p>
+<div class="flex items-center gap-1.5">
+<span class="font-label-sm text-[10px] bg-surface-container text-on-surface-variant px-2 py-0.5 rounded-full">Inherited</span>
+<span class="font-body-sm text-[11px] text-on-surface-variant">Z-Report &amp; Gross Sales summary</span>
+</div>
+</div>
+<label class="relative inline-flex items-center cursor-pointer shrink-0">
+<input checked="" class="sr-only peer" type="checkbox"/>
+<div class="w-12 h-6 bg-surface-container-highest peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-outline-variant after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-container"></div>
+</label>
+</div>
+<!-- Row 2 -->
+<div class="py-3 flex items-center justify-between gap-3">
+<div class="space-y-1 pr-2">
+<p class="font-body-md text-body-md font-medium text-on-surface">Access Itemized Transaction Ledger &amp; Payouts</p>
+<div class="flex items-center gap-1.5">
+<span class="font-label-sm text-[10px] border border-error/50 text-error px-2 py-0.5 rounded-full font-bold">Restricted</span>
+<span class="font-body-sm text-[11px] text-on-surface-variant">Requires Accounting tier access</span>
+</div>
+</div>
+<label class="relative inline-flex items-center cursor-pointer shrink-0">
+<input class="sr-only peer" type="checkbox"/>
+<div class="w-12 h-6 bg-surface-container-highest peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-outline-variant after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-container"></div>
+</label>
+</div>
+<!-- Row 3 (Locked to Owner) -->
+<div class="py-3 flex items-center justify-between gap-3 opacity-70">
+<div class="space-y-1 pr-2">
+<p class="font-body-md text-body-md font-medium text-on-surface">Initiate Instant Bank Payouts</p>
+<div class="flex items-center gap-1.5">
+<span class="font-label-sm text-[10px] bg-surface-variant text-on-surface-variant px-2 py-0.5 rounded-full flex items-center gap-1 font-bold">
+<span class="material-symbols-outlined text-[12px]" data-icon="lock">lock</span> Locked to Owner
+                </span>
+<span class="font-body-sm text-[11px] text-outline">Direct banking gateway lock</span>
+</div>
+</div>
+<div class="w-12 h-6 bg-surface-container-highest rounded-full flex items-center px-1 shrink-0 cursor-not-allowed">
+<div class="w-4 h-4 rounded-full bg-outline-variant flex items-center justify-center">
+<span class="material-symbols-outlined text-[10px] text-on-surface-variant" data-icon="lock">lock</span>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- GROUP 4: Hardware & Thermal Printers -->
+<section class="bg-surface-container-lowest rounded-xl border border-outline-variant p-4 space-y-3.5 shadow-sm">
+<div class="flex items-center justify-between border-b border-outline-variant/60 pb-3">
+<div class="flex items-center gap-2.5">
+<div class="w-8 h-8 rounded-lg bg-primary-fixed flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-[18px]" data-icon="print">print</span>
+</div>
+<div>
+<h3 class="font-headline-sm text-body-lg font-bold text-on-surface">Hardware &amp; Thermal Printers</h3>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Station IP routing, LAN pairings, KOT reprint</p>
+</div>
+</div>
+<span class="font-label-sm text-label-sm bg-surface-container px-2 py-0.5 rounded-full text-on-surface-variant">2 Rules</span>
+</div>
+<div class="divide-y divide-outline-variant/40">
+<!-- Row 1 -->
+<div class="py-3 flex items-center justify-between gap-3">
+<div class="space-y-1 pr-2">
+<p class="font-body-md text-body-md font-medium text-on-surface">Configure Printer Pairing &amp; Routing Rules</p>
+<div class="flex items-center gap-1.5">
+<span class="font-label-sm text-[10px] bg-surface-container text-on-surface-variant px-2 py-0.5 rounded-full">Inherited</span>
+<span class="font-body-sm text-[11px] text-on-surface-variant">Bar/Kitchen/Expediter ESC/POS endpoints</span>
+</div>
+</div>
+<label class="relative inline-flex items-center cursor-pointer shrink-0">
+<input checked="" class="sr-only peer" type="checkbox"/>
+<div class="w-12 h-6 bg-surface-container-highest peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-outline-variant after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-container"></div>
+</label>
+</div>
+<!-- Row 2 -->
+<div class="py-3 flex items-center justify-between gap-3">
+<div class="space-y-1 pr-2">
+<p class="font-body-md text-body-md font-medium text-on-surface">Reprint Past Customer Receipts &amp; KOTs</p>
+<div class="flex items-center gap-1.5">
+<span class="font-label-sm text-[10px] bg-surface-container text-on-surface-variant px-2 py-0.5 rounded-full">Inherited</span>
+<span class="font-body-sm text-[11px] text-on-surface-variant">Past 72-hour shift logs</span>
+</div>
+</div>
+<label class="relative inline-flex items-center cursor-pointer shrink-0">
+<input checked="" class="sr-only peer" type="checkbox"/>
+<div class="w-12 h-6 bg-surface-container-highest peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-outline-variant after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-container"></div>
+</label>
+</div>
+</div>
+</section>
+<!-- GROUP 5: Staff & Security Administration -->
+<section class="bg-surface-container-lowest rounded-xl border border-outline-variant p-4 space-y-3.5 shadow-sm">
+<div class="flex items-center justify-between border-b border-outline-variant/60 pb-3">
+<div class="flex items-center gap-2.5">
+<div class="w-8 h-8 rounded-lg bg-primary-fixed flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-[18px]" data-icon="shield_person">shield_person</span>
+</div>
+<div>
+<h3 class="font-headline-sm text-body-lg font-bold text-on-surface">Staff &amp; Security Administration</h3>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Shift badges, POS pins, session audit trails</p>
+</div>
+</div>
+<span class="font-label-sm text-label-sm bg-surface-container px-2 py-0.5 rounded-full text-on-surface-variant">2 Rules</span>
+</div>
+<div class="divide-y divide-outline-variant/40">
+<!-- Row 1 (Custom Override 2) -->
+<div class="py-3 bg-secondary-fixed/20 -mx-4 px-4 border-l-4 border-secondary flex items-center justify-between gap-3">
+<div class="space-y-1 pr-2">
+<div class="flex items-center gap-1.5">
+<p class="font-body-md text-body-md font-bold text-on-surface">Invite &amp; Manage Store Staff Members</p>
+</div>
+<div class="flex items-center gap-1.5">
+<span class="font-label-sm text-[10px] bg-secondary text-on-secondary px-2 py-0.5 rounded-full font-bold">Custom Override</span>
+<span class="font-body-sm text-[11px] text-on-surface-variant">Granted by Owner for onboarding</span>
+</div>
+</div>
+<!-- Toggle ON (Culinary Orange) -->
+<label class="relative inline-flex items-center cursor-pointer shrink-0">
+<input checked="" class="sr-only peer" type="checkbox"/>
+<div class="w-12 h-6 bg-surface-container-highest peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-secondary after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-secondary"></div>
+</label>
+</div>
+<!-- Row 2 -->
+<div class="py-3 flex items-center justify-between gap-3">
+<div class="space-y-1 pr-2">
+<p class="font-body-md text-body-md font-medium text-on-surface">Access Audit Logs &amp; Security Sessions</p>
+<div class="flex items-center gap-1.5">
+<span class="font-label-sm text-[10px] border border-error/50 text-error px-2 py-0.5 rounded-full font-bold">Restricted</span>
+<span class="font-body-sm text-[11px] text-on-surface-variant">Enterprise Compliance log</span>
+</div>
+</div>
+<label class="relative inline-flex items-center cursor-pointer shrink-0">
+<input class="sr-only peer" type="checkbox"/>
+<div class="w-12 h-6 bg-surface-container-highest peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-outline-variant after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-container"></div>
+</label>
+</div>
+</div>
+</section>
+</div>
+<!-- ========================================== -->
+<!-- 5. SENSITIVE PERMISSION WARNING CARD -->
+<!-- ========================================== -->
+<div class="bg-surface-container-lowest border-2 border-secondary/80 rounded-xl p-4 shadow-sm flex items-start gap-3">
+<div class="w-9 h-9 rounded-full bg-secondary-fixed flex items-center justify-center shrink-0 mt-0.5 text-secondary">
+<span class="material-symbols-outlined text-[22px]" data-icon="warning">warning</span>
+</div>
+<div class="space-y-1">
+<h4 class="font-label-md text-label-md font-bold text-on-surface">Sensitive Privilege Alert</h4>
+<p class="font-body-sm text-body-sm text-on-surface-variant leading-relaxed">
+          Granting <strong>"Cancel or Void Orders"</strong> permits financial cancellation penalties to be applied to the merchant settlement ledger. A 4-digit Supervisor PIN will be required at point-of-sale.
+        </p>
+</div>
+</div>
+</main>
+<!-- ========================================== -->
+<!-- 6. STICKY BOTTOM ACTION BAR -->
+<!-- ========================================== -->
+<footer class="fixed bottom-0 left-0 w-full z-40 bg-surface-container-lowest border-t border-outline-variant px-gutter pt-3 pb-4 shadow-lg space-y-2">
+<div class="flex items-center gap-3">
+<!-- Secondary Outline: Reset Defaults -->
+<button class="w-1/3 h-12 bg-surface-container-lowest border border-outline-variant text-on-surface rounded-lg font-label-md text-label-md hover:bg-surface-container-high transition-colors active:scale-95 flex items-center justify-center gap-1.5 font-semibold" type="button">
+<span class="material-symbols-outlined text-[16px] text-outline" data-icon="restart_alt">restart_alt</span>
+<span>Reset Defaults</span>
+</button>
+<!-- Primary Action: Apply & Save Permissions -->
+<button class="w-2/3 h-12 bg-secondary text-on-secondary rounded-lg font-label-lg text-label-lg font-bold hover:bg-secondary-container transition-colors active:scale-98 shadow-md flex items-center justify-center gap-2" type="button">
+<span>Apply &amp; Save Permissions (2)</span>
+<span class="material-symbols-outlined text-[18px]" data-icon="arrow_forward">arrow_forward</span>
+</button>
+</div>
+<!-- Security & Compliance Subtext -->
+<div class="flex items-center justify-center gap-1.5 text-center">
+<span class="material-symbols-outlined text-[13px] text-tertiary-container" data-icon="verified_user">verified_user</span>
+<p class="font-label-sm text-[10px] text-on-surface-variant">
+        Complies with NABIN Multi-Outlet RBAC Security Guidelines v2.4 · Audit Trail Logged
+      </p>
+</div>
+</footer>
+</body></html>

@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+
+<html lang="en"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" name="viewport"/><meta content="mobile_stack" name="shell-type"/><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/><link href="https://fonts.googleapis.com" rel="preconnect"/><link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config = { darkMode: "class", theme: { extend: { colors: { "primary-fixed-dim": "#b7c4ff", "on-surface-variant": "#444653", "tertiary-fixed": "#7ffc97", "outline-variant": "#c5c5d5", "on-primary-fixed": "#001452", "inverse-on-surface": "#eff1f5", "on-surface": "#181c1f", "on-error-container": "#93000a", "secondary-container": "#fc6b32", "error-container": "#ffdad6", "inverse-surface": "#2d3134", "inverse-primary": "#b7c4ff", "secondary": "#a93700", "on-secondary": "#ffffff", "on-secondary-fixed": "#380d00", "primary": "#00247f", "on-primary-container": "#9cafff", "surface-container": "#eceef2", "on-tertiary-container": "#4cca6c", "surface-container-lowest": "#ffffff", "primary-container": "#1a3ba2", "surface-container-low": "#f2f4f8", "on-tertiary-fixed": "#002109", "outline": "#757684", "surface-bright": "#f7f9fd", "surface": "#f7f9fd", "error": "#ba1a1a", "on-background": "#181c1f", "secondary-fixed": "#ffdbcf", "on-secondary-container": "#5c1a00", "surface-dim": "#d8dade", "on-primary-fixed-variant": "#1c3da4", "secondary-fixed-dim": "#ffb59b", "tertiary": "#003813", "on-secondary-fixed-variant": "#812800", "background": "#f7f9fd", "surface-container-highest": "#e0e3e6", "surface-variant": "#e0e3e6", "on-primary": "#ffffff", "on-tertiary-fixed-variant": "#005320", "tertiary-fixed-dim": "#62df7d", "on-error": "#ffffff", "primary-fixed": "#dde1ff", "surface-tint": "#3a56bd", "tertiary-container": "#005120", "surface-container-high": "#e6e8ec", "on-tertiary": "#ffffff" }, borderRadius: { "DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px" }, spacing: { "gutter-kds": "1.25rem", "margin": "1.5rem", "space-xs": "0.25rem", "space-md": "1rem", "margin-mobile": "1rem", "space-sm": "0.5rem", "space-xl": "2rem", "space-lg": "1.5rem", "gutter": "1rem" }, fontFamily: { "ticket-mono": ["Inter"], "label-md": ["Inter"], "headline-md": ["Inter"], "headline-xl-mobile": ["Inter"], "body-sm": ["Inter"], "headline-sm": ["Inter"], "label-sm": ["Inter"], "headline-lg-mobile": ["Inter"], "label-lg": ["Inter"], "headline-lg": ["Inter"], "body-lg": ["Inter"], "headline-xl": ["Inter"], "body-md": ["Inter"] }, fontSize: { "ticket-mono": ["16px", { "lineHeight": "20px", "letterSpacing": "0.05em", "fontWeight": "700" }], "label-md": ["13px", { "lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "600" }], "headline-md": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }], "headline-xl-mobile": ["30px", { "lineHeight": "38px", "letterSpacing": "-0.02em", "fontWeight": "700" }], "body-sm": ["13px", { "lineHeight": "18px", "fontWeight": "400" }], "headline-sm": ["20px", { "lineHeight": "28px", "fontWeight": "600" }], "label-sm": ["11px", { "lineHeight": "14px", "letterSpacing": "0.04em", "fontWeight": "700" }], "headline-lg-mobile": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "700" }], "label-lg": ["15px", { "lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600" }], "headline-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.015em", "fontWeight": "700" }], "body-lg": ["18px", { "lineHeight": "26px", "fontWeight": "500" }], "headline-xl": ["40px", { "lineHeight": "48px", "letterSpacing": "-0.02em", "fontWeight": "700" }], "body-md": ["15px", { "lineHeight": "22px", "fontWeight": "400" }] } } } }</script><style>@layer base{html,body{width:100vw;margin:0;padding:0;}body{overscroll-behavior:none;}.pb-safe{padding-bottom:env(safe-area-inset-bottom,0px);}.pt-safe{padding-top:env(safe-area-inset-top,0px);}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head><body class="bg-surface text-on-surface font-body-md text-body-md flex flex-col min-h-screen"><header class="fixed top-0 w-full z-50 bg-surface/90 backdrop-blur-xl shadow-[0_1px_8px_rgba(0,0,0,0.04)] pt-safe"><div class="h-16 px-margin-mobile flex items-center justify-between"><div class="flex items-center gap-space-sm"><button aria-label="Go back" class="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full text-on-surface hover:bg-surface-container transition-colors" onclick="window.history.back()" type="button"><span class="material-symbols-outlined text-[24px]">arrow_back</span></button><div class="flex items-center gap-space-xs"><img alt="nabin-icon-primary-192.png" class="h-8 w-auto object-contain" src="https://lh3.googleusercontent.com/aida/ALJJyrCTdp3uQlj1WEfbLaNul4jOVx9bLaPCickvf6jmMYIcgT0Dcg7scdiyYcenxu6gWsr9pQoUH2ealX0ppYFChKRsrSROV4GAWIufXLB4Kqk0tya-g8WVkLGo8G2JXdmV2FtyqNKN4nVrii5a0BrRU8tprEgBBKpA-1TjJ2dpdkwTdVThxJC8MtB1oJnLbkoTQdgVrALpqrvijqcpjjvt0XuvSBGWqqksC2TXzI9_ZrXfqDX6mvsypJ2Uq74"/><span class="font-headline-sm text-headline-sm tracking-tight text-primary font-bold">NABIN</span></div></div><div class="flex items-center gap-space-xs"><button aria-label="Help and support" class="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors" type="button"><span class="material-symbols-outlined text-[22px]">help_outline</span></button><img alt="Profile" class="w-8 h-8 rounded-full object-cover ml-space-xs" src="https://lh3.googleusercontent.com/aida/ALJJyrD7CdH9drOcwljFpMkdcCYO4FWfU1sYSv3rBCMCvnlz46b3_yZLypJ2zZNf896C1lLJZqnPqVZRulZpFAVb56OVtaPnhiJxUc9YUDOg8AlWiHQjv82HG7gDsVvLpDT9LLmGP79FbRkY6NhGhNA1_NimXYEMCIdimx75j--dMt2bmRUNNYv9UUR6AE3FctStnpUIArD2IJyYZ2i4lepHWcMtkMaGGUjctd5DQ4rJEGenQAm7sQeIX1Rowfw"/></div></div><div class="px-margin-mobile pb-space-sm flex flex-col gap-space-xs"><div class="flex items-center justify-between"><span class="font-label-sm text-label-sm uppercase text-secondary font-bold tracking-wider">Merchant Onboarding</span><span class="font-label-sm text-label-sm text-on-surface-variant font-medium">Business Profile</span></div><div class="w-full h-1 bg-surface-container-highest rounded-full overflow-hidden"><div class="h-full bg-primary rounded-full transition-all duration-300 w-2/5"></div></div></div></header><main class="flex-1 flex flex-col relative w-full px-margin-mobile pt-16 pb-safe bg-surface"><div class="flex flex-col w-full pb-6 space-y-4">
+<!-- Status & Header Info Card -->
+<div class="w-full bg-surface-container-lowest rounded-xl p-space-md shadow-sm space-y-3">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-xs">
+<span class="w-2 h-2 rounded-full bg-secondary animate-pulse"></span>
+<span class="font-label-sm text-label-sm text-secondary uppercase tracking-wider font-bold">Step 2 of 5</span>
+</div>
+<span class="font-label-sm text-label-sm px-2.5 py-1 rounded-full bg-surface-container text-on-surface-variant font-medium flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">shield</span> Encrypted
+      </span>
+</div>
+<div>
+<h1 class="font-headline-lg-mobile text-headline-lg-mobile text-on-surface tracking-tight">Verify Mobile Number</h1>
+<p class="font-body-md text-body-md text-on-surface-variant mt-1">
+        We sent a 6-digit security verification code to 
+        <span class="font-semibold text-on-surface whitespace-nowrap">+977 98012-34567</span>
+<button class="inline-flex items-center ml-1 text-primary hover:text-primary-container font-label-md text-label-md underline underline-offset-2 transition-colors" type="button">
+          Edit
+        </button>
+</p>
+</div>
+<!-- Live OTP Digit Cells -->
+<div class="pt-2 pb-1">
+<div class="grid grid-cols-6 gap-2 w-full max-w-sm mx-auto" id="otp-container">
+<!-- Digit 1 -->
+<div class="h-14 rounded-lg bg-surface-container-low flex items-center justify-center font-headline-md text-headline-md text-on-surface transition-all select-none">
+<span class="otp-val">5</span>
+</div>
+<!-- Digit 2 -->
+<div class="h-14 rounded-lg bg-surface-container-low flex items-center justify-center font-headline-md text-headline-md text-on-surface transition-all select-none">
+<span class="otp-val">8</span>
+</div>
+<!-- Digit 3 -->
+<div class="h-14 rounded-lg bg-surface-container-low flex items-center justify-center font-headline-md text-headline-md text-on-surface transition-all select-none">
+<span class="otp-val">2</span>
+</div>
+<!-- Digit 4 (Active Focused) -->
+<div class="h-14 rounded-lg bg-primary-fixed flex items-center justify-center font-headline-md text-headline-md text-on-primary-fixed shadow-sm transition-all select-none relative" id="active-digit-cell">
+<span class="otp-val"></span>
+<span class="w-0.5 h-6 bg-primary animate-[pulse_0.8s_infinite] rounded-full absolute"></span>
+</div>
+<!-- Digit 5 -->
+<div class="h-14 rounded-lg bg-surface-container-low flex items-center justify-center font-headline-md text-headline-md text-on-surface-variant transition-all select-none">
+<span class="otp-val"></span>
+</div>
+<!-- Digit 6 -->
+<div class="h-14 rounded-lg bg-surface-container-low flex items-center justify-center font-headline-md text-headline-md text-on-surface-variant transition-all select-none">
+<span class="otp-val"></span>
+</div>
+</div>
+</div>
+<!-- Resend Countdown & Action Row -->
+<div class="flex flex-col sm:flex-row items-center justify-between gap-2 pt-1">
+<div class="flex items-center gap-1.5 text-on-surface-variant">
+<span class="material-symbols-outlined text-[16px] text-outline">schedule</span>
+<span class="font-body-sm text-body-sm">
+          Resend code in <span class="font-semibold text-on-surface" id="otp-timer">00:42s</span>
+</span>
+</div>
+<div class="flex items-center gap-2">
+<button class="font-label-md text-label-md text-on-surface-variant/60 hover:text-primary transition-colors flex items-center gap-1 opacity-70 cursor-not-allowed" disabled="" id="btn-resend-sms" type="button">
+<span class="material-symbols-outlined text-[16px]">sms</span>
+          Resend SMS
+        </button>
+<span class="text-outline-variant text-body-sm">•</span>
+<button class="font-label-md text-label-md text-secondary hover:text-on-secondary-container transition-colors flex items-center gap-1 font-semibold" type="button">
+<span class="material-symbols-outlined text-[16px]">call</span>
+          WhatsApp Call
+        </button>
+</div>
+</div>
+</div>
+<!-- Security Advisory Banner -->
+<div class="w-full bg-secondary-fixed/40 rounded-xl p-3 flex items-start gap-space-sm shadow-sm">
+<div class="w-7 h-7 rounded-full bg-secondary-container flex items-center justify-center shrink-0 mt-0.5">
+<span class="material-symbols-outlined text-[16px] text-on-secondary-container" style="font-variation-settings: 'FILL' 1;">lock</span>
+</div>
+<div class="min-w-0 flex-1">
+<p class="font-label-sm text-label-sm text-on-secondary-container leading-snug font-semibold">Security Guard</p>
+<p class="font-body-sm text-body-sm text-on-secondary-container/90 mt-0.5">
+        Never share your NABIN merchant verification code with anyone, including NABIN kitchen support or field staff.
+      </p>
+</div>
+</div>
+<!-- Primary Interactive Flow CTA -->
+<button class="w-full h-14 bg-primary text-on-primary rounded-xl font-label-lg text-label-lg flex items-center justify-center gap-space-xs shadow-md active:scale-[0.99] transition-all" id="verify-submit-btn" type="button">
+<span>Verify &amp; Proceed</span>
+<span class="material-symbols-outlined text-[20px]">arrow_forward</span>
+</button>
+<!-- Ergonomic Touch Keypad for RMS/POS Tablet & Mobile -->
+<div class="w-full bg-surface-container-lowest rounded-xl p-2.5 shadow-sm space-y-2 select-none">
+<div class="grid grid-cols-3 gap-2">
+<button class="h-12 rounded-lg bg-surface-container-low hover:bg-surface-container active:bg-surface-container-high text-on-surface font-headline-sm text-headline-sm flex items-center justify-center transition-transform active:scale-95 shadow-sm" onclick="handleKeyInput('1')" type="button">1</button>
+<button class="h-12 rounded-lg bg-surface-container-low hover:bg-surface-container active:bg-surface-container-high text-on-surface font-headline-sm text-headline-sm flex items-center justify-center transition-transform active:scale-95 shadow-sm" onclick="handleKeyInput('2')" type="button">2</button>
+<button class="h-12 rounded-lg bg-surface-container-low hover:bg-surface-container active:bg-surface-container-high text-on-surface font-headline-sm text-headline-sm flex items-center justify-center transition-transform active:scale-95 shadow-sm" onclick="handleKeyInput('3')" type="button">3</button>
+<button class="h-12 rounded-lg bg-surface-container-low hover:bg-surface-container active:bg-surface-container-high text-on-surface font-headline-sm text-headline-sm flex items-center justify-center transition-transform active:scale-95 shadow-sm" onclick="handleKeyInput('4')" type="button">4</button>
+<button class="h-12 rounded-lg bg-surface-container-low hover:bg-surface-container active:bg-surface-container-high text-on-surface font-headline-sm text-headline-sm flex items-center justify-center transition-transform active:scale-95 shadow-sm" onclick="handleKeyInput('5')" type="button">5</button>
+<button class="h-12 rounded-lg bg-surface-container-low hover:bg-surface-container active:bg-surface-container-high text-on-surface font-headline-sm text-headline-sm flex items-center justify-center transition-transform active:scale-95 shadow-sm" onclick="handleKeyInput('6')" type="button">6</button>
+<button class="h-12 rounded-lg bg-surface-container-low hover:bg-surface-container active:bg-surface-container-high text-on-surface font-headline-sm text-headline-sm flex items-center justify-center transition-transform active:scale-95 shadow-sm" onclick="handleKeyInput('7')" type="button">7</button>
+<button class="h-12 rounded-lg bg-surface-container-low hover:bg-surface-container active:bg-surface-container-high text-on-surface font-headline-sm text-headline-sm flex items-center justify-center transition-transform active:scale-95 shadow-sm" onclick="handleKeyInput('8')" type="button">8</button>
+<button class="h-12 rounded-lg bg-surface-container-low hover:bg-surface-container active:bg-surface-container-high text-on-surface font-headline-sm text-headline-sm flex items-center justify-center transition-transform active:scale-95 shadow-sm" onclick="handleKeyInput('9')" type="button">9</button>
+<button aria-label="Delete" class="h-12 rounded-lg bg-surface-container text-on-surface-variant hover:text-error active:bg-error-container active:text-on-error-container flex items-center justify-center transition-all active:scale-95 shadow-sm" onclick="handleKeyBackspace()" type="button">
+<span class="material-symbols-outlined text-[24px]">backspace</span>
+</button>
+<button class="h-12 rounded-lg bg-surface-container-low hover:bg-surface-container active:bg-surface-container-high text-on-surface font-headline-sm text-headline-sm flex items-center justify-center transition-transform active:scale-95 shadow-sm" onclick="handleKeyInput('0')" type="button">0</button>
+<button aria-label="Confirm" class="h-12 rounded-lg bg-tertiary-fixed text-on-tertiary-fixed hover:bg-tertiary-fixed-dim flex items-center justify-center transition-all active:scale-95 shadow-sm" onclick="submitOTP()" type="button">
+<span class="material-symbols-outlined text-[24px]">check</span>
+</button>
+</div>
+</div>
+</div>
+<script>
+  (function initOTPController() {
+    let digits = ['5', '8', '2', '', '', ''];
+    let currentIndex = 3;
+
+    function renderDigits() {
+      const cells = document.querySelectorAll('#otp-container > div');
+      cells.forEach((cell, idx) => {
+        const valSpan = cell.querySelector('.otp-val');
+        const cursor = cell.querySelector('.animate-\\[pulse_0\\.8s_infinite\\]');
+        if (cursor) cursor.remove();
+
+        valSpan.textContent = digits[idx] || '';
+
+        if (idx === currentIndex) {
+          cell.className = 'h-14 rounded-lg bg-primary-fixed flex items-center justify-center font-headline-md text-headline-md text-on-primary-fixed shadow-sm transition-all select-none relative';
+          const newCursor = document.createElement('span');
+          newCursor.className = 'w-0.5 h-6 bg-primary animate-[pulse_0.8s_infinite] rounded-full absolute';
+          cell.appendChild(newCursor);
+        } else {
+          cell.className = 'h-14 rounded-lg bg-surface-container-low flex items-center justify-center font-headline-md text-headline-md text-on-surface transition-all select-none';
+        }
+      });
+
+      const submitBtn = document.getElementById('verify-submit-btn');
+      if (digits.every(d => d !== '')) {
+        submitBtn.classList.remove('bg-primary');
+        submitBtn.classList.add('bg-secondary', 'text-on-secondary');
+      } else {
+        submitBtn.classList.remove('bg-secondary', 'text-on-secondary');
+        submitBtn.classList.add('bg-primary', 'text-on-primary');
+      }
+    }
+
+    window.handleKeyInput = function(num) {
+      if (currentIndex < 6) {
+        digits[currentIndex] = num;
+        if (currentIndex < 5) {
+          currentIndex++;
+        }
+        renderDigits();
+      }
+    };
+
+    window.handleKeyBackspace = function() {
+      if (digits[currentIndex] !== '') {
+        digits[currentIndex] = '';
+      } else if (currentIndex > 0) {
+        currentIndex--;
+        digits[currentIndex] = '';
+      }
+      renderDigits();
+    };
+
+    window.submitOTP = function() {
+      const code = digits.join('');
+      if (code.length === 6 && digits.every(d => d !== '')) {
+        const btn = document.getElementById('verify-submit-btn');
+        btn.innerHTML = `<span class="material-symbols-outlined animate-spin text-[20px]">progress_activity</span><span>Verifying Credentials...</span>`;
+      }
+    };
+
+    let secondsLeft = 42;
+    const timerElem = document.getElementById('otp-timer');
+    const resendBtn = document.getElementById('btn-resend-sms');
+    const timerId = setInterval(() => {
+      secondsLeft--;
+      if (secondsLeft <= 0) {
+        clearInterval(timerId);
+        timerElem.textContent = '00:00s';
+        resendBtn.removeAttribute('disabled');
+        resendBtn.classList.remove('opacity-70', 'cursor-not-allowed');
+        resendBtn.classList.add('text-primary', 'font-semibold');
+      } else {
+        const s = secondsLeft < 10 ? '0' + secondsLeft : secondsLeft;
+        timerElem.textContent = `00:${s}s`;
+      }
+    }, 1000);
+
+    document.getElementById('verify-submit-btn').addEventListener('click', window.submitOTP);
+  })();
+</script></main></body></html>

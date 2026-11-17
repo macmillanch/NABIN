@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+
+<html class="h-full bg-surface" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport"/>
+<title>Dispute Support RM-056</title>
+<!-- Material Symbols Font -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS v3 with Plugins -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<!-- Tailwind Theme Configuration -->
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "on-secondary-container": "#5c1a00",
+            "on-error-container": "#93000a",
+            "on-tertiary-container": "#4cca6c",
+            "secondary-fixed-dim": "#ffb59b",
+            "secondary-fixed": "#ffdbcf",
+            "on-tertiary-fixed-variant": "#005320",
+            "surface-variant": "#e0e3e6",
+            "surface-bright": "#f7f9fd",
+            "error": "#ba1a1a",
+            "primary-fixed": "#dde1ff",
+            "surface-tint": "#3a56bd",
+            "secondary": "#a93700",
+            "surface-container": "#eceef2",
+            "surface-container-highest": "#e0e3e6",
+            "background": "#f7f9fd",
+            "on-tertiary": "#ffffff",
+            "primary-container": "#1a3ba2",
+            "on-primary-container": "#9cafff",
+            "outline": "#757684",
+            "inverse-on-surface": "#eff1f5",
+            "outline-variant": "#c5c5d5",
+            "on-primary-fixed": "#001452",
+            "tertiary-fixed-dim": "#62df7d",
+            "on-background": "#181c1f",
+            "on-surface-variant": "#444653",
+            "inverse-primary": "#b7c4ff",
+            "tertiary-fixed": "#7ffc97",
+            "on-error": "#ffffff",
+            "on-secondary-fixed-variant": "#812800",
+            "on-secondary-fixed": "#380d00",
+            "surface-container-low": "#f2f4f8",
+            "tertiary-container": "#005120",
+            "error-container": "#ffdad6",
+            "surface-container-high": "#e6e8ec",
+            "on-surface": "#181c1f",
+            "on-primary": "#ffffff",
+            "on-secondary": "#ffffff",
+            "surface-dim": "#d8dade",
+            "secondary-container": "#fc6b32",
+            "tertiary": "#003813",
+            "primary-fixed-dim": "#b7c4ff",
+            "on-primary-fixed-variant": "#1c3da4",
+            "surface-container-lowest": "#ffffff",
+            "surface": "#f7f9fd",
+            "inverse-surface": "#2d3134",
+            "primary": "#00247f",
+            "on-tertiary-fixed": "#002109"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.25rem",
+            "lg": "0.5rem",
+            "xl": "0.75rem",
+            "full": "9999px"
+          },
+          "spacing": {
+            "space-lg": "1.5rem",
+            "margin-mobile": "1rem",
+            "margin": "1.5rem",
+            "space-sm": "0.5rem",
+            "space-xs": "0.25rem",
+            "gutter": "1rem",
+            "space-xl": "2rem",
+            "gutter-kds": "1.25rem",
+            "space-md": "1rem"
+          },
+          "fontFamily": {
+            "headline-xl-mobile": ["Inter", "sans-serif"],
+            "headline-xl": ["Inter", "sans-serif"],
+            "ticket-mono": ["Inter", "monospace"],
+            "body-lg": ["Inter", "sans-serif"],
+            "headline-md": ["Inter", "sans-serif"],
+            "label-sm": ["Inter", "sans-serif"],
+            "label-md": ["Inter", "sans-serif"],
+            "label-lg": ["Inter", "sans-serif"],
+            "body-md": ["Inter", "sans-serif"],
+            "headline-lg": ["Inter", "sans-serif"],
+            "headline-lg-mobile": ["Inter", "sans-serif"],
+            "headline-sm": ["Inter", "sans-serif"],
+            "body-sm": ["Inter", "sans-serif"]
+          },
+          "fontSize": {
+            "headline-xl-mobile": ["30px", { "lineHeight": "38px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+            "headline-xl": ["40px", { "lineHeight": "48px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+            "ticket-mono": ["16px", { "lineHeight": "20px", "letterSpacing": "0.05em", "fontWeight": "700" }],
+            "body-lg": ["18px", { "lineHeight": "26px", "fontWeight": "500" }],
+            "headline-md": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+            "label-sm": ["11px", { "lineHeight": "14px", "letterSpacing": "0.04em", "fontWeight": "700" }],
+            "label-md": ["13px", { "lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "600" }],
+            "label-lg": ["15px", { "lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600" }],
+            "body-md": ["15px", { "lineHeight": "22px", "fontWeight": "400" }],
+            "headline-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.015em", "fontWeight": "700" }],
+            "headline-lg-mobile": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "700" }],
+            "headline-sm": ["20px", { "lineHeight": "28px", "fontWeight": "600" }],
+            "body-sm": ["13px", { "lineHeight": "18px", "fontWeight": "400" }]
+          }
+        }
+      }
+    }
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+      display: inline-block;
+      vertical-align: middle;
+      line-height: 1;
+    }
+    .custom-scrollbar::-webkit-scrollbar {
+      display: none;
+    }
+    .custom-scrollbar {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+    @keyframes pulse-subtle {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.92); }
+    }
+    .animate-live-dot {
+      animation: pulse-subtle 1.8s infinite ease-in-out;
+    }
+  </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="h-full bg-surface text-on-surface flex justify-center antialiased font-body-md select-none overflow-x-hidden">
+<!-- Mobile Viewport Wrapper (390px Target) -->
+<div class="w-full max-w-[390px] min-h-screen bg-surface flex flex-col relative shadow-2xl overflow-y-auto custom-scrollbar pb-36">
+<!-- TopAppBar (Anchored Shared Component) -->
+<header class="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-space-md h-14 w-full max-w-[390px] mx-auto bg-surface dark:bg-inverse-surface border-b border-outline-variant dark:border-outline">
+<!-- Back Navigation Button -->
+<button aria-label="Go back" class="flex items-center justify-center w-12 h-12 rounded-full hover:bg-surface-container-high dark:hover:bg-surface-variant text-primary dark:text-inverse-primary active:scale-95 transition-transform duration-150 -ml-2" type="button">
+<span class="material-symbols-outlined text-primary dark:text-inverse-primary text-[24px]" data-icon="arrow_back">arrow_back</span>
+</button>
+<!-- Center Title Block & Live Status -->
+<div class="flex flex-col items-center justify-center flex-1 px-1">
+<h1 class="text-headline-sm font-headline-sm font-bold text-on-surface dark:text-inverse-on-surface tracking-tight text-center leading-tight truncate max-w-[210px]">
+          Dispute Support RM-056
+        </h1>
+<div class="inline-flex items-center gap-1.5 mt-0.5 bg-surface-container-low px-2 py-0.5 rounded-full border border-outline-variant/60">
+<span class="w-2 h-2 rounded-full bg-[#16A34A] animate-live-dot"></span>
+<span class="text-label-sm font-label-sm text-on-surface-variant font-medium">Priya M. Online · Avg reply 90s</span>
+</div>
+</div>
+<!-- Emergency Hotline Trailing Action -->
+<a aria-label="Direct emergency call" class="flex items-center justify-center w-10 h-10 rounded-full bg-primary-container text-white shadow-sm hover:opacity-90 active:scale-95 transition-transform duration-150 -mr-1" href="tel:180062246767">
+<span class="material-symbols-outlined text-white text-[20px]" data-icon="call" data-weight="fill" style="font-variation-settings: 'FILL' 1;">call</span>
+</a>
+</header>
+<!-- Main Content Container (Pushed below header) -->
+<main class="flex-1 flex flex-col pt-16 px-3.5 space-y-3">
+<!-- Active Support Ticket Context Card (Collapsible) -->
+<section class="bg-surface-container-lowest rounded-xl border border-[#CBD5E1] p-3 shadow-sm transition-all duration-200">
+<div class="flex items-center justify-between pb-2 border-b border-surface-container">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-primary-container text-[18px]" data-icon="assignment">assignment</span>
+<span class="text-ticket-mono font-ticket-mono text-[13px] tracking-tight text-on-surface">Ticket #TKT-82190</span>
+</div>
+<span class="text-label-sm font-label-sm px-2 py-0.5 rounded-full bg-secondary-fixed text-on-secondary-container font-semibold flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-secondary"></span> High Priority
+          </span>
+</div>
+<div class="pt-2.5 pb-2">
+<div class="flex items-center gap-1.5 mb-1.5">
+<span class="px-2 py-0.5 rounded-md text-[11px] font-semibold bg-[#FEF3C7] text-[#B45309] border border-[#FDE68A] flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-[#D97706]"></span>
+              Under Investigation by Partner Ops
+            </span>
+</div>
+<p class="text-body-sm font-body-sm text-on-surface-variant">
+<span class="font-semibold text-on-surface">Linked Order #NB-4825</span> · Rahul Sharma
+          </p>
+<div class="flex items-center justify-between text-body-sm font-body-sm text-on-surface-variant mt-0.5">
+<span>Butter Chicken Special Combo</span>
+<span class="font-semibold text-on-surface">₹340.00</span>
+</div>
+</div>
+<div class="pt-2 border-t border-surface-container-low flex items-center justify-between">
+<button class="inline-flex items-center gap-1 text-primary-container font-semibold text-label-md hover:underline active:scale-95 transition-transform" type="button">
+<span>View Linked Dispute Evidence (RM-019)</span>
+<span class="material-symbols-outlined text-[15px]" data-icon="arrow_forward">arrow_forward</span>
+</button>
+<span class="material-symbols-outlined text-outline text-[18px] cursor-pointer" data-icon="expand_less">expand_less</span>
+</div>
+</section>
+<!-- Quick Action Emergency Triage Chips (Horizontal Scroller) -->
+<section class="overflow-hidden">
+<div class="flex items-center justify-between mb-1.5 px-0.5">
+<span class="text-label-sm font-label-sm text-on-surface-variant uppercase tracking-wider font-bold">Fast Incident Shortcuts</span>
+<span class="text-label-sm font-label-sm text-outline">KDS Terminal Sync</span>
+</div>
+<div class="flex gap-2 overflow-x-auto custom-scrollbar py-0.5">
+<!-- SOS Button -->
+<button class="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 bg-[#DC2626] text-white rounded-lg text-label-sm font-label-sm font-bold shadow-sm active:scale-95 transition-transform min-h-[40px]" type="button">
+<span class="material-symbols-outlined text-[16px]" data-icon="e911_emergency">e911_emergency</span>
+<span>Call Dispatch SOS</span>
+</button>
+<!-- Printer Offline -->
+<button class="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 bg-surface-container-lowest border border-[#CBD5E1] text-on-surface rounded-lg text-label-sm font-label-sm font-medium hover:bg-surface-container-high active:scale-95 transition-transform min-h-[40px]" type="button">
+<span class="material-symbols-outlined text-[16px] text-outline" data-icon="print_disabled">print_disabled</span>
+<span>Report Printer Offline</span>
+</button>
+<!-- Dispute Settlement -->
+<button class="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 bg-surface-container-lowest border border-[#CBD5E1] text-on-surface rounded-lg text-label-sm font-label-sm font-medium hover:bg-surface-container-high active:scale-95 transition-transform min-h-[40px]" type="button">
+<span class="material-symbols-outlined text-[16px] text-primary" data-icon="gavel">gavel</span>
+<span>Dispute Settlement</span>
+</button>
+<!-- Pause Store -->
+<button class="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 bg-surface-container-lowest border border-[#CBD5E1] text-secondary rounded-lg text-label-sm font-label-sm font-medium hover:bg-surface-container-high active:scale-95 transition-transform min-h-[40px]" type="button">
+<span class="material-symbols-outlined text-[16px] text-secondary" data-icon="pause_circle">pause_circle</span>
+<span>Emergency Pause</span>
+</button>
+</div>
+</section>
+<!-- Real-Time Chat Stream -->
+<section class="flex flex-col space-y-3 pt-1">
+<!-- Date / Incident Case Marker -->
+<div class="flex items-center justify-center my-1">
+<div class="bg-surface-container px-3 py-1 rounded-full text-label-sm font-label-sm text-on-surface-variant flex items-center gap-1.5 border border-outline-variant/40">
+<span class="material-symbols-outlined text-[14px]" data-icon="lock_clock">lock_clock</span>
+<span>Today, Oct 28 · Linked to Case #DSP-9042</span>
+</div>
+</div>
+<!-- System Notice -->
+<div class="mx-auto max-w-[310px] text-center">
+<p class="text-[11px] leading-4 text-outline bg-surface-container-low py-1 px-3 rounded-lg border border-outline-variant/40 inline-block">
+            Ticket assigned to <strong class="text-on-surface">Priya Menon</strong>, Senior Merchant Operations Specialist.
+          </p>
+</div>
+<!-- Agent Message 1 -->
+<div class="flex items-start gap-2 max-w-[90%] self-start">
+<!-- Agent Avatar -->
+<div class="w-8 h-8 rounded-full bg-primary-fixed flex items-center justify-center text-primary font-bold text-label-sm flex-shrink-0 mt-0.5 border border-primary-fixed-dim">
+            PM
+          </div>
+<div class="flex flex-col">
+<div class="bg-surface-container-lowest border border-[#E2E8F0] p-3 rounded-2xl rounded-tl-sm shadow-sm space-y-1.5">
+<div class="flex items-center justify-between gap-3">
+<span class="text-label-sm font-label-sm font-bold text-primary-container">Priya Menon (Partner Ops)</span>
+<span class="text-[10px] text-outline font-ticket-mono">20:21</span>
+</div>
+<p class="text-body-sm font-body-sm text-on-surface leading-relaxed">
+                Good evening Chef! I am reviewing the kitchen CCTV photo you submitted showing the intact tamper seal at 19:46. The rider acknowledged a transit slip on his bike. We are waiving any restaurant penalty.
+              </p>
+<div class="inline-flex items-center gap-1 text-[11px] font-semibold text-[#15803D] bg-[#DCFCE7] px-2 py-0.5 rounded">
+<span class="material-symbols-outlined text-[13px]" data-icon="verified" data-weight="fill" style="font-variation-settings: 'FILL' 1;">verified</span>
+<span>Partner Ops Verified</span>
+</div>
+</div>
+<span class="text-[10px] text-outline ml-1 mt-0.5">Encrypted internal channel</span>
+</div>
+</div>
+<!-- Merchant Message 1 (Outbound) -->
+<div class="flex items-end flex-col self-end max-w-[85%]">
+<div class="bg-primary-container text-white p-3 rounded-2xl rounded-tr-sm shadow-sm space-y-1">
+<p class="text-body-sm font-body-sm text-white leading-relaxed">
+              Thanks Priya. Please ensure the ₹340 customer refund is not debited from our daily settlement.
+            </p>
+<div class="flex items-center justify-end gap-1 pt-0.5">
+<span class="text-[10px] text-on-primary-container font-ticket-mono">20:23</span>
+<span class="material-symbols-outlined text-[14px] text-tertiary-fixed-dim" data-icon="done_all">done_all</span>
+</div>
+</div>
+<span class="text-[10px] text-outline mr-1 mt-0.5">Kitchen POS • Terminal #02</span>
+</div>
+<!-- Agent Message 2 with Claim Voucher -->
+<div class="flex items-start gap-2 max-w-[90%] self-start">
+<div class="w-8 h-8 rounded-full bg-primary-fixed flex items-center justify-center text-primary font-bold text-label-sm flex-shrink-0 mt-0.5 border border-primary-fixed-dim">
+            PM
+          </div>
+<div class="flex flex-col space-y-1">
+<div class="bg-surface-container-lowest border border-[#E2E8F0] p-3 rounded-2xl rounded-tl-sm shadow-sm space-y-2">
+<div class="flex items-center justify-between gap-3">
+<span class="text-label-sm font-label-sm font-bold text-primary-container">Priya Menon (Partner Ops)</span>
+<span class="text-[10px] text-outline font-ticket-mono">20:24</span>
+</div>
+<p class="text-body-sm font-body-sm text-on-surface leading-relaxed">
+                Done Chef! The claim is approved under NABIN Transit Insurance. Your net payout remains 100% protected.
+              </p>
+<!-- Attached Claim Voucher Chip -->
+<div class="bg-surface-container-low border border-outline-variant/70 rounded-lg p-2.5 flex flex-col space-y-1">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[#15803D] text-[18px]" data-icon="shield" data-weight="fill" style="font-variation-settings: 'FILL' 1;">shield</span>
+<span class="text-label-md font-label-md text-on-surface font-bold">Claim #CLM-4019</span>
+</div>
+<span class="text-[11px] font-bold text-[#15803D] bg-[#DCFCE7] px-2 py-0.5 rounded-full">Approved</span>
+</div>
+<div class="flex items-center justify-between text-body-sm font-body-sm text-on-surface-variant pt-1 border-t border-surface-container">
+<span>Coverage Protection:</span>
+<span class="font-bold text-on-surface">₹340.00 Protected</span>
+</div>
+<p class="text-[11px] text-outline italic">Auto-credited to RM-047 Ledger payout.</p>
+</div>
+</div>
+<!-- Read State / Agent status -->
+<span class="text-[10px] text-outline ml-1">Live resolution logged to Merchant Audit</span>
+</div>
+</div>
+<!-- Typing Indicator State -->
+<div class="flex items-center gap-2 self-start pl-10 pt-0.5">
+<div class="bg-surface-container-highest px-3 py-1.5 rounded-full flex items-center gap-1.5">
+<div class="flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-primary-container animate-bounce"></span>
+<span class="w-1.5 h-1.5 rounded-full bg-primary-container animate-bounce [animation-delay:0.2s]"></span>
+<span class="w-1.5 h-1.5 rounded-full bg-primary-container animate-bounce [animation-delay:0.4s]"></span>
+</div>
+<span class="text-[11px] font-medium text-on-surface-variant">Priya is typing...</span>
+</div>
+</div>
+<!-- 24/7 Merchant Support Disclaimer -->
+<div class="pt-4 pb-2 px-3 text-center">
+<p class="text-[11px] text-outline leading-tight">
+            Live Chat operates 24/7. For critical rider safety emergencies call <a class="font-semibold text-primary-container underline" href="tel:180062246767">1800-NABIN-SOS</a> (Toll-Free).
+          </p>
+</div>
+</section>
+</main>
+<!-- Interactive Sticky Bottom Composer Area -->
+<div class="fixed bottom-0 left-0 right-0 max-w-[390px] mx-auto z-40 bg-surface-container-lowest border-t border-[#CBD5E1] p-2.5 pb-5 shadow-lg">
+<div class="flex items-center gap-1.5">
+<!-- Attachment / CCTV button -->
+<button aria-label="Upload CCTV or Receipt" class="flex items-center justify-center w-10 h-10 rounded-full hover:bg-surface-container-high text-on-surface-variant active:scale-95 transition-transform flex-shrink-0" title="Attach CCTV or KOT" type="button">
+<span class="material-symbols-outlined text-[22px]" data-icon="attach_file">attach_file</span>
+</button>
+<!-- Fast Camera snap button -->
+<button aria-label="Quick camera capture" class="flex items-center justify-center w-10 h-10 rounded-full hover:bg-surface-container-high text-on-surface-variant active:scale-95 transition-transform flex-shrink-0" title="Quick Camera" type="button">
+<span class="material-symbols-outlined text-[22px]" data-icon="photo_camera">photo_camera</span>
+</button>
+<!-- Chat Input Field -->
+<div class="flex-1 relative">
+<input class="w-full h-11 pl-3 pr-9 bg-surface-container-low border border-[#CBD5E1] rounded-full text-body-sm font-body-sm text-on-surface placeholder-outline focus:outline-none focus:border-primary-container focus:ring-1 focus:ring-primary-container" placeholder="Type your reply to Priya..." type="text"/>
+<button aria-label="Voice memo" class="absolute right-2.5 top-1/2 -translate-y-1/2 text-outline hover:text-on-surface active:scale-90 transition-transform" type="button">
+<span class="material-symbols-outlined text-[19px]" data-icon="mic">mic</span>
+</button>
+</div>
+<!-- Send Button -->
+<button aria-label="Send message" class="flex items-center justify-center w-11 h-11 rounded-full bg-primary-container text-white shadow-md active:scale-95 transition-transform hover:opacity-95 flex-shrink-0" type="button">
+<span class="material-symbols-outlined text-[20px]" data-icon="arrow_upward">arrow_upward</span>
+</button>
+</div>
+</div>
+</div>
+</body></html>
