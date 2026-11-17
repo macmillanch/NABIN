@@ -72,7 +72,8 @@ flowchart TD
 2. **Channel 2 — Takeaway Fulfilment:** Kitchen ready signal bumps to front counter $\rightarrow$ Customer order number called $\rightarrow$ Handover completed with customer bill receipt.
 3. **Channel 3 — Delivery Partner Handover:** Rider arrives at restaurant $\rightarrow$ Restaurant expo scans/enters Rider's **4-Digit Handover OTP** $\rightarrow$ Handover verified $\rightarrow$ Food leaves restaurant.
 * **Supervisor Override Safety Rule:** If OTP cannot be received due to rider network loss, supervisor override requires explicit supervisor PIN entry and generates an immutable audit record in `orders.handover_audit`.
-* **Journey 2 Audit Verdict:** **100% COMPLETE & PASSING**. All 8 Order & KDS screens exist and handle all 3 channels.
+* **Journey 2 Audit Verdict (Reconciled):** **CORE WORKFLOW 100% OPERATIONAL**. Powered by **14 unique designed screens** across Order Management and KDS (`RM-013`–`RM-018`, `RM-020`–`RM-025`, `RM-100`, `RM-102`). All 3 handover channels are fully supported.
+* **RM-019 Status:** `RM-019` (*Order Dispute Case Detail & Evidence Viewer*) is absent from Stitch; core dispute management is handled in Phase 1 by `RM-017` (*Customer Order Issues*) and `RM-018` (*Cancellation & Refund*), with `RM-019` deferred to Phase 2.
 
 ---
 
@@ -115,23 +116,27 @@ flowchart TD
     RM046 --> RM051["RM-051: Statutory Tax & GST Reports<br/>(4424ed00...)"]
 ```
 
-### 4.2 Financial Rule Verification & Reconciliation Formulas
-* **Integer Arithmetic Standard:** All calculations operate strictly on integer paise values:
-  $$\text{Net Payout} = \text{Gross Food Bill} - \text{Platform Commission} - \text{Payment Gateway Fee} - \text{TCS (1\% Sec 52)} - \text{Dispute Deductions}$$
+### 4.2 Financial Rule Verification & Reconciliation Formulas (Reconciled from Stitch RM-049)
+* **Authoritative Line-Item Integer Math:** Calculations operate strictly on integer paise values matching the audited screen design in `RM-049`:
+  $$\mathbf{Total\ Deductions} = \mathbf{Platform\ Comm} + \mathbf{PG\ Fee} + \mathbf{GST\ on\ Comm\ (18\%)} + \mathbf{TCS\ (1\%\ Sec\ 52)} + \mathbf{TDS\ (1\%\ Sec\ 194\text{-}O)}$$
+  $$\mathbf{Net\ Realized\ Retained} = \mathbf{Gross\ Sales\ (GMV)} - \mathbf{Total\ Deductions} + \mathbf{Credits\ \&\ Rebates}$$
 * **Configurable Rate Parameters (Zero Hardcoding):**
-  * Platform commission is driven by `merchant_subscriptions.commission_rate` (not hardcoded).
+  * Platform commission is driven by `merchant_subscriptions.commission_rate` (blended channel rates: Delivery, Dine-In, Takeaway).
   * Payment gateway fee reflects actual payment aggregator cost (e.g. 1.8% + GST).
-  * GST on restaurant food is tracked under Section 9(5) CGST Act.
+  * GST on restaurant food is tracked under Section 9(5) CGST Act (remitted by ECO, not paid to merchant).
+  * GST on platform commission (18%) generates an ITC-claimable tax invoice for the restaurant.
+  * Regulatory TCS (1.0% Sec 52) and Income Tax TDS (1.0% Sec 194-O) are segregated for statutory deposit.
+* **Mandatory Professional Review:** Tax calculations and double-entry ledger RPCs must be formally verified by a qualified Chartered Accountant / tax professional before handling live settlement funds.
 * **Settlement Statements (`RM-047`):** Generates daily reconciliation summaries exportable in PDF and CSV.
-* **Journey 4 Audit Verdict:** **100% COMPLETE & PASSING**.
+* **Journey 4 Audit Verdict:** **100% DESIGN COMPLETE / STATUTORY CERTIFICATION REQUIRED FOR BACKEND RPCs**.
 
 ---
 
-## 5. SUMMARY OF JOURNEY AUDIT RESULTS
+## 5. SUMMARY OF JOURNEY AUDIT RESULTS (RECONCILED)
 
-| Journey Number | Journey Name | Mandated Screens | Designed Screens | Workflow Completeness | Readiness Status |
+| Journey Number | Journey Name | Mandated Steps | Designed Operational Screens | Workflow Completeness | Readiness Status |
 |---|---|:---:|:---:|:---:|:---:|
-| **Journey 1** | Merchant Onboarding & Compliance | 8 | 8 | **100% Complete** | **READY** |
-| **Journey 2** | Order Fulfilment & KDS Dispatch | 8 | 8 | **100% Complete** | **READY** |
-| **Journey 3** | Thermal Printer Hardware & Auto | 7 | 7 | **100% Complete** | **READY (Simulated)** |
-| **Journey 4** | Finance, Settlement & Tax Reports | 6 | 6 | **100% Complete** | **READY** |
+| **Journey 1** | Merchant Onboarding & Compliance | 8 | 8 (`RM-001`–`RM-008`) | **100% Complete** | **READY (Manual bank approval fallback)** |
+| **Journey 2** | Order Fulfilment & KDS Dispatch | 8 | 14 (`RM-013`–`018`, `RM-020`–`025`, `RM-100`, `RM-102`) | **100% Core Flow** | **READY (RM-019 deferred to Phase 2)** |
+| **Journey 3** | Thermal Printer Hardware & Auto | 7 | 7 (`RM-040`–`RM-045`, `RM-098`) | **100% Complete** | **READY (Software Simulation Active)** |
+| **Journey 4** | Finance, Settlement & Tax Reports | 6 | 6 (`RM-046`–`RM-051`) | **100% Complete** | **READY (Statutory CA Review Pending)** |

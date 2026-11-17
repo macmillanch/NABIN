@@ -22,16 +22,16 @@ Each subsystem has been evaluated against visual maturity in Google Stitch, exis
 | **5** | **Order Management & Inflow** | **READY** | Full lifecycle from live inflow (`RM-102`) to accept (`RM-014`), reject (`RM-015`), prep time (`RM-016`), details (`RM-013`), and history (`RM-020`) is designed and backend-backed. |
 | **6** | **Kitchen Display System (KDS)** | **READY WITH CONDITIONS** | KDS stages (`RM-021` New, `RM-022` Preparing, `RM-023` Ready) are complete. Condition: Implement responsive tablet grid using Flutter `LayoutBuilder`. |
 | **7** | **Menu & Dish Management** | **READY** | Complete 8-screen catalog manager (`RM-026` to `RM-033`) with dietary tags (Veg/Non-Veg/Egg), modifier groups, bulk pricing, and schedule availability. |
-| **8** | **Printer Workflows & ESC/POS**| **READY WITH CONDITIONS** | Complete 7-screen printer architecture (`RM-040` to `RM-045`, `RM-098`) for 58mm/80mm Bluetooth & LAN printing. Condition: Software simulation active until physical device test. |
-| **9** | **Finance, Ledger & Tax** | **READY** | Complete 6-screen finance suite (`RM-046` to `RM-051`) with integer line-item math, settlement statements, and GSTR-1 preparation. |
+| **8** | **Printer Workflows & ESC/POS**| **READY WITH CONDITIONS** | Complete 7-screen printer architecture (`RM-040` to `RM-045`, `RM-098`) for 58mm/80mm Bluetooth & LAN printing. Condition: 0 Flutter files exist; software ESC/POS simulation active until physical device lab test. |
+| **9** | **Finance, Ledger & Tax** | **READY WITH CONDITIONS** | Complete 6-screen finance suite (`RM-046` to `RM-051`) with integer line-item math. Condition: Statutory tax withholdings (Sec 9(5), 52, 194-O) require CA certification. |
 | **10**| **Staff & Permissions (RBAC)**| **NOT READY** | Staff management (`RM-052`) and cook PIN switcher (`RM-053`) are not designed in Stitch. Deferred to Phase 2. Single-profile merchant auth is used for MVP. |
 | **11**| **Backend Dependencies** | **READY WITH CONDITIONS** | Core order endpoints, auth, and database tables exist and pass tests. Condition: Third-party automated Penny-Drop banking API requires manual admin fallback. |
 | **12**| **Responsive Layouts** | **READY WITH CONDITIONS** | Mobile views (390px) are 100% complete. Condition: Landscape tablet viewports (800x1280dp) must be coded with adaptive row/column flex. |
-| **13**| **Accessibility (WCAG 2.1 AAA)**| **READY** | Slate 900 text on white card surfaces achieves **15.2:1** contrast ratio. All interactive touch targets strictly enforce $\ge 48\text{ dp}$. |
+| **13**| **Accessibility (WCAG 2.1)**   | **READY WITH CONDITIONS** | Slate 900 text on white achieves **15.2:1** (AAA). Secondary text achieves 5.8:1 (AA). Condition: White on Culinary Orange is 3.48:1, requiring bold font-weight or token adjustment in Flutter. |
 
 ---
 
-## 2. SUMMARY READINESS SCORECARD
+## 2. SUMMARY READINESS SCORECARD (RECONCILED)
 
 ```
 ┌────────────────────────────────────────────────────────┐
@@ -39,12 +39,12 @@ Each subsystem has been evaluated against visual maturity in Google Stitch, exis
 ├─────────────────────────┬──────────────┬───────────────┤
 │ Category                │ Count        │ Percentage    │
 ├─────────────────────────┼──────────────┼───────────────┤
-│ READY                   │  7 Axes      │    54%        │
-│ READY WITH CONDITIONS   │  5 Axes      │    38%        │
+│ READY                   │  5 Axes      │    38%        │
+│ READY WITH CONDITIONS   │  7 Axes      │    54%        │
 │ NOT READY (Phase 2)     │  1 Axis      │     8%        │
 │ NOT VERIFIED            │  0 Axes      │     0%        │
 ├─────────────────────────┼──────────────┼───────────────┤
-│ OVERALL VERDICT         │ READY WITH CONDITIONS (92%)  │
+│ OVERALL RECONCILED SCORE│ READY WITH CONDITIONS (85%)  │
 └─────────────────────────┴──────────────┴───────────────┘
 ```
 
