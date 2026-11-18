@@ -344,6 +344,163 @@ class NabinApiService {
     }
   }
 
+  /// Update preparation time for an order (RM-016)
+  static Future<Map<String, dynamic>?> updateOrderPrepTime({
+    required String orderId,
+    required int minutes,
+    String? reason,
+    String? restaurantId,
+  }) async {
+    try {
+      final client = HttpClient();
+      final url = restaurantId != null && restaurantId.isNotEmpty
+          ? '$effectiveUrl/merchant/${Uri.encodeComponent(restaurantId)}/orders/${Uri.encodeComponent(orderId)}/prep-time'
+          : '$effectiveUrl/merchant/orders/${Uri.encodeComponent(orderId)}/prep-time';
+      final request = await client.postUrl(Uri.parse(url));
+      request.headers.set('content-type', 'application/json');
+      _attachAuthHeader(request);
+      request.add(utf8.encode(jsonEncode({
+        'minutes': minutes,
+        if (reason != null && reason.isNotEmpty) 'reason': reason,
+      })));
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (body.isEmpty) return {'success': false, 'statusCode': response.statusCode};
+      final decoded = jsonDecode(body);
+      if (decoded is Map<String, dynamic>) {
+        return {...decoded, 'statusCode': response.statusCode};
+      }
+      return {'success': false, 'statusCode': response.statusCode};
+    } catch (e) {
+      return {'success': false, 'error': e.toString()};
+    }
+  }
+
+  /// Get KDS display settings (RM-025)
+  static Future<Map<String, dynamic>?> getKdsSettings({String? restaurantId}) async {
+    try {
+      final client = HttpClient();
+      final url = restaurantId != null && restaurantId.isNotEmpty
+          ? '$effectiveUrl/merchant/${Uri.encodeComponent(restaurantId)}/rms/kds/settings'
+          : '$effectiveUrl/merchant/rms/kds/settings';
+      final request = await client.getUrl(Uri.parse(url));
+      _attachAuthHeader(request);
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (body.isEmpty) return {'success': false, 'statusCode': response.statusCode};
+      final decoded = jsonDecode(body);
+      if (decoded is Map<String, dynamic>) {
+        return {...decoded, 'statusCode': response.statusCode};
+      }
+      return {'success': false, 'statusCode': response.statusCode};
+    } catch (e) {
+      return {'success': false, 'error': e.toString()};
+    }
+  }
+
+  /// Update KDS display settings (RM-025)
+  static Future<Map<String, dynamic>?> updateKdsSettings({
+    required Map<String, dynamic> settings,
+    String? restaurantId,
+  }) async {
+    try {
+      final client = HttpClient();
+      final url = restaurantId != null && restaurantId.isNotEmpty
+          ? '$effectiveUrl/merchant/${Uri.encodeComponent(restaurantId)}/rms/kds/settings'
+          : '$effectiveUrl/merchant/rms/kds/settings';
+      final request = await client.putUrl(Uri.parse(url));
+      request.headers.set('content-type', 'application/json');
+      _attachAuthHeader(request);
+      request.add(utf8.encode(jsonEncode(settings)));
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (body.isEmpty) return {'success': false, 'statusCode': response.statusCode};
+      final decoded = jsonDecode(body);
+      if (decoded is Map<String, dynamic>) {
+        return {...decoded, 'statusCode': response.statusCode};
+      }
+      return {'success': false, 'statusCode': response.statusCode};
+    } catch (e) {
+      return {'success': false, 'error': e.toString()};
+    }
+  }
+
+  /// Get kitchen stations (RM-024)
+  static Future<Map<String, dynamic>?> getKitchenStations({String? restaurantId}) async {
+    try {
+      final client = HttpClient();
+      final url = restaurantId != null && restaurantId.isNotEmpty
+          ? '$effectiveUrl/merchant/${Uri.encodeComponent(restaurantId)}/rms/stations'
+          : '$effectiveUrl/merchant/rms/stations';
+      final request = await client.getUrl(Uri.parse(url));
+      _attachAuthHeader(request);
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (body.isEmpty) return {'success': false, 'statusCode': response.statusCode};
+      final decoded = jsonDecode(body);
+      if (decoded is Map<String, dynamic>) {
+        return {...decoded, 'statusCode': response.statusCode};
+      }
+      return {'success': false, 'statusCode': response.statusCode};
+    } catch (e) {
+      return {'success': false, 'error': e.toString()};
+    }
+  }
+
+  /// Get customer order disputes (RM-017, RM-018, RM-019)
+  static Future<Map<String, dynamic>?> getDisputes({String? restaurantId}) async {
+    try {
+      final client = HttpClient();
+      final url = restaurantId != null && restaurantId.isNotEmpty
+          ? '$effectiveUrl/merchant/${Uri.encodeComponent(restaurantId)}/rms/disputes'
+          : '$effectiveUrl/merchant/rms/disputes';
+      final request = await client.getUrl(Uri.parse(url));
+      _attachAuthHeader(request);
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (body.isEmpty) return {'success': false, 'statusCode': response.statusCode};
+      final decoded = jsonDecode(body);
+      if (decoded is Map<String, dynamic>) {
+        return {...decoded, 'statusCode': response.statusCode};
+      }
+      return {'success': false, 'statusCode': response.statusCode};
+    } catch (e) {
+      return {'success': false, 'error': e.toString()};
+    }
+  }
+
+  /// Resolve customer order dispute (RM-019)
+  static Future<Map<String, dynamic>?> resolveDispute({
+    required String disputeId,
+    required String action,
+    String? notes,
+    String? restaurantId,
+  }) async {
+    try {
+      final client = HttpClient();
+      final url = restaurantId != null && restaurantId.isNotEmpty
+          ? '$effectiveUrl/merchant/${Uri.encodeComponent(restaurantId)}/rms/disputes/${Uri.encodeComponent(disputeId)}/action'
+          : '$effectiveUrl/merchant/rms/disputes/${Uri.encodeComponent(disputeId)}/action';
+      final request = await client.postUrl(Uri.parse(url));
+      request.headers.set('content-type', 'application/json');
+      _attachAuthHeader(request);
+      request.add(utf8.encode(jsonEncode({
+        'action': action,
+        if (notes != null && notes.isNotEmpty) 'notes': notes,
+      })));
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (body.isEmpty) return {'success': false, 'statusCode': response.statusCode};
+      final decoded = jsonDecode(body);
+      if (decoded is Map<String, dynamic>) {
+        return {...decoded, 'statusCode': response.statusCode};
+      }
+      return {'success': false, 'statusCode': response.statusCode};
+    } catch (e) {
+      return {'success': false, 'error': e.toString()};
+    }
+  }
+
   static Future<Map<String, dynamic>?> getPlatformFeatures() async {
     try {
       final client = HttpClient();

@@ -6,6 +6,7 @@ import '../../../../core/theme/restaurant_theme.dart';
 import '../../../../core/network/nabin_api_service.dart';
 import '../../../../core/network/session_manager.dart';
 import '../../domain/restaurant_profile_form.dart';
+import '../widgets/restaurant_operations_sheet.dart';
 
 /// Whether a list on this screen has actually been fetched.
 ///
@@ -437,8 +438,19 @@ class _RestaurantMainShellState extends State<RestaurantMainShell> {
   /// The two chips above the list wrote `_ordersFilter` and nothing read it, so "Active Queue" and
   /// "Completed History" selected a label and left the same list on screen. They filter now.
   List<Map<String, dynamic>> get _visibleOrders {
-    final bool showHistory = _ordersFilter == 'History';
-    return _orders.where((o) => _isActiveOrder(o) != showHistory).toList();
+    if (_ordersFilter == 'History' || _ordersFilter == 'Completed History') {
+      return _orders.where((o) => !_isActiveOrder(o)).toList();
+    }
+    if (_ordersFilter == 'New') {
+      return _orders.where((o) => o['state'] == 'RECEIVED' || o['state'] == 'PLACED').toList();
+    }
+    if (_ordersFilter == 'Preparing') {
+      return _orders.where((o) => o['state'] == 'ACCEPTED' || o['state'] == 'PREPARING' || o['state'] == 'PACKING').toList();
+    }
+    if (_ordersFilter == 'Ready') {
+      return _orders.where((o) => o['state'] == 'READY_FOR_PICKUP').toList();
+    }
+    return _orders.where(_isActiveOrder).toList();
   }
 
   /// The KDS ticket prints the time the platform stamped the order, in the merchant's own
@@ -945,53 +957,83 @@ class _RestaurantMainShellState extends State<RestaurantMainShell> {
       children: [
         // Controls Header
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           color: RestaurantTheme.white,
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Layout-only guard, and it earns its place: this row is what a merchant reads the
-              // filter state from on a 390dp phone, and two chips plus a button had no way to give
-              // way at all — so the tab could not be verified at phone width. `Flexible` + `Wrap`
-              // keeps the chips left and Refresh right on every width where they fit on one line,
-              // which is every width the app targets; the chips only stack when they genuinely
-              // cannot share a line. Labels, taps and what each filter selects are unchanged.
-              Flexible(
-                child: Wrap(
-                  spacing: 8,
-                  runSpacing: 4,
-                  children: [
-                    ChoiceChip(
-                      label: const Text('Active Queue'),
-                      selected: _ordersFilter == 'Active',
-                      selectedColor: RestaurantTheme.neonOrange,
-                      labelStyle: TextStyle(color: _ordersFilter == 'Active' ? Colors.white : RestaurantTheme.charcoal, fontWeight: FontWeight.w800, fontSize: 12),
-                      onSelected: (val) => setState(() => _ordersFilter = 'Active'),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Flexible(
+                    child: Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
+                      children: [
+                        ChoiceChip(
+                          label: const Text('Active Queue'),
+                          selected: _ordersFilter == 'Active',
+                          selectedColor: RestaurantTheme.neonOrange,
+                          labelStyle: TextStyle(color: _ordersFilter == 'Active' ? Colors.white : RestaurantTheme.charcoal, fontWeight: FontWeight.w800, fontSize: 11),
+                          onSelected: (val) => setState(() => _ordersFilter = 'Active'),
+                        ),
+                        ChoiceChip(
+                          label: const Text('New'),
+                          selected: _ordersFilter == 'New',
+                          selectedColor: const Color(0xFFE11D48),
+                          labelStyle: TextStyle(color: _ordersFilter == 'New' ? Colors.white : RestaurantTheme.charcoal, fontWeight: FontWeight.w800, fontSize: 11),
+                          onSelected: (val) => setState(() => _ordersFilter = 'New'),
+                        ),
+                        ChoiceChip(
+                          label: const Text('Preparing'),
+                          selected: _ordersFilter == 'Preparing',
+                          selectedColor: const Color(0xFFD97706),
+                          labelStyle: TextStyle(color: _ordersFilter == 'Preparing' ? Colors.white : RestaurantTheme.charcoal, fontWeight: FontWeight.w800, fontSize: 11),
+                          onSelected: (val) => setState(() => _ordersFilter = 'Preparing'),
+                        ),
+                        ChoiceChip(
+                          label: const Text('Ready'),
+                          selected: _ordersFilter == 'Ready',
+                          selectedColor: const Color(0xFF16A34A),
+                          labelStyle: TextStyle(color: _ordersFilter == 'Ready' ? Colors.white : RestaurantTheme.charcoal, fontWeight: FontWeight.w800, fontSize: 11),
+                          onSelected: (val) => setState(() => _ordersFilter = 'Ready'),
+                        ),
+                        ChoiceChip(
+                          label: const Text('Completed History'),
+                          selected: _ordersFilter == 'Completed History' || _ordersFilter == 'History',
+                          selectedColor: RestaurantTheme.secondaryText,
+                          labelStyle: TextStyle(color: (_ordersFilter == 'Completed History' || _ordersFilter == 'History') ? Colors.white : RestaurantTheme.charcoal, fontWeight: FontWeight.w800, fontSize: 11),
+                          onSelected: (val) => setState(() => _ordersFilter = 'Completed History'),
+                        ),
+                      ],
                     ),
-                    ChoiceChip(
-                      label: const Text('Completed History'),
-                      selected: _ordersFilter == 'History',
-                      selectedColor: RestaurantTheme.neonOrange,
-                      labelStyle: TextStyle(color: _ordersFilter == 'History' ? Colors.white : RestaurantTheme.charcoal, fontWeight: FontWeight.w800, fontSize: 12),
-                      onSelected: (val) => setState(() => _ordersFilter = 'History'),
-                    ),
-                  ],
-                ),
-              ),
-              // Was a button labelled "Simulate Order" that opened a dialog inventing order
-              // `#1043` for a customer called David K. A merchant pressing it saw an order
-              // nobody had placed. This one re-reads the real order list.
-              ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: RestaurantTheme.neonOrange,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                  elevation: 0,
-                ),
-                icon: const Icon(Icons.refresh_rounded, size: 14, color: Colors.white),
-                label: const Text('Refresh', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-                onPressed: _loadOrders,
+                  ),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.kitchen_outlined, size: 20),
+                        tooltip: 'Kitchen Stations (RM-024)',
+                        onPressed: () => RestaurantOperationsSheet.showKitchenStationsDialog(context, restaurantId: _restaurantId),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.tune_outlined, size: 20),
+                        tooltip: 'KDS Settings (RM-025)',
+                        onPressed: () => RestaurantOperationsSheet.showKdsSettingsDialog(context, restaurantId: _restaurantId),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.gavel_outlined, size: 20),
+                        tooltip: 'Disputes (RM-017)',
+                        onPressed: () => RestaurantOperationsSheet.showDisputesSheet(context, restaurantId: _restaurantId),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.refresh_rounded, size: 20),
+                        tooltip: 'Refresh',
+                        onPressed: _loadOrders,
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ],
           ),
@@ -1105,13 +1147,16 @@ class _RestaurantMainShellState extends State<RestaurantMainShell> {
             BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 6, offset: const Offset(0, 2)),
         ],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Order Header
-          Padding(
-            padding: const EdgeInsets.all(14),
-            child: Row(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: () => RestaurantOperationsSheet.showOrderDetailsSheet(context, order),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Order Header
+            Padding(
+              padding: const EdgeInsets.all(14),
+              child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Flexible(
@@ -1295,7 +1340,8 @@ class _RestaurantMainShellState extends State<RestaurantMainShell> {
                 ),
               ),
             ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -1353,13 +1399,43 @@ class _RestaurantMainShellState extends State<RestaurantMainShell> {
       return;
     }
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(res == null
-            ? 'NABIN did not answer, so this order has not been updated.'
-            : _textOf(res['error']) ?? 'NABIN refused the update.'),
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(res == null
+              ? 'NABIN did not answer, so this order has not been updated.'
+              : _textOf(res['error']) ?? 'NABIN refused the update.'),
         duration: const Duration(seconds: 4),
       ),
+    );
+  }
+
+  Future<void> _rejectOrder(String orderId, String reason) async {
+    if (_advancingOrderIds.contains(orderId)) return;
+    setState(() => _advancingOrderIds.add(orderId));
+
+    final res = await NabinApiService.updateMerchantOrderStatus(
+      restaurantId: _restaurantId,
+      orderId: orderId,
+      status: 'REJECTED',
+      reason: reason,
+    );
+    if (!mounted) return;
+    setState(() => _advancingOrderIds.remove(orderId));
+
+    if (res != null && res['success'] == true) {
+      setState(() {
+        _orders = _orders
+            .map((o) => o['id'] == orderId ? <String, dynamic>{...o, 'state': 'REJECTED'} : o)
+            .toList();
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Order rejected and removed from kitchen queue.')),
+      );
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(res?['error'] ?? 'NABIN refused order rejection.')),
     );
   }
 

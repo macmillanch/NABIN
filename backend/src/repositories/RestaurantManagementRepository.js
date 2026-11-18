@@ -2598,6 +2598,159 @@ class RestaurantManagementRepository {
     return ticket;
   }
 
+  // --- 6B. KDS DISPLAY & STATION SETTINGS ---
+  async getKdsSettings(merchantId) {
+    if (!merchantId) return null;
+    const settings = await this.getSettings(merchantId);
+    const kds = settings?.kdsSettings || settings?.kds_settings || {};
+    return {
+      merchantId,
+      gridColumns: Number(kds.gridColumns || kds.grid_columns || 3),
+      audioChimeEnabled: kds.audioChimeEnabled !== false && kds.audio_chime_enabled !== false,
+      autoBumpMinutes: Number(kds.autoBumpMinutes || kds.auto_bump_minutes || 15),
+      darkTheme: kds.darkTheme !== false && kds.dark_theme !== false,
+      sortBy: kds.sortBy || kds.sort_by || 'FIFO',
+      chimeVolume: Number(kds.chimeVolume || kds.chime_volume || 80)
+    };
+  }
+
+  async updateKdsSettings(merchantId, newSettings) {
+    if (!merchantId) return null;
+    const current = await this.getKdsSettings(merchantId);
+    const merged = {
+      ...current,
+      ...newSettings,
+      gridColumns: [2, 3, 4].includes(Number(newSettings.gridColumns)) ? Number(newSettings.gridColumns) : current.gridColumns,
+      audioChimeEnabled: newSettings.audioChimeEnabled !== undefined ? Boolean(newSettings.audioChimeEnabled) : current.audioChimeEnabled,
+      autoBumpMinutes: Number(newSettings.autoBumpMinutes || current.autoBumpMinutes),
+      darkTheme: newSettings.darkTheme !== undefined ? Boolean(newSettings.darkTheme) : current.darkTheme,
+      sortBy: ['FIFO', 'PREP_TIME', 'TABLE'].includes(String(newSettings.sortBy).toUpperCase()) ? String(newSettings.sortBy).toUpperCase() : current.sortBy
+    };
+
+    if (!this._kdsSettingsMap) this._kdsSettingsMap = new Map();
+    this._kdsSettingsMap.set(merchantId, merged);
+
+    if (this.pgEnabled) {
+      try {
+        const { data } = await supabaseAdmin.from('merchants').select('rms_settings').eq('id', merchantId).maybeSingle();
+        const existingRms = data?.rms_settings || {};
+        await supabaseAdmin.from('merchants').update({
+          rms_settings: { ...existingRms, kds_settings: merged }
+        }).eq('id', merchantId);
+      } catch (_) {}
+    }
+
+    return merged;
+  }
+
+  async getKitchenStations(merchantId) {
+    if (!merchantId) return [];
+    if (!this._stationsMap) this._stationsMap = new Map();
+    let stations = this._stationsMap.get(merchantId);
+    if (!stations) {
+      stations = [
+        { id: 'st_1', merchantId, name: 'Grill & Tandoor Station', code: 'GRILL', printerAssigned: 'KOT_Thermal_1', activeTicketCount: 2, isActive: true },
+        { id: 'st_2', merchantId, name: 'Main Curry & Rice Station', code: 'CURRY', printerAssigned: 'KOT_Thermal_2', activeTicketCount: 4, isActive: true },
+        { id: 'st_3', merchantId, name: 'Fryer & Appetizer Station', code: 'FRY', printerAssigned: 'KOT_Thermal_1', activeTicketCount: 1, isActive: true },
+        { id: 'st_4', merchantId, name: 'Cold Prep, Bakery & Desserts', code: 'BAKE', printerAssigned: 'Barista_POS', activeTicketCount: 0, isActive: true },
+        { id: 'st_5', merchantId, name: 'Expediter & Packing Bay', code: 'EXPD', printerAssigned: 'Expediter_80mm', activeTicketCount: 3, isActive: true }
+      ];
+      this._stationsMap.set(merchantId, stations);
+    }
+    return stations;
+  }
+
+  async saveKitchenStation(merchantId, stationData) {
+    const stations = await this.getKitchenStations(merchantId);
+    const stationId = stationData.id || `st_${Date.now()}`;
+    const newStation = {
+      id: stationId,
+      merchantId,
+      name: String(stationData.name || 'Kitchen Station').trim(),
+      code: String(stationData.code || 'STATION').trim().toUpperCase(),
+      printerAssigned: stationData.printerAssigned || 'KOT_Default',
+      activeTicketCount: Number(stationData.activeTicketCount || 0),
+      isActive: stationData.isActive !== false
+    };
+
+    const idx = stations.findIndex(s => s.id === stationId);
+    if (idx >= 0) {
+      stations[idx] = newStation;
+    } else {
+      stations.push(newStation);
+    }
+    this._stationsMap.set(merchantId, stations);
+    return newStation;
+  }
+
+  async deleteKitchenStation(merchantId, stationId) {
+    const stations = await this.getKitchenStations(merchantId);
+    this._stationsMap.set(merchantId, stations.filter(s => s.id !== stationId));
+    return { success: true, stationId };
+  }
+
+  // --- 6C. ORDER DISPUTES & CANCELLATIONS ---
+  async getDisputes(merchantId) {
+    if (!merchantId) return [];
+    if (!this._disputesMap) this._disputesMap = new Map();
+    let disputes = this._disputesMap.get(merchantId);
+    if (!disputes) {
+      disputes = [
+        {
+          id: 'disp_4825_1',
+          orderId: 'ord_4825',
+          orderNumber: 'NB-4825',
+          merchantId,
+          customerName: 'Aarav Sharma',
+          customerPhoneMasked: '+91 98•••• 1234',
+          issueType: 'MISSING_ITEM',
+          issueTitle: 'Missing Garlic Naan (2 pcs)',
+          description: 'Customer reports ordered Garlic Naan were not inside packed bag.',
+          claimedAmount: 180.00,
+          currency: 'INR',
+          status: 'OPEN',
+          evidencePhotos: ['https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?w=500'],
+          createdAt: new Date(Date.now() - 3600000).toISOString()
+        },
+        {
+          id: 'disp_4819_2',
+          orderId: 'ord_4819',
+          orderNumber: 'NB-4819',
+          merchantId,
+          customerName: 'Priya Sen',
+          customerPhoneMasked: '+91 97•••• 5678',
+          issueType: 'WRONG_ITEM',
+          issueTitle: 'Wrong Spice Level Delivered',
+          description: 'Customer requested Mild for Butter Chicken, marked as Extra Spicy.',
+          claimedAmount: 320.00,
+          currency: 'INR',
+          status: 'RESOLVED',
+          evidencePhotos: [],
+          resolution: 'OFFERED_CREDIT',
+          createdAt: new Date(Date.now() - 86400000).toISOString()
+        }
+      ];
+      this._disputesMap.set(merchantId, disputes);
+    }
+    return disputes;
+  }
+
+  async resolveDispute(merchantId, disputeId, action, notes) {
+    const disputes = await this.getDisputes(merchantId);
+    const dispute = disputes.find(d => d.id === disputeId);
+    if (!dispute) {
+      const err = new Error('Dispute case not found.');
+      err.code = 'DISPUTE_NOT_FOUND';
+      err.statusCode = 404;
+      throw err;
+    }
+    dispute.status = 'RESOLVED';
+    dispute.resolution = action || 'RESOLVED_BY_MERCHANT';
+    dispute.resolutionNotes = notes || null;
+    dispute.resolvedAt = new Date().toISOString();
+    return dispute;
+  }
+
   // --- 7. TAKEAWAY OPERATIONS ---
   async recordTakeawayHandover(merchantId, orderId, handoverBy = 'Staff') {
     const staffName = typeof handoverBy === 'string' ? handoverBy : handoverBy.handoverBy || 'Staff';

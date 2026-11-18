@@ -7947,6 +7947,117 @@ app.patch(['/api/merchant/:restaurantId/rms/kds/tickets/:ticketId/status', '/api
   }
 });
 
+// 6B. KDS Display Settings & Kitchen Stations (Phase 4.2)
+app.get(['/api/merchant/:restaurantId/rms/kds/settings', '/api/merchant/rms/kds/settings'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+  try {
+    const merchantId = await resolveRestaurantMerchantCaller(req, res);
+    if (!merchantId) return;
+    const settings = await db.rmsRepo.getKdsSettings(merchantId);
+    res.json({ success: true, settings });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+app.put(['/api/merchant/:restaurantId/rms/kds/settings', '/api/merchant/rms/kds/settings'], authenticateMerchant, requireMerchantTenant, requireMerchantApproved, requireMerchantService('RESTAURANT'), async (req, res) => {
+  try {
+    const merchantId = await resolveRestaurantMerchantCaller(req, res);
+    if (!merchantId) return;
+    const updated = await db.rmsRepo.updateKdsSettings(merchantId, req.body);
+    res.json({ success: true, message: 'KDS display settings updated.', settings: updated });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+app.get(['/api/merchant/:restaurantId/rms/stations', '/api/merchant/rms/stations'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+  try {
+    const merchantId = await resolveRestaurantMerchantCaller(req, res);
+    if (!merchantId) return;
+    const stations = await db.rmsRepo.getKitchenStations(merchantId);
+    res.json({ success: true, count: stations.length, stations });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+app.post(['/api/merchant/:restaurantId/rms/stations', '/api/merchant/rms/stations'], authenticateMerchant, requireMerchantTenant, requireMerchantApproved, requireMerchantService('RESTAURANT'), async (req, res) => {
+  try {
+    const merchantId = await resolveRestaurantMerchantCaller(req, res);
+    if (!merchantId) return;
+    const station = await db.rmsRepo.saveKitchenStation(merchantId, req.body);
+    res.status(201).json({ success: true, message: 'Kitchen station saved.', station });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+app.delete(['/api/merchant/:restaurantId/rms/stations/:stationId', '/api/merchant/rms/stations/:stationId'], authenticateMerchant, requireMerchantTenant, requireMerchantApproved, requireMerchantService('RESTAURANT'), async (req, res) => {
+  try {
+    const merchantId = await resolveRestaurantMerchantCaller(req, res);
+    if (!merchantId) return;
+    const result = await db.rmsRepo.deleteKitchenStation(merchantId, req.params.stationId);
+    res.json({ success: true, message: 'Kitchen station deleted.', ...result });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+// 6C. Order Prep-Time Adjustment & Disputes (Phase 4.2)
+app.post(['/api/merchant/orders/:orderId/prep-time', '/api/merchant/:restaurantId/orders/:orderId/prep-time'], authenticateMerchant, requireMerchantTenant, requireMerchantApproved, requireMerchantService('RESTAURANT'), async (req, res) => {
+  try {
+    const merchantId = await resolveRestaurantMerchantCaller(req, res);
+    if (!merchantId) return;
+    const { minutes, reason } = req.body;
+    const prepMinutes = Number(minutes);
+    if (!prepMinutes || prepMinutes < 1 || prepMinutes > 180) {
+      return res.status(400).json({ success: false, code: 'INVALID_PREP_TIME', error: 'Preparation time must be between 1 and 180 minutes.' });
+    }
+
+    const order = await db.orderRepo.getOrderById(req.params.orderId);
+    if (!order || (order.merchant_id !== merchantId && order.merchantId !== merchantId)) {
+      return res.status(404).json({ success: false, code: 'ORDER_NOT_FOUND', error: 'Order not found for this restaurant.' });
+    }
+
+    order.prep_time_minutes = prepMinutes;
+    order.prepTimeMinutes = prepMinutes;
+    order.prep_time_reason = reason || 'Kitchen load adjustment';
+
+    res.json({
+      success: true,
+      message: `Kitchen prep time updated to ${prepMinutes} minutes.`,
+      orderId: order.id,
+      prepTimeMinutes: prepMinutes,
+      estimatedReadyTime: new Date(Date.now() + prepMinutes * 60000).toISOString()
+    });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+app.get(['/api/merchant/:restaurantId/rms/disputes', '/api/merchant/rms/disputes'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+  try {
+    const merchantId = await resolveRestaurantMerchantCaller(req, res);
+    if (!merchantId) return;
+    const disputes = await db.rmsRepo.getDisputes(merchantId);
+    res.json({ success: true, count: disputes.length, disputes });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+app.post(['/api/merchant/:restaurantId/rms/disputes/:disputeId/action', '/api/merchant/rms/disputes/:disputeId/action'], authenticateMerchant, requireMerchantTenant, requireMerchantApproved, requireMerchantService('RESTAURANT'), async (req, res) => {
+  try {
+    const merchantId = await resolveRestaurantMerchantCaller(req, res);
+    if (!merchantId) return;
+    const { action, notes } = req.body;
+    const resolved = await db.rmsRepo.resolveDispute(merchantId, req.params.disputeId, action, notes);
+    res.json({ success: true, message: 'Dispute action recorded.', dispute: resolved });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
 // 7. RMS Takeaway Handover
 app.post(['/api/merchant/:restaurantId/rms/orders/:orderId/handover', '/api/merchant/rms/orders/:orderId/handover'], authenticateMerchant, requireMerchantTenant, requireMerchantApproved, requireMerchantService('RESTAURANT'), async (req, res) => {
   try {
