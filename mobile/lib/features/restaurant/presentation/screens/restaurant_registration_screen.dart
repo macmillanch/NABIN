@@ -1444,7 +1444,7 @@ class _RestaurantRegistrationScreenState extends State<RestaurantRegistrationScr
       }
       _submitRegistration();
     } else if (_currentStep == 4) {
-      context.go('/login');
+      context.go('/onboarding/status');
     }
   }
 

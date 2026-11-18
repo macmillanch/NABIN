@@ -322,6 +322,28 @@ class NabinApiService {
     }
   }
 
+  /// Retrieve consolidated merchant onboarding progress and verification status (RM-008)
+  static Future<Map<String, dynamic>?> getMerchantOnboardingStatus({String? merchantId}) async {
+    try {
+      final client = HttpClient();
+      final url = merchantId != null && merchantId.isNotEmpty
+          ? '$effectiveUrl/merchant/${Uri.encodeComponent(merchantId)}/onboarding/status'
+          : '$effectiveUrl/merchant/onboarding/status';
+      final request = await client.getUrl(Uri.parse(url));
+      _attachAuthHeader(request);
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (body.isEmpty) return {'success': false, 'statusCode': response.statusCode};
+      final decoded = jsonDecode(body);
+      if (decoded is Map<String, dynamic>) {
+        return {...decoded, 'statusCode': response.statusCode};
+      }
+      return {'success': false, 'statusCode': response.statusCode};
+    } catch (e) {
+      return {'success': false, 'error': e.toString()};
+    }
+  }
+
   static Future<Map<String, dynamic>?> getPlatformFeatures() async {
     try {
       final client = HttpClient();
