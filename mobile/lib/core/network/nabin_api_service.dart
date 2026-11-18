@@ -141,6 +141,95 @@ class NabinApiService {
     }
   }
 
+  /// Upload compliance document (FSSAI, PAN/VAT, Trade License) to private storage
+  static Future<Map<String, dynamic>?> uploadMerchantDocument({
+    required String documentType,
+    required String filename,
+    required List<int> bytes,
+    String? merchantId,
+    String? documentNumber,
+    String? expiryDate,
+    String? mimeType,
+  }) async {
+    try {
+      final client = HttpClient();
+      final url = merchantId != null && merchantId.isNotEmpty
+          ? '$effectiveUrl/merchant/${Uri.encodeComponent(merchantId)}/documents'
+          : '$effectiveUrl/merchant/documents';
+      final request = await client.postUrl(Uri.parse(url));
+      request.headers.set('content-type', 'application/json');
+      _attachAuthHeader(request);
+
+      final base64Data = base64Encode(bytes);
+      request.add(utf8.encode(jsonEncode({
+        'documentType': documentType,
+        'filename': filename,
+        'fileData': base64Data,
+        if (documentNumber != null && documentNumber.isNotEmpty) 'documentNumber': documentNumber,
+        if (expiryDate != null && expiryDate.isNotEmpty) 'expiryDate': expiryDate,
+        if (mimeType != null && mimeType.isNotEmpty) 'mimeType': mimeType,
+      })));
+
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (body.isEmpty) return {'success': false, 'statusCode': response.statusCode};
+      final decoded = jsonDecode(body);
+      if (decoded is Map<String, dynamic>) {
+        return {...decoded, 'statusCode': response.statusCode};
+      }
+      return {'success': false, 'statusCode': response.statusCode};
+    } catch (e) {
+      return {'success': false, 'error': e.toString()};
+    }
+  }
+
+  /// List compliance documents for authenticated merchant
+  static Future<Map<String, dynamic>?> getMerchantDocuments({String? merchantId}) async {
+    try {
+      final client = HttpClient();
+      final url = merchantId != null && merchantId.isNotEmpty
+          ? '$effectiveUrl/merchant/${Uri.encodeComponent(merchantId)}/documents'
+          : '$effectiveUrl/merchant/documents';
+      final request = await client.getUrl(Uri.parse(url));
+      _attachAuthHeader(request);
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (body.isEmpty) return {'success': false, 'statusCode': response.statusCode};
+      final decoded = jsonDecode(body);
+      if (decoded is Map<String, dynamic>) {
+        return {...decoded, 'statusCode': response.statusCode};
+      }
+      return {'success': false, 'statusCode': response.statusCode};
+    } catch (e) {
+      return {'success': false, 'error': e.toString()};
+    }
+  }
+
+  /// Delete / withdraw compliance document
+  static Future<Map<String, dynamic>?> deleteMerchantDocument({
+    required String documentId,
+    String? merchantId,
+  }) async {
+    try {
+      final client = HttpClient();
+      final url = merchantId != null && merchantId.isNotEmpty
+          ? '$effectiveUrl/merchant/${Uri.encodeComponent(merchantId)}/documents/${Uri.encodeComponent(documentId)}'
+          : '$effectiveUrl/merchant/documents/${Uri.encodeComponent(documentId)}';
+      final request = await client.deleteUrl(Uri.parse(url));
+      _attachAuthHeader(request);
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (body.isEmpty) return {'success': false, 'statusCode': response.statusCode};
+      final decoded = jsonDecode(body);
+      if (decoded is Map<String, dynamic>) {
+        return {...decoded, 'statusCode': response.statusCode};
+      }
+      return {'success': false, 'statusCode': response.statusCode};
+    } catch (e) {
+      return {'success': false, 'error': e.toString()};
+    }
+  }
+
   static Future<Map<String, dynamic>?> getPlatformFeatures() async {
     try {
       final client = HttpClient();

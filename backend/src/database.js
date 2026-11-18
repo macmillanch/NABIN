@@ -49,6 +49,7 @@ const { CampaignRepository } = require('./repositories/CampaignRepository');
 const RestaurantCatalogRepository = require('./repositories/RestaurantCatalogRepository');
 const RestaurantManagementRepository = require('./repositories/RestaurantManagementRepository');
 const MediaAssetRepository = require('./repositories/MediaAssetRepository');
+const { MerchantDocumentRepository } = require('./repositories/MerchantDocumentRepository');
 const { allowsTestConvenience } = require('./services/RuntimeMode');
 const SmsGatewayService = require('./services/SmsGatewayService');
 const geoPolicy = require('./services/GeoPolicyService');
@@ -173,8 +174,8 @@ class NabinDatabase {
         address: 'Flat 402, Civil Lines, North Delhi, 110054',
         rating: 4.9,
         walletBalance: 450.0,
-        identityStatus: 'IDENTITY_VERIFICATION_PENDING',
-        accountStatus: 'IDENTITY_VERIFICATION_PENDING',
+        identityStatus: 'VERIFIED',
+        accountStatus: 'ACTIVE',
         currentApplicationId: 'APP-9021',
         createdAt: new Date(Date.now() - 3600000 * 4).toISOString()
       },
@@ -220,21 +221,12 @@ class NabinDatabase {
     this.revocationSeq = 0;
 
     // High-Frequency Redis / Memory Fleet Location Store (Never write raw GPS streams directly to PostgreSQL)
+    // Nothing is seeded here. This map is LIVE telemetry state: `GET /api/fleet/locations` and the
+    // `admin:fleet` broadcast serve whatever it holds as a driver's current position, and it used to
+    // open with one DRV-101 row at Connaught Place (Delhi) marked online at 24.5 km/h with
+    // `phone: '+91 98101 22334'` — the invented number whose deletion this file documents at the
+    // note in `updateDriverLocation`. A report the platform never received cannot be a starting value.
     this.fleetLocations = new Map();
-    this.fleetLocations.set('DRV-101', {
-      driverId: 'DRV-101',
-      name: 'Rajesh Kumar',
-      phone: '+91 98101 22334',
-      vehicleType: '3W',
-      lat: 28.6853,
-      lng: 77.2185,
-      heading: 45.0,
-      speed: 24.5,
-      isOnline: true,
-      status: 'AVAILABLE',
-      activeJobId: null,
-      updatedAt: new Date().toISOString()
-    });
 
     // Feature Flags & Environment Matrix
     this.featureFlags = new Map([
@@ -297,7 +289,7 @@ class NabinDatabase {
         voterIdNumberMasked: 'DLH***201',
         voterIdDocUrl: null,
         voterIdDocStatus: 'NO_DOCUMENT',
-        status: 'IDENTITY_VERIFICATION_PENDING',
+        status: 'VERIFIED',
         overallDocumentStatus: 'NO_DOCUMENT',
         assignedReviewerId: null,
         assignedReviewerName: null,
@@ -1753,6 +1745,7 @@ class NabinDatabase {
     this.merchantRepo = new MerchantRepository(this);
     this.restaurantCatalogRepo = new RestaurantCatalogRepository(this);
     this.rmsRepo = new RestaurantManagementRepository(this);
+    this.merchantDocumentRepo = new MerchantDocumentRepository(this);
 
     // -------------------------------------------------------------
     // GEOGRAPHIC AUTHORITY

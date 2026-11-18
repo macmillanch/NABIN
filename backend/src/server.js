@@ -8,6 +8,7 @@ const db = require('./database');
 const supabaseHelper = require('./supabase');
 const cloudinaryService = require('./services/cloudinaryService');
 const { supabaseStorageService } = require('./services/supabaseStorageService');
+const { merchantDocumentStorageService } = require('./services/merchantDocumentStorageService');
 // Canonical `Idempotency-Key` / `X-Idempotency-Key` / body spelling, shared with every other
 // mutating route here so a client learns one convention rather than one per endpoint.
 const { readIdempotencyHeader } = require('./services/moneyIdentity');
@@ -21,6 +22,10 @@ const { allowsTestConvenience } = require('./services/RuntimeMode');
 const { createCorsMiddleware } = require('./services/corsConfig');
 const SmsGatewayService = require('./services/SmsGatewayService');
 const AdvertisementRepository = require('./repositories/AdvertisementRepository');
+const { checkDriverComplianceEligibility, createComplianceRouter } = require('./routes/complianceRoutes');
+const { createEmergencyRouter } = require('./routes/emergencyRoutes');
+const { createJourneySharingRouter } = require('./routes/journeySharingRoutes');
+const { createSubscriptionRouter } = require('./routes/subscriptionRoutes');
 
 // One decision, in one place: credentials select the provider, and production with
 // no credentials is a named NOT_CONFIGURED refusal instead of the development
@@ -31,6 +36,67 @@ const pushProvider = resolvePushProvider();
 const pushNotificationService = new PushNotificationService(db.notificationRepo, pushProvider);
 db.pushNotificationService = pushNotificationService;
 db.notificationEventBus = notificationEventBus;
+
+// ============================================================================
+// EMERGENCY SOS AND JOURNEY SHARING SERVICE
+// ============================================================================
+
+// Emergency event broadcast function
+function broadcastEmergencySos(emergency) {
+    if (wss) {
+        wss.clients.forEach((client) => {
+            if (client.readyState === 1 && client.adminId) { // 1 = OPEN
+                client.send(JSON.stringify({
+                    type: 'EMERGENCY_SOS_TRIGGERED',
+                    payload: {
+                        event_id: emergency.id,
+                        user_id: emergency.user_id,
+                        event_type: emergency.event_type,
+                        lat: Number(emergency.lat),
+                        lng: Number(emergency.lng),
+                        triggered_at: emergency.triggered_at,
+                        user_role: emergency.user_role || 'unknown'
+                    }
+                }));
+            }
+        });
+    }
+}
+
+function broadcastEmergencyAcknowledged(emergency) {
+    if (wss) {
+        wss.clients.forEach((client) => {
+            if (client.readyState === 1 && client.adminId) {
+                client.send(JSON.stringify({
+                    type: 'EMERGENCY_ACKNOWLEDGED',
+                    payload: {
+                        event_id: emergency.id,
+                        acknowledged_by: emergency.acknowledged_by,
+                        acknowledged_at: emergency.acknowledged_at
+                    }
+                }));
+            }
+        });
+    }
+}
+
+function broadcastEmergencyResolved(emergency) {
+    if (wss) {
+        wss.clients.forEach((client) => {
+            if (client.readyState === 1 && client.adminId) {
+                client.send(JSON.stringify({
+                    type: 'EMERGENCY_RESOLVED',
+                    payload: {
+                        event_id: emergency.id,
+                        status: emergency.status,
+                        resolved_at: emergency.resolved_at,
+                        resolution_notes: emergency.resolution_notes
+                    }
+                }));
+            }
+        });
+    }
+}
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const LEGACY_CUSTOMER_MAP = {
@@ -721,8 +787,34 @@ wss.on('connection', (ws, req) => {
       const heading = Number(data.heading ?? data.bearing ?? data.location?.heading ?? 0) || 0;
       const speed = Number(data.speed ?? data.speedKmph ?? data.location?.speed ?? 0) || 0;
       const jobId = data.jobId ?? data.activeJobId ?? data.location?.jobId ?? null;
+      // Resolved once and reused for the trip-channel broadcast below. This lookup authorizes
+      // a write — the fleet-record mutation and both broadcasts — so the answer must come from
+      // the store, not from whatever this process happens to have hydrated. `db.getJob` only
+      // scans the mirror, and `findByIdAsync` is Owner Decision 11's read-through cache: on a
+      // store refusal it answers the mirror, which for an unhydrated trip is "no such job" and
+      // for a hydrated one is a stale assignment. `findByIdStrict` is the repository's
+      // durable-first read for a lookup whose answer authorizes a write
+      // (JobRepository.js:203-231): a store failure raises STORE_UNAVAILABLE, reported below as
+      // JOB_AUTHORIZATION_UNRESOLVED rather than proof that the trip is absent or foreign. It
+      // still answers from the mirror when PostgreSQL is not configured, so memory-only
+      // operation is unchanged.
+      let job = null;
       if (jobId) {
-        const job = db.getJob(jobId);
+        if (db.jobRepo?.findByIdStrict) {
+          try {
+            job = await db.jobRepo.findByIdStrict(jobId);
+          } catch (lookupErr) {
+            console.error('[ws DRIVER_LOCATION_UPDATE] job authorization lookup failed:', lookupErr);
+            ws.send(JSON.stringify({
+              type: 'ERROR',
+              code: 'JOB_AUTHORIZATION_UNRESOLVED',
+              error: 'Cannot attach telemetry: that trip could not be verified as yours.'
+            }));
+            return;
+          }
+        } else {
+          job = db.getJob(jobId);
+        }
         if (!job) {
           ws.send(JSON.stringify({
             type: 'ERROR',
@@ -780,7 +872,7 @@ wss.on('connection', (ws, req) => {
       // Synchronize in-memory driver location
       // MI-4 (P1): strict. `getDriver` falls through to `|| this.drivers[0]`, so telemetry from a
       // driver this process never hydrated moved the FIRST SEEDED driver's marker on the admin
-      // fleet map. The durable write above (`updateDriverLocation`) is the authoritative path.
+      // fleet map.
       const driver = db.getDriverStrict(driverId);
       if (driver) {
         driver.location = { lat, lng };
@@ -796,7 +888,6 @@ wss.on('connection', (ws, req) => {
 
       // Broadcast to active trip channel if assigned (strictly isolated to authorized ride participants)
       if (jobId) {
-        const job = db.getJob(jobId);
         const channelName = job?.type === 'RIDE' ? `ride:${jobId}` : `delivery:${jobId}`;
         broadcastRideLocation(jobId, job, {
           type: 'DRIVER_LOCATION_UPDATE',
@@ -808,12 +899,115 @@ wss.on('connection', (ws, req) => {
         });
       }
 
+      // Durable last-known position, alongside the live in-process frame. The answer below is built
+      // from this outcome, never from the memory write: during a store refusal the frame is still
+      // accepted for live tracking, and the ack must say so instead of implying a row landed.
+      let positionPersistence = { persisted: false, persistedAt: null, reason: 'NO_DURABLE_STORE' };
+      if (db.driverRepo?.persistLocation) {
+        try {
+          positionPersistence = await db.driverRepo.persistLocation(driverId, {
+            lat,
+            lng,
+            receivedAt: telemetry.value.receivedAt
+          });
+        } catch (persistErr) {
+          console.error('[ws DRIVER_LOCATION_UPDATE] durable position write failed:', persistErr);
+          positionPersistence = { persisted: false, persistedAt: null, reason: 'STORE_UNAVAILABLE' };
+        }
+      }
+
       ws.send(JSON.stringify({
         type: 'LOCATION_ACK',
         success: true,
         driverId,
+        // NCT-BACK-22: `success` alone was read as durability. These fields name where the frame
+        // actually landed and when the last-known position reached PostgreSQL, if it did.
+        telemetryStore: positionPersistence.persisted ? 'memory+postgres' : 'memory',
+        persistedToDatabase: positionPersistence.persisted,
+        positionPersistedAt: positionPersistence.persisted ? positionPersistence.persistedAt : null,
+        persistenceWarning: positionPersistence.persisted ? null : positionPersistence.reason,
         timestamp: locationRecord.updatedAt
       }));
+      return;
+    }
+
+    // Telemetry: RIDER_LOCATION_UPDATE (Customer publishing live pickup position to assigned driver)
+    if (data.type === 'RIDER_LOCATION_UPDATE' || data.type === 'CUSTOMER_LOCATION_UPDATE') {
+      if (ws.authInfo.role !== 'customer') {
+        ws.send(JSON.stringify({
+          type: 'ERROR',
+          code: 'ROLE_FORBIDDEN',
+          error: 'Only customers can publish rider location.'
+        }));
+        return;
+      }
+
+      const customerId = ws.authInfo.id;
+      const customerUuid = db.userRepo?.resolveUuid(customerId) || ws.authInfo.uuid || customerId;
+      const jobId = data.jobId || data.activeJobId || data.rideId || null;
+      const rawLat = data.location?.lat ?? data.location?.latitude ?? data.lat ?? data.latitude;
+      const rawLng = data.location?.lng ?? data.location?.longitude ?? data.lng ?? data.longitude;
+      const accuracy = Number(data.accuracy ?? data.location?.accuracy ?? 0) || 0;
+
+      if (!jobId || rawLat == null || rawLng == null) {
+        ws.send(JSON.stringify({
+          type: 'ERROR',
+          code: 'INVALID_LOCATION_PAYLOAD',
+          error: 'jobId, lat, and lng are required for rider location updates.'
+        }));
+        return;
+      }
+
+      let job = db.getJob(jobId);
+      if (!job && db.jobRepo?.findByIdStrict) {
+        try {
+          job = await db.jobRepo.findByIdStrict(jobId);
+        } catch (_) {}
+      }
+      if (!job) {
+        ws.send(JSON.stringify({
+          type: 'ERROR',
+          code: 'JOB_NOT_FOUND',
+          error: 'Ride booking not found for location publishing.'
+        }));
+        return;
+      }
+
+      const jobCustomerUuid = db.userRepo?.resolveUuid(job.customerId) || job.customerUuid || job.customerId;
+      if (customerUuid !== job.customerId && customerUuid !== jobCustomerUuid) {
+        ws.send(JSON.stringify({
+          type: 'ERROR',
+          code: 'FORBIDDEN_NOT_OWNER',
+          error: 'Not authorized to publish location for this booking.'
+        }));
+        return;
+      }
+
+      if (!['ASSIGNED', 'ACCEPTED', 'ARRIVED'].includes(job.status)) {
+        return;
+      }
+
+      const lat = Number(rawLat);
+      const lng = Number(rawLng);
+      if (isNaN(lat) || isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+        ws.send(JSON.stringify({
+          type: 'ERROR',
+          code: 'INVALID_COORDINATES',
+          error: 'Latitude or longitude out of range.'
+        }));
+        return;
+      }
+
+      if (job.driverId) {
+        broadcastToDriver(job.driverId, {
+          type: 'RIDER_LOCATION_UPDATE',
+          jobId: job.id,
+          lat,
+          lng,
+          accuracy,
+          timestamp: data.timestamp || new Date().toISOString()
+        });
+      }
       return;
     }
 
@@ -830,10 +1024,21 @@ wss.on('connection', (ws, req) => {
       }
 
       let job = db.getJob(rawJobId);
-      if (!job && db.jobRepo?.findByIdAsync) {
+      // findByIdAsync swallows a store error and answers from the mirror, so a null from it cannot
+      // prove absence. findByIdStrict is durable-first and rejects with STORE_UNAVAILABLE; that is
+      // a temporary failure to verify, not evidence the ride does not exist.
+      if (!job && db.jobRepo?.findByIdStrict) {
         try {
-          job = await db.jobRepo.findByIdAsync(rawJobId);
-        } catch (_) {}
+          job = await db.jobRepo.findByIdStrict(rawJobId);
+        } catch (lookupErr) {
+          console.error('[ws SUBSCRIBE_RIDE] ride lookup failed:', lookupErr);
+          ws.send(JSON.stringify({
+            type: 'ERROR',
+            code: 'RIDE_LOOKUP_UNAVAILABLE',
+            error: 'Cannot verify this ride right now because the ride store did not answer. Please retry shortly.'
+          }));
+          return;
+        }
       }
       if (!job) {
         ws.send(JSON.stringify({
@@ -970,6 +1175,15 @@ function broadcastToCustomer(customerId, payload) {
   const msg = JSON.stringify(payload);
   for (const [ws, info] of clients.entries()) {
     if (info.role === 'customer' && info.id === customerId && ws.readyState === ws.OPEN) {
+      ws.send(msg);
+    }
+  }
+}
+
+function broadcastToDriver(driverId, payload) {
+  const msg = JSON.stringify(payload);
+  for (const [ws, info] of clients.entries()) {
+    if ((info.role === 'driver' || info.role === 'DRIVER') && (info.id === driverId || info.uuid === driverId) && ws.readyState === ws.OPEN) {
       ws.send(msg);
     }
   }
@@ -3297,6 +3511,12 @@ app.post('/api/promotions/apply', authenticateUser, async (req, res) => {
     if (!result.success) return res.status(400).json(result);
     res.json(result);
   } catch (err) {
+    // A promotion store that cannot answer is the platform's condition, not the customer's
+    // coupon. The repository throws the shared retryable 503 for it, and the shared
+    // classifier turns that into a 503 with a friendly sentence — the engine's own text
+    // stays in the log. A 400 here would tell the customer their coupon is invalid and
+    // stop the app retrying a coupon that was never the problem.
+    if (supabaseHelper.isStoreUnreachable(err)) return replyStoreError(res, req, err, 'promotion coupon');
     res.status(500).json({ success: false, error: err.message, requestId: req.id });
   }
 });
@@ -3325,6 +3545,9 @@ app.post('/api/promotions/redeem', authenticateUser, async (req, res) => {
     if (!result.success) return res.status(400).json(result);
     res.json(result);
   } catch (err) {
+    // Same boundary as /api/promotions/apply: a store outage is a retryable 503, not a
+    // rejected coupon, and the redemption that never happened must not read as one.
+    if (supabaseHelper.isStoreUnreachable(err)) return replyStoreError(res, req, err, 'promotion coupon');
     res.status(500).json({ success: false, error: err.message, requestId: req.id });
   }
 });
@@ -3879,6 +4102,39 @@ app.delete('/api/admin/geofences/:id', authenticateAdmin, requirePermission('geo
   }
 });
 
+// Check overlap of candidate polygon against active geofences
+app.post('/api/admin/geofences/check-overlap', authenticateAdmin, requirePermission('geofence.view'), async (req, res) => {
+  try {
+    const { coordinates, excludeId } = req.body;
+    if (!Array.isArray(coordinates) || coordinates.length < 3) {
+      return res.status(400).json({ success: false, code: 'INVALID_COORDINATES', error: 'Coordinates must be an array of at least 3 points.' });
+    }
+    const fences = await db.pricingRepo.listGeoFences({ is_active: true });
+    const overlapping = [];
+    for (const fence of fences) {
+      if (excludeId && (fence.id === excludeId || fence.zoneCode === excludeId)) continue;
+      if (fence.geometryType === 'POLYGON' && Array.isArray(fence.coordinates)) {
+        if (geoPolicy.doPolygonsOverlap(coordinates, fence.coordinates)) {
+          overlapping.push({
+            id: fence.id,
+            zoneName: fence.zoneName,
+            zoneCode: fence.zoneCode,
+            category: fence.category
+          });
+        }
+      }
+    }
+    res.json({
+      success: true,
+      hasOverlap: overlapping.length > 0,
+      overlappingZones: overlapping
+    });
+  } catch (err) {
+    replyGeoAdminError(res, req, err);
+  }
+});
+
+
 app.get('/api/admin/surgezones', authenticateAdmin, requirePermission('surge.view'), async (req, res) => {
   try {
     const surgeZones = await db.pricingRepo.listSurgeZones(req.query);
@@ -3937,6 +4193,65 @@ app.post('/api/geofence/evaluate', (req, res) => {
   });
 });
 
+// Public Multi-Vertical Geofence Location Validation API
+// Provides instant verification for Customer Web, Mobile Apps, and Dispatch
+app.post('/api/v1/geo/validate-location', (req, res) => {
+  const { lat, lng, service } = req.body;
+  const parsed = geoPolicy.validateCoordinatePair(lat, lng, { numericStrings: true });
+  if (!parsed.ok) {
+    return res.status(400).json({
+      success: false,
+      code: parsed.code,
+      error: parsed.message
+    });
+  }
+
+  const result = geoPolicy.evaluate({
+    latitude: parsed.value.lat,
+    longitude: parsed.value.lng,
+    service: (service || 'ALL').toUpperCase(),
+    operation: 'LOCATION_VALIDATE',
+    authenticatedUser: req.user ? { id: req.user.id, role: req.user.role || 'CUSTOMER' } : null
+  });
+
+  if (result.rejectionReason) {
+    const unavailable = result.rejectionReason.code === geoPolicy.REASON.STORE_UNAVAILABLE;
+    return res.status(unavailable ? 503 : 400).json({
+      success: false,
+      code: result.rejectionReason.code,
+      error: result.rejectionReason.message
+    });
+  }
+
+  const primary = result.matchedFences && result.matchedFences[0];
+  const allowed = primary?.allowedServices || ['RIDE', 'FOOD', 'GROCERY', 'PARCEL'];
+  const hasService = (s) => result.insideServiceArea && (allowed.includes('ALL') || allowed.includes(s));
+
+  res.json({
+    success: true,
+    coordinates: result.coordinate,
+    insideServiceArea: result.insideServiceArea,
+    locationValidated: result.locationValidated,
+    matchedZone: primary ? {
+      id: primary.id,
+      name: primary.name,
+      code: primary.code || primary.zoneCode,
+      category: primary.category || 'CORE_CITY',
+      surchargeAmount: primary.surchargeAmount || 0,
+      surgeMultiplier: primary.surgeMultiplier || 1.0
+    } : null,
+    availableServices: {
+      ride: hasService('RIDE'),
+      food: hasService('FOOD'),
+      grocery: hasService('GROCERY'),
+      parcel: hasService('PARCEL')
+    },
+    effectiveSurgeMultiplier: result.effectiveSurgeMultiplier || 1.0,
+    totalSurcharge: result.totalSurcharge || 0,
+    evaluatedAt: result.evaluatedAt
+  });
+});
+
 // Coordinate → place name. NABIN has no geocoder, so what this route used to do was
 // keep a compiled-in list of Delhi neighbourhoods and answer with the nearest one:
 // a point in Aizawl came back as "Delhi NCR Operational Hub", and a caller had no
@@ -3974,6 +4289,469 @@ app.post('/api/geofence/reverse-geocode', (req, res) => {
   });
 });
 
+// -------------------------------------------------------------
+// 5b. MULTI-REGION & INDEPENDENT SERVICE ACTIVATION GOVERNANCE
+// -------------------------------------------------------------
+
+function isPointInGeoJsonPolygon(lat, lng, geometry) {
+  if (!geometry) return false;
+  let coords = null;
+  if (geometry.type === 'Polygon' && Array.isArray(geometry.coordinates)) {
+    coords = geometry.coordinates[0];
+  } else if (geometry.type === 'MultiPolygon' && Array.isArray(geometry.coordinates)) {
+    for (const poly of geometry.coordinates) {
+      if (isPointInGeoJsonPolygon(lat, lng, { type: 'Polygon', coordinates: poly })) return true;
+    }
+    return false;
+  }
+  if (!coords || !Array.isArray(coords)) return false;
+
+  let inside = false;
+  for (let i = 0, j = coords.length - 1; i < coords.length; j = i++) {
+    const xi = coords[i][0], yi = coords[i][1]; // GeoJSON is [lng, lat]
+    const xj = coords[j][0], yj = coords[j][1];
+    const intersect = ((yi > lat) !== (yj > lat)) && (lng < (xj - xi) * (lat - yi) / (yj - yi) + xi);
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+// 1. Dynamic Client Service & Feature Discovery
+app.get('/api/services/available', async (req, res) => {
+  try {
+    const lat = req.query.lat ? parseFloat(req.query.lat) : 24.1821;
+    const lng = req.query.lng ? parseFloat(req.query.lng) : 92.7483;
+    const { supabaseAdmin, isLivePostgres } = require('./supabase');
+
+    if (!isLivePostgres || !supabaseAdmin) {
+      return res.json({
+        success: true,
+        isCovered: true,
+        serviceArea: { id: 'sa_pilot_memory', code: 'SA-MZ-SUMSILUI-CORE', name: 'Sumsilui Core Hub', regionName: 'Sumsilui' },
+        services: [
+          { service: 'RIDE', status: 'ACTIVE', isOpen: true, accentColor: '#1A3BA2' },
+          { service: 'FOOD', status: 'ACTIVE', isOpen: true, accentColor: '#E85D36' },
+          { service: 'GROCERY', status: 'ACTIVE', isOpen: true, accentColor: '#269B59' },
+          { service: 'PARCEL', status: 'ACTIVE', isOpen: true, accentColor: '#7652C8' }
+        ],
+        features: { shared_ride: false, vehicle_rentals: false, dine_in_reservations: true, packed_weight_adjustment: true, cod_payments: true },
+        dataSource: 'memory'
+      });
+    }
+
+    const { data: areas, error: areaErr } = await supabaseAdmin
+      .from('service_areas')
+      .select('id, code, name, boundary_geojson, center_lat, center_lng, radius_km, regions(id, code, name, district, state_code)')
+      .eq('status', 'ACTIVE');
+
+    if (areaErr) return replyStoreError(res, req, areaErr, 'service areas');
+
+    let matchedArea = null;
+    for (const a of (areas || [])) {
+      if (a.boundary_geojson && isPointInGeoJsonPolygon(lat, lng, a.boundary_geojson)) {
+        matchedArea = a;
+        break;
+      }
+      if (a.center_lat && a.center_lng && a.radius_km) {
+        const d = geoPolicy.distanceKmBetween({ lat, lng }, { lat: Number(a.center_lat), lng: Number(a.center_lng) });
+        if (d <= Number(a.radius_km)) {
+          matchedArea = a;
+          break;
+        }
+      }
+    }
+
+    if (!matchedArea) {
+      return res.json({
+        success: true,
+        isCovered: false,
+        serviceArea: null,
+        services: [],
+        features: {},
+        message: 'No active NABIN service area covers these coordinates.',
+        dataSource: 'postgres'
+      });
+    }
+
+    const { data: svcConfigs, error: svcErr } = await supabaseAdmin
+      .from('region_service_configurations')
+      .select('service_type, status, pricing_config_id, is_24_hours, opening_time, closing_time, max_dispatch_radius_km')
+      .eq('service_area_id', matchedArea.id);
+
+    if (svcErr) return replyStoreError(res, req, svcErr, 'service configurations');
+
+    const serviceColors = {
+      RIDE: '#1A3BA2',
+      FOOD: '#E85D36',
+      GROCERY: '#269B59',
+      PARCEL: '#7652C8'
+    };
+
+    const services = (svcConfigs || []).map((s) => ({
+      service: s.service_type,
+      status: s.status,
+      isOpen: s.status === 'ACTIVE',
+      accentColor: serviceColors[s.service_type] || '#1A3BA2',
+      is24Hours: s.is_24_hours,
+      maxDispatchRadiusKm: Number(s.max_dispatch_radius_km || 10)
+    }));
+
+    const { data: flags, error: flagErr } = await supabaseAdmin
+      .from('feature_flags')
+      .select('key, status, target_scope, target_ids, target_services')
+      .in('status', ['ENABLED', 'CANARY_SERVICE_AREA']);
+
+    const features = {};
+    for (const f of (flags || [])) {
+      if (f.status === 'ENABLED') {
+        features[f.key] = true;
+      } else if (f.status === 'CANARY_SERVICE_AREA' && Array.isArray(f.target_ids)) {
+        features[f.key] = f.target_ids.includes(matchedArea.id);
+      } else {
+        features[f.key] = false;
+      }
+    }
+
+    const reg = matchedArea.regions || {};
+    return res.json({
+      success: true,
+      isCovered: true,
+      serviceArea: {
+        id: matchedArea.id,
+        code: matchedArea.code,
+        name: matchedArea.name,
+        regionName: reg.name || 'Mizoram',
+        district: reg.district || 'Kolasib',
+        stateCode: reg.state_code || 'MZ'
+      },
+      services,
+      features,
+      dataSource: 'postgres'
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+// 2. Admin: List Regions
+app.get('/api/admin/regions', authenticateAdmin, requirePermission('geofence.view'), async (req, res) => {
+  try {
+    const { supabaseAdmin, isLivePostgres } = require('./supabase');
+    if (!isLivePostgres || !supabaseAdmin) {
+      return res.json({ success: true, count: 1, regions: [{ code: 'IN-MZ-KOL-SUM', name: 'Sumsilui Hub', status: 'ACTIVE' }] });
+    }
+    const { data, error, count } = await supabaseAdmin
+      .from('regions')
+      .select('*', { count: 'exact' })
+      .order('admin_level', { ascending: true })
+      .order('name', { ascending: true });
+    if (error) return replyStoreError(res, req, error, 'regions list');
+    res.json({ success: true, count: count ?? (data || []).length, regions: data || [] });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+// 3. Admin: Create Region
+app.post('/api/admin/regions', authenticateAdmin, requirePermission('geofence.create'), async (req, res) => {
+  try {
+    const { code, name, country_code, state_code, district, town_locality, parent_region_id, admin_level, center_lat, center_lng, timezone, currency, default_language, status } = req.body;
+    if (!code || !name || !state_code || !district || center_lat == null || center_lng == null) {
+      return res.status(400).json({ success: false, code: 'MISSING_REGION_FIELDS', error: 'code, name, state_code, district, center_lat, center_lng are required.' });
+    }
+    const { supabaseAdmin, isLivePostgres } = require('./supabase');
+    if (!isLivePostgres || !supabaseAdmin) {
+      return res.json({ success: true, region: { id: 'reg_mock', code, name, status: status || 'ACTIVE' } });
+    }
+    const { data, error } = await supabaseAdmin
+      .from('regions')
+      .insert([{
+        code: code.trim(),
+        name: name.trim(),
+        country_code: country_code || 'IN',
+        state_code: state_code.trim(),
+        district: district.trim(),
+        town_locality: town_locality ? town_locality.trim() : null,
+        parent_region_id: parent_region_id || null,
+        admin_level: admin_level || 'LOCALITY',
+        center_lat: Number(center_lat),
+        center_lng: Number(center_lng),
+        timezone: timezone || 'Asia/Kolkata',
+        currency: currency || 'INR',
+        default_language: default_language || 'en',
+        status: status || 'ACTIVE'
+      }])
+      .select()
+      .single();
+    if (error) return replyStoreError(res, req, error, 'create region');
+    res.status(201).json({ success: true, region: data });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+// 4. Admin: Update Region Status or Details
+app.put('/api/admin/regions/:id', authenticateAdmin, requirePermission('geofence.create'), async (req, res) => {
+  try {
+    const { supabaseAdmin, isLivePostgres } = require('./supabase');
+    const updatePayload = { updated_at: new Date().toISOString() };
+    const allowed = ['name', 'status', 'center_lat', 'center_lng', 'timezone', 'default_language', 'metadata'];
+    for (const k of allowed) {
+      if (req.body[k] !== undefined) updatePayload[k] = req.body[k];
+    }
+    if (!isLivePostgres || !supabaseAdmin) {
+      return res.json({ success: true, region: { id: req.params.id, ...updatePayload } });
+    }
+    const { data, error } = await supabaseAdmin
+      .from('regions')
+      .update(updatePayload)
+      .eq('id', req.params.id)
+      .select()
+      .maybeSingle();
+    if (error) return replyStoreError(res, req, error, 'update region');
+    if (!data) return res.status(404).json({ success: false, code: 'REGION_NOT_FOUND', error: 'Region not found' });
+    res.json({ success: true, region: data });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+// 5. Admin: List Service Areas
+app.get('/api/admin/service-areas', authenticateAdmin, requirePermission('geofence.view'), async (req, res) => {
+  try {
+    const { supabaseAdmin, isLivePostgres } = require('./supabase');
+    if (!isLivePostgres || !supabaseAdmin) {
+      return res.json({ success: true, count: 1, serviceAreas: [{ code: 'SA-MZ-SUMSILUI-CORE', name: 'Sumsilui Core', status: 'ACTIVE' }] });
+    }
+    const { data, error, count } = await supabaseAdmin
+      .from('service_areas')
+      .select('*, regions(id, code, name, district, state_code)', { count: 'exact' })
+      .order('name', { ascending: true });
+    if (error) return replyStoreError(res, req, error, 'list service areas');
+    res.json({ success: true, count: count ?? (data || []).length, serviceAreas: data || [] });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+// 6. Admin: Create Service Area
+app.post('/api/admin/service-areas', authenticateAdmin, requirePermission('geofence.create'), async (req, res) => {
+  try {
+    const { code, name, region_id, boundary_geojson, center_lat, center_lng, radius_km, status } = req.body;
+    if (!code || !name || !region_id || !boundary_geojson || center_lat == null || center_lng == null) {
+      return res.status(400).json({ success: false, code: 'MISSING_SERVICE_AREA_FIELDS', error: 'code, name, region_id, boundary_geojson, center_lat, center_lng are required.' });
+    }
+    const { supabaseAdmin, isLivePostgres } = require('./supabase');
+    if (!isLivePostgres || !supabaseAdmin) {
+      return res.json({ success: true, serviceArea: { id: 'sa_mock', code, name, status: status || 'ACTIVE' } });
+    }
+    const { data, error } = await supabaseAdmin
+      .from('service_areas')
+      .insert([{
+        code: code.trim(),
+        name: name.trim(),
+        region_id,
+        boundary_geojson,
+        center_lat: Number(center_lat),
+        center_lng: Number(center_lng),
+        radius_km: radius_km != null ? Number(radius_km) : 10.00,
+        status: status || 'ACTIVE'
+      }])
+      .select()
+      .single();
+    if (error) return replyStoreError(res, req, error, 'create service area');
+    res.status(201).json({ success: true, serviceArea: data });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+// 7. Admin: Update Service Area
+app.put('/api/admin/service-areas/:id', authenticateAdmin, requirePermission('geofence.create'), async (req, res) => {
+  try {
+    const { supabaseAdmin, isLivePostgres } = require('./supabase');
+    const updatePayload = { updated_at: new Date().toISOString() };
+    const allowed = ['name', 'boundary_geojson', 'center_lat', 'center_lng', 'radius_km', 'status'];
+    for (const k of allowed) {
+      if (req.body[k] !== undefined) updatePayload[k] = req.body[k];
+    }
+    if (!isLivePostgres || !supabaseAdmin) {
+      return res.json({ success: true, serviceArea: { id: req.params.id, ...updatePayload } });
+    }
+    const { data, error } = await supabaseAdmin
+      .from('service_areas')
+      .update(updatePayload)
+      .eq('id', req.params.id)
+      .select()
+      .maybeSingle();
+    if (error) return replyStoreError(res, req, error, 'update service area');
+    if (!data) return res.status(404).json({ success: false, code: 'SERVICE_AREA_NOT_FOUND', error: 'Service area not found' });
+    res.json({ success: true, serviceArea: data });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+// 8. Admin: List Services for Service Area
+app.get('/api/admin/service-areas/:id/services', authenticateAdmin, requirePermission('geofence.view'), async (req, res) => {
+  try {
+    const { supabaseAdmin, isLivePostgres } = require('./supabase');
+    if (!isLivePostgres || !supabaseAdmin) {
+      return res.json({ success: true, services: [{ service_type: 'RIDE', status: 'ACTIVE' }, { service_type: 'FOOD', status: 'ACTIVE' }] });
+    }
+    const { data, error } = await supabaseAdmin
+      .from('region_service_configurations')
+      .select('*')
+      .eq('service_area_id', req.params.id);
+    if (error) return replyStoreError(res, req, error, 'list services for area');
+    res.json({ success: true, services: data || [] });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+// 9. Admin: Independent Service Activation & Configuration (Ride, Food, Grocery, Parcel)
+app.put('/api/admin/service-areas/:id/services/:serviceType', authenticateAdmin, requirePermission('geofence.create'), async (req, res) => {
+  try {
+    const serviceType = (req.params.serviceType || '').toUpperCase();
+    if (!['RIDE', 'FOOD', 'GROCERY', 'PARCEL'].includes(serviceType)) {
+      return res.status(400).json({ success: false, code: 'INVALID_SERVICE_TYPE', error: 'Service must be RIDE, FOOD, GROCERY, or PARCEL' });
+    }
+    const { status, pricing_config_id, is_24_hours, opening_time, closing_time, max_dispatch_radius_km, settings } = req.body;
+    const { supabaseAdmin, isLivePostgres } = require('./supabase');
+
+    const updatePayload = {
+      service_area_id: req.params.id,
+      service_type: serviceType,
+      updated_at: new Date().toISOString(),
+      last_modified_by: req.admin?.id || 'admin'
+    };
+    if (status) {
+      updatePayload.status = status;
+      if (status === 'ACTIVE') updatePayload.activated_at = new Date().toISOString();
+      if (status === 'PAUSED' || status === 'SUSPENDED') updatePayload.paused_at = new Date().toISOString();
+    }
+    if (pricing_config_id !== undefined) updatePayload.pricing_config_id = pricing_config_id;
+    if (is_24_hours !== undefined) updatePayload.is_24_hours = !!is_24_hours;
+    if (opening_time !== undefined) updatePayload.opening_time = opening_time;
+    if (closing_time !== undefined) updatePayload.closing_time = closing_time;
+    if (max_dispatch_radius_km !== undefined) updatePayload.max_dispatch_radius_km = Number(max_dispatch_radius_km);
+    if (settings !== undefined) updatePayload.settings = settings;
+
+    if (!isLivePostgres || !supabaseAdmin) {
+      return res.json({ success: true, serviceConfig: updatePayload });
+    }
+
+    const { data, error } = await supabaseAdmin
+      .from('region_service_configurations')
+      .upsert([updatePayload], { onConflict: 'service_area_id, service_type' })
+      .select()
+      .single();
+
+    if (error) return replyStoreError(res, req, error, 'update service configuration');
+    res.json({ success: true, serviceConfig: data });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+// 10. Admin: List Feature Flags
+app.get('/api/admin/features', authenticateAdmin, requirePermission('settings.view'), async (req, res) => {
+  try {
+    const { supabaseAdmin, isLivePostgres } = require('./supabase');
+    if (!isLivePostgres || !supabaseAdmin) {
+      return res.json({ success: true, features: [] });
+    }
+    const { data, error } = await supabaseAdmin
+      .from('feature_flags')
+      .select('*')
+      .order('key', { ascending: true });
+    if (error) return replyStoreError(res, req, error, 'list feature flags');
+    res.json({ success: true, features: data || [] });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+// 11. Admin: Update Feature Flag Status & Targeting
+app.put('/api/admin/features/:key', authenticateAdmin, requirePermission('settings.edit'), async (req, res) => {
+  try {
+    const key = req.params.key;
+    const { status, target_scope, target_ids, target_services, enabled_roles, rollout_percentage } = req.body;
+    const { supabaseAdmin, isLivePostgres } = require('./supabase');
+
+    let existingName = req.body?.name || key;
+    if (isLivePostgres && supabaseAdmin) {
+      const { data: existing } = await supabaseAdmin
+        .from('feature_flags')
+        .select('name')
+        .eq('key', key)
+        .maybeSingle();
+      if (existing && existing.name) existingName = existing.name;
+    }
+
+    const updatePayload = {
+      key,
+      name: existingName,
+      updated_at: new Date().toISOString(),
+      created_by: req.admin?.id || 'admin'
+    };
+    if (status) updatePayload.status = status;
+    if (target_scope) updatePayload.target_scope = target_scope;
+    if (target_ids !== undefined) updatePayload.target_ids = target_ids;
+    if (target_services !== undefined) updatePayload.target_services = target_services;
+    if (enabled_roles !== undefined) updatePayload.enabled_roles = enabled_roles;
+    if (rollout_percentage !== undefined) updatePayload.rollout_percentage = Number(rollout_percentage);
+
+    if (!isLivePostgres || !supabaseAdmin) {
+      return res.json({ success: true, feature: updatePayload });
+    }
+
+    const { data, error } = await supabaseAdmin
+      .from('feature_flags')
+      .upsert([updatePayload], { onConflict: 'key' })
+      .select()
+      .single();
+
+    if (error) return replyStoreError(res, req, error, 'update feature flag');
+    res.json({ success: true, feature: data });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+// 12. Admin: Assign Regional Administrator
+app.post('/api/admin/regions/:id/delegates', authenticateAdmin, requirePermission('admin_accounts.manage'), async (req, res) => {
+  try {
+    const regionId = req.params.id;
+    const { admin_user_id, service_area_id, role, can_activate_services, can_modify_pricing } = req.body;
+    if (!admin_user_id) {
+      return res.status(400).json({ success: false, code: 'MISSING_DELEGATE_USER', error: 'admin_user_id is required' });
+    }
+    const { supabaseAdmin, isLivePostgres } = require('./supabase');
+    if (!isLivePostgres || !supabaseAdmin) {
+      return res.json({ success: true, delegate: { admin_user_id, regionId, role: role || 'REGIONAL_ADMIN' } });
+    }
+    const { data, error } = await supabaseAdmin
+      .from('region_admin_assignments')
+      .insert([{
+        admin_user_id,
+        region_id: regionId,
+        service_area_id: service_area_id || null,
+        role: role || 'REGIONAL_ADMIN',
+        can_activate_services: !!can_activate_services,
+        can_modify_pricing: !!can_modify_pricing,
+        granted_by: req.admin?.id || 'super_admin'
+      }])
+      .select()
+      .single();
+    if (error) return replyStoreError(res, req, error, 'assign regional delegate');
+    res.status(201).json({ success: true, delegate: data });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
 // Centralized Pricing Estimate (Integrates Live Coordinates, Geo-fences & Surge)
 // A coupon on a quote is validated by the PostgreSQL promotion authority and shown
 // without being consumed: `validate_promotion_preview` is read-only, so quoting a
@@ -3987,7 +4765,224 @@ app.post('/api/pricing/estimate', async (req, res) => {
     // that said `0` was treated as if it had said nothing (`Number('0') || 4.0` is 4.0). A quote
     // is the platform offering to take money, so the length has to come from the caller:
     // missing, unparseable or non-positive is a refusal, never a default. Non-positive is the
-    // same rule the booking route already states — a zero-length trip has no trip to price
+    // -------------------------------------------------------------
+// 5c. REALTIME PERSISTENT MESSAGING API & WEBSOCKET HUB
+// -------------------------------------------------------------
+
+function broadcastToConversationParticipants(conversationId, payload, excludeWs = null) {
+  const msg = JSON.stringify(payload);
+  for (const [ws, info] of clients.entries()) {
+    if (ws === excludeWs || ws.readyState !== WebSocket.OPEN) continue;
+    if (ws.activeConversations && ws.activeConversations.has(conversationId)) {
+      ws.send(msg);
+    }
+  }
+}
+
+// 1. List conversations for authenticated user
+app.get('/api/conversations', authenticateUser, async (req, res) => {
+  try {
+    const userId = db.userRepo?.resolveUuid(req.user.uuid || req.user.id) || req.user.uuid || req.user.id;
+    const { supabaseAdmin, isLivePostgres } = require('./supabase');
+    if (!isLivePostgres || !supabaseAdmin) {
+      return res.json({ success: true, count: 0, conversations: [], dataSource: 'memory' });
+    }
+
+    const { data: participations, error: pErr } = await supabaseAdmin
+      .from('conversation_participants')
+      .select('conversation_id, last_read_at')
+      .eq('user_id', userId);
+
+    if (pErr) return replyStoreError(res, req, pErr, 'conversations list');
+    const convIds = (participations || []).map(p => p.conversation_id);
+    if (convIds.length === 0) {
+      return res.json({ success: true, count: 0, conversations: [], dataSource: 'postgres' });
+    }
+
+    const { data: convs, error: cErr } = await supabaseAdmin
+      .from('conversations')
+      .select('*, conversation_participants(user_id, role, last_read_at)')
+      .in('id', convIds)
+      .order('updated_at', { ascending: false });
+
+    if (cErr) return replyStoreError(res, req, cErr, 'conversations details');
+
+    res.json({ success: true, count: (convs || []).length, conversations: convs || [], dataSource: 'postgres' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+// 2. Fetch messages for conversation
+app.get('/api/conversations/:id/messages', authenticateUser, async (req, res) => {
+  try {
+    const conversationId = req.params.id;
+    const userId = db.userRepo?.resolveUuid(req.user.uuid || req.user.id) || req.user.uuid || req.user.id;
+    const { supabaseAdmin, isLivePostgres } = require('./supabase');
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 100);
+    const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0);
+
+    if (!isLivePostgres || !supabaseAdmin) {
+      return res.json({ success: true, count: 0, messages: [], dataSource: 'memory' });
+    }
+
+    const { data: part } = await supabaseAdmin
+      .from('conversation_participants')
+      .select('id')
+      .eq('conversation_id', conversationId)
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (!part) {
+      return res.status(403).json({ success: false, code: 'FORBIDDEN_NOT_PARTICIPANT', error: 'Not authorized to view messages in this conversation.' });
+    }
+
+    const { data: messages, error, count } = await supabaseAdmin
+      .from('messages')
+      .select('*', { count: 'exact' })
+      .eq('conversation_id', conversationId)
+      .order('created_at', { ascending: true })
+      .range(offset, offset + limit - 1);
+
+    if (error) return replyStoreError(res, req, error, 'messages list');
+
+    res.json({ success: true, count: count ?? (messages || []).length, messages: messages || [], dataSource: 'postgres' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+// 3. Send message in conversation (REST fallback)
+app.post('/api/conversations/:id/messages', authenticateUser, async (req, res) => {
+  try {
+    const conversationId = req.params.id;
+    const userId = db.userRepo?.resolveUuid(req.user.uuid || req.user.id) || req.user.uuid || req.user.id;
+    const userRole = (req.user.role || 'CUSTOMER').toUpperCase();
+    const { content, message_type, metadata, idempotencyKey } = req.body;
+
+    if (!content || !content.toString().trim()) {
+      return res.status(400).json({ success: false, code: 'CONTENT_REQUIRED', error: 'Message content is required.' });
+    }
+
+    const { supabaseAdmin, isLivePostgres } = require('./supabase');
+    if (!isLivePostgres || !supabaseAdmin) {
+      return res.status(503).json({ success: false, code: 'STORE_UNAVAILABLE', error: 'Persistent messaging requires live PostgreSQL.' });
+    }
+
+    const { data: part } = await supabaseAdmin
+      .from('conversation_participants')
+      .select('id')
+      .eq('conversation_id', conversationId)
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (!part) {
+      return res.status(403).json({ success: false, code: 'FORBIDDEN_NOT_PARTICIPANT', error: 'Not authorized to send messages in this conversation.' });
+    }
+
+    if (idempotencyKey) {
+      const { data: existing } = await supabaseAdmin
+        .from('messages')
+        .select('*')
+        .eq('idempotency_key', idempotencyKey)
+        .maybeSingle();
+
+      if (existing) {
+        return res.json({ success: true, duplicate: true, message: existing });
+      }
+    }
+
+    const { data: msg, error } = await supabaseAdmin
+      .from('messages')
+      .insert([{
+        conversation_id: conversationId,
+        sender_id: userId,
+        sender_role: userRole,
+        content: content.toString().trim(),
+        message_type: message_type || 'TEXT',
+        metadata: metadata || {},
+        idempotency_key: idempotencyKey || null
+      }])
+      .select()
+      .single();
+
+    if (error) return replyStoreError(res, req, error, 'send message');
+
+    await supabaseAdmin
+      .from('conversations')
+      .update({ updated_at: new Date().toISOString() })
+      .eq('id', conversationId);
+
+    broadcastToConversationParticipants(conversationId, {
+      type: 'NEW_MESSAGE',
+      conversationId,
+      message: msg
+    });
+
+    res.status(201).json({ success: true, duplicate: false, message: msg });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+// 4. Create or Retrieve Conversation for Order/Job Reference
+app.post('/api/conversations/lookup', authenticateUser, async (req, res) => {
+  try {
+    const { serviceType, referenceId, participantUserIds } = req.body;
+    if (!serviceType || !referenceId || !Array.isArray(participantUserIds)) {
+      return res.status(400).json({ success: false, code: 'INVALID_CONVERSATION_LOOKUP', error: 'serviceType, referenceId, and participantUserIds array are required.' });
+    }
+
+    const userId = db.userRepo?.resolveUuid(req.user.uuid || req.user.id) || req.user.uuid || req.user.id;
+    if (!participantUserIds.includes(userId)) {
+      return res.status(403).json({ success: false, code: 'FORBIDDEN_NOT_PARTICIPANT', error: 'Requesting user must be among conversation participants.' });
+    }
+
+    const { supabaseAdmin, isLivePostgres } = require('./supabase');
+    if (!isLivePostgres || !supabaseAdmin) {
+      return res.json({ success: true, conversation: { id: 'conv_mock', serviceType, referenceId } });
+    }
+
+    const { data: existingConv } = await supabaseAdmin
+      .from('conversations')
+      .select('id, service_type, reference_id, status, created_at')
+      .eq('service_type', serviceType.toUpperCase())
+      .eq('reference_id', referenceId)
+      .maybeSingle();
+
+    if (existingConv) {
+      return res.json({ success: true, conversation: existingConv, created: false });
+    }
+
+    const { data: newConv, error: cErr } = await supabaseAdmin
+      .from('conversations')
+      .insert([{
+        service_type: serviceType.toUpperCase(),
+        reference_id: referenceId,
+        status: 'ACTIVE'
+      }])
+      .select()
+      .single();
+
+    if (cErr) return replyStoreError(res, req, cErr, 'create conversation');
+
+    const participantRows = participantUserIds.map((pId) => ({
+      conversation_id: newConv.id,
+      user_id: pId,
+      role: pId === userId ? (req.user.role || 'CUSTOMER').toUpperCase() : 'DRIVER'
+    }));
+
+    await supabaseAdmin
+      .from('conversation_participants')
+      .insert(participantRows);
+
+    res.status(201).json({ success: true, conversation: newConv, created: true });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+// -------------------------------------------------------------
     // (`PLACE_REQUIRED`, from the `tripKm === null` guard in `book-ride` below), so a quote can
     // never offer a fare no booking will accept. The engine still carries its own defaults
     // (`calculateFareEstimate` in `database.js`) and its own `distanceKm || 1`; nothing reachable
@@ -4057,6 +5052,11 @@ app.post('/api/pricing/estimate', async (req, res) => {
 
     res.json({ success: true, estimate, appliedPromo });
   } catch (err) {
+    // The coupon preview inside this estimate can fail because the promotion store is
+    // down. That is the platform's condition, so it is classified as the shared retryable
+    // 503 rather than an unclassified 500 that loses the estimate without saying whether
+    // the caller should try again.
+    if (supabaseHelper.isStoreUnreachable(err)) return replyStoreError(res, req, err, 'fare estimate');
     res.status(500).json({ success: false, error: err.message, requestId: req.id });
   }
 });
@@ -4775,6 +5775,79 @@ app.post('/api/customer/book-parcel', authenticateUser, async (req, res) => {
   res.json({ success: true, job });
 });
 
+// C5: Persistent Parcel Confirmation & Receipt Lookup
+app.get(['/api/customer/parcels/:id', '/api/parcels/:id'], authenticateUser, async (req, res) => {
+  try {
+    const customerUuid = db.userRepo?.resolveUuid(req.user.uuid || req.user.id) || req.user.uuid || req.user.id;
+    if (!customerUuid) {
+      return res.status(403).json({
+        success: false,
+        code: 'CUSTOMER_IDENTITY_UNRESOLVED',
+        error: 'Forbidden: This session does not resolve to a customer account.',
+        requestId: req.id
+      });
+    }
+
+    const parcelId = req.params.id;
+    let job = db.getJob(parcelId);
+    if (!job && db.jobRepo?.findByIdAsync) {
+      job = await db.jobRepo.findByIdAsync(parcelId);
+    }
+
+    if (!job || (job.serviceType && job.serviceType.toUpperCase() !== 'PARCEL' && job.service_type && job.service_type.toUpperCase() !== 'PARCEL')) {
+      return res.status(404).json({ success: false, code: 'PARCEL_NOT_FOUND', error: `Parcel booking ${parcelId} not found.`, requestId: req.id });
+    }
+
+    // Tenant isolation: verify customer owns this parcel
+    const jobCustomerUuid = db.userRepo?.resolveUuid(job.customerId) || job.customerUuid || job.customerId;
+    if (customerUuid !== job.customerId && customerUuid !== jobCustomerUuid) {
+      return res.status(403).json({
+        success: false,
+        code: 'FORBIDDEN_NOT_OWNER',
+        error: "Forbidden: Cannot access another customer's parcel.",
+        requestId: req.id
+      });
+    }
+
+    return res.json({
+      success: true,
+      parcel: {
+        id: job.id,
+        uuid: job.uuid || job.id,
+        bookingId: job.id,
+        status: job.status,
+        serviceType: 'PARCEL',
+        fare: Number(job.fare || job.estimatedFare || 0),
+        pickup: job.pickup,
+        drop: job.drop,
+        pickupAddress: job.pickup?.address || null,
+        dropAddress: job.drop?.address || null,
+        senderDetails: job.senderDetails || (job.pickup?.address ? {
+          name: job.pickup.name || job.customerName || 'Sender',
+          phone: job.pickup.phone || job.customerPhone || null,
+          address: job.pickup.address
+        } : null),
+        recipientDetails: job.recipientDetails || (job.drop?.address ? {
+          name: job.drop.name || 'Recipient',
+          phone: job.drop.phone || null,
+          address: job.drop.address
+        } : null),
+        packageDetails: job.packageDetails || null,
+        weightTier: job.weightTier || null,
+        driverId: job.driverId || null,
+        driverName: job.driverName || null,
+        pickupVerified: ['IN_TRANSIT', 'OUT_FOR_DELIVERY', 'COMPLETED'].includes(job.status),
+        deliveryVerified: job.status === 'COMPLETED',
+        proofOfDeliveryUrl: job.proofOfDeliveryUrl || null,
+        createdAt: job.createdAt,
+        completedAt: job.completedAt || null
+      }
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
 app.post('/api/customer/book-food', authenticateUser, async (req, res) => {
   if (db.isServicePaused('food')) {
     const s = db.getService('food');
@@ -5170,8 +6243,33 @@ app.get('/api/customer/orders', authenticateUser, async (req, res) => {
     if (!customerUuid) {
       return res.status(401).json({ success: false, error: 'Unauthorized: Invalid customer identity.' });
     }
-    const orders = await db.orderRepo.getOrdersByCustomer(customerUuid);
-    res.json({ success: true, count: orders.length, orders });
+    // The same window normalization `/api/notifications` already uses: an unreadable value
+    // takes the default, and a value beyond the ceiling is clamped instead of trusted.
+    const limit = Math.min(Math.max(1, parseInt(req.query.limit, 10) || 50), 100);
+    const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
+    // The filter names the column's own vocabulary. A repeated/unparseable parameter is
+    // refused rather than silently dropped, and no value can be mistaken for another service.
+    const rawType = req.query.service_type;
+    const requestedType = rawType === undefined || rawType === ''
+      ? ''
+      : (typeof rawType === 'string' ? rawType.trim().toUpperCase() : null);
+    if (requestedType === null
+      || (requestedType && requestedType !== 'FOOD' && requestedType !== 'GROCERY')) {
+      return res.status(400).json({
+        success: false,
+        code: 'INVALID_SERVICE_TYPE',
+        error: 'service_type must be FOOD or GROCERY.',
+      });
+    }
+    // Reading one row past the page answers "is there another page" without a count query.
+    // `count` keeps its existing meaning: the number of rows in this answer.
+    const rows = await db.orderRepo.getOrdersByCustomer(customerUuid, {
+      limit: limit + 1, offset, serviceType: requestedType || null,
+    });
+    const hasMore = rows.length > limit;
+    const orders = hasMore ? rows.slice(0, limit) : rows;
+    res.json({ success: true, count: orders.length, orders,
+      pagination: { limit, offset, hasMore } });
   } catch (err) {
     // An unreadable store used to reach this route as `[]` and leave as a 200 with an empty
     // history. The read now propagates, and the propagation has to survive this catch: the
@@ -5271,6 +6369,168 @@ app.get(['/api/customer/orders/:id', '/api/orders/:id'], authenticateUser, async
   }
 });
 
+// C1: Customer Food and Grocery Order Cancellation
+app.post(['/api/customer/orders/:id/cancel', '/api/orders/:id/cancel'], authenticateUser, async (req, res) => {
+  try {
+    const customerUuid = db.orderRepo.resolveUserUuid(req.user.uuid || req.user.id);
+    if (!customerUuid) {
+      return res.status(403).json({
+        success: false,
+        code: 'CUSTOMER_IDENTITY_UNRESOLVED',
+        error: 'Forbidden: This session does not resolve to a customer account.',
+        requestId: req.id
+      });
+    }
+
+    const orderId = req.params.id;
+    const order = await db.orderRepo.getOrderById(orderId);
+    if (!order) {
+      return res.status(404).json({ success: false, code: 'ORDER_NOT_FOUND', error: 'Order not found', requestId: req.id });
+    }
+
+    // Verify customer owns this order
+    if (order.customer_id !== customerUuid) {
+      return res.status(403).json({
+        success: false,
+        code: 'FORBIDDEN_NOT_OWNER',
+        error: "Forbidden: Cannot cancel another customer's order.",
+        requestId: req.id
+      });
+    }
+
+    // Check current state
+    const currentState = order.order_state || order.status;
+    if (currentState === 'CANCELLED') {
+      return res.json({
+        success: true,
+        duplicate: true,
+        order_state: 'CANCELLED',
+        status: 'CANCELLED',
+        message: 'Order is already cancelled.',
+        order
+      });
+    }
+
+    if (currentState === 'DELIVERED') {
+      return res.status(400).json({
+        success: false,
+        code: 'ORDER_ALREADY_DELIVERED',
+        error: 'Cannot cancel an order that has already been delivered.'
+      });
+    }
+
+    if (currentState === 'PICKED_UP') {
+      return res.status(400).json({
+        success: false,
+        code: 'ORDER_OUT_FOR_DELIVERY',
+        error: 'Cannot cancel an order that is already picked up and out for delivery.'
+      });
+    }
+
+    // Orders in preparation cannot be cancelled by customer without merchant/admin intervention
+    if (['PREPARING', 'PACKING', 'READY_FOR_PICKUP'].includes(currentState)) {
+      return res.status(400).json({
+        success: false,
+        code: 'ORDER_IN_PREPARATION',
+        error: 'The kitchen has already begun preparing your order. Please contact support to request cancellation.'
+      });
+    }
+
+    // Cancellation is allowed for RECEIVED or ACCEPTED orders
+    const reason = (req.body?.reason || 'Customer requested cancellation').toString().trim();
+    const idempotencyKey = req.headers['idempotency-key'] || req.headers['x-idempotency-key'] || req.body?.idempotencyKey || (`cancel_ord_${order.id}`);
+
+    // Transition authoritative state in PostgreSQL via OrderRepository / 018 RPC
+    const transitionRes = await db.orderRepo.transitionOrderState({
+      orderId: order.id,
+      newState: 'CANCELLED',
+      actorRole: 'CUSTOMER',
+      actorId: customerUuid,
+      reason,
+      idempotencyKey,
+      metadata: { source: 'customer_cancel_api', cancelledBy: customerUuid }
+    });
+
+    if (!transitionRes || !transitionRes.success) {
+      return res.status(400).json(transitionRes || { success: false, error: 'Order cancellation transition rejected' });
+    }
+
+    // Clean up associated dispatch job and cancel open dispatch offers
+    if (order.job_id) {
+      try {
+        if (db.jobRepo?.updateStatus) {
+          await db.jobRepo.updateStatus(order.job_id, 'CANCELLED', null, {
+            cancellation_reason: 'CUSTOMER_CANCELLED_ORDER',
+            cancelled_by: customerUuid
+          });
+        }
+        const { supabaseAdmin: sbAdmin, isLivePostgres: livePg } = require('./supabase');
+        if (livePg && sbAdmin) {
+          const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(order.job_id));
+          const offerFilter = isUuid
+            ? `job_id.eq.${order.job_id},job_uuid.eq.${order.job_id}`
+            : `job_id.eq.${order.job_id}`;
+          await sbAdmin
+            .from('dispatch_offers')
+            .update({ status: 'CANCELLED' })
+            .eq('status', 'OFFERED')
+            .or(offerFilter);
+        }
+      } catch (jobErr) {
+        console.warn(`[ORDER_CANCEL_JOB_CLEANUP_WARN] Failed to cancel linked job ${order.job_id}:`, jobErr.message);
+      }
+    }
+
+    // Process refund through double-entry ledger if order was paid
+    let refundResult = null;
+    try {
+      const { supabaseAdmin: sbAdmin, isLivePostgres: livePg } = require('./supabase');
+      if (livePg && sbAdmin && db.paymentRepo?.refundPaymentAtomic) {
+        const { data: paySession } = await sbAdmin
+          .from('payment_sessions')
+          .select('id, status, amount')
+          .eq('order_id', order.id)
+          .eq('status', 'SUCCESS')
+          .maybeSingle();
+
+        if (paySession) {
+          const refundEventId = `ref_cancel_${order.id}_${transitionRes.transitionId || Date.now()}`;
+          refundResult = await db.paymentRepo.refundPaymentAtomic({
+            orderOrPayment: order.id,
+            refundEventId,
+            reason: reason || 'Customer cancelled order',
+            authorizedBy: 'CUSTOMER_CANCELLATION',
+            declaredAmount: paySession.amount
+          });
+        }
+      }
+    } catch (refundErr) {
+      console.warn(`[ORDER_CANCEL_REFUND_WARN] Ledger refund skipped or failed for order ${order.id}:`, refundErr.message);
+    }
+
+    // Broadcast update to customer over WebSocket
+    broadcastToCustomer(order.customer_id, {
+      type: 'FOOD_ORDER_UPDATE',
+      orderId: order.id,
+      orderStatus: 'CANCELLED',
+      newState: 'CANCELLED'
+    });
+
+    const updatedOrder = await db.orderRepo.getOrderById(order.id);
+    return res.json({
+      success: true,
+      duplicate: !!transitionRes.duplicate,
+      transitionId: transitionRes.transitionId,
+      order_state: 'CANCELLED',
+      status: 'CANCELLED',
+      order: updatedOrder
+    });
+  } catch (err) {
+    if (supabaseHelper.isStoreUnreachable(err)) return replyStoreError(res, req, err, 'order cancellation');
+    return res.status(err.statusCode || 500).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
 // RESTAURANT / MERCHANT API ENDPOINTS
 // The merchant's own entitlements, derived from the bearer token and from PostgreSQL.
 //
@@ -5284,10 +6544,75 @@ app.get(['/api/customer/orders/:id', '/api/orders/:id'], authenticateUser, async
 // `merchantType` keeps the stored vocabulary (RESTAURANT / GROCERY / HYBRID_BOTH), so the
 // column stays the single source of truth and the client is not asked to learn it.
 
-// Register a new Merchant Partner (Restaurant only, Grocery only, or Both)
+// The applicant states where the store is and what the store is; nothing here may answer for
+// them. Until this file changed, the two most consequential fields were destructuring defaults —
+// a `BOTH` business type and the Aizawl test coordinates — so a request that named no location
+// and chose no model received a durable storefront 600 km from its own address, holding restaurant
+// *and* grocery entitlements. Rules 3-6 of the approved onboarding policy are the reason this
+// route now reads, validates, and refuses instead: a default is not validation.
+//
+// There is deliberately no service-area test in here. No permitted boundary is defined anywhere
+// in the product (geofencing is pricing-only), and inventing one to reject a coordinate would be
+// the same kind of substitution as inventing the coordinate. What is checked is that a declared
+// coordinate is a coordinate.
+function readDeclaredCoordinate(value) {
+  if (value === undefined || value === null) return null;
+  if (typeof value === 'string' && value.trim() === '') return null;
+  const n = typeof value === 'number' ? value : Number(String(value).trim());
+  return Number.isFinite(n) ? n : NaN;
+}
+
+// Registration is public on purpose (rule 1), so the abuse protection has to be the budget, not a
+// login. Process-local by design and by the same approval that covers `adClickBuckets`: a rolling
+// window per address the *server* saw, reset on restart, one instance only — not a distributed
+// anti-abuse mechanism. Client-supplied identity headers are never read here, so a forged
+// X-Forwarded-For cannot buy a fresh bucket; `trust proxy` is deliberately not enabled.
+const merchantRegisterBuckets = new Map();
+const positiveIntSetting = (value, fallback) => {
+  const n = Number(value);
+  return Number.isInteger(n) && n > 0 ? n : fallback;
+};
+const MERCHANT_REGISTER_LIMIT = positiveIntSetting(process.env.NABIN_MERCHANT_REGISTER_LIMIT, 5);
+const MERCHANT_REGISTER_WINDOW_MS = positiveIntSetting(process.env.NABIN_MERCHANT_REGISTER_WINDOW_MS, 10 * 60 * 1000);
+
+function takeMerchantRegistrationSlot(req) {
+  const ip = req.ip || (req.connection && req.connection.remoteAddress) || 'unknown';
+  const now = Date.now();
+  const bucket = merchantRegisterBuckets.get(ip) || { count: 0, windowStart: now };
+  if (now - bucket.windowStart > MERCHANT_REGISTER_WINDOW_MS) {
+    bucket.count = 0;
+    bucket.windowStart = now;
+  }
+  if (bucket.count >= MERCHANT_REGISTER_LIMIT) {
+    return { allowed: false, retryAfterMs: MERCHANT_REGISTER_WINDOW_MS - (now - bucket.windowStart) };
+  }
+  bucket.count += 1;
+  merchantRegisterBuckets.set(ip, bucket);
+  return { allowed: true };
+}
+
+// The refusals this platform writes with its own words, as opposed to the engine's. Only these may
+// keep their message on the way out; everything else is classified by `storeReply`, because the
+// unauthenticated caller of this route is not the person who can act on a constraint name.
+const MERCHANT_REGISTRATION_REFUSALS = new Set([
+  'PLACE_REQUIRED',
+  'INVALID_COORDINATES',
+  'BUSINESS_TYPE_REQUIRED',
+  'INVALID_BUSINESS_TYPE',
+  'MERCHANT_ALREADY_REGISTERED',
+  'AUDIT_RECORD_UNAVAILABLE'
+]);
+
+// Register a new Merchant Partner: public intake (rule 1), which is a request to be reviewed and
+// not a decision to accept. The approval gate itself lives in migration 048 and
+// `merchant_onboarding_approval_test.js`; this route owns the input, the budget, and the error
+// channel.
 app.post('/api/merchant/register', async (req, res) => {
   try {
-    const { name, phone, address, businessType = 'BOTH', fssaiLicense, lat = 23.7271, lng = 92.7176 } = req.body || {};
+    const body = req.body || {};
+    const { name, phone, address, businessType, fssaiLicense } = body;
+    const lat = readDeclaredCoordinate(body.lat);
+    const lng = readDeclaredCoordinate(body.lng);
 
     if (!name || typeof name !== 'string' || !name.trim()) {
       return res.status(400).json({
@@ -5325,7 +6650,66 @@ app.post('/api/merchant/register', async (req, res) => {
         requestId: req.id
       });
     }
+
+    if (lat === null || lng === null) {
+      return res.status(400).json({
+        success: false,
+        code: 'PLACE_REQUIRED',
+        error: 'Store location is required: send the latitude and longitude of the physical store.',
+        requestId: req.id
+      });
+    }
+    if (Number.isNaN(lat) || Number.isNaN(lng)) {
+      return res.status(400).json({
+        success: false,
+        code: 'INVALID_COORDINATES',
+        error: 'Latitude and longitude must each be a number.',
+        requestId: req.id
+      });
+    }
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+      return res.status(400).json({
+        success: false,
+        code: 'INVALID_COORDINATES',
+        error: 'Latitude must be between -90 and 90, and longitude between -180 and 180.',
+        requestId: req.id
+      });
+    }
+
+    if (businessType === undefined) {
+      return res.status(400).json({
+        success: false,
+        code: 'BUSINESS_TYPE_REQUIRED',
+        error: "Choose the business type: 'RESTAURANT', 'GROCERY', or 'BOTH'.",
+        requestId: req.id
+      });
+    }
+
     const cleanFssai = fssaiLicense && typeof fssaiLicense === 'string' ? fssaiLicense.trim() : null;
+
+    // The type vocabulary itself is resolved here, not only inside the repository, because the
+    // next statement charges for the attempt. `''` and `null` are present keys, so the absent-key
+    // refusal above cannot see them, and leaving their refusal to `createMerchant` would make a
+    // mistyped selector cost the same as a real registration. Same code, same message, same 400 —
+    // it only moved earlier, and the whitelist below keeps it on the typed channel either way.
+    if (db.merchantRepo) db.merchantRepo.resolveMerchantType(businessType);
+
+    // Last gate before the store is touched, and deliberately after shape validation: a merchant
+    // who typed their address wrong should not lose the afternoon, while a caller who keeps
+    // sending well-formed registrations should not get an unlimited number of rows.
+    const admission = takeMerchantRegistrationSlot(req);
+    if (!admission.allowed) {
+      // Refused before the repository, so a throttled registration created no merchant row.
+      return res.status(429).json({
+        success: false,
+        code: 'MERCHANT_REGISTER_RATE_LIMITED',
+        error: 'Too many merchant registrations from this network. Please try again later.',
+        limit: MERCHANT_REGISTER_LIMIT,
+        windowMs: MERCHANT_REGISTER_WINDOW_MS,
+        retryAfterMs: admission.retryAfterMs,
+        requestId: req.id
+      });
+    }
 
     let createdRecord = null;
     if (db.merchantRepo) {
@@ -5342,6 +6726,32 @@ app.post('/api/merchant/register', async (req, res) => {
       throw new Error('Merchant repository unavailable.');
     }
 
+    // A store appearing in a public catalogue is the moment a stranger can be served by it, so it
+    // is the moment the platform records. Awaited: an un-awaited write would let "the registration
+    // was audited" be a claim nothing could verify, and a created store with no record of who
+    // asked for it is the finding this route is meant to close. No credential, OTP or token is
+    // kept here — the applicant's own declared business facts, and the address the server saw.
+    await db.auditAppliedChange({
+      adminId: 'SELF_SERVICE',
+      adminName: 'Merchant self-registration',
+      role: 'ANONYMOUS',
+      action: 'MERCHANT_REGISTERED',
+      module: 'MERCHANT_ONBOARDING',
+      targetEntityType: 'MERCHANT',
+      targetEntityId: String(createdRecord.id),
+      newState: createdRecord.approval_status || 'PENDING',
+      details: `Public merchant registration received for "${createdRecord.name}" and is pending administrator approval.`,
+      metadata: {
+        merchantType: createdRecord.merchant_type,
+        approvalStatus: createdRecord.approval_status || 'PENDING',
+        source: 'public_registration'
+      },
+      ip: req.ip || (req.connection && req.connection.remoteAddress) || null,
+      userAgent: req.headers['user-agent'] || null,
+      requestId: req.id,
+      success: true
+    });
+
     // Truthful about what just happened: an account exists, a store does not yet. The
     // approval state is read back from the record the repository wrote rather than
     // restated here, so the response cannot claim a decision the store doesn't hold.
@@ -5355,19 +6765,32 @@ app.post('/api/merchant/register', async (req, res) => {
         phone: createdRecord.phone,
         merchantType: createdRecord.merchant_type || createdRecord.merchantType,
         address: createdRecord.address,
+        // Echoed from the stored row, not from the request, so the applicant can see whether the
+        // position they declared is the position on file.
+        lat: createdRecord.lat,
+        lng: createdRecord.lng,
         approvalStatus,
         isOpen: Boolean(createdRecord.is_open)
       },
       requestId: req.id
     });
   } catch (err) {
+    const code = err && err.code ? String(err.code) : '';
+    if (MERCHANT_REGISTRATION_REFUSALS.has(code) && Number.isInteger(err.status) && err.status >= 400 && err.status < 600) {
+      console.warn(`[merchant/register] refused ${code} (${req.method} ${req.originalUrl}): ${err.message}`);
+      return res.status(err.status).json({
+        success: false,
+        code,
+        error: err.message,
+        requestId: req.id
+      });
+    }
+    // Everything else — the unreachable store, a constraint the phone-number check raced, a
+    // schema that is not ready — is the store's condition, not the applicant's. `storeReply`
+    // decides the status and substitutes a sentence a stranger can read; what the engine
+    // printed stays in the log.
     console.error('[merchant/register] failed:', err);
-    res.status(err.status || 500).json({
-      success: false,
-      code: err.code || 'REGISTRATION_FAILED',
-      error: err.message,
-      requestId: req.id
-    });
+    return replyStoreError(res, req, err, 'merchant registration');
   }
 });
 
@@ -5569,6 +6992,32 @@ app.post(['/api/merchant/:restaurantId/orders/:orderId/status', '/api/merchant/o
 
     if (!transitionRes.success) {
       return res.status(400).json(transitionRes);
+    }
+
+    // C2: Clean up associated delivery job when merchant rejects order (prevents orphaned SEARCHING jobs)
+    if (status === 'REJECTED' && order.job_id) {
+      try {
+        if (db.jobRepo?.updateStatus) {
+          await db.jobRepo.updateStatus(order.job_id, 'CANCELLED', null, {
+            cancellation_reason: 'MERCHANT_REJECTED_ORDER: ' + (reason || 'No reason specified'),
+            cancelled_by: merchant.id
+          });
+        }
+        const { supabaseAdmin: sbAdmin, isLivePostgres: livePg } = require('./supabase');
+        if (livePg && sbAdmin) {
+          const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(order.job_id));
+          const offerFilter = isUuid
+            ? `job_id.eq.${order.job_id},job_uuid.eq.${order.job_id}`
+            : `job_id.eq.${order.job_id}`;
+          await sbAdmin
+            .from('dispatch_offers')
+            .update({ status: 'CANCELLED' })
+            .eq('status', 'OFFERED')
+            .or(offerFilter);
+        }
+      } catch (jobErr) {
+        console.warn(`[REJECTION_DISPATCH_CLEANUP_WARN] Failed to cancel linked job ${order.job_id}:`, jobErr.message);
+      }
     }
 
     // P3 #436: the handover is attempted at placement; this is its retry. A food or grocery order
@@ -6852,6 +8301,16 @@ async function applyDriverAvailability(driver, isOnline) {
     throw err;
   }
 
+  if (wanted) {
+    const eligibility = await checkDriverComplianceEligibility(driver.id);
+    if (!eligibility.eligible) {
+      const err = new Error(eligibility.error);
+      err.code = eligibility.code;
+      err.status = 403;
+      throw err;
+    }
+  }
+
   let updated;
   try {
     updated = await db.driverRepo.setOnlineStatus(driver.id, wanted);
@@ -7085,6 +8544,15 @@ app.post('/api/driver/offers/:offerId/accept', authenticateDriver, async (req, r
     const offerId = req.params.offerId;
     const idempotencyKey = req.headers['idempotency-key'] || req.body?.idempotencyKey;
 
+    const eligibility = await checkDriverComplianceEligibility(req.driver.id);
+    if (!eligibility.eligible) {
+      return res.status(403).json({
+        success: false,
+        code: eligibility.code,
+        error: eligibility.error
+      });
+    }
+
     // Anti-spoofing verification if client supplies driverId in body
     const bodyDriverId = req.body?.driverId || req.body?.driver_id || req.body?.driverUuid;
     if (bodyDriverId) {
@@ -7132,7 +8600,13 @@ app.post('/api/driver/offers/:offerId/accept', authenticateDriver, async (req, r
 
     res.json({ success: true, duplicate: !!result.duplicate, job, driver, offer: result });
   } catch (err) {
-    res.status(400).json({ success: false, error: err.message });
+    // Mirror the reject sibling (server.js:7239). A dispatch-store outage is the platform's
+    // condition, not the driver's: before this, every failure — including a database that simply
+    // could not answer — was a 400 carrying the engine's own sentence, which told the driver app
+    // its data was bad so it stopped retrying and leaked the schema to whoever asked.
+    if (supabaseHelper.isStoreUnreachable(err)) return replyStoreError(res, req, err, 'dispatch offer accept');
+    console.error('[driver/offers/accept] failed:', err);
+    return res.status(err.status || 400).json({ success: false, code: err.code || 'OFFER_ACCEPT_FAILED', error: err.message });
   }
 });
 
@@ -7200,6 +8674,16 @@ app.post('/api/driver/accept-job', authenticateDriver, async (req, res) => {
   }
 
   const effectiveDriverId = req.driver.id;
+  
+  const eligibility = await checkDriverComplianceEligibility(effectiveDriverId);
+  if (!eligibility.eligible) {
+    return res.status(403).json({
+      success: false,
+      code: eligibility.code,
+      error: eligibility.error
+    });
+  }
+
   let driver = db.getDriverStrict(effectiveDriverId) || req.driver;
 
   const { supabaseAdmin, isLivePostgres } = require('./supabase');
@@ -7356,12 +8840,77 @@ app.post(['/api/driver/arrived', '/api/driver/arrive'], authenticateDriver, asyn
         data: { jobId: updatedJob.id, driverId: effectiveDriverId }
       });
     } catch (notifErr) {
-      console.warn(`[NOTIF_DISPATCH_WARN] Failed to emit DRIVER_ARRIVED for job ${updatedJob.id}:`, notifErr.message);
+      console.warn(`[NOTIF_DISPATCH_WARN] Failed to emit PAYOUT_SETTLED for driver ${effectiveDriverId}:`, notifErr.message);
     }
 
-    res.json({ success: true, job: updatedJob });
+    res.json(result);
   } catch (err) {
-    res.status(400).json({ success: false, error: err.message });
+    return res.status(500).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+// C3: Driver Payout History with tenant isolation and masked destination VPA
+app.get(['/api/driver/payout/history', '/api/driver/payouts'], authenticateDriver, async (req, res) => {
+  try {
+    const effectiveDriverId = req.driver.id;
+    const { supabaseAdmin, isLivePostgres } = require('./supabase');
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 100);
+    const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0);
+
+    const targetUuid = db.driverRepo?.resolveUuid(effectiveDriverId) || req.driver?.uuid || effectiveDriverId;
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(targetUuid));
+
+    if (isLivePostgres && supabaseAdmin && isUuid) {
+      const { data, error, count } = await supabaseAdmin
+        .from('driver_payouts')
+        .select('id, payout_id, amount, upi_id, status, reference_id, created_at, settled_at', { count: 'exact' })
+        .eq('driver_id', targetUuid)
+        .order('created_at', { ascending: false })
+        .range(offset, offset + limit - 1);
+
+      if (error) {
+        return replyStoreError(res, req, error, 'driver payout history');
+      }
+
+      const payouts = (data || []).map((p) => {
+        let maskedVpa = null;
+        if (p.upi_id) {
+          const parts = String(p.upi_id).split('@');
+          maskedVpa = parts.length === 2 && parts[0].length > 2
+            ? `${parts[0].slice(0, 2)}***@${parts[1]}`
+            : p.upi_id;
+        }
+        return {
+          id: p.id,
+          payoutId: p.payout_id,
+          amount: Number(p.amount),
+          destinationVpa: maskedVpa,
+          status: p.status || 'PENDING',
+          referenceId: p.reference_id,
+          createdAt: p.created_at,
+          settledAt: p.settled_at
+        };
+      });
+
+      return res.json({
+        success: true,
+        count: count ?? payouts.length,
+        payouts,
+        dataSource: 'postgres'
+      });
+    }
+
+    const memPayouts = (db.getPayoutsByDriver ? db.getPayoutsByDriver(effectiveDriverId) : [])
+      .slice(offset, offset + limit);
+
+    return res.json({
+      success: true,
+      count: memPayouts.length,
+      payouts: memPayouts,
+      dataSource: 'memory'
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message, requestId: req.id });
   }
 });
 
@@ -9046,10 +10595,19 @@ app.get('/api/restaurants/:id/dishes/:dishId', async (req, res) => {
 // the read is a read-through and every write is a write-through, so a catalogue edit
 // survives a restart. The permission gate runs in middleware, before any of these
 // handlers, so a refusal never touches the store.
+// The console cannot tell the two branches apart from the payload alone, so both write
+// responses name the branch they took and whether it survives a restart.
+function masterCatalogDataSource() {
+  return supabaseHelper.isLivePostgres && supabaseHelper.supabaseAdmin ? 'postgres' : 'memory';
+}
+function masterCatalogPersisted() {
+  return Boolean(supabaseHelper.isLivePostgres && supabaseHelper.supabaseAdmin);
+}
+
 app.get('/api/admin/master-catalog', authenticateAdmin, async (req, res) => {
   try {
     const masterProducts = await db.getMasterProducts();
-    res.json({ success: true, count: masterProducts.length, masterProducts });
+    res.json({ success: true, count: masterProducts.length, masterProducts, dataSource: masterCatalogDataSource() });
   } catch (err) {
     return replyStoreError(res, req, err, 'master catalogue');
   }
@@ -9059,7 +10617,7 @@ app.post('/api/admin/master-catalog', authenticateAdmin, requirePermission('cata
   try {
     const product = await db.addMasterProduct(req.body);
     broadcastToAdmins({ type: 'MASTER_PRODUCT_ADDED', product });
-    res.json({ success: true, product });
+    res.json({ success: true, product, persisted: masterCatalogPersisted(), dataSource: masterCatalogDataSource() });
   } catch (err) {
     res.status(err.status || (err.code === 'MASTER_PRODUCT_NOT_FOUND' ? 404 : 400)).json({
       success: false,
@@ -9073,7 +10631,7 @@ app.put('/api/admin/master-catalog/:id', authenticateAdmin, requirePermission('c
   try {
     const updated = await db.updateMasterProduct(req.params.id, req.body);
     broadcastToAdmins({ type: 'MASTER_PRODUCT_UPDATED', product: updated });
-    res.json({ success: true, product: updated });
+    res.json({ success: true, product: updated, persisted: masterCatalogPersisted(), dataSource: masterCatalogDataSource() });
   } catch (err) {
     res.status(err.status || (err.code === 'MASTER_PRODUCT_NOT_FOUND' ? 404 : 400)).json({
       success: false,
@@ -9087,7 +10645,7 @@ app.delete('/api/admin/master-catalog/:id', authenticateAdmin, requirePermission
   try {
     const deleted = await db.deleteMasterProduct(req.params.id);
     broadcastToAdmins({ type: 'MASTER_PRODUCT_DELETED', id: req.params.id });
-    res.json({ success: true, deleted });
+    res.json({ success: true, deleted, persisted: masterCatalogPersisted(), dataSource: masterCatalogDataSource() });
   } catch (err) {
     res.status(err.status || (err.code === 'MASTER_PRODUCT_NOT_FOUND' ? 404 : 400)).json({
       success: false,
@@ -9256,7 +10814,7 @@ app.post('/api/grocery/cart/revalidate', authenticateUser, async (req, res) => {
     if (requestedIds.length) {
       const { data, error } = await supabaseAdmin
         .from('merchant_grocery_inventory')
-        .select('id, product_id, merchant_id, store_price, stock_quantity, is_available, status, master_grocery_catalog(id, name, standard_unit, pricing_model)')
+        .select('id, product_id, merchant_id, store_price, stock_quantity, is_available, status, master_grocery_catalog(id, name, standard_unit, pricing_model, is_active)')
         .or(`id.in.(${requestedIds.join(',')}),product_id.in.(${requestedIds.join(',')})`);
       if (error) return replyStoreError(res, req, error, 'cart prices');
       for (const row of data || []) {
@@ -9272,14 +10830,36 @@ app.post('/api/grocery/cart/revalidate', authenticateUser, async (req, res) => {
       const catalog = row?.master_grocery_catalog || {};
       const quantity = Number(item.quantity || item.requestedQtyKg || 1);
 
-      if (!row || row.is_available !== true || Number(row.stock_quantity) <= 0) {
+      // A master product the platform has retired is not sellable, and this route may not promise it is:
+      // `create_order_with_lines_atomic` INNER JOINs `master_grocery_catalog` and requires
+      // `mgc.is_active = true` (supabase/migrations/038_order_creation_checkout_status_fix.sql:294), so
+      // the cart used to answer `available: true` for a row the checkout then refused with
+      // INVENTORY_NOT_FOUND — an invitation to pay for a purchase already decided against. Browse
+      // (`/api/grocery/products`) and the merchant write paths already honour the same flag.
+      const masterRetired = !!row && (!row.master_grocery_catalog
+        || row.master_grocery_catalog.is_active !== true);
+
+      if (!row || masterRetired) {
         priceChanged = true;
         return {
           productId: sentId,
           available: false,
           priceChanged: true,
           quantity,
-          statusMessage: row ? 'Out of stock at this store' : 'Item is no longer stocked by any NABIN grocery store'
+          statusMessage: !row
+            ? 'Item is no longer stocked by any NABIN grocery store'
+            : 'This product is no longer offered on NABIN'
+        };
+      }
+
+      if (row.is_available !== true || Number(row.stock_quantity) <= 0) {
+        priceChanged = true;
+        return {
+          productId: sentId,
+          available: false,
+          priceChanged: true,
+          quantity,
+          statusMessage: 'Out of stock at this store'
         };
       }
 
@@ -10347,25 +11927,60 @@ app.post(['/api/v1/driver/location', '/api/driver/location'], authenticateDriver
     });
   }
 
-  res.json({ success: true, telemetryStored: true, timestamp: locationRecord.updatedAt });
+  // Durable last-known position beside the live in-process frame. The memory write above keeps live
+  // tracking working during a store outage; this write is what survives a restart and is visible to
+  // another backend. Awaiting it lets the answer describe the outcome instead of guessing.
+  let positionPersistence = { persisted: false, persistedAt: null, reason: 'NO_DURABLE_STORE' };
+  if (db.driverRepo?.persistLocation) {
+    try {
+      positionPersistence = await db.driverRepo.persistLocation(effectiveDriverId, {
+        lat: telemetry.value.lat,
+        lng: telemetry.value.lng,
+        receivedAt: telemetry.value.receivedAt
+      });
+    } catch (persistErr) {
+      console.error('[driver/location] durable position write failed:', persistErr);
+      positionPersistence = { persisted: false, persistedAt: null, reason: 'STORE_UNAVAILABLE' };
+    }
+  }
+
+  // `telemetryStored` means "this frame was accepted into the live telemetry store", which is this
+  // process's memory (`fleetLocations` in src/database.js). `persistedToDatabase` is derived from the
+  // durable write's own outcome, so a store refusal answers `false` with the reason instead of the
+  // single word `stored` being read as "persisted" (NCT-BACK-22).
+  res.json({
+    success: true,
+    telemetryStored: true,
+    telemetryStore: positionPersistence.persisted ? 'memory+postgres' : 'memory',
+    persistedToDatabase: positionPersistence.persisted,
+    positionPersistedAt: positionPersistence.persisted ? positionPersistence.persistedAt : null,
+    persistenceWarning: positionPersistence.persisted ? null : positionPersistence.reason,
+    timestamp: locationRecord.updatedAt
+  });
 });
 
 app.get(['/api/v1/fleet/locations', '/api/fleet/locations'], authenticateAdmin, (req, res) => {
   const serviceType = req.query.serviceType || null;
   const isOnlineOnly = req.query.isOnlineOnly !== 'false';
   const fleet = db.getFleetLocations({ serviceType, isOnlineOnly });
-  res.json({ success: true, count: fleet.length, fleet });
+  // Provenance belongs on the answer: these are the frames this process has been sent since it booted,
+  // not durable rows. An empty list therefore means "no driver has reported to this process", which is
+  // not the same claim as "no driver is on the road".
+  res.json({ success: true, count: fleet.length, fleet, dataSource: 'memory', persistedToDatabase: false });
 });
 
 app.get(['/api/v1/tracking/:jobId', '/api/tracking/:jobId'], async (req, res) => {
   try {
     const jobId = req.params.jobId;
-    const job = await db.jobRepo?.findByIdAsync(jobId) || db.getJob(jobId);
-    if (!job) {
-      return res.status(404).json({ success: false, code: 'JOB_NOT_FOUND', message: `Job ${jobId} not found.` });
-    }
 
     // Tenant Authentication & Authorization: Customer, Assigned Driver, or Admin
+    //
+    // Authentication runs BEFORE the job is looked up, and that order is the whole check. The
+    // handler used to resolve the parcel first and answer `404 JOB_NOT_FOUND "Job <id> not found."`
+    // for an id it did not know, then require a bearer token. An anonymous caller could therefore
+    // read a job identifier off the wire and learn whether the booking exists: 401 for one that
+    // does, 404 for one that does not. A parcel number is a bearer-ish secret here, and the
+    // existence of a NABIN parcel booking is itself information about a customer.
     const authHeader = req.headers['authorization'] || '';
     const token = authHeader.replace(/^Bearer\s+/, '').trim();
     if (!token) {
@@ -10383,6 +11998,11 @@ app.get(['/api/v1/tracking/:jobId', '/api/tracking/:jobId'], async (req, res) =>
         code: 'INVALID_TOKEN',
         error: 'Unauthorized: Invalid or expired session token.'
       });
+    }
+
+    const job = await db.jobRepo?.findByIdAsync(jobId) || db.getJob(jobId);
+    if (!job) {
+      return res.status(404).json({ success: false, code: 'JOB_NOT_FOUND', message: `Job ${jobId} not found.` });
     }
 
     const role = (session.role || '').toUpperCase();
@@ -10429,9 +12049,7 @@ app.get(['/api/v1/tracking/:jobId', '/api/tracking/:jobId'], async (req, res) =>
     // Neither of these may be invented. A customer reading this route can see a position and a
     // name, so a fallback here is a fact the platform never measured: `lat 28.6853, lng 77.2185`
     // is a Delhi coordinate in a Mizoram app, and `'Rajesh Kumar' / '+91 98101 22334'` is a
-    // phone number the app offers to dial. Live telemetry lives only in the in-memory fleet map
-    // (never in PostgreSQL, see the note at the fleet route), so "this driver has not reported
-    // since the process started" is a real and common state — the honest answer is `null`, and
+    // phone number the app offers to dial. A driver who has never reported answers `null`, and
     // `active_ride_screen.dart` already renders an absence rather than a placeholder.
     //
     // The second lookup is not decoration. `POST /api/driver/location` keys the map by the
@@ -10439,14 +12057,56 @@ app.get(['/api/v1/tracking/:jobId', '/api/tracking/:jobId'], async (req, res) =>
     // to miss every report and land on the fabricated pin — which is the only reason nobody
     // noticed. Resolved through the driver row this route already loads, a reported position is
     // found under either spelling, and a driver who has not reported still answers `null`.
-    const driverLocation = effectiveDriverId
+    const memoryLocation = effectiveDriverId
       ? (db.getDriverLocation(effectiveDriverId)
         || (driverObj && driverObj.id ? db.getDriverLocation(driverObj.id) : null)
         || null)
       : null;
 
+    // The durable fallback is the last fix that reached PostgreSQL (`drivers.current_lat/lng`,
+    // `last_heartbeat`), read straight from the row rather than through the cache-first
+    // `findByIdAsync`: that cache answers this process's boot snapshot and could label another
+    // process's newer write as older than it is. This is what lets a report survive a restart and
+    // reach a backend that never received the frame — previously this route answered `null` for
+    // both. Unknown still stays unknown: a NULL pair means no position is served, and a store that
+    // cannot be read is labelled rather than rendered as "the driver has not moved".
+    let locationSource = memoryLocation ? 'memory' : null;
+    let locationUnavailable = null;
+    let driverLocation = memoryLocation;
+    if (!memoryLocation && effectiveDriverId && db.driverRepo?.readDurablePosition) {
+      try {
+        const durable = await db.driverRepo.readDurablePosition(effectiveDriverId);
+        if (durable && durable.unavailable) {
+          locationUnavailable = durable.reason || 'STORE_UNAVAILABLE';
+        } else if (durable) {
+          driverLocation = {
+            lat: durable.lat,
+            lng: durable.lng,
+            heading: null,
+            speed: null,
+            accuracy: null,
+            receivedAt: durable.receivedAt,
+            updatedAt: durable.receivedAt
+          };
+          locationSource = 'postgres';
+        }
+      } catch (positionErr) {
+        console.error('[tracking] durable position read failed:', positionErr);
+        locationUnavailable = 'STORE_UNAVAILABLE';
+      }
+    }
+
     // A position, not a fleet record — see projectLocationForCustomer.
     const customerLocation = projectLocationForCustomer(driverLocation);
+
+    // Freshness is the server receipt time's own distance from now, so a caller can tell a live fix
+    // from a last-known one. An absent or unparseable timestamp answers `null`, never an invented age.
+    const receivedMs = customerLocation && customerLocation.receivedAt
+      ? new Date(customerLocation.receivedAt).getTime()
+      : NaN;
+    const locationAgeSeconds = Number.isNaN(receivedMs)
+      ? null
+      : Math.max(0, Math.round((Date.now() - receivedMs) / 1000));
 
     res.json({
       success: true,
@@ -10458,6 +12118,9 @@ app.get(['/api/v1/tracking/:jobId', '/api/tracking/:jobId'], async (req, res) =>
         ? { id: driverObj.id || effectiveDriverId, name: driverObj.name ?? null, phone: driverObj.phone ?? null }
         : null,
       location: customerLocation,
+      locationSource,
+      locationAgeSeconds,
+      locationUnavailable,
       pickup: job.pickup,
       drop: job.drop
     });
@@ -11531,24 +13194,48 @@ app.post('/api/parcel/:id/delivery-proof', async (req, res) => {
     const isTestOrDev = allowsTestConvenience('skipping an authentication check');
 
     let callerDriverId = null;
+    let callerRole = null;
     if (token) {
       const session = db.getSessionByToken(token);
       if (!session || (session.role !== 'DRIVER' && session.role !== 'ADMIN' && session.role !== 'SUPER_ADMIN')) {
         return res.status(403).json({ success: false, code: 'FORBIDDEN', error: 'Driver or Admin authorization required.' });
       }
+      callerRole = session.role;
       callerDriverId = session.entityId || session.userId;
     } else if (!isTestOrDev) {
       return res.status(401).json({ success: false, code: 'AUTH_REQUIRED', error: 'Authentication required for delivery proof.' });
     }
 
-    const job = db.getJob(parcelId);
+    // Durable-first: `db.getJob` only searches the in-memory boot mirror, which is hydrated with
+    // the newest 200 jobs. A parcel outside that window resolved to nothing, so its assigned
+    // driver could watch the trip on `/api/tracking/:jobId` — which reads through to PostgreSQL —
+    // and be refused to close it here with `404 Parcel job not found.`. A store failure now
+    // raises the shared 503 STORE_UNAVAILABLE channel instead of being reported as a parcel that
+    // does not exist; a genuine media-provider failure still lands in the outer catch below.
+    let job;
+    try {
+      job = await db.jobRepo.findByIdStrict(parcelId);
+    } catch (err) {
+      if (supabaseHelper.isStoreUnreachable(err) || err.code === 'STORE_UNAVAILABLE') {
+        return replyStoreError(res, req, err, 'parcel delivery proof intake');
+      }
+      throw err;
+    }
     if (!job) return res.status(404).json({ success: false, error: 'Parcel job not found.' });
 
+    // A DRIVER may file proof only against the parcel assigned to them. The old guard ran
+    // only when BOTH ids were present, so a parcel with no assigned driver (`driver_id`
+    // NULL — every parcel before assignment) skipped the check entirely and any driver
+    // could record proof on it. ADMIN/SUPER_ADMIN keep the previous answers: still refused
+    // on an assigned parcel, still accepted on an unassigned one. Whether an admin may file
+    // a driver's proof is an owner policy question, not widened here.
     const assignedDriver = job.assignedDriverId || job.driverId;
-    if (callerDriverId && assignedDriver) {
+    if (callerDriverId) {
       const callerUuid = db.driverRepo?.resolveUuid(callerDriverId) || callerDriverId;
-      const assignedUuid = db.driverRepo?.resolveUuid(assignedDriver) || assignedDriver;
-      if (callerDriverId !== assignedDriver && callerUuid !== assignedUuid) {
+      const assignedUuid = assignedDriver ? (db.driverRepo?.resolveUuid(assignedDriver) || assignedDriver) : null;
+      const isAssigned = Boolean(assignedDriver)
+        && (callerDriverId === assignedDriver || callerUuid === assignedUuid);
+      if (!isAssigned && (callerRole === 'DRIVER' || Boolean(assignedDriver))) {
         return res.status(403).json({ success: false, code: 'DRIVER_NOT_ASSIGNED', error: 'Forbidden: You are not the assigned driver for this parcel.' });
       }
     }
@@ -11584,6 +13271,247 @@ app.post('/api/parcel/:id/delivery-proof', async (req, res) => {
     res.json({ success: true, parcelId, job, asset: savedAsset });
   } catch (err) {
     res.status(err.status || 400).json({ success: false, code: err.code || 'MEDIA_UPLOAD_FAILED', error: err.message });
+  }
+});
+
+// =========================================================================
+// MERCHANT COMPLIANCE DOCUMENTS API (PHASE 4.1C / RM-006)
+// =========================================================================
+
+app.post(['/api/merchant/:restaurantId/documents', '/api/merchant/documents'], async (req, res) => {
+  try {
+    const caller = resolveMediaCaller(req, res);
+    if (!caller) return;
+
+    const target = await mediaTargetStore(caller, req.params.restaurantId || req.body.restaurantId);
+    const {
+      documentType,
+      fileData,
+      filename,
+      documentNumber,
+      expiryDate,
+      mimeType,
+      metadata = {}
+    } = req.body;
+
+    if (!documentType) {
+      return res.status(400).json({
+        success: false,
+        code: 'DOCUMENT_TYPE_REQUIRED',
+        error: 'Document type is required. Allowed types: FSSAI_LICENSE, PAN_VAT_CERTIFICATE, TRADE_LICENSE, GST_CERTIFICATE, OTHER_COMPLIANCE.'
+      });
+    }
+
+    const ALLOWED_DOC_TYPES = [
+      'FSSAI_LICENSE',
+      'PAN_VAT_CERTIFICATE',
+      'TRADE_LICENSE',
+      'GST_CERTIFICATE',
+      'OTHER_COMPLIANCE'
+    ];
+
+    if (!ALLOWED_DOC_TYPES.includes(String(documentType).toUpperCase())) {
+      return res.status(400).json({
+        success: false,
+        code: 'INVALID_DOCUMENT_TYPE',
+        error: `Invalid document type '${documentType}'. Must be one of: ${ALLOWED_DOC_TYPES.join(', ')}.`
+      });
+    }
+
+    if (!fileData) {
+      return res.status(400).json({
+        success: false,
+        code: 'FILE_DATA_REQUIRED',
+        error: 'File data (Base64 string or binary buffer) is required for document upload.'
+      });
+    }
+
+    const uploadRes = await merchantDocumentStorageService.uploadDocument({
+      merchantId: target.id,
+      documentType: String(documentType).toUpperCase(),
+      fileData,
+      filename: filename || `${documentType.toLowerCase()}.pdf`,
+      mimeType
+    });
+
+    const savedDoc = await db.merchantDocumentRepo.save({
+      merchantId: target.id,
+      documentType: String(documentType).toUpperCase(),
+      documentNumber: documentNumber ? String(documentNumber).trim() : null,
+      storageBucket: uploadRes.storageBucket,
+      storagePath: uploadRes.storagePath,
+      originalFilename: filename || `${documentType.toLowerCase()}.${uploadRes.mimeType === 'application/pdf' ? 'pdf' : 'jpg'}`,
+      mimeType: uploadRes.mimeType,
+      fileSizeBytes: uploadRes.fileSizeBytes,
+      fileHashSha256: uploadRes.fileHashSha256,
+      status: 'PENDING_REVIEW',
+      expiryDate: expiryDate ? String(expiryDate).trim() : null,
+      uploadedByUserId: caller.session?.userId || null,
+      metadata: typeof metadata === 'object' ? metadata : {}
+    });
+
+    const signedUrl = await merchantDocumentStorageService.getSignedUrl(savedDoc.storagePath, 900);
+
+    res.status(201).json({
+      success: true,
+      message: 'Compliance document uploaded successfully and pending verification.',
+      document: {
+        ...savedDoc,
+        viewUrl: signedUrl
+      }
+    });
+  } catch (err) {
+    res.status(err.status || 400).json({
+      success: false,
+      code: err.code || 'DOCUMENT_UPLOAD_FAILED',
+      error: err.message
+    });
+  }
+});
+
+app.get(['/api/merchant/:restaurantId/documents', '/api/merchant/documents'], async (req, res) => {
+  try {
+    const caller = resolveMediaCaller(req, res);
+    if (!caller) return;
+
+    const target = await mediaTargetStore(caller, req.params.restaurantId || req.query.restaurantId);
+    const docs = await db.merchantDocumentRepo.findByMerchantId(target.id);
+
+    const enrichedDocs = await Promise.all(docs.map(async (doc) => {
+      const signedUrl = await merchantDocumentStorageService.getSignedUrl(doc.storagePath, 900);
+      return {
+        ...doc,
+        viewUrl: signedUrl
+      };
+    }));
+
+    res.json({
+      success: true,
+      merchantId: target.id,
+      count: enrichedDocs.length,
+      documents: enrichedDocs
+    });
+  } catch (err) {
+    res.status(err.status || 400).json({
+      success: false,
+      code: err.code || 'DOCUMENT_LIST_FAILED',
+      error: err.message
+    });
+  }
+});
+
+app.get(['/api/merchant/:restaurantId/documents/:documentId', '/api/merchant/documents/:documentId'], async (req, res) => {
+  try {
+    const caller = resolveMediaCaller(req, res);
+    if (!caller) return;
+
+    const target = await mediaTargetStore(caller, req.params.restaurantId);
+    const doc = await db.merchantDocumentRepo.findById(req.params.documentId, target.id);
+
+    if (!doc) {
+      return res.status(404).json({
+        success: false,
+        code: 'DOCUMENT_NOT_FOUND',
+        error: 'Compliance document not found or belongs to another merchant.'
+      });
+    }
+
+    if (req.query.download === 'true' || req.query.stream === 'true') {
+      const buffer = await merchantDocumentStorageService.downloadDocument(doc.storagePath);
+      if (!buffer) {
+        return res.status(404).json({
+          success: false,
+          code: 'DOCUMENT_BINARY_NOT_FOUND',
+          error: 'Document file could not be retrieved from private storage.'
+        });
+      }
+      res.setHeader('Content-Type', doc.mimeType);
+      res.setHeader('Content-Disposition', `inline; filename="${doc.originalFilename}"`);
+      return res.send(buffer);
+    }
+
+    const signedUrl = await merchantDocumentStorageService.getSignedUrl(doc.storagePath, 900);
+
+    res.json({
+      success: true,
+      document: {
+        ...doc,
+        viewUrl: signedUrl
+      }
+    });
+  } catch (err) {
+    res.status(err.status || 400).json({
+      success: false,
+      code: err.code || 'DOCUMENT_GET_FAILED',
+      error: err.message
+    });
+  }
+});
+
+app.delete(['/api/merchant/:restaurantId/documents/:documentId', '/api/merchant/documents/:documentId'], async (req, res) => {
+  try {
+    const caller = resolveMediaCaller(req, res);
+    if (!caller) return;
+
+    const target = await mediaTargetStore(caller, req.params.restaurantId);
+    const doc = await db.merchantDocumentRepo.findById(req.params.documentId, target.id);
+
+    if (!doc) {
+      return res.status(404).json({
+        success: false,
+        code: 'DOCUMENT_NOT_FOUND',
+        error: 'Compliance document not found or belongs to another merchant.'
+      });
+    }
+
+    await merchantDocumentStorageService.deleteDocument(doc.storagePath, target.id);
+    await db.merchantDocumentRepo.delete(req.params.documentId, target.id);
+
+    res.json({
+      success: true,
+      message: 'Compliance document withdrawn and deleted successfully.',
+      documentId: req.params.documentId
+    });
+  } catch (err) {
+    res.status(err.status || 400).json({
+      success: false,
+      code: err.code || 'DOCUMENT_DELETE_FAILED',
+      error: err.message
+    });
+  }
+});
+
+app.get('/api/merchant/documents/stream', async (req, res) => {
+  try {
+    const caller = resolveMediaCaller(req, res);
+    if (!caller) return;
+
+    const storagePath = req.query.path;
+    if (!storagePath) {
+      return res.status(400).json({ success: false, error: 'Storage path is required.' });
+    }
+
+    const target = await mediaTargetStore(caller);
+    const expectedPrefix = `merchants/${String(target.id).replace(/[^a-zA-Z0-9_-]/g, '')}/`;
+    if (!storagePath.startsWith(expectedPrefix) && !caller.isAdmin) {
+      return res.status(403).json({
+        success: false,
+        code: 'FORBIDDEN',
+        error: 'Forbidden: Cannot access documents of another merchant.'
+      });
+    }
+
+    const buffer = await merchantDocumentStorageService.downloadDocument(storagePath);
+    if (!buffer) {
+      return res.status(404).json({ success: false, error: 'Document file not found in storage.' });
+    }
+
+    const mime = merchantDocumentStorageService.detectBufferMime(buffer) || 'application/octet-stream';
+    res.setHeader('Content-Type', mime);
+    res.setHeader('Content-Disposition', 'inline');
+    res.send(buffer);
+  } catch (err) {
+    res.status(err.status || 400).json({ success: false, error: err.message });
   }
 });
 
@@ -12174,4 +14102,105 @@ const PORT = process.env.PORT || 4000;
   });
 })();
 
-module.exports = { app, server };
+// ============================================================================
+// PHASE 29-A: MODULAR ROUTES MOUNTING
+// ============================================================================
+
+const requireAuth = authenticateUser;
+
+// Mount Emergency SOS routes under /api
+app.use('/api', createEmergencyRouter({
+  supabaseHelper,
+  requireAuth,
+  requirePermission,
+  broadcastEmergencySos,
+  broadcastEmergencyAcknowledged,
+  broadcastEmergencyResolved,
+  db
+}));
+
+// Mount Journey Sharing routes under /api
+app.use('/api', createJourneySharingRouter({
+  supabaseHelper,
+  requireAuth
+}));
+
+// Public Journey Tracking endpoint (/share/:linkUuid)
+app.get('/share/:linkUuid', async (req, res) => {
+  try {
+    const { linkUuid } = req.params;
+    const { data: sharedLink, error: linkError } = await supabaseHelper.client
+      .from('shared_journey_links')
+      .select('*, jobs:jobs_id(id, status, lat, lng)')
+      .eq('link_uuid', linkUuid)
+      .single();
+
+    if (linkError || !sharedLink) {
+      return res.status(404).json({
+        success: false,
+        code: 'INVALID_LINK',
+        error: 'Invalid share link.'
+      });
+    }
+
+    if (new Date() > new Date(sharedLink.expires_at)) {
+      return res.status(410).json({
+        success: false,
+        code: 'LINK_EXPIRED',
+        error: 'Share link has expired.'
+      });
+    }
+
+    await supabaseHelper.client
+      .from('shared_journey_links')
+      .update({
+        accessed_at: new Date().toISOString(),
+        access_count: sharedLink.access_count + 1
+      })
+      .eq('id', sharedLink.id);
+
+    res.json({
+      success: true,
+      job: {
+        id: sharedLink.jobs.id,
+        lat: sharedLink.jobs.lat,
+        lng: sharedLink.jobs.lng,
+        status: sharedLink.jobs.status
+      },
+      expires_at: sharedLink.expires_at,
+      access_count: sharedLink.access_count + 1,
+      requestId: req.id
+    });
+  } catch (err) {
+    if (supabaseHelper.isStoreUnreachable(err)) {
+      return res.status(503).json({
+        success: false,
+        code: 'STORE_UNAVAILABLE',
+        error: 'Journey tracking temporarily unavailable.'
+      });
+    }
+    res.status(500).json({
+      success: false,
+      code: 'INTERNAL_ERROR',
+      error: 'Failed to retrieve journey tracking.'
+    });
+  }
+});
+
+// Mount Driver Compliance routes under /api
+app.use('/api', createComplianceRouter({
+  supabaseHelper,
+  authenticateDriver,
+  authenticateAdmin,
+  requirePermission
+}));
+
+// Mount Merchant Subscription routes under /api
+app.use('/api', createSubscriptionRouter({
+  supabaseHelper,
+  requireMerchantAuth: authenticateMerchant,
+  requireAdminAuth: authenticateAdmin,
+  requirePermission
+}));
+
+module.exports = { app, server, checkDriverComplianceEligibility };

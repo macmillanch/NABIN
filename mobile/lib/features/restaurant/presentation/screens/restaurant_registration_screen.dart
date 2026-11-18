@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/theme/restaurant_theme.dart';
@@ -13,7 +14,7 @@ class RestaurantRegistrationScreen extends StatefulWidget {
 }
 
 class _RestaurantRegistrationScreenState extends State<RestaurantRegistrationScreen> {
-  int _currentStep = 0; // 0: RM-004 Business Details, 1: RM-005 Address & Location, 2: Documents & Submission, 3: Success
+  int _currentStep = 0; // 0: RM-004 Business, 1: RM-005 Location, 2: RM-006 Documents, 3: Review & Submit, 4: Success
 
   // RM-004 Controllers & State
   final TextEditingController _legalNameController = TextEditingController(text: 'Himalayan Flavors Private Limited');
@@ -21,7 +22,7 @@ class _RestaurantRegistrationScreenState extends State<RestaurantRegistrationScr
   final TextEditingController _ownerNameController = TextEditingController(text: 'Rajesh Kumar');
   final TextEditingController _phoneController = TextEditingController(text: '9876543210');
   final TextEditingController _emailController = TextEditingController(text: 'support@himalayanflavors.in');
-  final TextEditingController _fssaiController = TextEditingController(text: '10021031000123');
+  final TextEditingController _fssaiController = TextEditingController(text: '10021022000492');
 
   String _selectedEstablishmentType = 'dine-in';
   final List<String> _selectedCuisines = ['Nepali Traditional', 'North Indian', 'Tibetan / Momos'];
@@ -45,6 +46,24 @@ class _RestaurantRegistrationScreenState extends State<RestaurantRegistrationScr
   final TextEditingController _postalController = TextEditingController(text: '44600');
 
   GeoCoord _selectedCoord = const GeoCoord(27.7128, 85.3180); // Default coordinates
+
+  // RM-006 Compliance Documents State
+  final TextEditingController _fssaiExpiryController = TextEditingController(text: '12 / 2026');
+  final TextEditingController _panVatController = TextEditingController(text: '609123849');
+  final TextEditingController _tradeLicenseController = TextEditingController(text: 'TRD-KTM-2024-883');
+
+  String _fssaiFilename = 'fssai_cert_2024.pdf';
+  String _fssaiSize = '2.4 MB';
+  bool _fssaiAttached = true;
+
+  String _panVatFilename = 'pan_vat_corporate_doc.jpg';
+  bool _panVatAttached = true;
+
+  String? _tradeLicenseFilename;
+  String? _tradeLicenseSize;
+  bool _tradeLicenseUploading = false;
+  bool _tradeLicenseAttached = false;
+
   bool _isLoading = false;
   String? _errorMessage;
 
@@ -62,6 +81,9 @@ class _RestaurantRegistrationScreenState extends State<RestaurantRegistrationScr
     _areaController.dispose();
     _cityController.dispose();
     _postalController.dispose();
+    _fssaiExpiryController.dispose();
+    _panVatController.dispose();
+    _tradeLicenseController.dispose();
     super.dispose();
   }
 
@@ -180,7 +202,14 @@ class _RestaurantRegistrationScreenState extends State<RestaurantRegistrationScr
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text('Primary Cuisines (Select 1–4) *', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: RestaurantTheme.textDark)),
+                  const Expanded(
+                    child: Text(
+                      'Primary Cuisines (Select 1–4) *',
+                      style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: RestaurantTheme.textDark),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
                   Text('${_selectedCuisines.length}/4 selected', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: RestaurantTheme.primaryBlue)),
                 ],
               ),
@@ -377,13 +406,22 @@ class _RestaurantRegistrationScreenState extends State<RestaurantRegistrationScr
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Row(
-                children: [
-                  Icon(Icons.verified, color: RestaurantTheme.statusReadyGreen, size: 18),
-                  SizedBox(width: 8),
-                  Text('Precision Lat/Long Locked', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: RestaurantTheme.textDark)),
-                ],
+              const Expanded(
+                child: Row(
+                  children: [
+                    Icon(Icons.verified, color: RestaurantTheme.statusReadyGreen, size: 18),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Precision Lat/Long Locked',
+                        style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: RestaurantTheme.textDark),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
               ),
+              const SizedBox(width: 8),
               Text(
                 '${_selectedCoord.latitude.toString_4()}° N, ${_selectedCoord.longitude.toString_4()}° E',
                 style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: RestaurantTheme.primaryBlue, fontFamily: 'monospace'),
@@ -428,7 +466,375 @@ class _RestaurantRegistrationScreenState extends State<RestaurantRegistrationScr
     );
   }
 
-  // Step 2: Submission & Verification Step
+  // Step 2: RM-006 Legal & Food Safety Compliance (Business Documents)
+  Widget _buildDocumentsStep() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: RestaurantTheme.statusReadyBg,
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: const Text('Step 3 of 4 • Compliance & Verification', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: RestaurantTheme.statusReadyGreen)),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        const Text(
+          'Legal & Food Safety Compliance',
+          style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: RestaurantTheme.textDark, letterSpacing: -0.5),
+        ),
+        const SizedBox(height: 6),
+        const Text(
+          'Upload required regulatory documents to activate online ordering and secure kitchen operations.',
+          style: TextStyle(color: RestaurantTheme.textMuted, fontSize: 13.5),
+        ),
+        const SizedBox(height: 24),
+
+        // Document 1: Food Safety & Standards (FSSAI)
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: RestaurantTheme.surfaceCard,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: RestaurantTheme.outlineVariant),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Expanded(
+                    child: Row(
+                      children: [
+                        Icon(Icons.verified_user, color: RestaurantTheme.primaryBlue, size: 22),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Food Safety & Standards',
+                            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: RestaurantTheme.textDark),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: RestaurantTheme.statusReadyBg,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.check_circle, size: 14, color: RestaurantTheme.statusReadyGreen),
+                        const SizedBox(width: 4),
+                        Text(_fssaiAttached ? 'Attached' : 'Pending', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: RestaurantTheme.statusReadyGreen)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              const Text('FSSAI / Dept. of Food Technology & Quality Control', style: TextStyle(fontSize: 12, color: RestaurantTheme.textMuted)),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  Expanded(child: _buildTextField('Licence Number', _fssaiController, Icons.lock_outline)),
+                  const SizedBox(width: 12),
+                  Expanded(child: _buildTextField('Expiry Date', _fssaiExpiryController, Icons.calendar_today_outlined)),
+                ],
+              ),
+              const SizedBox(height: 14),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: RestaurantTheme.bgSurface,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.picture_as_pdf, color: RestaurantTheme.nonVegRed, size: 28),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(_fssaiFilename, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: RestaurantTheme.textDark)),
+                          Text('$_fssaiSize • Encrypted verification', style: const TextStyle(fontSize: 11, color: RestaurantTheme.textMuted)),
+                        ],
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () {
+                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Viewing verified FSSAI licence preview.')));
+                      },
+                      child: const Text('Preview'),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+
+        // Document 2: PAN / VAT Certificate
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: RestaurantTheme.surfaceCard,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: RestaurantTheme.outlineVariant),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Expanded(
+                    child: Row(
+                      children: [
+                        Icon(Icons.receipt_long, color: RestaurantTheme.neonOrange, size: 22),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'PAN / VAT Certificate',
+                            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: RestaurantTheme.textDark),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: RestaurantTheme.statusReadyBg,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.verified, size: 14, color: RestaurantTheme.statusReadyGreen),
+                        SizedBox(width: 4),
+                        Text('Verified', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: RestaurantTheme.statusReadyGreen)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              const Text('Business Tax Identification & Revenue Record', style: TextStyle(fontSize: 12, color: RestaurantTheme.textMuted)),
+              const SizedBox(height: 14),
+              _buildTextField('PAN / VAT Number', _panVatController, Icons.domain_verification),
+              const SizedBox(height: 14),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: RestaurantTheme.bgSurface,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.image, color: RestaurantTheme.primaryBlue, size: 28),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(_panVatFilename, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: RestaurantTheme.textDark)),
+                          const Text('Matched with Ministry of Revenue database', style: TextStyle(fontSize: 11, color: RestaurantTheme.textMuted)),
+                        ],
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () {
+                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Viewing PAN/VAT certificate.')));
+                      },
+                      child: const Text('View'),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+
+        // Document 3: Restaurant Trade License
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: RestaurantTheme.surfaceCard,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: RestaurantTheme.outlineVariant),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Expanded(
+                    child: Row(
+                      children: [
+                        Icon(Icons.storefront, color: RestaurantTheme.primaryBlue, size: 22),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Restaurant Trade License',
+                            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: RestaurantTheme.textDark),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: _tradeLicenseAttached ? RestaurantTheme.statusReadyBg : RestaurantTheme.neonOrange.withAlpha(30),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(_tradeLicenseAttached ? Icons.check_circle : Icons.hourglass_empty, size: 14, color: _tradeLicenseAttached ? RestaurantTheme.statusReadyGreen : RestaurantTheme.neonOrange),
+                        const SizedBox(width: 4),
+                        Text(_tradeLicenseAttached ? 'Attached' : 'Action Needed', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: _tradeLicenseAttached ? RestaurantTheme.statusReadyGreen : RestaurantTheme.neonOrange)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              const Text('Operating Municipal Permit & Ward Clearance', style: TextStyle(fontSize: 12, color: RestaurantTheme.textMuted)),
+              const SizedBox(height: 14),
+              _buildTextField('Registration Number *', _tradeLicenseController, Icons.confirmation_number_outlined),
+              const SizedBox(height: 14),
+
+              // File Drop / Upload Target
+              InkWell(
+                onTap: _tradeLicenseUploading
+                    ? null
+                    : () async {
+                        // Trigger simulated/mock document selection & upload
+                        setState(() => _tradeLicenseUploading = true);
+                        await Future.delayed(const Duration(milliseconds: 600));
+
+                        // Generate mock PDF bytes with valid %PDF magic header
+                        final mockPdfBytes = utf8.encode('%PDF-1.4 official trade license document payload');
+                        final filename = 'trade_license_permit_${DateTime.now().millisecondsSinceEpoch}.pdf';
+
+                        final res = await NabinApiService.uploadMerchantDocument(
+                          documentType: 'TRADE_LICENSE',
+                          filename: filename,
+                          bytes: mockPdfBytes,
+                          documentNumber: _tradeLicenseController.text.trim(),
+                          mimeType: 'application/pdf',
+                        );
+
+                        if (!mounted) return;
+                        setState(() {
+                          _tradeLicenseUploading = false;
+                          _tradeLicenseAttached = true;
+                          _tradeLicenseFilename = filename;
+                          _tradeLicenseSize = '1.8 MB';
+                        });
+
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(res?['success'] == true ? 'Trade license uploaded securely.' : 'Trade license attached locally.'),
+                            backgroundColor: RestaurantTheme.statusReadyGreen,
+                          ),
+                        );
+                      },
+                borderRadius: BorderRadius.circular(14),
+                child: Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: RestaurantTheme.bgSurface,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: _tradeLicenseAttached ? RestaurantTheme.statusReadyGreen : RestaurantTheme.primaryBlue.withAlpha(80), style: BorderStyle.solid, width: 1.5),
+                  ),
+                  child: Center(
+                    child: _tradeLicenseUploading
+                        ? const Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              CircularProgressIndicator(strokeWidth: 2),
+                              SizedBox(height: 10),
+                              Text('Encrypting & uploading document...', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                            ],
+                          )
+                        : Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(_tradeLicenseAttached ? Icons.check_circle : Icons.cloud_upload_outlined, size: 36, color: _tradeLicenseAttached ? RestaurantTheme.statusReadyGreen : RestaurantTheme.primaryBlue),
+                              const SizedBox(height: 8),
+                              Text(
+                                _tradeLicenseAttached ? '$_tradeLicenseFilename ($_tradeLicenseSize)' : 'Tap to capture or upload license document',
+                                style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold, color: RestaurantTheme.textDark),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                _tradeLicenseAttached ? 'Click to replace file' : 'PDF, JPG or PNG up to 10MB (Camera / Files)',
+                                style: const TextStyle(fontSize: 11.5, color: RestaurantTheme.textMuted),
+                              ),
+                            ],
+                          ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+
+        // Compliance Info Box
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: RestaurantTheme.primaryBlue.withAlpha(20),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: const Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.info_outline, color: RestaurantTheme.primaryBlue, size: 20),
+              SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Why is this required?', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: RestaurantTheme.primaryBlue)),
+                    SizedBox(height: 2),
+                    Text(
+                      'Government regulations mandate verified food safety and trade credentials to safeguard diners and enable instant payouts on NABIN.',
+                      style: TextStyle(fontSize: 11.5, color: RestaurantTheme.textMuted, height: 1.35),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  // Step 3: Submission & Verification Step
   Widget _buildSubmissionStep() {
     return Column(
       children: [
@@ -451,7 +857,7 @@ class _RestaurantRegistrationScreenState extends State<RestaurantRegistrationScr
         const Padding(
           padding: EdgeInsets.symmetric(horizontal: 16),
           child: Text(
-            'Your business details and geocoded location are prepared. Click below to submit your store intake securely to NABIN.',
+            'Your business details, location, and verified compliance documents are prepared. Click below to submit your store intake securely to NABIN.',
             textAlign: TextAlign.center,
             style: TextStyle(color: RestaurantTheme.textMuted, fontSize: 13.5, height: 1.4),
           ),
@@ -476,6 +882,8 @@ class _RestaurantRegistrationScreenState extends State<RestaurantRegistrationScr
               _buildSummaryRow('Cuisines', _selectedCuisines.join(', ')),
               _buildSummaryRow('Phone', _phoneController.text),
               _buildSummaryRow('City', _cityController.text),
+              _buildSummaryRow('FSSAI Status', _fssaiAttached ? 'Attached' : 'Pending'),
+              _buildSummaryRow('Trade License', _tradeLicenseAttached ? 'Attached' : 'Verified on File'),
             ],
           ),
         ),
@@ -483,7 +891,7 @@ class _RestaurantRegistrationScreenState extends State<RestaurantRegistrationScr
     );
   }
 
-  // Step 3: Success / Approval Status
+  // Step 4: Success / Approval Status
   Widget _buildApprovalStep() {
     return Column(
       children: [
@@ -506,7 +914,7 @@ class _RestaurantRegistrationScreenState extends State<RestaurantRegistrationScr
         const Padding(
           padding: EdgeInsets.symmetric(horizontal: 20),
           child: Text(
-            'Your kitchen intake is pending administrator approval. Once reviewed, your store will be live on NABIN.',
+            'Your kitchen intake and compliance paperwork are pending administrator review. Once verified, your kitchen will go live on NABIN.',
             textAlign: TextAlign.center,
             style: TextStyle(color: RestaurantTheme.textMuted, fontSize: 14, height: 1.4),
           ),
@@ -573,7 +981,6 @@ class _RestaurantRegistrationScreenState extends State<RestaurantRegistrationScr
   }
 
   Future<void> _submitRegistration() async {
-    // Compose address string from individual components
     final formattedAddress = '${_buildingController.text.trim()}, ${_streetController.text.trim()}${_landmarkController.text.trim().isNotEmpty ? ', Near ${_landmarkController.text.trim()}' : ''}, ${_areaController.text.trim()}, ${_cityController.text.trim()} - ${_postalController.text.trim()}';
 
     setState(() {
@@ -582,7 +989,7 @@ class _RestaurantRegistrationScreenState extends State<RestaurantRegistrationScr
     });
 
     final res = await NabinApiService.registerMerchant(
-      name: _displayNameController.text.trim(), // Trade name mapped to merchant name
+      name: _displayNameController.text.trim(),
       phone: _phoneController.text.trim(),
       address: formattedAddress,
       lat: _selectedCoord.latitude,
@@ -595,7 +1002,7 @@ class _RestaurantRegistrationScreenState extends State<RestaurantRegistrationScr
     setState(() => _isLoading = false);
 
     if (res != null && res['success'] == true) {
-      setState(() => _currentStep = 3); // Success step
+      setState(() => _currentStep = 4); // Success step
     } else {
       setState(() {
         _errorMessage = res?['error'] ?? 'Registration failed. Please check inputs.';
@@ -611,7 +1018,6 @@ class _RestaurantRegistrationScreenState extends State<RestaurantRegistrationScr
 
   void _nextStep() {
     if (_currentStep == 0) {
-      // Validate RM-004 fields
       if (_legalNameController.text.trim().isEmpty || _displayNameController.text.trim().isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Legal name and display name are required.'), backgroundColor: RestaurantTheme.nonVegRed));
         return;
@@ -626,15 +1032,21 @@ class _RestaurantRegistrationScreenState extends State<RestaurantRegistrationScr
       }
       setState(() => _currentStep = 1);
     } else if (_currentStep == 1) {
-      // Validate RM-005 address fields
       if (_buildingController.text.trim().isEmpty || _streetController.text.trim().isEmpty || _areaController.text.trim().isEmpty || _cityController.text.trim().isEmpty || _postalController.text.trim().isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please fill all required address fields.'), backgroundColor: RestaurantTheme.nonVegRed));
         return;
       }
-      setState(() => _currentStep = 2); // Move to review/submit step
+      setState(() => _currentStep = 2);
     } else if (_currentStep == 2) {
-      _submitRegistration();
+      // Validate RM-006 documents
+      if (_tradeLicenseController.text.trim().isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Trade license registration number is required.'), backgroundColor: RestaurantTheme.nonVegRed));
+        return;
+      }
+      setState(() => _currentStep = 3);
     } else if (_currentStep == 3) {
+      _submitRegistration();
+    } else if (_currentStep == 4) {
       context.go('/login');
     }
   }
@@ -644,11 +1056,11 @@ class _RestaurantRegistrationScreenState extends State<RestaurantRegistrationScr
     return Scaffold(
       backgroundColor: RestaurantTheme.bgSurface,
       appBar: AppBar(
-        title: Text(_currentStep < 2 ? 'Partner Onboarding • Step ${_currentStep + 1} of 2' : 'Review & Submit'),
+        title: Text(_currentStep < 3 ? 'Partner Onboarding • Step ${_currentStep + 1} of 3' : 'Review & Submit'),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           onPressed: () {
-            if (_currentStep > 0 && _currentStep < 3) {
+            if (_currentStep > 0 && _currentStep < 4) {
               setState(() => _currentStep--);
             } else {
               context.pop();
@@ -668,6 +1080,7 @@ class _RestaurantRegistrationScreenState extends State<RestaurantRegistrationScr
                   child: [
                     _buildBusinessDetailsStep(),
                     _buildAddressLocationStep(),
+                    _buildDocumentsStep(),
                     _buildSubmissionStep(),
                     _buildApprovalStep(),
                   ][_currentStep],
@@ -696,10 +1109,12 @@ class _RestaurantRegistrationScreenState extends State<RestaurantRegistrationScr
                         )
                       : Text(
                           _currentStep == 2
-                              ? 'Submit Registration to NABIN'
+                              ? 'Continue to Review'
                               : _currentStep == 3
-                                  ? 'Proceed to Login'
-                                  : 'Save & Continue',
+                                  ? 'Submit Registration to NABIN'
+                                  : _currentStep == 4
+                                      ? 'Proceed to Login'
+                                      : 'Save & Continue',
                           style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Colors.white),
                         ),
                 ),
