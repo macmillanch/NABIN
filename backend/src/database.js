@@ -50,6 +50,7 @@ const RestaurantCatalogRepository = require('./repositories/RestaurantCatalogRep
 const RestaurantManagementRepository = require('./repositories/RestaurantManagementRepository');
 const MediaAssetRepository = require('./repositories/MediaAssetRepository');
 const { MerchantDocumentRepository } = require('./repositories/MerchantDocumentRepository');
+const { MerchantBankAccountRepository } = require('./repositories/MerchantBankAccountRepository');
 const { allowsTestConvenience } = require('./services/RuntimeMode');
 const SmsGatewayService = require('./services/SmsGatewayService');
 const geoPolicy = require('./services/GeoPolicyService');
@@ -1746,6 +1747,7 @@ class NabinDatabase {
     this.restaurantCatalogRepo = new RestaurantCatalogRepository(this);
     this.rmsRepo = new RestaurantManagementRepository(this);
     this.merchantDocumentRepo = new MerchantDocumentRepository(this);
+    this.merchantBankAccountRepo = new MerchantBankAccountRepository(this);
 
     // -------------------------------------------------------------
     // GEOGRAPHIC AUTHORITY

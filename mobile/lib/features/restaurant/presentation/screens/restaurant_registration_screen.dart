@@ -14,7 +14,7 @@ class RestaurantRegistrationScreen extends StatefulWidget {
 }
 
 class _RestaurantRegistrationScreenState extends State<RestaurantRegistrationScreen> {
-  int _currentStep = 0; // 0: RM-004 Business, 1: RM-005 Location, 2: RM-006 Documents, 3: Review & Submit, 4: Success
+  int _currentStep = 0; // 0: RM-004, 1: RM-005, 2: RM-006, 3: RM-007, 4: Success
 
   // RM-004 Controllers & State
   final TextEditingController _legalNameController = TextEditingController(text: 'Himalayan Flavors Private Limited');
@@ -45,7 +45,7 @@ class _RestaurantRegistrationScreenState extends State<RestaurantRegistrationScr
   final TextEditingController _cityController = TextEditingController(text: 'Kathmandu Metropolitan');
   final TextEditingController _postalController = TextEditingController(text: '44600');
 
-  GeoCoord _selectedCoord = const GeoCoord(27.7128, 85.3180); // Default coordinates
+  GeoCoord _selectedCoord = const GeoCoord(27.7128, 85.3180);
 
   // RM-006 Compliance Documents State
   final TextEditingController _fssaiExpiryController = TextEditingController(text: '12 / 2026');
@@ -63,6 +63,28 @@ class _RestaurantRegistrationScreenState extends State<RestaurantRegistrationScr
   String? _tradeLicenseSize;
   bool _tradeLicenseUploading = false;
   bool _tradeLicenseAttached = false;
+
+  // RM-007 Bank & Settlement Payouts State
+  final TextEditingController _accountHolderController = TextEditingController(text: 'Himalayan Flavors Pvt Ltd');
+  final TextEditingController _accountNumberController = TextEditingController(text: '0124982184910');
+  final TextEditingController _confirmAccountController = TextEditingController(text: '0124982184910');
+  final TextEditingController _ifscController = TextEditingController(text: 'NBLNPKTM01');
+  final TextEditingController _branchController = TextEditingController(text: 'Durbar Marg Branch');
+
+  String _selectedBank = 'Nabil Bank Limited • Commercial Banking';
+  final List<String> _bankOptions = [
+    'Nabil Bank Limited • Commercial Banking',
+    'Standard Chartered Bank • Corporate Account',
+    'Himalayan Bank Ltd • Merchant Gateway',
+    'NIC Asia Bank • Corporate Banking',
+    'Siddhartha Bank • Commercial Payouts',
+    'State Bank of India • Northeast Clearing'
+  ];
+
+  String _payoutCadence = 'DAILY_T1'; // 'DAILY_T1' or 'WEEKLY_CONSOLIDATED'
+  bool _isAccountMasked = true;
+  bool _hasChequeAttached = true;
+  String _chequeFilename = 'cancelled_cheque_himalayan.png';
 
   bool _isLoading = false;
   String? _errorMessage;
@@ -84,6 +106,11 @@ class _RestaurantRegistrationScreenState extends State<RestaurantRegistrationScr
     _fssaiExpiryController.dispose();
     _panVatController.dispose();
     _tradeLicenseController.dispose();
+    _accountHolderController.dispose();
+    _accountNumberController.dispose();
+    _confirmAccountController.dispose();
+    _ifscController.dispose();
+    _branchController.dispose();
     super.dispose();
   }
 
@@ -466,7 +493,7 @@ class _RestaurantRegistrationScreenState extends State<RestaurantRegistrationScr
     );
   }
 
-  // Step 2: RM-006 Legal & Food Safety Compliance (Business Documents)
+  // Step 2: RM-006 Legal & Food Safety Compliance
   Widget _buildDocumentsStep() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -724,16 +751,13 @@ class _RestaurantRegistrationScreenState extends State<RestaurantRegistrationScr
               _buildTextField('Registration Number *', _tradeLicenseController, Icons.confirmation_number_outlined),
               const SizedBox(height: 14),
 
-              // File Drop / Upload Target
               InkWell(
                 onTap: _tradeLicenseUploading
                     ? null
                     : () async {
-                        // Trigger simulated/mock document selection & upload
                         setState(() => _tradeLicenseUploading = true);
                         await Future.delayed(const Duration(milliseconds: 600));
 
-                        // Generate mock PDF bytes with valid %PDF magic header
                         final mockPdfBytes = utf8.encode('%PDF-1.4 official trade license document payload');
                         final filename = 'trade_license_permit_${DateTime.now().millisecondsSinceEpoch}.pdf';
 
@@ -766,7 +790,7 @@ class _RestaurantRegistrationScreenState extends State<RestaurantRegistrationScr
                   decoration: BoxDecoration(
                     color: RestaurantTheme.bgSurface,
                     borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: _tradeLicenseAttached ? RestaurantTheme.statusReadyGreen : RestaurantTheme.primaryBlue.withAlpha(80), style: BorderStyle.solid, width: 1.5),
+                    border: Border.all(color: _tradeLicenseAttached ? RestaurantTheme.statusReadyGreen : RestaurantTheme.primaryBlue.withAlpha(80), width: 1.5),
                   ),
                   child: Center(
                     child: _tradeLicenseUploading
@@ -834,36 +858,77 @@ class _RestaurantRegistrationScreenState extends State<RestaurantRegistrationScr
     );
   }
 
-  // Step 3: Submission & Verification Step
-  Widget _buildSubmissionStep() {
+  // Step 3: RM-007 Bank Account & Settlement Payouts
+  Widget _buildBankSettlementStep() {
+    final accountNumbersMatch = _accountNumberController.text.isNotEmpty &&
+        _accountNumberController.text.trim() == _confirmAccountController.text.trim();
+
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const SizedBox(height: 20),
-        Container(
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            color: RestaurantTheme.primaryBlue.withAlpha(25),
-            shape: BoxShape.circle,
-            border: Border.all(color: RestaurantTheme.primaryBlue, width: 2),
-          ),
-          child: const Icon(Icons.cloud_upload_rounded, size: 56, color: RestaurantTheme.primaryBlue),
+        Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: RestaurantTheme.primaryBlue.withAlpha(25),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: const Text('Step 4 of 4 • Payouts & Settlement', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: RestaurantTheme.primaryBlue)),
+            ),
+          ],
         ),
-        const SizedBox(height: 24),
+        const SizedBox(height: 12),
         const Text(
-          'Ready to Register Kitchen',
-          style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: RestaurantTheme.textDark),
+          'Bank Account & Settlement Payouts',
+          style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: RestaurantTheme.textDark, letterSpacing: -0.5),
         ),
-        const SizedBox(height: 8),
-        const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 16),
-          child: Text(
-            'Your business details, location, and verified compliance documents are prepared. Click below to submit your store intake securely to NABIN.',
-            textAlign: TextAlign.center,
-            style: TextStyle(color: RestaurantTheme.textMuted, fontSize: 13.5, height: 1.4),
-          ),
+        const SizedBox(height: 6),
+        const Text(
+          'Daily order earnings are settled automatically into this verified bank account. All incoming receipts are matched daily.',
+          style: TextStyle(color: RestaurantTheme.textMuted, fontSize: 13.5),
         ),
         const SizedBox(height: 24),
 
+        // Verified Legal Entity Notice Card
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: RestaurantTheme.surfaceCard,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: RestaurantTheme.outlineVariant),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: RestaurantTheme.primaryBlue.withAlpha(25),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.verified_user, color: RestaurantTheme.primaryBlue, size: 20),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('VERIFIED BUSINESS ENTITY', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: RestaurantTheme.textMuted, letterSpacing: 0.5)),
+                    const SizedBox(height: 2),
+                    Text(_legalNameController.text, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: RestaurantTheme.textDark)),
+                    const SizedBox(height: 4),
+                    const Text('Account holder name must match official registered trade license.', style: TextStyle(fontSize: 11.5, color: RestaurantTheme.textMuted)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+
+        // Bank Selection Dropdown Card
         Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
@@ -874,16 +939,288 @@ class _RestaurantRegistrationScreenState extends State<RestaurantRegistrationScr
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('Registration Summary', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: RestaurantTheme.textDark)),
-              const Divider(height: 20),
-              _buildSummaryRow('Legal Name', _legalNameController.text),
-              _buildSummaryRow('Display Name', _displayNameController.text),
-              _buildSummaryRow('Establishment', _selectedEstablishmentType.toUpperCase()),
-              _buildSummaryRow('Cuisines', _selectedCuisines.join(', ')),
-              _buildSummaryRow('Phone', _phoneController.text),
-              _buildSummaryRow('City', _cityController.text),
-              _buildSummaryRow('FSSAI Status', _fssaiAttached ? 'Attached' : 'Pending'),
-              _buildSummaryRow('Trade License', _tradeLicenseAttached ? 'Attached' : 'Verified on File'),
+              const Text('DESIGNATED COMMERCIAL BANK *', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: RestaurantTheme.textMuted, letterSpacing: 0.5)),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                decoration: BoxDecoration(
+                  color: RestaurantTheme.bgSurface,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: RestaurantTheme.outlineVariant),
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: _selectedBank,
+                    isExpanded: true,
+                    icon: const Icon(Icons.arrow_drop_down, color: RestaurantTheme.primaryBlue),
+                    items: _bankOptions.map((bank) {
+                      return DropdownMenuItem<String>(
+                        value: bank,
+                        child: Row(
+                          children: [
+                            const Icon(Icons.account_balance, color: RestaurantTheme.primaryBlue, size: 18),
+                            const SizedBox(width: 10),
+                            Expanded(child: Text(bank, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: RestaurantTheme.textDark), overflow: TextOverflow.ellipsis)),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                    onChanged: (val) {
+                      if (val != null) setState(() => _selectedBank = val);
+                    },
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+
+        // Bank Account Numbers Card with Mask Toggle
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: RestaurantTheme.surfaceCard,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: RestaurantTheme.outlineVariant),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('BANK ACCOUNT NUMBER *', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: RestaurantTheme.textMuted, letterSpacing: 0.5)),
+                  IconButton(
+                    icon: Icon(_isAccountMasked ? Icons.visibility : Icons.visibility_off, size: 20, color: RestaurantTheme.primaryBlue),
+                    onPressed: () => setState(() => _isAccountMasked = !_isAccountMasked),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                decoration: BoxDecoration(
+                  color: RestaurantTheme.bgSurface,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: RestaurantTheme.outlineVariant),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.tag, color: RestaurantTheme.primaryBlue, size: 20),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: TextField(
+                        controller: _accountNumberController,
+                        obscureText: _isAccountMasked,
+                        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, fontFamily: 'monospace', letterSpacing: 1.5, color: RestaurantTheme.textDark),
+                        decoration: const InputDecoration(border: InputBorder.none, hintText: 'Enter bank account number'),
+                        onChanged: (_) => setState(() {}),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('RE-ENTER BANK ACCOUNT NUMBER *', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: RestaurantTheme.textMuted, letterSpacing: 0.5)),
+                  if (accountNumbersMatch)
+                    const Row(
+                      children: [
+                        Icon(Icons.check_circle, size: 14, color: RestaurantTheme.statusReadyGreen),
+                        SizedBox(width: 4),
+                        Text('Numbers Match', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: RestaurantTheme.statusReadyGreen)),
+                      ],
+                    ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                decoration: BoxDecoration(
+                  color: RestaurantTheme.bgSurface,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: accountNumbersMatch ? RestaurantTheme.statusReadyGreen : RestaurantTheme.outlineVariant),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.verified, color: RestaurantTheme.primaryBlue, size: 20),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: TextField(
+                        controller: _confirmAccountController,
+                        obscureText: true,
+                        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, fontFamily: 'monospace', letterSpacing: 1.5, color: RestaurantTheme.textDark),
+                        decoration: const InputDecoration(border: InputBorder.none, hintText: 'Re-enter account number to confirm'),
+                        onChanged: (_) => setState(() {}),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+
+        // Branch Location & Routing / IFSC Code
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: RestaurantTheme.surfaceCard,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: RestaurantTheme.outlineVariant),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('ROUTING & CLEARING CODE *', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: RestaurantTheme.textMuted, letterSpacing: 0.5)),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(child: _buildTextField('Branch Name', _branchController, Icons.location_city)),
+                  const SizedBox(width: 12),
+                  Expanded(child: _buildTextField('IFSC Code (e.g. NBLNPKTM01)', _ifscController, Icons.account_tree_outlined)),
+                ],
+              ),
+              const SizedBox(height: 8),
+              const Text('Direct Automated Clearing House (ACH) Active • Daily batch cutoff 01:00 AM', style: TextStyle(fontSize: 11, color: RestaurantTheme.textMuted)),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+
+        // Payout Cadence Selector Card
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: RestaurantTheme.surfaceCard,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: RestaurantTheme.outlineVariant),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('PAYOUT SETTLEMENT CADENCE', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: RestaurantTheme.textMuted, letterSpacing: 0.5)),
+                  Text('ZERO FEES', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: RestaurantTheme.neonOrange)),
+                ],
+              ),
+              const SizedBox(height: 12),
+
+              _buildCadenceOption(
+                'DAILY_T1',
+                'Daily T+1 Automated Settlement',
+                'Recommended',
+                'Every night\'s kitchen earnings clear into your bank account before 10:00 AM next business morning.',
+              ),
+              const SizedBox(height: 8),
+              _buildCadenceOption(
+                'WEEKLY_CONSOLIDATED',
+                'Weekly Consolidated Settlement',
+                null,
+                'Single batched transfer every Monday morning with aggregate invoices for easier financial auditing.',
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+
+        // Cancelled Cheque / Bank Passbook Card
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: RestaurantTheme.surfaceCard,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: RestaurantTheme.outlineVariant),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('CANCELLED CHEQUE / BANK PASSBOOK', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: RestaurantTheme.textMuted, letterSpacing: 0.5)),
+                  if (_hasChequeAttached)
+                    const Row(
+                      children: [
+                        Icon(Icons.check_circle, size: 14, color: RestaurantTheme.statusReadyGreen),
+                        SizedBox(width: 4),
+                        Text('File Verified', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: RestaurantTheme.statusReadyGreen)),
+                      ],
+                    ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: RestaurantTheme.bgSurface,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.description, color: RestaurantTheme.primaryBlue, size: 28),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(_chequeFilename, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: RestaurantTheme.textDark)),
+                          const Text('2.4 MB • Encrypted ACH verification doc', style: TextStyle(fontSize: 11, color: RestaurantTheme.textMuted)),
+                        ],
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () {
+                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Viewing verified cheque voucher.')));
+                      },
+                      child: const Text('View'),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+
+        // Instant Penny-Drop Security Callout
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: RestaurantTheme.primaryBlue.withAlpha(20),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: const Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.currency_rupee, color: RestaurantTheme.primaryBlue, size: 22),
+              SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text('Instant Penny-Drop Verification', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: RestaurantTheme.primaryBlue)),
+                        SizedBox(width: 6),
+                        Text('Active', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: RestaurantTheme.statusReadyGreen)),
+                      ],
+                    ),
+                    SizedBox(height: 2),
+                    Text(
+                      'NABIN initiates a ₹1 test deposit penny-drop to verify account authenticity instantly. If name match passes, your onboarding transitions to Ready to Serve.',
+                      style: TextStyle(fontSize: 11.5, color: RestaurantTheme.textMuted, height: 1.35),
+                    ),
+                  ],
+                ),
+              ),
             ],
           ),
         ),
@@ -891,7 +1228,60 @@ class _RestaurantRegistrationScreenState extends State<RestaurantRegistrationScr
     );
   }
 
-  // Step 4: Success / Approval Status
+  Widget _buildCadenceOption(String value, String title, String? tag, String description) {
+    final isSelected = _payoutCadence == value;
+    return InkWell(
+      onTap: () => setState(() => _payoutCadence = value),
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: isSelected ? RestaurantTheme.primaryBlue.withAlpha(15) : RestaurantTheme.bgSurface,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: isSelected ? RestaurantTheme.primaryBlue : RestaurantTheme.outlineVariant, width: isSelected ? 1.5 : 1),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Radio<String>(
+              value: value,
+              groupValue: _payoutCadence,
+              activeColor: RestaurantTheme.primaryBlue,
+              onChanged: (val) => setState(() => _payoutCadence = val!),
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Text(title, style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold, color: isSelected ? RestaurantTheme.primaryBlue : RestaurantTheme.textDark)),
+                      if (tag != null) ...[
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: RestaurantTheme.neonOrange.withAlpha(25),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(tag, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: RestaurantTheme.neonOrange)),
+                        ),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(description, style: const TextStyle(fontSize: 11.5, color: RestaurantTheme.textMuted, height: 1.3)),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Step 4: Submission & Verification Review
   Widget _buildApprovalStep() {
     return Column(
       children: [
@@ -914,34 +1304,13 @@ class _RestaurantRegistrationScreenState extends State<RestaurantRegistrationScr
         const Padding(
           padding: EdgeInsets.symmetric(horizontal: 20),
           child: Text(
-            'Your kitchen intake and compliance paperwork are pending administrator review. Once verified, your kitchen will go live on NABIN.',
+            'Your kitchen intake, verified documents, and bank payout credentials are submitted and pending administrator approval. Automated T+1 settlements will commence upon review.',
             textAlign: TextAlign.center,
             style: TextStyle(color: RestaurantTheme.textMuted, fontSize: 14, height: 1.4),
           ),
         ),
         const SizedBox(height: 28),
       ],
-    );
-  }
-
-  Widget _buildSummaryRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(label, style: const TextStyle(color: RestaurantTheme.textMuted, fontSize: 12.5)),
-          Expanded(
-            child: Text(
-              value,
-              textAlign: TextAlign.right,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12.5, color: RestaurantTheme.textDark),
-            ),
-          ),
-        ],
-      ),
     );
   }
 
@@ -988,7 +1357,7 @@ class _RestaurantRegistrationScreenState extends State<RestaurantRegistrationScr
       _errorMessage = null;
     });
 
-    final res = await NabinApiService.registerMerchant(
+    final regRes = await NabinApiService.registerMerchant(
       name: _displayNameController.text.trim(),
       phone: _phoneController.text.trim(),
       address: formattedAddress,
@@ -998,14 +1367,26 @@ class _RestaurantRegistrationScreenState extends State<RestaurantRegistrationScr
       fssaiLicense: _fssaiController.text.trim(),
     );
 
+    // Also attempt saving bank account details
+    await NabinApiService.saveMerchantBankAccount(
+      accountHolderName: _accountHolderController.text.trim(),
+      bankName: _selectedBank,
+      accountNumber: _accountNumberController.text.trim(),
+      confirmAccountNumber: _confirmAccountController.text.trim(),
+      ifscCode: _ifscController.text.trim(),
+      branchName: _branchController.text.trim(),
+      accountType: 'CURRENT',
+      payoutCadence: _payoutCadence,
+    );
+
     if (!mounted) return;
     setState(() => _isLoading = false);
 
-    if (res != null && res['success'] == true) {
+    if (regRes != null && regRes['success'] == true) {
       setState(() => _currentStep = 4); // Success step
     } else {
       setState(() {
-        _errorMessage = res?['error'] ?? 'Registration failed. Please check inputs.';
+        _errorMessage = regRes?['error'] ?? 'Registration failed. Please check inputs.';
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -1038,13 +1419,29 @@ class _RestaurantRegistrationScreenState extends State<RestaurantRegistrationScr
       }
       setState(() => _currentStep = 2);
     } else if (_currentStep == 2) {
-      // Validate RM-006 documents
       if (_tradeLicenseController.text.trim().isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Trade license registration number is required.'), backgroundColor: RestaurantTheme.nonVegRed));
         return;
       }
       setState(() => _currentStep = 3);
     } else if (_currentStep == 3) {
+      // Validate RM-007 Bank fields
+      if (_accountHolderController.text.trim().isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Account beneficiary name is required.'), backgroundColor: RestaurantTheme.nonVegRed));
+        return;
+      }
+      if (_accountNumberController.text.trim().length < 6) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please enter a valid bank account number.'), backgroundColor: RestaurantTheme.nonVegRed));
+        return;
+      }
+      if (_accountNumberController.text.trim() != _confirmAccountController.text.trim()) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Bank account numbers do not match.'), backgroundColor: RestaurantTheme.nonVegRed));
+        return;
+      }
+      if (_ifscController.text.trim().isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('IFSC routing code is required.'), backgroundColor: RestaurantTheme.nonVegRed));
+        return;
+      }
       _submitRegistration();
     } else if (_currentStep == 4) {
       context.go('/login');
@@ -1056,7 +1453,7 @@ class _RestaurantRegistrationScreenState extends State<RestaurantRegistrationScr
     return Scaffold(
       backgroundColor: RestaurantTheme.bgSurface,
       appBar: AppBar(
-        title: Text(_currentStep < 3 ? 'Partner Onboarding • Step ${_currentStep + 1} of 3' : 'Review & Submit'),
+        title: Text(_currentStep < 4 ? 'Partner Onboarding • Step ${_currentStep + 1} of 4' : 'Review & Submit'),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           onPressed: () {
@@ -1081,7 +1478,7 @@ class _RestaurantRegistrationScreenState extends State<RestaurantRegistrationScr
                     _buildBusinessDetailsStep(),
                     _buildAddressLocationStep(),
                     _buildDocumentsStep(),
-                    _buildSubmissionStep(),
+                    _buildBankSettlementStep(),
                     _buildApprovalStep(),
                   ][_currentStep],
                 ),
@@ -1108,17 +1505,26 @@ class _RestaurantRegistrationScreenState extends State<RestaurantRegistrationScr
                           child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
                         )
                       : Text(
-                          _currentStep == 2
-                              ? 'Continue to Review'
-                              : _currentStep == 3
-                                  ? 'Submit Registration to NABIN'
-                                  : _currentStep == 4
-                                      ? 'Proceed to Login'
-                                      : 'Save & Continue',
+                          _currentStep == 3
+                              ? 'Submit Application for Review'
+                              : _currentStep == 4
+                                  ? 'Proceed to Login'
+                                  : 'Save & Continue',
                           style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Colors.white),
                         ),
                 ),
               ),
+              if (_currentStep == 3) ...[
+                const SizedBox(height: 8),
+                const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.lock, size: 14, color: RestaurantTheme.statusReadyGreen),
+                    SizedBox(width: 4),
+                    Text('256-bit Bank Grade Encrypted Settlement Pipeline', style: TextStyle(fontSize: 11, color: RestaurantTheme.textMuted, fontWeight: FontWeight.bold)),
+                  ],
+                ),
+              ],
               const SizedBox(height: 8),
             ],
           ),

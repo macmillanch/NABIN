@@ -230,6 +230,98 @@ class NabinApiService {
     }
   }
 
+  /// Save / register merchant bank account for settlement payouts
+  static Future<Map<String, dynamic>?> saveMerchantBankAccount({
+    required String accountHolderName,
+    required String bankName,
+    required String accountNumber,
+    required String confirmAccountNumber,
+    required String ifscCode,
+    String? branchName,
+    String accountType = 'CURRENT',
+    String payoutCadence = 'DAILY_T1',
+    String? cancelledChequeDocumentId,
+    String? merchantId,
+  }) async {
+    try {
+      final client = HttpClient();
+      final url = merchantId != null && merchantId.isNotEmpty
+          ? '$effectiveUrl/merchant/${Uri.encodeComponent(merchantId)}/bank-account'
+          : '$effectiveUrl/merchant/bank-account';
+      final request = await client.postUrl(Uri.parse(url));
+      request.headers.set('content-type', 'application/json');
+      _attachAuthHeader(request);
+
+      request.add(utf8.encode(jsonEncode({
+        'accountHolderName': accountHolderName,
+        'bankName': bankName,
+        'accountNumber': accountNumber,
+        'confirmAccountNumber': confirmAccountNumber,
+        'ifscCode': ifscCode,
+        if (branchName != null && branchName.isNotEmpty) 'branchName': branchName,
+        'accountType': accountType,
+        'payoutCadence': payoutCadence,
+        if (cancelledChequeDocumentId != null && cancelledChequeDocumentId.isNotEmpty)
+          'cancelledChequeDocumentId': cancelledChequeDocumentId,
+      })));
+
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (body.isEmpty) return {'success': false, 'statusCode': response.statusCode};
+      final decoded = jsonDecode(body);
+      if (decoded is Map<String, dynamic>) {
+        return {...decoded, 'statusCode': response.statusCode};
+      }
+      return {'success': false, 'statusCode': response.statusCode};
+    } catch (e) {
+      return {'success': false, 'error': e.toString()};
+    }
+  }
+
+  /// Retrieve registered bank account details (masked)
+  static Future<Map<String, dynamic>?> getMerchantBankAccount({String? merchantId}) async {
+    try {
+      final client = HttpClient();
+      final url = merchantId != null && merchantId.isNotEmpty
+          ? '$effectiveUrl/merchant/${Uri.encodeComponent(merchantId)}/bank-account'
+          : '$effectiveUrl/merchant/bank-account';
+      final request = await client.getUrl(Uri.parse(url));
+      _attachAuthHeader(request);
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (body.isEmpty) return {'success': false, 'statusCode': response.statusCode};
+      final decoded = jsonDecode(body);
+      if (decoded is Map<String, dynamic>) {
+        return {...decoded, 'statusCode': response.statusCode};
+      }
+      return {'success': false, 'statusCode': response.statusCode};
+    } catch (e) {
+      return {'success': false, 'error': e.toString()};
+    }
+  }
+
+  /// Retrieve automated settlement readiness status and checklist
+  static Future<Map<String, dynamic>?> getMerchantSettlementReadiness({String? merchantId}) async {
+    try {
+      final client = HttpClient();
+      final url = merchantId != null && merchantId.isNotEmpty
+          ? '$effectiveUrl/merchant/${Uri.encodeComponent(merchantId)}/settlement-readiness'
+          : '$effectiveUrl/merchant/settlement-readiness';
+      final request = await client.getUrl(Uri.parse(url));
+      _attachAuthHeader(request);
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (body.isEmpty) return {'success': false, 'statusCode': response.statusCode};
+      final decoded = jsonDecode(body);
+      if (decoded is Map<String, dynamic>) {
+        return {...decoded, 'statusCode': response.statusCode};
+      }
+      return {'success': false, 'statusCode': response.statusCode};
+    } catch (e) {
+      return {'success': false, 'error': e.toString()};
+    }
+  }
+
   static Future<Map<String, dynamic>?> getPlatformFeatures() async {
     try {
       final client = HttpClient();

@@ -9,6 +9,7 @@ const supabaseHelper = require('./supabase');
 const cloudinaryService = require('./services/cloudinaryService');
 const { supabaseStorageService } = require('./services/supabaseStorageService');
 const { merchantDocumentStorageService } = require('./services/merchantDocumentStorageService');
+const { financialEncryptionService } = require('./services/financialEncryptionService');
 // Canonical `Idempotency-Key` / `X-Idempotency-Key` / body spelling, shared with every other
 // mutating route here so a client learns one convention rather than one per endpoint.
 const { readIdempotencyHeader } = require('./services/moneyIdentity');
@@ -13512,6 +13513,300 @@ app.get('/api/merchant/documents/stream', async (req, res) => {
     res.send(buffer);
   } catch (err) {
     res.status(err.status || 400).json({ success: false, error: err.message });
+  }
+});
+
+// =========================================================================
+// MERCHANT BANK ACCOUNT & SETTLEMENT DESTINATION API (PHASE 4.1D / RM-007)
+// =========================================================================
+
+app.post(['/api/merchant/:restaurantId/bank-account', '/api/merchant/bank-account'], async (req, res) => {
+  try {
+    const caller = resolveMediaCaller(req, res);
+    if (!caller) return;
+
+    const target = await mediaTargetStore(caller, req.params.restaurantId || req.body.restaurantId);
+    const {
+      accountHolderName,
+      bankName,
+      accountNumber,
+      confirmAccountNumber,
+      ifscCode,
+      branchName,
+      accountType = 'CURRENT',
+      payoutCadence = 'DAILY_T1',
+      cancelledChequeDocumentId
+    } = req.body;
+
+    if (!accountHolderName || String(accountHolderName).trim().length < 2) {
+      return res.status(400).json({
+        success: false,
+        code: 'ACCOUNT_HOLDER_REQUIRED',
+        error: 'Valid account beneficiary name is required.'
+      });
+    }
+
+    if (!bankName || String(bankName).trim().length < 2) {
+      return res.status(400).json({
+        success: false,
+        code: 'BANK_NAME_REQUIRED',
+        error: 'Commercial bank name is required.'
+      });
+    }
+
+    if (!accountNumber || String(accountNumber).trim().length < 6) {
+      return res.status(400).json({
+        success: false,
+        code: 'INVALID_ACCOUNT_NUMBER',
+        error: 'Bank account number must be at least 6 digits.'
+      });
+    }
+
+    if (!confirmAccountNumber || String(accountNumber).trim() !== String(confirmAccountNumber).trim()) {
+      return res.status(400).json({
+        success: false,
+        code: 'ACCOUNT_CONFIRMATION_MISMATCH',
+        error: 'Bank account numbers do not match.'
+      });
+    }
+
+    if (!ifscCode || !financialEncryptionService.validateIfsc(ifscCode)) {
+      return res.status(400).json({
+        success: false,
+        code: 'INVALID_IFSC_CODE',
+        error: 'Invalid IFSC routing code format. Must follow standard bank clearing format.'
+      });
+    }
+
+    // Encrypt account number using AES-256-GCM
+    const encryptedAccountNumber = financialEncryptionService.encryptAccountNumber(accountNumber);
+    const maskedAccountNumber = financialEncryptionService.maskAccountNumber(accountNumber);
+    const accountNumberHash = financialEncryptionService.hashAccountNumber(accountNumber);
+
+    const saved = await db.merchantBankAccountRepo.save({
+      merchantId: target.id,
+      accountHolderName: String(accountHolderName).trim(),
+      bankName: String(bankName).trim(),
+      encryptedAccountNumber,
+      maskedAccountNumber,
+      accountNumberHash,
+      ifscCode: String(ifscCode).trim().toUpperCase(),
+      branchName: branchName ? String(branchName).trim() : null,
+      accountType: ['CURRENT', 'SAVINGS', 'OVERDRAFT'].includes(String(accountType).toUpperCase())
+        ? String(accountType).toUpperCase() : 'CURRENT',
+      payoutCadence: ['DAILY_T1', 'WEEKLY_CONSOLIDATED'].includes(String(payoutCadence).toUpperCase())
+        ? String(payoutCadence).toUpperCase() : 'DAILY_T1',
+      cancelledChequeDocumentId: cancelledChequeDocumentId || null,
+      verificationStatus: 'PENDING_VERIFICATION',
+      verificationProvider: 'PENNY_DROP_ACH',
+      verificationNotes: 'Automated ACH / Penny-drop verification queued for next batch cycle.'
+    });
+
+    // Record audit log without plaintext account number
+    if (db.auditLogRepo && typeof db.auditLogRepo.record === 'function') {
+      try {
+        await db.auditLogRepo.record({
+          action: 'MERCHANT_BANK_ACCOUNT_REGISTERED',
+          actorId: caller.session?.userId || target.id,
+          targetEntityId: target.id,
+          details: {
+            bankName: saved.bankName,
+            maskedAccountNumber: saved.maskedAccountNumber,
+            ifscCode: saved.ifscCode,
+            payoutCadence: saved.payoutCadence
+          }
+        });
+      } catch (_) {}
+    }
+
+    res.status(201).json({
+      success: true,
+      message: 'Merchant bank account registered successfully and pending verification.',
+      bankAccount: saved
+    });
+  } catch (err) {
+    res.status(err.status || 400).json({
+      success: false,
+      code: err.code || 'BANK_ACCOUNT_SAVE_FAILED',
+      error: err.message
+    });
+  }
+});
+
+app.get(['/api/merchant/:restaurantId/bank-account', '/api/merchant/bank-account'], async (req, res) => {
+  try {
+    const caller = resolveMediaCaller(req, res);
+    if (!caller) return;
+
+    const target = await mediaTargetStore(caller, req.params.restaurantId || req.query.restaurantId);
+    const bankAccount = await db.merchantBankAccountRepo.findByMerchantId(target.id);
+
+    if (!bankAccount) {
+      return res.json({
+        success: true,
+        merchantId: target.id,
+        status: 'NOT_SUBMITTED',
+        bankAccount: null
+      });
+    }
+
+    res.json({
+      success: true,
+      merchantId: target.id,
+      bankAccount
+    });
+  } catch (err) {
+    res.status(err.status || 400).json({
+      success: false,
+      code: err.code || 'BANK_ACCOUNT_GET_FAILED',
+      error: err.message
+    });
+  }
+});
+
+app.patch(['/api/merchant/:restaurantId/bank-account', '/api/merchant/bank-account'], async (req, res) => {
+  try {
+    const caller = resolveMediaCaller(req, res);
+    if (!caller) return;
+
+    const target = await mediaTargetStore(caller, req.params.restaurantId || req.body.restaurantId);
+    const existing = await db.merchantBankAccountRepo.findByMerchantId(target.id);
+
+    if (!existing) {
+      return res.status(404).json({
+        success: false,
+        code: 'BANK_ACCOUNT_NOT_FOUND',
+        error: 'No registered bank account found to update for this merchant.'
+      });
+    }
+
+    const {
+      payoutCadence,
+      branchName,
+      cancelledChequeDocumentId,
+      accountNumber,
+      confirmAccountNumber,
+      ifscCode,
+      bankName,
+      accountHolderName
+    } = req.body;
+
+    const patch = {};
+
+    if (payoutCadence) {
+      patch.payoutCadence = ['DAILY_T1', 'WEEKLY_CONSOLIDATED'].includes(String(payoutCadence).toUpperCase())
+        ? String(payoutCadence).toUpperCase() : existing.payoutCadence;
+    }
+    if (branchName !== undefined) patch.branchName = branchName;
+    if (bankName) patch.bankName = String(bankName).trim();
+    if (accountHolderName) patch.accountHolderName = String(accountHolderName).trim();
+    if (cancelledChequeDocumentId !== undefined) patch.cancelledChequeDocumentId = cancelledChequeDocumentId;
+
+    if (accountNumber) {
+      if (String(accountNumber).trim() !== String(confirmAccountNumber).trim()) {
+        return res.status(400).json({
+          success: false,
+          code: 'ACCOUNT_CONFIRMATION_MISMATCH',
+          error: 'Updated bank account numbers do not match.'
+        });
+      }
+      patch.encryptedAccountNumber = financialEncryptionService.encryptAccountNumber(accountNumber);
+      patch.maskedAccountNumber = financialEncryptionService.maskAccountNumber(accountNumber);
+      patch.accountNumberHash = financialEncryptionService.hashAccountNumber(accountNumber);
+      patch.verificationStatus = 'PENDING_VERIFICATION';
+      patch.verifiedAt = null;
+    }
+
+    if (ifscCode) {
+      if (!financialEncryptionService.validateIfsc(ifscCode)) {
+        return res.status(400).json({
+          success: false,
+          code: 'INVALID_IFSC_CODE',
+          error: 'Invalid IFSC routing code format.'
+        });
+      }
+      patch.ifscCode = String(ifscCode).trim().toUpperCase();
+      patch.verificationStatus = 'PENDING_VERIFICATION';
+      patch.verifiedAt = null;
+    }
+
+    const updated = await db.merchantBankAccountRepo.save({
+      ...existing,
+      ...patch,
+      merchantId: target.id
+    });
+
+    res.json({
+      success: true,
+      message: 'Merchant bank account updated successfully.',
+      bankAccount: updated
+    });
+  } catch (err) {
+    res.status(err.status || 400).json({
+      success: false,
+      code: err.code || 'BANK_ACCOUNT_PATCH_FAILED',
+      error: err.message
+    });
+  }
+});
+
+app.get(['/api/merchant/:restaurantId/settlement-readiness', '/api/merchant/settlement-readiness'], async (req, res) => {
+  try {
+    const caller = resolveMediaCaller(req, res);
+    if (!caller) return;
+
+    const target = await mediaTargetStore(caller, req.params.restaurantId || req.query.restaurantId);
+    const bankAccount = await db.merchantBankAccountRepo.findByMerchantId(target.id);
+    const documents = await db.merchantDocumentRepo.findByMerchantId(target.id);
+
+    const hasFssai = documents.some(d => d.documentType === 'FSSAI_LICENSE');
+    const hasTradeLicense = documents.some(d => d.documentType === 'TRADE_LICENSE');
+    const hasBankAccount = Boolean(bankAccount);
+    const isBankVerified = bankAccount?.verificationStatus === 'VERIFIED';
+    const isApproved = String(target.approval_status || target.approvalStatus).toUpperCase() === 'APPROVED';
+
+    let readinessStatus = 'ACTION_REQUIRED';
+    let isReady = false;
+
+    if (!hasBankAccount) {
+      readinessStatus = 'NOT_SUBMITTED';
+    } else if (bankAccount.verificationStatus === 'PENDING_VERIFICATION') {
+      readinessStatus = 'PENDING_VERIFICATION';
+    } else if (bankAccount.verificationStatus === 'REJECTED') {
+      readinessStatus = 'REJECTED';
+    } else if (isBankVerified && isApproved) {
+      readinessStatus = 'READY';
+      isReady = true;
+    }
+
+    res.json({
+      success: true,
+      merchantId: target.id,
+      settlementReadiness: {
+        isReady,
+        status: readinessStatus,
+        payoutCadence: bankAccount?.payoutCadence || 'DAILY_T1',
+        bankAccountStatus: bankAccount?.verificationStatus || 'NOT_SUBMITTED',
+        maskedAccountNumber: bankAccount?.maskedAccountNumber || null,
+        bankName: bankAccount?.bankName || null,
+        checklist: {
+          bankDetailsSubmitted: hasBankAccount,
+          bankVerified: isBankVerified,
+          fssaiDocumentAttached: hasFssai,
+          tradeLicenseAttached: hasTradeLicense,
+          merchantApproved: isApproved
+        },
+        notice: isReady
+          ? 'Automated daily T+1 settlement pipeline active.'
+          : 'Settlement pipeline awaiting verification and store approval.'
+      }
+    });
+  } catch (err) {
+    res.status(err.status || 400).json({
+      success: false,
+      code: err.code || 'SETTLEMENT_READINESS_FAILED',
+      error: err.message
+    });
   }
 });
 
