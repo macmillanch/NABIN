@@ -2751,6 +2751,29 @@ class RestaurantManagementRepository {
     return dispute;
   }
 
+  // --- 6D. MENU AVAILABILITY SHIFTS (RM-032) ---
+  async getMenuShifts(merchantId) {
+    if (!merchantId) return [];
+    if (!this._menuShiftsMap) this._menuShiftsMap = new Map();
+    let shifts = this._menuShiftsMap.get(merchantId);
+    if (!shifts) {
+      shifts = [
+        { id: 'shift_1', merchantId, name: 'Breakfast Express', startTime: '07:30', endTime: '11:00', itemCount: 18, isActive: false, scheduleNote: 'Next run: Tomorrow at 07:30' },
+        { id: 'shift_2', merchantId, name: 'Lunch Feast & Thalis', startTime: '11:30', endTime: '16:00', itemCount: 42, isActive: false, scheduleNote: 'Ended today at 16:00' },
+        { id: 'shift_3', merchantId, name: 'Dinner Line & Tandoor', startTime: '18:00', endTime: '23:00', itemCount: 54, isActive: true, scheduleNote: 'Active now • Peak rush' }
+      ];
+      this._menuShiftsMap.set(merchantId, shifts);
+    }
+    return shifts;
+  }
+
+  async updateMenuShifts(merchantId, newShifts) {
+    if (!merchantId) return [];
+    if (!this._menuShiftsMap) this._menuShiftsMap = new Map();
+    this._menuShiftsMap.set(merchantId, newShifts);
+    return newShifts;
+  }
+
   // --- 7. TAKEAWAY OPERATIONS ---
   async recordTakeawayHandover(merchantId, orderId, handoverBy = 'Staff') {
     const staffName = typeof handoverBy === 'string' ? handoverBy : handoverBy.handoverBy || 'Staff';

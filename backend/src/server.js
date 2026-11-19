@@ -7443,10 +7443,57 @@ app.delete(['/api/merchant/dishes/:id/add-on-groups/:groupId/options/:optionId',
     if (!merchantId) return;
 
     const result = await db.restaurantCatalogRepo.deleteAddOnOption(merchantId, req.params.id, req.params.groupId, req.params.optionId);
-    res.json({ success: true, ...result });
+    res.json(result);
   } catch (err) {
     if (supabaseHelper.isStoreUnreachable(err)) return replyStoreError(res, req, err, 'delete add-on option');
     res.status(err.statusCode || 400).json({ success: false, code: err.code || 'DELETE_OPTION_FAILED', error: err.message, requestId: req.id });
+  }
+});
+
+// Bulk Toggle Availability (RM-033)
+app.post(['/api/merchant/dishes/bulk-availability', '/api/merchant/:restaurantId/dishes/bulk-availability'], authenticateMerchant, requireMerchantTenant, requireMerchantApproved, requireMerchantService('RESTAURANT'), async (req, res) => {
+  try {
+    const merchantId = await resolveRestaurantMerchantCaller(req, res);
+    if (!merchantId) return;
+    const result = await db.restaurantCatalogRepo.bulkUpdateAvailability(merchantId, req.body);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+// Bulk Adjust Pricing by percentage (RM-033)
+app.post(['/api/merchant/dishes/bulk-pricing', '/api/merchant/:restaurantId/dishes/bulk-pricing'], authenticateMerchant, requireMerchantTenant, requireMerchantApproved, requireMerchantService('RESTAURANT'), async (req, res) => {
+  try {
+    const merchantId = await resolveRestaurantMerchantCaller(req, res);
+    if (!merchantId) return;
+    const result = await db.restaurantCatalogRepo.bulkAdjustPricing(merchantId, req.body);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+// Menu Availability & Shifts Scheduling (RM-032)
+app.get(['/api/merchant/rms/menu/shifts', '/api/merchant/:restaurantId/rms/menu/shifts'], authenticateMerchant, requireMerchantTenant, requireMerchantService('RESTAURANT'), async (req, res) => {
+  try {
+    const merchantId = await resolveRestaurantMerchantCaller(req, res);
+    if (!merchantId) return;
+    const shifts = await db.rmsRepo.getMenuShifts(merchantId);
+    res.json({ success: true, count: shifts.length, shifts });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message, requestId: req.id });
+  }
+});
+
+app.put(['/api/merchant/rms/menu/shifts', '/api/merchant/:restaurantId/rms/menu/shifts'], authenticateMerchant, requireMerchantTenant, requireMerchantApproved, requireMerchantService('RESTAURANT'), async (req, res) => {
+  try {
+    const merchantId = await resolveRestaurantMerchantCaller(req, res);
+    if (!merchantId) return;
+    const shifts = await db.rmsRepo.updateMenuShifts(merchantId, req.body.shifts || req.body);
+    res.json({ success: true, message: 'Menu availability shifts updated.', shifts });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message, requestId: req.id });
   }
 });
 

@@ -8,9 +8,12 @@ import '../../features/restaurant/presentation/screens/restaurant_main_shell.dar
 import '../../features/restaurant/presentation/screens/restaurant_dish_detail_screen.dart';
 import '../../features/restaurant/presentation/screens/restaurant_menu_management_screen.dart';
 import '../../features/restaurant/presentation/screens/restaurant_onboarding_status_screen.dart';
+import '../../features/restaurant/presentation/screens/restaurant_menu_tour_screen.dart';
+import '../../features/restaurant/presentation/screens/restaurant_menu_overview_screen.dart';
+import '../../features/restaurant/presentation/screens/restaurant_add_dish_screen.dart';
 
 /// Screens reachable before NABIN has confirmed which store this is.
-const Set<String> _restaurantPublicRoutes = {'/', '/login', '/otp', '/registration', '/onboarding/status'};
+const Set<String> _restaurantPublicRoutes = {'/', '/login', '/otp', '/registration', '/onboarding/status', '/menu/tour'};
 
 /// Deduplicated GoRouter exclusively for ONE NABIN Restaurant App
 final GoRouter restaurantRouter = GoRouter(
@@ -74,6 +77,18 @@ final GoRouter restaurantRouter = GoRouter(
     GoRoute(
       path: '/menu/manage',
       builder: (context, state) => const RestaurantMenuManagementScreen(),
+    ),
+    GoRoute(
+      path: '/menu/tour',
+      builder: (context, state) => const RestaurantMenuTourScreen(),
+    ),
+    GoRoute(
+      path: '/menu/overview',
+      builder: (context, state) => const RestaurantMenuOverviewScreen(),
+    ),
+    GoRoute(
+      path: '/menu/add',
+      builder: (context, state) => const RestaurantAddDishScreen(),
     ),
   ],
 );

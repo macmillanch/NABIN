@@ -806,6 +806,41 @@ class RestaurantCatalogRepository {
   }
 
   /**
+   * Bulk Toggle Availability (RM-033)
+   */
+  async bulkUpdateAvailability(merchantId, { dishIds, isAvailable }) {
+    if (!Array.isArray(dishIds) || dishIds.length === 0) {
+      throw new Error('dishIds array is required for bulk availability update.');
+    }
+    const updated = [];
+    for (const id of dishIds) {
+      try {
+        const res = await this.toggleAvailability(merchantId, id, isAvailable);
+        updated.push(res);
+      } catch (_) {}
+    }
+    return { success: true, count: updated.length, updated };
+  }
+
+  /**
+   * Bulk Adjust Pricing by percentage (RM-033)
+   */
+  async bulkAdjustPricing(merchantId, { dishIds, percentageChange, category }) {
+    let targetDishes = await this.listDishes(merchantId, { category });
+    if (Array.isArray(dishIds) && dishIds.length > 0) {
+      targetDishes = targetDishes.filter(d => dishIds.includes(d.id));
+    }
+    const multiplier = 1 + (Number(percentageChange || 0) / 100);
+    const updated = [];
+    for (const d of targetDishes) {
+      const newPrice = Math.max(1, Math.round(d.price * multiplier));
+      const res = await this.updateDish(merchantId, d.id, { price: newPrice });
+      updated.push(res);
+    }
+    return { success: true, count: updated.length, percentageChange, updated };
+  }
+
+  /**
    * Variant Operations
    */
   async addVariant(merchantId, dishId, variantData) {

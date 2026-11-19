@@ -501,6 +501,119 @@ class NabinApiService {
     }
   }
 
+  /// Bulk update dish availability (RM-033)
+  static Future<Map<String, dynamic>?> bulkUpdateDishAvailability({
+    required List<String> dishIds,
+    required bool isAvailable,
+    String? restaurantId,
+  }) async {
+    try {
+      final client = HttpClient();
+      final url = restaurantId != null && restaurantId.isNotEmpty
+          ? '$effectiveUrl/merchant/${Uri.encodeComponent(restaurantId)}/dishes/bulk-availability'
+          : '$effectiveUrl/merchant/dishes/bulk-availability';
+      final request = await client.postUrl(Uri.parse(url));
+      request.headers.set('content-type', 'application/json');
+      _attachAuthHeader(request);
+      request.add(utf8.encode(jsonEncode({
+        'dishIds': dishIds,
+        'isAvailable': isAvailable,
+      })));
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (body.isEmpty) return {'success': false, 'statusCode': response.statusCode};
+      final decoded = jsonDecode(body);
+      if (decoded is Map<String, dynamic>) {
+        return {...decoded, 'statusCode': response.statusCode};
+      }
+      return {'success': false, 'statusCode': response.statusCode};
+    } catch (e) {
+      return {'success': false, 'error': e.toString()};
+    }
+  }
+
+  /// Bulk adjust dish pricing by percentage (RM-033)
+  static Future<Map<String, dynamic>?> bulkAdjustDishPricing({
+    required List<String> dishIds,
+    required double percentageChange,
+    String? category,
+    String? restaurantId,
+  }) async {
+    try {
+      final client = HttpClient();
+      final url = restaurantId != null && restaurantId.isNotEmpty
+          ? '$effectiveUrl/merchant/${Uri.encodeComponent(restaurantId)}/dishes/bulk-pricing'
+          : '$effectiveUrl/merchant/dishes/bulk-pricing';
+      final request = await client.postUrl(Uri.parse(url));
+      request.headers.set('content-type', 'application/json');
+      _attachAuthHeader(request);
+      request.add(utf8.encode(jsonEncode({
+        'dishIds': dishIds,
+        'percentageChange': percentageChange,
+        if (category != null && category.isNotEmpty) 'category': category,
+      })));
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (body.isEmpty) return {'success': false, 'statusCode': response.statusCode};
+      final decoded = jsonDecode(body);
+      if (decoded is Map<String, dynamic>) {
+        return {...decoded, 'statusCode': response.statusCode};
+      }
+      return {'success': false, 'statusCode': response.statusCode};
+    } catch (e) {
+      return {'success': false, 'error': e.toString()};
+    }
+  }
+
+  /// Get menu availability meal shifts (RM-032)
+  static Future<Map<String, dynamic>?> getMenuShifts({String? restaurantId}) async {
+    try {
+      final client = HttpClient();
+      final url = restaurantId != null && restaurantId.isNotEmpty
+          ? '$effectiveUrl/merchant/${Uri.encodeComponent(restaurantId)}/rms/menu/shifts'
+          : '$effectiveUrl/merchant/rms/menu/shifts';
+      final request = await client.getUrl(Uri.parse(url));
+      _attachAuthHeader(request);
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (body.isEmpty) return {'success': false, 'statusCode': response.statusCode};
+      final decoded = jsonDecode(body);
+      if (decoded is Map<String, dynamic>) {
+        return {...decoded, 'statusCode': response.statusCode};
+      }
+      return {'success': false, 'statusCode': response.statusCode};
+    } catch (e) {
+      return {'success': false, 'error': e.toString()};
+    }
+  }
+
+  /// Update menu availability meal shifts (RM-032)
+  static Future<Map<String, dynamic>?> updateMenuShifts({
+    required List<Map<String, dynamic>> shifts,
+    String? restaurantId,
+  }) async {
+    try {
+      final client = HttpClient();
+      final url = restaurantId != null && restaurantId.isNotEmpty
+          ? '$effectiveUrl/merchant/${Uri.encodeComponent(restaurantId)}/rms/menu/shifts'
+          : '$effectiveUrl/merchant/rms/menu/shifts';
+      final request = await client.putUrl(Uri.parse(url));
+      request.headers.set('content-type', 'application/json');
+      _attachAuthHeader(request);
+      request.add(utf8.encode(jsonEncode({'shifts': shifts})));
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (body.isEmpty) return {'success': false, 'statusCode': response.statusCode};
+      final decoded = jsonDecode(body);
+      if (decoded is Map<String, dynamic>) {
+        return {...decoded, 'statusCode': response.statusCode};
+      }
+      return {'success': false, 'statusCode': response.statusCode};
+    } catch (e) {
+      return {'success': false, 'error': e.toString()};
+    }
+  }
+
   static Future<Map<String, dynamic>?> getPlatformFeatures() async {
     try {
       final client = HttpClient();
@@ -1579,6 +1692,75 @@ class NabinApiService {
       return {'success': false, 'statusCode': response.statusCode};
     } catch (e) {
       return null;
+    }
+  }
+
+  /// Create new restaurant dish (RM-029)
+  static Future<Map<String, dynamic>?> createDish({
+    required String name,
+    required String category,
+    required double price,
+    String dietaryType = 'NON_VEG',
+    bool isVeg = false,
+    String? description,
+    int prepTimeMinutes = 20,
+    String? restaurantId,
+  }) async {
+    try {
+      final client = HttpClient();
+      final url = restaurantId != null && restaurantId.isNotEmpty
+          ? '$effectiveUrl/merchant/${Uri.encodeComponent(restaurantId)}/dishes'
+          : '$effectiveUrl/merchant/dishes';
+      final request = await client.postUrl(Uri.parse(url));
+      request.headers.set('content-type', 'application/json');
+      _attachAuthHeader(request);
+      request.add(utf8.encode(jsonEncode({
+        'name': name,
+        'category': category,
+        'price': price,
+        'dietaryType': dietaryType,
+        'isVeg': isVeg,
+        if (description != null && description.isNotEmpty) 'description': description,
+        'prepTimeMinutes': prepTimeMinutes,
+      })));
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (body.isEmpty) return {'success': false, 'statusCode': response.statusCode};
+      final decoded = jsonDecode(body);
+      if (decoded is Map<String, dynamic>) {
+        return {...decoded, 'statusCode': response.statusCode};
+      }
+      return {'success': false, 'statusCode': response.statusCode};
+    } catch (e) {
+      return {'success': false, 'error': e.toString()};
+    }
+  }
+
+  /// Update restaurant dish (RM-030)
+  static Future<Map<String, dynamic>?> updateDish({
+    required String dishId,
+    required Map<String, dynamic> updates,
+    String? restaurantId,
+  }) async {
+    try {
+      final client = HttpClient();
+      final url = restaurantId != null && restaurantId.isNotEmpty
+          ? '$effectiveUrl/merchant/${Uri.encodeComponent(restaurantId)}/dishes/${Uri.encodeComponent(dishId)}'
+          : '$effectiveUrl/merchant/dishes/${Uri.encodeComponent(dishId)}';
+      final request = await client.putUrl(Uri.parse(url));
+      request.headers.set('content-type', 'application/json');
+      _attachAuthHeader(request);
+      request.add(utf8.encode(jsonEncode(updates)));
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (body.isEmpty) return {'success': false, 'statusCode': response.statusCode};
+      final decoded = jsonDecode(body);
+      if (decoded is Map<String, dynamic>) {
+        return {...decoded, 'statusCode': response.statusCode};
+      }
+      return {'success': false, 'statusCode': response.statusCode};
+    } catch (e) {
+      return {'success': false, 'error': e.toString()};
     }
   }
 
